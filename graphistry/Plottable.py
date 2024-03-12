@@ -3,7 +3,7 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.plugins_types.cugraph_types import CuGraphKind
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, EngineAbstract
 
 
 if TYPE_CHECKING:
@@ -149,7 +149,7 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def materialize_nodes(self, reuse: bool = True, engine: Union[Engine, Literal['auto']] = 'auto') -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self

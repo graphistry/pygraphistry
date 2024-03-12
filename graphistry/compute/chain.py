@@ -1,9 +1,13 @@
-from typing import cast, List, Tuple
+from typing import Any, Dict, Union, cast, List, Tuple, TYPE_CHECKING
 import pandas as pd
+from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTNode, ASTEdge
+from graphistry.utils.json import JSONVal
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .typing import DataFrameT
 
 logger = setup_logger(__name__)
 
@@ -11,7 +15,45 @@ logger = setup_logger(__name__)
 ###############################################################################
 
 
-def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]]) -> pd.DataFrame:
+class Chain(ASTSerializable):
+
+    def __init__(self, chain: List[ASTObject]) -> None:
+        self.chain = chain
+
+    def validate(self) -> None:
+        assert isinstance(self.chain, list)
+        for op in self.chain:
+            assert isinstance(op, ASTObject)
+            op.validate()
+
+    @classmethod
+    def from_json(cls, d: Dict[str, JSONVal]) -> 'Chain':
+        """
+        Convert a JSON AST into a list of ASTObjects
+        """
+        assert isinstance(d, dict)
+        assert 'chain' in d
+        assert isinstance(d['chain'], list)
+        out = cls([ASTObject_from_json(op) for op in d['chain']])
+        out.validate()
+        return out
+
+    def to_json(self, validate=True) -> Dict[str, JSONVal]:
+        """
+        Convert a list of ASTObjects into a JSON AST
+        """
+        if validate:
+            self.validate()
+        return {
+            'type': self.__class__.__name__,
+            'chain': [op.to_json() for op in self.chain]
+        }
+
+
+###############################################################################
+
+
+def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]], engine: Engine) -> DataFrameT:
     """
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
@@ -34,17 +76,23 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
                     prev_node_wavefront=g_step._nodes,  # start from where backwards step says is reachable
 
                     #target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
-                    target_wave_front=None  # ^^^ optimization: valid transitions already limit to known-good ones
+                    target_wave_front=None,  # ^^^ optimization: valid transitions already limit to known-good ones
+                    engine=engine
                 )
             )
             for (op, g_step) in steps
         ]
 
+    concat = df_concat(engine)
+
     # df[[id]]
-    out_df = pd.concat([
+    out_df = concat([
         getattr(g_step, df_fld)[[id]]
         for (_, g_step) in steps
     ]).drop_duplicates(subset=[id])
+    for (op, g_step) in steps:
+        logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
+        logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
 
     # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
@@ -92,12 +140,16 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
-    Experimental: Chain a list of operations
+    Chain a list of ASTObject (node/edge) traversal operations
 
     Return subgraph of matches according to the list of node & edge matchers
     If any matchers are named, add a correspondingly named boolean-valued column to the output
+
+    For direct calls, exposes convenience `List[ASTObject]`. Internal operational should prefer `Chain`.
+
+    Use `engine='cudf'` to force automatic GPU acceleration mode
 
     :param ops: List[ASTObject] Various node and edge matchers
 
@@ -159,13 +211,44 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
                 n({"risk2": True})
             ])
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
+    
+    **Example: Run with automatic GPU acceleration**
+
+    ::
+
+            import cudf
+            import graphistry
+
+            e_gdf = cudf.from_pandas(df)
+            g1 = graphistry.edges(e_gdf, 's', 'd')
+            g2 = g1.chain([ ... ])
+
+    **Example: Run with automatic GPU acceleration, and force GPU mode**
+
+    ::
+
+            import cudf
+            import graphistry
+
+            e_gdf = cudf.from_pandas(df)
+            g1 = graphistry.edges(e_gdf, 's', 'd')
+            g2 = g1.chain([ ... ], engine='cudf')
 
     """
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+
+    if isinstance(ops, Chain):
+        ops = ops.chain
 
     if len(ops) == 0:
         return self
 
     logger.debug('orig chain >> %s', ops)
+
+    engine_concrete = resolve_engine(engine, self)
+    logger.debug('chain engine: %s => %s', engine, engine_concrete)
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
@@ -177,7 +260,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     logger.debug('final chain >> %s', ops)
 
-    g = self.materialize_nodes()
+    g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
     if g._edge is None:
         if 'index' in g._edges.columns:
@@ -207,10 +290,18 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
             op(
                 g=g,  # transition via any original edge
                 prev_node_wavefront=prev_step_nodes,
-                target_wave_front=None  # implicit any
+                target_wave_front=None,  # implicit any
+                engine=engine_concrete
             )
         )
         g_stack.append(g_step)
+
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
 
     logger.debug('======================== BACKWARDS ========================')
 
@@ -237,16 +328,25 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
                 prev_node_wavefront=prev_loop_step._nodes,
 
                 # only allow transitions to these nodes (vs prev_node_wavefront)
-                target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None
+                target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
+
+                engine=engine_concrete
             )
         )
         g_stack_reverse.append(g_step_reverse)
 
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack_reverse):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
+
     logger.debug('============ COMBINE NODES ============')
-    final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))))
+    final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
 
     logger.debug('============ COMBINE EDGES ============')
-    final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))))
+    final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
     if added_edge_index:
         final_edges_df = final_edges_df.drop(columns=['index'])
 

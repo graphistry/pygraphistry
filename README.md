@@ -11,9 +11,9 @@
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-**PyGraphistry is a Python visual graph AI library to extract, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** Installing with optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your `time to graph` for going from raw data to visualizations and AI models down to three lines of code.
+**PyGraphistry is a dataframe-native Python visual graph AI library to extract, query, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** The GFQL query language supports running a large subset of the Cypher property graph query language without requiring external software and adds optional GPU acceleration. Installing PyGraphistry with the optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your **time to graph** for going from raw data to visualizations and AI models down to three lines of code.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
+The optional visual engine, Graphistry, gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
@@ -147,14 +147,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* Cypher-style graph pattern mining queries on dataframes ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb))
+* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb))
 
-  Run Cypher-style graph queries natively on dataframes without going to a database or Java:
+  Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
 
     ```python
     from graphistry import n, e_undirected, is_in
 
-    g2 = g.chain([
+    g2 = g1.chain([
       n({'user': 'Biden'}),
       e_undirected(),
       n(name='bridge'),
@@ -164,6 +164,17 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     print('# bridges', len(g2._nodes[g2._nodes.bridge]))
     g2.plot()
+    ```
+
+    Enable GFQL's optional automatic GPU acceleration for 43X+ speedups:
+    
+    ```python
+    # Switch from Pandas CPU dataframes to RAPIDS GPU dataframes
+    import cudf
+    g2 = g1.edges(lambda g: cudf.DataFrame(g._edges))
+    # GFQL will automaticallly run on a GPU
+    g3 = g2.chain([n(), e(hops=3), n()])
+    g3.plot()
     ```
 
 * [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
@@ -1133,7 +1144,7 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2},
     destination_node_query='k2 == 2 or k2 == 4',
   )
-  .chain([ # filter to subgraph
+  .chain([ # filter to subgraph with Cypher-style GFQL
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values
@@ -1156,12 +1167,14 @@ g2.plot() # nodes are values from cols s, d, k1
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
-Both `hop()` and `chain()` match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
+Both `hop()` and `chain()` (GFQL) match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
 
 * categorical: is_in, duplicated
 * temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
 * numeric: gt, lt, ge, le, eq, ne, between, isna, notna
 * string: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
+
+Both `hop()` and `chain()` will run on GPUs when passing in RAPIDS dataframes. Specify parameter `engine='cudf'` to be sure.
 
 #### Table to graph
 
@@ -1233,9 +1246,9 @@ assert 'pagerank' in g2._nodes.columns
 
 #### Graph pattern matching
 
-PyGraphistry supports a PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
+PyGraphistry supports GFQL, its PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
 
-See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
+See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb) and the CPU/GPU [benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb)
 
 Traverse within a graph, or expand one graph against another
 
@@ -1315,6 +1328,28 @@ print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
 
 See table above for more predicates like `is_in()` and `gt()`
+
+Queries can be serialized and deserialized, such as for saving and remote execution:
+
+```python
+from graphistry.compute.chain import Chain
+
+pattern = Chain([n(), e(), n()])
+pattern_json = pattern.to_json()
+pattern2 = Chain.from_json(pattern_json)
+g.chain(pattern2).plot()
+```
+
+Benefit from automatic GPU acceleration by passing in GPU dataframes:
+
+```python
+import cudf
+
+g1 = graphistry.edges(cudf.read_csv('data.csv'), 's', 'd')
+g2 = g1.chain(..., engine='cudf')
+```
+
+The parameter `engine` is optional, defaulting to `'auto'`.
 
 #### Pipelining
 

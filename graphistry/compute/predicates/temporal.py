@@ -1,13 +1,18 @@
-from typing import Optional
+from typing import Any, TYPE_CHECKING, Optional
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 
-class IsMonthStart(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+if TYPE_CHECKING:
+    SeriesT = pd.Series
+else:
+    SeriesT = Any
+
+
+class IsMonthStart(ASTPredicate):
+
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_month_start
 
 def is_month_start() -> IsMonthStart:
@@ -17,10 +22,8 @@ def is_month_start() -> IsMonthStart:
     return IsMonthStart()
 
 class IsMonthEnd(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_month_end
 
 def is_month_end() -> IsMonthEnd:
@@ -30,10 +33,8 @@ def is_month_end() -> IsMonthEnd:
     return IsMonthEnd()
 
 class IsQuarterStart(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_quarter_start
 
 def is_quarter_start() -> IsQuarterStart:
@@ -43,10 +44,8 @@ def is_quarter_start() -> IsQuarterStart:
     return IsQuarterStart()
 
 class IsQuarterEnd(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_quarter_end
 
 def is_quarter_end() -> IsQuarterEnd:
@@ -56,10 +55,8 @@ def is_quarter_end() -> IsQuarterEnd:
     return IsQuarterEnd()
 
 class IsYearStart(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_year_start
 
 def is_year_start() -> IsYearStart:
@@ -68,11 +65,20 @@ def is_year_start() -> IsYearStart:
     """
     return IsYearStart()
 
-class IsLeapYear(ASTPredicate):
-    def __init__(self) -> None:
-        pass
+class IsYearEnd(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
+        return s.dt.is_year_end
+
+def is_year_end() -> IsYearEnd:
+    """
+    Return whether a given value is a year end
+    """
+    return IsYearEnd()
+
+class IsLeapYear(ASTPredicate):
+
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.dt.is_leap_year
 
 def is_leap_year() -> IsLeapYear:

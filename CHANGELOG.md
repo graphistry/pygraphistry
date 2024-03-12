@@ -13,6 +13,78 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * new function databricks_notebook_sso_login() that should be called prior to register(), fixes: #539 where databricks dashboards do not get an HTML link for SSO logins
 
+## [0.33.5 - 2024-03-11]
+
+### Fixed
+
+* Fix upload-time validation rejecting graphs without a nodes table
+
+## [0.33.4 - 2024-02-29]
+
+### Added
+
+* Fix validations import.
+
+## [0.33.3 - 2024-02-28]
+
+### Added
+
+* Validations for dataset encodings.
+
+## [0.33.2 - 2024-02-24]
+
+### Added
+
+* GFQL: Export shorter alias `e` for `e_undirected`
+* Featurize: More auto-dropping of non-numerics when no `dirty_cat`
+
+### Fixed
+
+* GFQL: `hop()` defaults to `debugging_hop=False`
+* GFQL: Edge cases around shortest-path multi-hop queries failing to enrich against target nodes during backwards pass
+
+### Infra
+
+* Pin test env to work around test fails: `'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,` +  `test_workarounds = ['scikit-learn<=1.3.2']`
+* Skip dbscan tests that require umap when it is not available
+
+## [0.33.0 - 2023-12-26]
+
+### Added
+
+* GFQL: GPU acceleration of `chain`, `hop`, `filter_by_dict`
+* `AbstractEngine`  to `engine.py::Engine` enum
+* `compute.typing.DataFrameT` to centralize df-lib-agnostic type checking
+
+### Refactor
+
+* GFQL and more of compute uses generic dataframe methods and threads through engine
+
+### Infra
+
+* GPU tester threads through LOG_LEVEL
+
+## [0.32.0 - 2023-12-22]
+
+### Added
+
+* GFQL `Chain` AST object
+* GFQL query serialization - `Chain`, `ASTObject`, and `ASTPredict` implement `ASTSerializable`
+  - Ex:`Chain.from_json(Chain([n(), e(), n()]).to_json())`
+* GFQL predicate `is_year_end`
+
+### Docs
+
+* GFQL in readme.md
+
+### Changes
+
+* Refactor `ASTEdge`, `ASTNode` field naming convention to match other `ASTSerializable`s
+
+### Breaking 🔥
+
+* GFQL `e()` now aliases `e_undirected` instead of the base class `ASTEdge`
+>>>>>>> 2506b798ec723e906c1c5279f613fe0c37bdbad2
 
 ## [0.31.1 - 2023-12-05]
 

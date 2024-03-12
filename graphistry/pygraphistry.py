@@ -147,7 +147,7 @@ class PyGraphistry(object):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
         logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
-        
+
         if not org_name:
             org_name = PyGraphistry.org_name()
 
@@ -167,7 +167,7 @@ class PyGraphistry(object):
             .login(username, password, org_name)
             .token
         )
-        
+
         logger.debug("@PyGraphistry login After ArrowUploader.login: org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
 
         PyGraphistry.api_token(token)
@@ -249,6 +249,7 @@ class PyGraphistry(object):
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+<<<<<<< HEAD
   
     @staticmethod
     def databricks_notebook_sso_login( 
@@ -303,10 +304,13 @@ class PyGraphistry(object):
                 from IPython.display import display, HTML
                 display(HTML(f'<a href="{auth_url}" target="_blank">Graphistry SSO Login</a>'))
 
+=======
+                return auth_url
+>>>>>>> 2506b798ec723e906c1c5279f613fe0c37bdbad2
 
     @staticmethod
     def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
-        """Internal function to handle what to do with the auth_url 
+        """Internal function to handle what to do with the auth_url
            based on the client mode python/ipython console or notebook.
 
         :param auth_url: SSO auth url retrieved via API
@@ -346,7 +350,7 @@ class PyGraphistry(object):
             time.sleep(1)
             elapsed_time = 1
             token = None
-            
+
             while True:
                 token, org_name = PyGraphistry._sso_get_token()
                 try:
@@ -386,7 +390,7 @@ class PyGraphistry(object):
         # set org_name to sso org
         PyGraphistry._config['org_name'] = org_name
         return token
-    
+
     @staticmethod
     def _sso_get_token():
         token = None
@@ -571,7 +575,7 @@ class PyGraphistry(object):
         """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
         Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
-        
+
         import re
         if value is None:
             #if set by env var, interpret
@@ -629,7 +633,7 @@ class PyGraphistry(object):
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
         sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS,
-        sso_opt_into_type: Optional[Literal["display", "browser"]] = None 
+        sso_opt_into_type: Optional[Literal["display", "browser"]] = None
     ):
         """API key registration and server selection
 
@@ -752,7 +756,7 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
- 
+
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
@@ -782,7 +786,7 @@ class PyGraphistry(object):
         ):
         if origin_login_type != new_login_type:
             PyGraphistry.__reset_token_creds_in_memory()
-        
+
     @staticmethod
     def privacy(
             mode: Optional[Mode] = None,
@@ -2026,7 +2030,7 @@ class PyGraphistry(object):
 
         **Example**
             ::
-            
+
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -2372,7 +2376,7 @@ class PyGraphistry(object):
 
         # setter, use switch_org instead
         if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
-            try: 
+            try:
                 PyGraphistry.switch_org(value.strip())
                 # PyGraphistry._config['org_name'] = value.strip()
             except:
@@ -2415,7 +2419,7 @@ class PyGraphistry(object):
         point_size: Optional[float] = None,
         edge_curvature: Optional[float] = None,
         edge_opacity: Optional[float] = None,
-        point_opacity: Optional[float] = None,        
+        point_opacity: Optional[float] = None,
     ):
         return Plotter().scene_settings(
             menu,
@@ -2486,7 +2490,7 @@ class PyGraphistry(object):
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
 
-        
+
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname

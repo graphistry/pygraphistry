@@ -1,7 +1,13 @@
-from typing import Optional
+from typing import Any, TYPE_CHECKING, Optional
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
+
+
+if TYPE_CHECKING:
+    SeriesT = pd.Series
+else:
+    SeriesT = Any
 
 
 class Contains(ASTPredicate):
@@ -12,8 +18,15 @@ class Contains(ASTPredicate):
         self.na = na
         self.regex = regex
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
+    
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.case, bool)
+        assert isinstance(self.flags, int)
+        assert isinstance(self.na, (bool, type(None)))
+        assert isinstance(self.regex, bool)
 
 def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None, regex: bool = True) -> Contains:
     """
@@ -27,8 +40,12 @@ class Startswith(ASTPredicate):
         self.pat = pat
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.startswith(self.pat, self.na)
+
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.na, (str, type(None)))
 
 def startswith(pat: str, na: Optional[str] = None) -> Startswith:
     """
@@ -41,11 +58,15 @@ class Endswith(ASTPredicate):
         self.pat = pat
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         """
         Return whether a given pattern is at the end of a string
         """
         return s.str.endswith(self.pat, self.na)
+
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.na, (str, type(None)))
 
 def endswith(pat: str, na: Optional[str] = None) -> Endswith:
     return Endswith(pat, na)
@@ -57,8 +78,14 @@ class Match(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.match(self.pat, self.case, self.flags, self.na)
+    
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.case, bool)
+        assert isinstance(self.flags, int)
+        assert isinstance(self.na, (bool, type(None)))
 
 def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Match:
     """
@@ -67,12 +94,10 @@ def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None
     return Match(pat, case, flags, na)
 
 class IsNumeric(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isnumeric()
-
+    
 def isnumeric() -> IsNumeric:
     """
     Return whether a given string is numeric
@@ -80,10 +105,8 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 class IsAlpha(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalpha()
 
 def isalpha() -> IsAlpha:
@@ -93,10 +116,8 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 class IsDigit(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdigit()
 
 def isdigit() -> IsDigit:
@@ -106,10 +127,8 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 class IsLower(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.islower()
 
 def islower() -> IsLower:
@@ -119,10 +138,8 @@ def islower() -> IsLower:
     return IsLower()
 
 class IsUpper(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isupper()
 
 def isupper() -> IsUpper:
@@ -132,10 +149,8 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 class IsSpace(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isspace()
     
 def isspace() -> IsSpace:
@@ -145,10 +160,8 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 class IsAlnum(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalnum()
     
 def isalnum() -> IsAlnum:
@@ -158,10 +171,8 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 class IsDecimal(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdecimal()
 
 def isdecimal() -> IsDecimal:
@@ -171,10 +182,8 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 class IsTitle(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.istitle()
 
 def istitle() -> IsTitle:
@@ -184,10 +193,8 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 class IsNull(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series: 
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.isnull()
 
 def isnull() -> IsNull:
@@ -197,10 +204,8 @@ def isnull() -> IsNull:
     return IsNull()
 
 class NotNull(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
-    def __call__(self, s: pd.Series) -> pd.Series: 
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.notnull()
 
 def notnull() -> NotNull:

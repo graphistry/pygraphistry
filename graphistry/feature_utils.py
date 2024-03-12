@@ -82,15 +82,21 @@ def lazy_import_has_min_dependancy():
     try:
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
-        from dirty_cat import __version__ as dirty_cat_version
         from sklearn import __version__ as sklearn_version
         logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
         return True, 'ok'
     except ModuleNotFoundError as e:
         return False, e
 
+def lazy_import_has_dirty_cat():
+    import warnings
+    warnings.filterwarnings("ignore")
+    try:
+        import dirty_cat 
+        return True, 'ok', dirty_cat
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -878,11 +884,14 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    has_dirty_cat, _, dirty_cat = lazy_import_has_dirty_cat()
+    if has_dirty_cat:
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
-    if not is_dataframe_all_numeric(ndf):
+    all_numeric = is_dataframe_all_numeric(ndf)
+    if not all_numeric and has_dirty_cat:
         data_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold,
@@ -906,7 +915,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -922,8 +931,12 @@ def process_dirty_dataframes(
             X_enc, columns=features_transformed, index=ndf.index
         )
         X_enc = X_enc.fillna(0.0)
+    elif all_numeric and not has_dirty_cat:
+        numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
+        logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
+        X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
     else:
-        logger.info("-*-*- DataFrame is completely numeric")
+        logger.debug("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
@@ -933,6 +946,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and has_dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -976,6 +990,15 @@ def process_dirty_dataframes(
             "--Fitting SuperVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
+    elif (
+        y is not None
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and not has_dirty_cat  # noqa: E126,W503
+    ):
+        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        y2 = y.select_dtypes(include=[np.number])  # type: ignore
+        y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 
