@@ -303,8 +303,8 @@ class PyGraphistry(object):
                 from IPython.display import display, HTML
                 display(HTML(f'<a href="{auth_url}" target="_blank">Graphistry SSO Login</a>'))
 
-@staticmethod
-def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
+    @staticmethod
+    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
         """Internal function to handle what to do with the auth_url
            based on the client mode python/ipython console or notebook.
 
