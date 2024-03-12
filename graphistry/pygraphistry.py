@@ -2556,7 +2556,3 @@ class NumpyJSONEncoder(json.JSONEncoder):
         elif isinstance(obj, datetime):
             return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
-
-
-
-
