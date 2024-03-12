@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.7 - 2024-03-11]
+
+### Fixed
+
+* new function databricks_notebook_sso_login() that should be called prior to register(), fixes: #539 where databricks dashboards do not get an HTML link for SSO logins
+
+
 ## [0.31.1 - 2023-12-05]
 
 ### Docs

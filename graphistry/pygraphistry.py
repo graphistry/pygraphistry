@@ -252,17 +252,10 @@ class PyGraphistry(object):
   
     @staticmethod
     def databricks_notebook_sso_login( 
-        # key: Optional[str] = None,
-        # username: Optional[str] = None,
-        # password: Optional[str] = None,
-        # token: Optional[str] = None,
-        # personal_key_id: Optional[str] = None,
-        # personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
         api: Optional[Literal[1, 3]] = None,
         certificate_validation: Optional[bool] = None,
-        # bolt: Optional[Union[Dict, Any]] = None,
         token_refresh_ms: int = 10 * 60 * 1000,
         store_token_creds_in_memory: Optional[bool] = None,
         client_protocol_hostname: Optional[str] = None,
@@ -288,12 +281,6 @@ class PyGraphistry(object):
         PyGraphistry.__reset_token_creds_in_memory()
 
         # the following code was copied from sso_login() to get the auth_url 
-        #    
-        #  not required: 
-        # if PyGraphistry._config['store_token_creds_in_memory']:
-        #     PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
-        #         org_name, idp_name, sso_timeout, sso_opt_into_type
-        #     )
 
         PyGraphistry._is_authenticated = False
         arrow_uploader = ArrowUploader(
@@ -310,17 +297,11 @@ class PyGraphistry(object):
                 arrow_uploader.token = None
                 return PyGraphistry.api_token()
         except Exception:  # required to log on
-            # print("required to log on")
             PyGraphistry.sso_state(arrow_uploader.sso_state)
             auth_url = arrow_uploader.sso_auth_url
-            # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
                 from IPython.display import display, HTML
-                display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-                print("Please click the above URL to open browser to login")
-                print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
-                print("Please close browser tab after SSO login to back to notebook")
-                # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
+                display(HTML(f'<a href="{auth_url}" target="_blank">Graphistry SSO Login</a>'))
 
 
     @staticmethod
