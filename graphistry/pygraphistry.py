@@ -251,16 +251,49 @@ class PyGraphistry(object):
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
   
     @staticmethod
-    def databricks_notebook_sso_login():
-        org_name=None 
-        idp_name=None 
-        sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS 
-        sso_opt_into_type=None
-        
-        if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
-                org_name, idp_name, sso_timeout, sso_opt_into_type
-            )
+    def databricks_notebook_sso_login( 
+        # key: Optional[str] = None,
+        # username: Optional[str] = None,
+        # password: Optional[str] = None,
+        # token: Optional[str] = None,
+        # personal_key_id: Optional[str] = None,
+        # personal_key_secret: Optional[str] = None,
+        server: Optional[str] = None,
+        protocol: Optional[str] = None,
+        api: Optional[Literal[1, 3]] = None,
+        certificate_validation: Optional[bool] = None,
+        # bolt: Optional[Union[Dict, Any]] = None,
+        token_refresh_ms: int = 10 * 60 * 1000,
+        store_token_creds_in_memory: Optional[bool] = None,
+        client_protocol_hostname: Optional[str] = None,
+        org_name: Optional[str] = None,
+        idp_name: Optional[str] = None,
+        is_sso_login: Optional[bool] = False,
+        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS,
+        sso_opt_into_type: Optional[Literal["display", "browser"]] = None 
+):
+        """display HTML link for databricks notebooks
+
+        see graphistry.register docstring for details on input parameters. 
+        """
+
+        PyGraphistry.api_version(api)
+        PyGraphistry.api_token_refresh_ms(token_refresh_ms)
+        PyGraphistry.server(server)
+        PyGraphistry.protocol(protocol)
+        PyGraphistry.client_protocol_hostname(client_protocol_hostname)
+        PyGraphistry.certificate_validation(certificate_validation)
+        PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
+        # Reset token creds
+        PyGraphistry.__reset_token_creds_in_memory()
+
+        # the following code was copied from sso_login() to get the auth_url 
+        #    
+        #  not required: 
+        # if PyGraphistry._config['store_token_creds_in_memory']:
+        #     PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
+        #         org_name, idp_name, sso_timeout, sso_opt_into_type
+        #     )
 
         PyGraphistry._is_authenticated = False
         arrow_uploader = ArrowUploader(
