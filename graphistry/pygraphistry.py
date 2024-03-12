@@ -249,7 +249,6 @@ class PyGraphistry(object):
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
-<<<<<<< HEAD
   
     @staticmethod
     def databricks_notebook_sso_login( 
@@ -304,12 +303,8 @@ class PyGraphistry(object):
                 from IPython.display import display, HTML
                 display(HTML(f'<a href="{auth_url}" target="_blank">Graphistry SSO Login</a>'))
 
-=======
-                return auth_url
->>>>>>> 2506b798ec723e906c1c5279f613fe0c37bdbad2
-
-    @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
+@staticmethod
+def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
         """Internal function to handle what to do with the auth_url
            based on the client mode python/ipython console or notebook.
 
