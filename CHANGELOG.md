@@ -84,7 +84,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Breaking 🔥
 
 * GFQL `e()` now aliases `e_undirected` instead of the base class `ASTEdge`
->>>>>>> 2506b798ec723e906c1c5279f613fe0c37bdbad2
 
 ## [0.31.1 - 2023-12-05]
 

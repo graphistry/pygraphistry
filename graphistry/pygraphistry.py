@@ -282,6 +282,11 @@ class PyGraphistry(object):
 
         # the following code was copied from sso_login() to get the auth_url 
 
+        if PyGraphistry._config['store_token_creds_in_memory']:
+            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
+                org_name, idp_name, sso_timeout, sso_opt_into_type
+            )
+
         PyGraphistry._is_authenticated = False
         arrow_uploader = ArrowUploader(
             server_base_path=PyGraphistry.protocol()
