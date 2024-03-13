@@ -340,6 +340,9 @@ class PyGraphistry(object):
             else:
                 print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
                 print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
+        else:
+            from IPython.display import display, HTML
+            display(HTML(f'<a href="{auth_url}" target="_blank">Graphistry SSO Login</a>'))
 
         if sso_timeout is not None:
             time.sleep(1)
