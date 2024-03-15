@@ -245,10 +245,7 @@ class PyGraphistry(object):
 
             auth_url = arrow_uploader.sso_auth_url
 
-            # if isinstance(e, TokenExpireException):
-            #     print("Token is expired, you need to relogin")
-
-            if auth_url: # and (not PyGraphistry.api_token() or isinstance(e, TokenExpireException)):
+            if auth_url:
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
                 return auth_url
             raise e
