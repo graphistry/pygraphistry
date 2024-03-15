@@ -384,6 +384,9 @@ class PyGraphistry(object):
             PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
+            print(f"what is relogin :{PyGraphistry.relogin}")
+            import traceback
+            print(f"{traceback.format_exc()}")
             if PyGraphistry.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
                 logger.debug("2. @PyGraphistry refresh :relogin")
