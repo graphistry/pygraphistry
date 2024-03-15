@@ -15,7 +15,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython, make_iframe
-from .exceptions import SsoRetrieveTokenTimeoutException
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -219,7 +219,6 @@ class PyGraphistry(object):
         SSO Login logic.
 
         """
-
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
                 org_name, idp_name, sso_timeout, sso_opt_into_type
@@ -232,22 +231,27 @@ class PyGraphistry(object):
             + PyGraphistry.server(),    # noqa: W503
             certificate_validation=PyGraphistry.certificate_validation(),
         ).sso_login(org_name, idp_name)
-
         try:
+            # print(f"@sso_login - arrow_uploader.token: {arrow_uploader.token}")
             if arrow_uploader.token:
                 PyGraphistry.api_token(arrow_uploader.token)
                 PyGraphistry._is_authenticated = True
                 arrow_uploader.token = None
                 return PyGraphistry.api_token()
-        except Exception:  # required to log on
-            # print("required to log on")
+        except (Exception, TokenExpireException) as e:  # required to log on
+
+            logger.debug(f"@sso_login - arrow_uploader.sso_state: {arrow_uploader.sso_state}")
             PyGraphistry.sso_state(arrow_uploader.sso_state)
 
             auth_url = arrow_uploader.sso_auth_url
-            # print("auth_url : {}".format(auth_url))
-            if auth_url and not PyGraphistry.api_token():
+
+            # if isinstance(e, TokenExpireException):
+            #     print("Token is expired, you need to relogin")
+
+            if auth_url: # and (not PyGraphistry.api_token() or isinstance(e, TokenExpireException)):
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
                 return auth_url
+            raise e
 
     @staticmethod
     def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
@@ -266,7 +270,6 @@ class PyGraphistry(object):
         SSO Login logic.
 
         """
-
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
@@ -384,12 +387,12 @@ class PyGraphistry(object):
             PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
-            print(f"what is relogin :{PyGraphistry.relogin}")
-            import traceback
-            print(f"{traceback.format_exc()}")
+
             if PyGraphistry.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
                 logger.debug("2. @PyGraphistry refresh :relogin")
+                if isinstance(e, TokenExpireException):
+                    print("Token is expired, you need to relogin")                    
                 return PyGraphistry.relogin()
 
             if not fail_silent:
