@@ -5,6 +5,8 @@ import io, pyarrow as pa, requests, sys
 from graphistry.privacy import Mode, Privacy
 
 from .ArrowFileUploader import ArrowFileUploader
+
+from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -362,10 +364,14 @@ class ArrowUploader:
         try:
             json_response = out.json()
             if not ('token' in json_response):
+                if (
+                    "non_field_errors" in json_response and "Token has expired." in json_response["non_field_errors"]
+                ):
+                    raise TokenExpireException(out.text)
                 raise Exception(out.text)
-        except Exception:
+        except Exception as e:
             logger.error('Error: %s', out, exc_info=True)
-            raise Exception(out.text)
+            raise e
             
         self.token = out.json()['token']        
         return self
