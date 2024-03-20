@@ -907,6 +907,7 @@ def process_dirty_dataframes(
         try:
             X_enc = data_encoder.fit_transform(ndf, y)
         except TypeError:
+            logger.info("obj columns:", object_columns, "are being converted to str")
             nndf = ndf.copy()
             object_columns = nndf.select_dtypes(include=['object']).columns
             nndf[object_columns] = nndf[object_columns].astype(str)
