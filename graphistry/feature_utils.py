@@ -904,6 +904,9 @@ def process_dirty_dataframes(
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
+        object_columns = ndf.select_dtypes(include=['object']).columns
+        ndf[object_columns] = ndf[object_columns].astype(str)
+        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
