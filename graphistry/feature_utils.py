@@ -904,10 +904,13 @@ def process_dirty_dataframes(
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
-        object_columns = ndf.select_dtypes(include=['object']).columns
-        ndf[object_columns] = ndf[object_columns].astype(str)
-        
-        X_enc = data_encoder.fit_transform(ndf, y)
+        try:
+            X_enc = data_encoder.fit_transform(ndf, y)
+        except TypeError:
+            nndf=ndf.copy()
+            object_columns = nndf.select_dtypes(include=['object']).columns
+            nndf[object_columns] = nndf[object_columns].astype(str)
+            X_enc = data_encoder.fit_transform(nndf, y)
         X_enc = make_array(X_enc)
 
         import warnings
