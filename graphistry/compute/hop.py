@@ -40,20 +40,20 @@ def hop(self: Plottable,
 
     See chain() examples for examples of many of the parameters
 
-    g: Plotter
-    nodes: dataframe with id column matching g._node. None signifies all nodes (default).
-    hops: consider paths of length 1 to 'hops' steps, if any (default 1).
-    to_fixed_point: keep hopping until no new nodes are found (ignores hops)
-    direction: 'forward', 'reverse', 'undirected'
-    edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
-    source_node_match: dict of kv-pairs to match nodes before hopping (including intermediate)
-    destination_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
-    source_node_query: dataframe query to match nodes before hopping (including intermediate)
-    destination_node_query: dataframe query to match nodes after hopping (including intermediate)
-    edge_query: dataframe query to match edges before hopping (including intermediate)
-    return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
-    target_wave_front: Only consider these nodes for reachability, and for intermediate hops, also consider nodes (primarily for internal use by reverse pass)
-    engine: 'auto', 'pandas', 'cudf' (GPU)
+   :param g: Plotter object.
+   :param nodes: Dataframe with 'id' column matching g._node. 'None' signifies all nodes (default).
+   :param hops: Consider paths of length 1 to 'hops' steps, if any (default 1).
+   :param to_fixed_point: Keep hopping until no new nodes are found (ignores 'hops').
+   :param direction: 'forward', 'reverse', 'undirected'.
+   :param edge_match: Dict of key-value pairs to exact match (see also: filter_edges_by_dict).
+   :param source_node_match: Dict of key-value pairs to match nodes before hopping (including intermediate).
+   :param destination_node_match: Dict of key-value pairs to match nodes after hopping (including intermediate).
+   :param source_node_query: Dataframe query to match nodes before hopping (including intermediate).
+   :param destination_node_query: Dataframe query to match nodes after hopping (including intermediate).
+   :param edge_query: Dataframe query to match edges before hopping (including intermediate).
+   :param return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use).
+   :param target_wave_front: Only consider these nodes for reachability, and for intermediate hops, also consider nodes (primarily for internal use by reverse pass).
+   :param engine: 'auto', 'pandas', 'cudf' (GPU).
     """
 
     """
