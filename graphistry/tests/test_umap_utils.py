@@ -384,6 +384,22 @@ class TestUMAPMethods(unittest.TestCase):
         })
         graphistry.nodes(df).umap()
         assert True
+    
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_edgecase(self):
+        df = pd.DataFrame({
+            'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
+            'y': [1.0, 2.0, 3.0, 4.0, 5.0] * 10,
+            'yy': [1.1, 20, 31, 12, 5.0] * 10,
+        })
+        df['z'] = df['x'].apply(lambda x: x[0])
+        df.loc[[1,20,35,42,30], 'z'] = 1
+        df.loc[[10,5,16,28,35], 'z'] = 1.0
+        df.loc[[12,7], 'z'] = 'NaN'
+        df.loc[[13,8], 'z'] = np.NaN
+
+        graphistry.nodes(df).umap()
+        assert True
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
