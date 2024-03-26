@@ -53,6 +53,13 @@ class PersonGenerator:
             max_age: int = 85
             ) -> pd.DataFrame:
 
+        """
+        Generate a set of people records with basic information.
+        :param num_records: Number of records to generate.
+        :param min_age: Minimum age for date of birth generation.
+        :param max_age: Maximum age for date of birth generation.
+        :return: DataFrame of people records.
+        """
         records = []
         for _ in range(num_records):
             gender = ["M", "F"]
@@ -80,6 +87,13 @@ class PersonGenerator:
             end_date: str = "today"
             ) -> pd.DataFrame:
 
+        """
+        Generate addresses for a set of people, simulating a history of addresses.
+        :param num_records: Number of addresses to generate.
+        :param start_date: Start date for address history.
+        :param end_date: End date for address history.
+        :return: DataFrame of addresses.
+        """
         records = []
         for _ in range(num_records):
             address = self.address()
@@ -104,7 +118,13 @@ class PersonGenerator:
             num_logs: int = 500,
             start_date: str = '-1y'
             ) -> pd.DataFrame:
-        
+        """
+        Generate call logs for a set of people, simulating everyday calls.
+        :param people_df: DataFrame of people with affiliations.
+        :param num_logs: Number of call logs to generate.
+        :param start_date: Start date for call logs.
+        :return: DataFrame of call logs.
+        """
         call_logs = []
         phone_numbers = people_df['phone_number'].tolist()
         
@@ -263,6 +283,15 @@ class PersonGenerator:
             addresses_df: pd.DataFrame,
             percent_cohabitating: float = 0.2
             ) -> pd.DataFrame:
+        """
+        Assign addresses to people, ensuring that gang-affiliated individuals may share addresses.
+
+        :param people_df: DataFrame of people.
+        :param addresses_df: DataFrame of addresses.
+        :param percent_cohabitating: Percentage of gang-affiliated individuals who share addresses.
+        :return: Updated DataFrame with address details.
+        """
+
         # Initially, each person gets a unique address by default (if enough addresses)
         if len(addresses_df) >= len(people_df):
             people_df = pd.concat([people_df, addresses_df.sample(len(people_df)).reset_index(drop=True)], axis=1)
@@ -288,8 +317,15 @@ class PersonGenerator:
                 gang_members = gang_members.drop(members_to_live_together.index)
 
         return people_df
-    
+
     def expand_cases_to_columns(self, people_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Helper function to expand the 'cases' column into multiple columns for case details.
+
+        :param people_df: DataFrame of people with 'cases' column.
+        :return: Updated DataFrame with expanded case details.
+        """
+
         # Create columns for case details
         max_crimes_per_case = 3  # Adjust based on your dataset
         for i in range(max_crimes_per_case):
@@ -307,7 +343,7 @@ class PersonGenerator:
 
         # Drop the original 'cases' column if no longer needed
         # people_df.drop('cases', axis=1, inplace=True)
-        
+
         return people_df
 
     def generate_and_assign_criminal_records(
@@ -315,6 +351,14 @@ class PersonGenerator:
             people_df: pd.DataFrame,
             max_cases_per_person: int = 3
             ) -> pd.DataFrame:
+        
+        """
+        Generate criminal records for a subset of the provided DataFrame of people.
+
+        :param people_df: DataFrame of people with affiliations.
+        :param max_cases_per_person: Maximum number of cases to generate for each person.
+        :return: Updated DataFrame with criminal records.
+        """
         unique_case_number = count(start=1000, step=1)  # Unique case number generator
         criminal_records = []  # To collect criminal record entries
         gang_related_cases = {}  # To track gang-related case numbers and crimes
