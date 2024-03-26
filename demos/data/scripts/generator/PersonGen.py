@@ -30,6 +30,18 @@ class PersonGenerator:
                     ]
             ):
 
+        """
+        PersonGenerator:
+        A class to generate synthetic person records;
+        including basic information, addresses, call logs, affiliations, and criminal records.
+        
+        :param seed: Seed for random number generation.
+        :param country: Country code for phone number generation.
+        :param people_amt: Number of people to generate.
+        :param affiliations: List of affiliations to generate.
+        :param crimes: List of crimes to generate.
+        """
+
         self.seed = seed
         self.country = country
         self.people_num = people_amt
