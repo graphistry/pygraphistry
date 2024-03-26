@@ -41,7 +41,7 @@ class PersonGenerator:
         self.names = NameDataset()
         self.first_names = self.names.get_top_names(n=self.people_num, country_alpha2=self.country)[self.country]
         self.last_names = self.names.get_top_names(n=self.people_num, country_alpha2=self.country, use_first_names=False)[self.country]
-        self.address = real_random_address.RandomAddress()
+
         self.domains = pd.read_csv("domains.txt", header=None)[0].to_list()
         self.affiliations = affiliations
         self.crimes = crimes
@@ -80,23 +80,50 @@ class PersonGenerator:
         df = pd.DataFrame(records)
         return df
 
+    def get_address(self) -> dict:
+        # Placeholder for your existing `self.address()` method
+        return real_random_address.RandomAddress()
+
+    def get_address_by_state(self, state: str) -> dict:
+        # Placeholder for generating an address by state
+        # Implement actual functionality here
+        return real_random_address.real_random_address_by_state(state)
+
+
+    def get_address_by_postal_code(self, postal_code: str) -> dict:
+        # Placeholder for generating an address by postal code
+        return real_random_address.real_random_address_by_postal_code(postal_code)
+
     def generate_addresses(
             self,
             num_records: int = 100,
             start_date: str = "-30y",
-            end_date: str = "today"
+            end_date: str = "today",
+            state: str = None,
+            postal_code: str = None
             ) -> pd.DataFrame:
-
         """
         Generate addresses for a set of people, simulating a history of addresses.
         :param num_records: Number of addresses to generate.
         :param start_date: Start date for address history.
         :param end_date: End date for address history.
+        :param state: Optional state to generate addresses for.
+        :param postal_code: Optional postal code to generate addresses for.
         :return: DataFrame of addresses.
+        :raises ValueError: If both state and postal_code are provided.
         """
+
+        if state and postal_code:
+            raise ValueError("Cannot specify both state and postal code. Please choose one.")
+
         records = []
         for _ in range(num_records):
-            address = self.address()
+            if state:
+                address = self.get_address_by_state(state)
+            elif postal_code:
+                address = self.get_address_by_postal_code(postal_code)
+            else:
+                address = self.get_address()
 
             record = {
                 "address1": address.get('address1', ''),
