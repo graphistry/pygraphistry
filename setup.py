@@ -43,19 +43,28 @@ base_extras_light = {
     'jupyter': ['ipython'],
 }
 
+base_extras_data = {
+    'names-dataset': ['names-dataset'],
+    'Faker': ['Faker'],
+    'random-address': ['random-address'],
+    'phone-gen': ['phone-gen'],
+}
+
 base_extras_heavy = {
   'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
 base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
 
-base_extras = {**base_extras_light, **base_extras_heavy}
+
+base_extras = {**base_extras_light, **base_extras_heavy, **base_extras_data}
 
 extras_require = {
 
   **base_extras_light,
   **base_extras_heavy,
   **dev_extras,
+  **base_extras_data,
 
   #kitchen sink for users -- not recommended
   'all': unique_flatten_dict(base_extras),
@@ -63,6 +72,8 @@ extras_require = {
   #kitchen sink for contributors, skips ai
   'dev': unique_flatten_dict(base_extras_light) + unique_flatten_dict(dev_extras),
 
+  #for people data synthesizer
+  'data': unique_flatten_dict(base_extras_data),
 }
 
 setup(
