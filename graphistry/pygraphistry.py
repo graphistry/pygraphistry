@@ -321,17 +321,17 @@ class PyGraphistry(object):
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
                 return None
         else:
-            print("Start getting token ...")
-            token = None
-            for i in range(10):
-                token, org_name = PyGraphistry._sso_get_token()
-                if token:
-                    # set org_name to sso org
-                    PyGraphistry._config['org_name'] = org_name
-                    print("Successfully logged in")
-                    return PyGraphistry.api_token()
-                print("Keep trying to get token ...")
-                time.sleep(5)
+            # print("Start getting token ...")
+            # token = None
+            # for i in range(10):
+            #     token, org_name = PyGraphistry._sso_get_token()
+            #     if token:
+            #         # set org_name to sso org
+            #         PyGraphistry._config['org_name'] = org_name
+            #         print("Successfully logged in")
+            #         return PyGraphistry.api_token()
+            #     print("Keep trying to get token ...")
+            #     time.sleep(5)
 
             print("Please run graphistry.sso_get_token() to complete the authentication")
             return None
