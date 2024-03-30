@@ -296,8 +296,10 @@ class PyGraphistry(object):
                 try:
                     if not token:
                         if elapsed_time % 10 == 1:
-                            print("Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1))
-
+                            count_down = "Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1)
+                            print(count_down)
+                            from IPython.display import display, HTML
+                            display(HTML(f'<strong>{count_down}</string>'))
                         time.sleep(1)
                         elapsed_time = elapsed_time + 1
                         if elapsed_time > sso_timeout:
