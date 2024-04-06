@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.7 - 2024-04-06]
+
+* Fix refresh() for SSO
+
 ## [0.33.6 - 2024-04-05]
 
 ### Added
