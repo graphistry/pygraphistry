@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.6 - 2024-04-05]
+
+### Added
+
+* `featurize()`, on error, coerces `object` dtype cols to `.astype(str)` and retries
+
 ## [0.33.5 - 2024-03-11]
 
 ### Fixed
