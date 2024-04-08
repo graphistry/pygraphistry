@@ -88,22 +88,17 @@ class PersonGenerator:
             }
             record["email_address"] = record["first_name"] + record["last_name"] + str(self.random.randint(0, 999)) + self.random.choice(self.domains)
             records.append(record)
-        
+
         df = pd.DataFrame(records)
         return df
 
     def get_address(self) -> dict:
-        # Placeholder for your existing `self.address()` method
         return real_random_address.RandomAddress()
 
     def get_address_by_state(self, state: str) -> dict:
-        # Placeholder for generating an address by state
-        # Implement actual functionality here
         return real_random_address.real_random_address_by_state(state)
 
-
     def get_address_by_postal_code(self, postal_code: str) -> dict:
-        # Placeholder for generating an address by postal code
         return real_random_address.real_random_address_by_postal_code(postal_code)
 
     def generate_addresses(
