@@ -44,11 +44,9 @@ base_extras_light = {
 }
 
 base_extras_data = {
-    'names-dataset': ['names-dataset'],
-    'Faker': ['Faker'],
-    'random-address': ['random-address'],
-    'phone-gen': ['phone-gen'],
+    'data-gen': ['names-dataset', 'faker', 'random-address','phone-gen']
 }
+
 
 base_extras_heavy = {
   'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
