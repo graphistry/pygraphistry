@@ -1,7 +1,7 @@
 import pandas as pd
 import random
 from faker import Faker
-from random_address import real_random_address
+import random_address
 from phone_gen import PhoneNumber
 from datetime import timedelta
 from datetime import datetime
@@ -51,6 +51,7 @@ class PersonGenerator:
         self.random = random.Random(self.seed)
         self.phone = PhoneNumber(self.country)
         self.names = NameDataset()
+        self.address = random_address
         self.first_names = self.names.get_top_names(n=self.people_num, country_alpha2=self.country)[self.country]
         self.last_names = self.names.get_top_names(n=self.people_num, country_alpha2=self.country, use_first_names=False)[self.country]
 
@@ -93,13 +94,13 @@ class PersonGenerator:
         return df
 
     def get_address(self) -> dict:
-        return real_random_address.RandomAddress()
+        return self.address.real_random_address()
 
     def get_address_by_state(self, state: str) -> dict:
-        return real_random_address.real_random_address_by_state(state)
+        return self.address.real_random_address_by_state(state)
 
     def get_address_by_postal_code(self, postal_code: str) -> dict:
-        return real_random_address.real_random_address_by_postal_code(postal_code)
+        return self.address.real_random_address_by_postal_code(postal_code)
 
     def generate_addresses(
             self,
