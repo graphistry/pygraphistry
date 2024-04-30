@@ -44,6 +44,19 @@ def test_chain_serialization_multi():
     o2 = d.to_json()
     assert o == o2
 
+def test_chain_serialization_pred():
+    o = Chain([n(query='zzz', name='abc', filter_dict={'a': is_in(options=['a', 'b', 'c'])}),
+               e(edge_query='zzz', name='abc', edge_match={'b': is_in(options=['a', 'b', 'c'])})]).to_json()
+    d = Chain.from_json(o)
+    assert isinstance(d.chain[0], ASTNode)
+    assert d.chain[0].query == 'zzz'
+    assert d.chain[0]._name == 'abc'
+    assert isinstance(d.chain[1], ASTEdge)
+    assert d.chain[1].edge_query == 'zzz'
+    assert d.chain[1]._name == 'abc'
+    o2 = d.to_json()
+    assert o == o2
+
 def test_chain_simple_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})

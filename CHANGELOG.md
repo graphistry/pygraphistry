@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.8 - 2024-04-30]
+
+### Added
+
+* Fix from_json when json object contains predicates.
+
 ## [0.33.7 - 2024-04-06]
 
 * Fix refresh() for SSO
