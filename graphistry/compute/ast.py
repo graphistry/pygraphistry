@@ -10,6 +10,8 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
+from .predicates.from_json import from_json as predicates_from_json
+
 from .predicates.is_in import (
     is_in, IsIn
 )
@@ -54,6 +56,7 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
+
 from .typing import DataFrameT
 
 
@@ -100,7 +103,7 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
         return None
     if key in d and isinstance(d[key], dict):
         return {
-            k: ASTPredicate.from_json(v) if isinstance(v, dict) else v
+            k: predicates_from_json(v) if isinstance(v, dict) else v
             for k, v in d[key].items()
         }
     elif key in d and d[key] is not None:
