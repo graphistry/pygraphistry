@@ -56,7 +56,6 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
-
 from .typing import DataFrameT
 
 

@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* Fix from_json when json object contains predicates.
+
 ## [0.33.4 - 2024-02-29]
 
 ### Added
