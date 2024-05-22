@@ -86,6 +86,8 @@ class Plottable(object):
     _use_feat: bool
     _triplets: Optional[List]  # actually torch.Tensor too
     _kg_embed_dim: int
+
+    change: int = 5
     
 
     def __init__(self, *args, **kwargs):
