@@ -25,6 +25,8 @@ DBSCANEngine = Literal[DBSCANEngineConcrete, "auto"]
 dbscan = deps.dbscan
 if deps.cuml:
     import cuml.DBSCAN as cuDBSCAN
+else:
+    cuDBSCAN = None
 cudf = deps.cudf
 
 
@@ -180,6 +182,8 @@ class ClusterMixin(MIXIN_BASE):
         dbscan = deps.dbscan
         if deps.cuml:
             import cuml.DBSCAN as cuDBSCAN
+        else:
+            cuDBSCAN = None
 
         if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
