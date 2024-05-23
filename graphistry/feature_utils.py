@@ -883,7 +883,8 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    assert_imported()
+    # assert_imported()
+    dirty_cat = deps.dirty_cat
     if dirty_cat:
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
