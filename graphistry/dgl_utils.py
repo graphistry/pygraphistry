@@ -33,27 +33,6 @@ if TYPE_CHECKING:
 else:
     MIXIN_BASE = object
 
-
-# def lazy_dgl_import_has_dependency():
-#     try:
-#         import warnings
-#         warnings.filterwarnings('ignore')
-#         import dgl  # noqa: F811
-#         return True, 'ok', dgl
-#     except ModuleNotFoundError as e:
-#         return False, e, None
-
-
-# def lazy_torch_import_has_dependency():
-#     try:
-#         import warnings
-#         warnings.filterwarnings('ignore')
-#         import torch  # noqa: F811
-#         return True, 'ok', torch
-#     except ModuleNotFoundError as e:
-#         return False, e, None
-
-
 logger = setup_logger(name=__name__)
 
 

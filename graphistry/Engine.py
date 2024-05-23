@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-
+from .dep_manager import deps
 
 class Engine(Enum):
     PANDAS : str = 'pandas'
@@ -21,17 +21,6 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
-#TODO use new importer when it lands (this is copied from umap_utils)
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
 
 def resolve_engine(
     engine: Union[EngineAbstract, str],
@@ -58,15 +47,15 @@ def resolve_engine(
         if isinstance(g_or_df, pd.DataFrame):
             return Engine.PANDAS
 
-        has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
-        if has_cudf_dependancy_:
+        cudf = deps.cudf
+        if cudf:
             import cudf
             if isinstance(g_or_df, cudf.DataFrame):
                 return Engine.CUDF
             raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')
     
-    has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
-    if has_cudf_dependancy_:
+    cudf = deps.cudf
+    if cudf:
         return Engine.CUDF
     return Engine.PANDAS
 
