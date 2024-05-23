@@ -211,12 +211,12 @@ class LayoutsMixin(MIXIN_BASE):
                 # cudf 0.19 fallback
                 logger.info('Tree x positions using Pandas fallback for RAPIDS < 0.21')
                 _, _, cudf = lazy_cudf_import_has_dependancy
-                assert isinstance(g2._nodes, cudf.DataFrame)  # type: ignore
+                assert isinstance(g2._nodes, cudf.DataFrame)
                 xs_ps = (g2
                          ._nodes[[level_col]].to_pandas()
                          .groupby(level_col, sort = level_sort_values_by is not None)
                          .cumcount())
-                xs_gs = cudf.from_pandas(xs_ps)  # type: ignore
+                xs_gs = cudf.from_pandas(xs_ps)
                 g2 = g2.nodes(g2._nodes.assign(**{x_col: xs_gs}))
             except:
                 raise ValueError('Requires RAPIDS 0.21+ or Pandas 0.22+')

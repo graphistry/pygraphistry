@@ -182,8 +182,8 @@ def partitioned_layout(
         elif engine == Engine.CUDF:
             _, _, cudf = lazy_cudf_import_has_dependancy
             import cupy as cp
-            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))  # type: ignore
-            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))  # type: ignore
+            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
+            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
         else:
             raise ValueError('Unknown engine, expected Pandas or CuDF')
         edgeless['type'] = 'singleton'
@@ -203,9 +203,9 @@ def partitioned_layout(
         _, _, cudf = lazy_cudf_import_has_dependancy
         import cupy as cp
         if combined_nodes.x.isna().any():
-            updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))  # type: ignore
+            updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
         if combined_nodes.y.isna().any():
-            updates['y'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))  # type: ignore
+            updates['y'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
     else:
         raise ValueError('Unknown engine, expected Pandas or CuDF')
     if len(updates.keys()) > 0:

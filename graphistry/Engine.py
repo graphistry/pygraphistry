@@ -21,7 +21,6 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
-
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import_has_dependancy():
     try:
@@ -34,7 +33,6 @@ def lazy_cudf_import_has_dependancy():
         return True, "ok", cudf
     except ModuleNotFoundError as e:
         return False, e, None
-
 
 def resolve_engine(
     engine: Union[EngineAbstract, str],
@@ -61,8 +59,9 @@ def resolve_engine(
         if isinstance(g_or_df, pd.DataFrame):
             return Engine.PANDAS
 
-        has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
+        has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
         if has_cudf_dependancy_:
+            import cudf
             if isinstance(g_or_df, cudf.DataFrame):
                 return Engine.CUDF
             raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')

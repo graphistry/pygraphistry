@@ -83,7 +83,7 @@ class ComputeMixin(MIXIN_BASE):
             else:
                 try:
                     _, _, cudf = lazy_cudf_import_has_dependancy
-                    if isinstance(g._edges, cudf.DataFrame):  # type: ignore
+                    if isinstance(g._edges, cudf.DataFrame):
                         engine_concrete = Engine.CUDF
                 except ImportError:
                     pass
@@ -95,13 +95,14 @@ class ComputeMixin(MIXIN_BASE):
         if engine_concrete == Engine.PANDAS:
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
         elif engine_concrete == Engine.CUDF:
-            if isinstance(g._edges, cudf.DataFrame):  # type: ignore
+            import cudf
+            if isinstance(g._edges, cudf.DataFrame):
                 edges_gdf = g._edges
             elif isinstance(g._edges, pd.DataFrame):
-                edges_gdf = cudf.from_pandas(g._edges)  # type: ignore
+                edges_gdf = cudf.from_pandas(g._edges)
             else:
                 raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
-            concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])  # type: ignore
+            concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
         else:
             raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine_concrete))
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
