@@ -49,7 +49,6 @@ def resolve_engine(
 
         cudf = deps.cudf
         if cudf:
-            import cudf
             if isinstance(g_or_df, cudf.DataFrame):
                 return Engine.CUDF
             raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')
@@ -75,7 +74,7 @@ def df_to_engine(df, engine: Engine):
         else:
             return df.to_pandas()
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         if isinstance(df, cudf.DataFrame):
             return df
         else:
@@ -86,7 +85,7 @@ def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.concat
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.concat
     raise NotImplementedError("Only pandas/cudf supported")
 
@@ -94,7 +93,7 @@ def df_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.DataFrame
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.DataFrame
     raise NotImplementedError("Only pandas/cudf supported")
 
@@ -102,6 +101,6 @@ def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.Series
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.Series
     raise NotImplementedError("Only pandas/cudf supported")
