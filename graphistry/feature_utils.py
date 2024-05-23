@@ -68,6 +68,7 @@ else:
 
 
 @check_set_memoize
+
 def assert_imported_text():
     Sentence_Transformer = deps.sentence_transformers.SentenceTransformer
 
