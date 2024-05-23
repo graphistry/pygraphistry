@@ -5,6 +5,7 @@ from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
+from .Engine import lazy_cudf_import_has_dependancy
 
 
 def lazy_embed_import_dep():
@@ -23,7 +24,7 @@ def lazy_embed_import_dep():
 
 def check_cudf():
     try:
-        import cudf
+        _, _, cudf = lazy_cudf_import_has_dependancy
         return True, cudf
     except:
         return False, object

@@ -10,6 +10,7 @@ from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
+from graphistry.Engine import lazy_cudf_import_has_dependancy
 
 logger = logging.getLogger("compute.cluster")
 
@@ -40,17 +41,6 @@ def lazy_dbscan_import_has_dependency():
         logger.info("Please install cuml for GPU DBSCAN")
 
     return has_min_dependency, DBSCAN, has_cuml_dependency, cuDBSCAN
-
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
 
 
 def resolve_cpu_gpu_engine(

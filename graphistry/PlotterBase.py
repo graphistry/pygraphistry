@@ -6,7 +6,7 @@ from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode
 
-
+from .Engine import lazy_cudf_import_has_dependancy
 from .constants import SRC, DST, NODE
 from .plugins_types import CuGraphKind
 from .plugins.igraph import (
@@ -46,7 +46,7 @@ logger = setup_logger(__name__)
 @lru_cache(maxsize=1)
 def maybe_cudf():
     try:
-        import cudf
+        _, _, cudf = lazy_cudf_import_has_dependancy
         return cudf
     except ImportError:
         1

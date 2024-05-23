@@ -7,6 +7,7 @@ import pandas as pd
 
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
+from .Engine import lazy_cudf_import_has_dependancy
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             prune_weighted_edges_df_and_relabel_nodes,
                             resolve_feature_engine)
@@ -48,17 +49,6 @@ def lazy_cuml_import_has_dependancy():
             import cuml  # type: ignore
 
         return True, "ok", cuml
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
     except ModuleNotFoundError as e:
         return False, e, None
 
@@ -357,7 +347,7 @@ class UMAPMixin(MIXIN_BASE):
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
         elif emb.shape[1] == 2 and hasattr(emb, 'device'):
-            import cudf
+            _, _, cudf = lazy_cudf_import_has_dependancy
             emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
         else:
             columns = [config.X, config.Y] + [

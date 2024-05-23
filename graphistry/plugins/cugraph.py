@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Any, Dict, List, Optional, Union
 from graphistry.constants import NODE
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstract, lazy_cudf_import_has_dependancy
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types import CuGraphKind
 from graphistry.util import setup_logger
@@ -20,7 +20,7 @@ NODE_CUGRAPH = NODE
 
 
 def df_to_gdf(df: Any):
-    import cudf
+    _, _, cudf = lazy_cudf_import_has_dependancy
     if isinstance(df, cudf.DataFrame):
         return df
     elif isinstance(df, pd.DataFrame):
@@ -44,7 +44,8 @@ def from_cugraph(self,
     
     """
 
-    import cudf, cugraph
+    import cugraph
+    _, _, cudf = lazy_cudf_import_has_dependancy
 
     g = self
 
@@ -117,7 +118,8 @@ def to_cugraph(self: Plottable,
     Load from pandas, cudf, or dask_cudf DataFrames
     """
 
-    import cudf, cugraph
+    import cugraph
+    _, _, cudf = lazy_cudf_import_has_dependancy
     if kind == 'Graph':
         CG = cugraph.Graph
     elif kind == 'MultiGraph':

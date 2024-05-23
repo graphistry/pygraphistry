@@ -1,6 +1,7 @@
 from typing import Any, Callable, cast, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import math, pandas as pd
 from .Plottable import Plottable
+from .Engine import lazy_cudf_import_has_dependancy
 from .layout import SugiyamaLayout, group_in_a_box_layout as group_in_a_box_layout_base
 from .layout.graph import Graph
 from .util import deprecated, setup_logger
@@ -209,7 +210,7 @@ class LayoutsMixin(MIXIN_BASE):
                 # TODO remove
                 # cudf 0.19 fallback
                 logger.info('Tree x positions using Pandas fallback for RAPIDS < 0.21')
-                import cudf
+                _, _, cudf = lazy_cudf_import_has_dependancy
                 assert isinstance(g2._nodes, cudf.DataFrame)
                 xs_ps = (g2
                          ._nodes[[level_col]].to_pandas()

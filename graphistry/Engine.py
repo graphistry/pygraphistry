@@ -26,7 +26,8 @@ def lazy_cudf_import_has_dependancy():
     try:
         import warnings
 
-        warnings.filterwarnings("ignore")
+        warnings.filterwarnings('ignore', category=UserWarning)
+        
         import cudf  # type: ignore
 
         return True, "ok", cudf
