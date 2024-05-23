@@ -178,8 +178,8 @@ class ClusterMixin(MIXIN_BASE):
         """DBSCAN clustering on cpu or gpu infered by .engine flag
         """
         dbscan = deps.dbscan
-        cuDBSCAN = if deps.cuml:
-    import cuml.DBSCAN as cuDBSCAN
+        if deps.cuml:
+            import cuml.DBSCAN as cuDBSCAN
 
         if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
