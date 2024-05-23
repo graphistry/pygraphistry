@@ -883,14 +883,14 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    
+    assert_imported()
     if dirty_cat:
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
     all_numeric = is_dataframe_all_numeric(ndf)
-    if not all_numeric and has_dirty_cat:
+    if not all_numeric and dirty_cat:
         data_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold,
@@ -937,7 +937,7 @@ def process_dirty_dataframes(
             X_enc, columns=features_transformed, index=ndf.index
         )
         X_enc = X_enc.fillna(0.0)
-    elif all_numeric and not has_dirty_cat:
+    elif all_numeric and not dirty_cat:
         numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
         logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
@@ -952,7 +952,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_dirty_cat  # noqa: E126,W503
+        and dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1000,7 +1000,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_dirty_cat  # noqa: E126,W503
+        and not dirty_cat  # noqa: E126,W503
     ):
         logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
