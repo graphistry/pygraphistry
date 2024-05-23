@@ -7,6 +7,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.8 - 2024-04-30]
+
+### Added
+
+* Fix from_json when json object contains predicates.
+
+## [0.33.7 - 2024-04-06]
+
+* Fix refresh() for SSO
+
+## [0.33.6 - 2024-04-05]
+
+### Added
+
+* `featurize()`, on error, coerces `object` dtype cols to `.astype(str)` and retries
+
+## [0.33.5 - 2024-03-11]
+
+### Fixed
+
+* Fix upload-time validation rejecting graphs without a nodes table
+
+## [0.33.4 - 2024-02-29]
+
+### Added
+
+* Fix validations import.
+
+## [0.33.3 - 2024-02-28]
+
+### Added
+
+* Validations for dataset encodings.
+
 ## [0.33.2 - 2024-02-24]
 
 ### Added

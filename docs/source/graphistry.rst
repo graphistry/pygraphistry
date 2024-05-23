@@ -86,6 +86,13 @@ Arrow File Uploader Module
     :undoc-members:
     :show-inheritance:
 
+Validation
+==================
+.. toctree::
+   :maxdepth: 3
+
+   graphistry.validate
+
 Versioneer
 ==================
 
