@@ -56,7 +56,7 @@ class TestComputeCluster(unittest.TestCase):
             g2 = g.dbscan(**params)
             self.assertTrue(g2._dbscan_params == params, f'dbscan params not set correctly, found {g2._dbscan_params} but expected {params}')
         
-    @pytest.mark.skipif(not has_gpu_dbscan or not umap, reason="requires ai dependencies")
+    @pytest.mark.skipif(not cuDBSCAN or not umap, reason="requires ai dependencies")
     def test_transform_dbscan(self):
         kind = 'nodes'
         g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
