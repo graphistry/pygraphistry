@@ -21,10 +21,10 @@ NODE_CUGRAPH = NODE
 
 def df_to_gdf(df: Any):
     _, _, cudf = lazy_cudf_import_has_dependancy
-    if isinstance(df, cudf.DataFrame):
+    if isinstance(df, cudf.DataFrame):  # type: ignore
         return df
     elif isinstance(df, pd.DataFrame):
-        return cudf.from_pandas(df)
+        return cudf.from_pandas(df)  # type: ignore
     else:
         raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
 
@@ -65,10 +65,10 @@ def from_cugraph(self,
 
     if g._edges is not None and g._source is not None and g._destination is not None and merge_if_existing:
 
-        if isinstance(g._edges, cudf.DataFrame):
+        if isinstance(g._edges, cudf.DataFrame):  # type: ignore
             g_indexed_df = g._edges
         elif isinstance(g._edges, pd.DataFrame):
-            g_indexed_df = cudf.from_pandas(g._edges)
+            g_indexed_df = cudf.from_pandas(g._edges)  # type: ignore
 
         else:
             was_dask = False
@@ -142,7 +142,7 @@ def to_cugraph(self: Plottable,
     edges_df = self._edges[list(opts.values())]
     if edges_df is None:
         raise ValueError('No edges loaded')
-    elif isinstance(edges_df, cudf.DataFrame):
+    elif isinstance(edges_df, cudf.DataFrame):  # type: ignore
         G.from_cudf_edgelist(edges_df, **opts)
     elif isinstance(edges_df, pd.DataFrame):
         G.from_pandas_edgelist(edges_df, **opts)
@@ -159,7 +159,7 @@ def to_cugraph(self: Plottable,
             raise ValueError('Unsupported edge data type, expected pd/cudf.DataFrame, got: %s', type(edges_df))
 
     if self._node is not None and self._nodes is not None:
-        nodes_gdf = self._nodes if isinstance(self._nodes, cudf.DataFrame) else cudf.from_pandas(self._nodes)
+        nodes_gdf = self._nodes if isinstance(self._nodes, cudf.DataFrame) else cudf.from_pandas(self._nodes)  # type: ignore
         G.add_nodes_from(nodes_gdf[self._node])
 
     return G

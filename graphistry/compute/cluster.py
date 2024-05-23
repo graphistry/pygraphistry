@@ -66,6 +66,7 @@ def resolve_cpu_gpu_engine(
         f"but received: {engine} :: {type(engine)}"
     )
 
+
 def make_safe_gpu_dataframes(X, y, engine):
     """helper method to coerce a dataframe to the correct type (pd vs cudf)"""
     def safe_cudf(X, y):

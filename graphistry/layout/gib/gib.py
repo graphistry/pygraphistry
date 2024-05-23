@@ -57,7 +57,7 @@ def group_in_a_box_layout(
         else:
             try:
                 _, _, cudf = lazy_cudf_import_has_dependancy
-                if isinstance(self._edges, cudf.DataFrame):
+                if isinstance(self._edges, cudf.DataFrame):  # type: ignore
                     engine = Engine.CUDF
                 else:
                     raise ValueError('Could not infer engine, please specify')
