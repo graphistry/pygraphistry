@@ -54,7 +54,7 @@ else:
 #         return False, e, None
 
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(name=__name__)
 
 
 # #########################################################################################
