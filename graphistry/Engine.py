@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-import subprocess
+
 
 class Engine(Enum):
     PANDAS : str = 'pandas'
@@ -21,29 +21,18 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
-
-def is_gpu_available():
-    try:
-        output = subprocess.check_output("lspci | grep -i nvidia", shell=True)
-        return len(output) > 0
-    except subprocess.CalledProcessError:
-        return False
-
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import_has_dependancy():
-    if is_gpu_available:
-        try:
-            import warnings
+    try:
+        import warnings
 
-            warnings.filterwarnings('ignore', category=UserWarning)
-            
-            import cudf  # type: ignore
+        warnings.filterwarnings('ignore', category=UserWarning)
+        
+        import cudf  # type: ignore
 
-            return True, "ok", cudf
-        except ModuleNotFoundError as e:
-            return False, e, None
-    else:
-        return False, "No GPU available", None
+        return True, "ok", cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def resolve_engine(
     engine: Union[EngineAbstract, str],
