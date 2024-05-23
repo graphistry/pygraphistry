@@ -4,17 +4,41 @@ import pandas as pd
 import unittest
 import graphistry
 import numpy as np
-
-from graphistry.embed_utils import lazy_embed_import_dep, check_cudf
+# import tqdm as tqdm_
+from graphistry.dep_manager import deps
+from graphistry import networks
 
 import logging
 logger = logging.getLogger(__name__)
 
-dep_flag, _, _, _, _, _, _, _ = lazy_embed_import_dep()
-has_cudf, cudf = check_cudf()
+# not previously imported but needed to check if we can run tests via dep_flag
+torch_ = deps.torch
+nn_ = deps.torch_nn
+dgl_ = deps.dgl
+tqdm_ = deps.tqdm
+if dgl_:
+    from dgl.dataloading import GraphDataLoader
+if torch_:
+    from torch import nn
+    from torch.nn import functional as F_
+
+HeteroEmbed_ = deps.graphistry.networks.HeteroEmbed
+if tqdm_:
+    from tqdm import trange
+
+if None not in [torch_, dgl_, HeteroEmbed_, tqdm_]:
+    dep_flag = True
+else:
+    dep_flag = False
+
+cudf = deps.cudf
+if cudf:
+    test_cudf = True
+else:
+    test_cudf = False
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = test_cudf and os.environ["TEST_CUDF"] != "0"
 
 class TestEmbed(unittest.TestCase):
 
