@@ -2,7 +2,7 @@ import logging, numpy as np, pandas as pd
 from typing import Any, List, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
-from graphistry.Engine import Engine, EngineAbstract, lazy_cudf_import_has_dependancy
+from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
@@ -82,7 +82,7 @@ class ComputeMixin(MIXIN_BASE):
                 engine_concrete = Engine.PANDAS
             else:
                 try:
-                    _, _, cudf = lazy_cudf_import_has_dependancy
+                    import cudf
                     if isinstance(g._edges, cudf.DataFrame):
                         engine_concrete = Engine.CUDF
                 except ImportError:
@@ -210,7 +210,7 @@ class ComputeMixin(MIXIN_BASE):
             if isinstance(nodes, pd.Series):
                 nodes = {g._node: nodes.to_numpy()}
             else:
-                _, _, cudf = lazy_cudf_import_has_dependancy
+                import cudf
                 if isinstance(nodes, cudf.Series):
                     nodes = {g._node: nodes.to_numpy()}
                 else:

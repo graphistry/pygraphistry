@@ -2,7 +2,7 @@ from typing import List, Optional, Union
 from typing_extensions import Literal
 import pandas as pd
 
-from graphistry.Engine import Engine, lazy_cudf_import_has_dependancy
+from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .partition import partition
@@ -56,7 +56,7 @@ def group_in_a_box_layout(
             engine = Engine.PANDAS
         else:
             try:
-                _, _, cudf = lazy_cudf_import_has_dependancy
+                import cudf
                 if isinstance(self._edges, cudf.DataFrame):
                     engine = Engine.CUDF
                 else:
