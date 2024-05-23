@@ -180,7 +180,8 @@ def partitioned_layout(
             edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
             edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
         elif engine == Engine.CUDF:
-            _, _, cudf = lazy_cudf_import_has_dependancy, cupy as cp
+            _, _, cudf = lazy_cudf_import_has_dependancy
+            import cupy as cp
             edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
             edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
         else:
@@ -199,7 +200,8 @@ def partitioned_layout(
         if combined_nodes.y.isna().any():
             updates['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
     elif engine == Engine.CUDF:
-        _, _, cudf = lazy_cudf_import_has_dependancy, cupy as cp
+        _, _, cudf = lazy_cudf_import_has_dependancy
+        import cupy as cp
         if combined_nodes.x.isna().any():
             updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
         if combined_nodes.y.isna().any():
