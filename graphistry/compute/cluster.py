@@ -176,7 +176,7 @@ class ClusterMixin(MIXIN_BASE):
     ):
         """DBSCAN clustering on cpu or gpu infered by .engine flag
         """
-        DBSCAN = deps.dbscan
+        dbscan = deps.dbscan
         cuDBSCAN = deps.cuml.DBSCAN
 
         if engine_dbscan in [CUML]:

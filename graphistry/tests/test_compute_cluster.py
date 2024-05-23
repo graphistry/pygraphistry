@@ -8,6 +8,7 @@ from graphistry.util import ModelDict
 from graphistry.dep_manager import deps
 umap = deps.umap
 dbscan = deps.dbscan
+cuDBSCAN = deps.cuml.DBSCAN
 
 ndf = edf = pd.DataFrame({'src': [1, 2, 1, 4], 'dst': [4, 5, 6, 1], 'label': ['a', 'b', 'b', 'c']})
 
