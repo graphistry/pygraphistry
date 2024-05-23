@@ -9,7 +9,7 @@ from graphistry.dep_manager import deps
 umap = deps.umap
 dbscan = deps.dbscan
 if deps.cuml:
-    import cuml.DBSCAN as 
+    import cuml.DBSCAN as cuDBSCAN
 else:
     cuDBSCAN = None
 
