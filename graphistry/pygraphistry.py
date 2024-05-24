@@ -11,6 +11,7 @@ from datetime import datetime
 from .arrow_uploader import ArrowUploader
 from .ArrowFileUploader import ArrowFileUploader
 
+from .Engine import lazy_cudf_import_has_dependancy
 from . import util
 from . import bolt_util
 from .plotter import Plotter
