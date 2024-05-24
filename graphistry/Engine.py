@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-
+import subprocess
 
 class Engine(Enum):
     PANDAS : str = 'pandas'
@@ -21,7 +21,6 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
-import subprocess
 
 def is_gpu_available():
     try:
