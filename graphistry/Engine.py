@@ -21,18 +21,30 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
+import subprocess
+
+def is_gpu_available():
+    try:
+        output = subprocess.check_output("nvidia-smi", shell=True)
+        return len(output) > 0
+    except subprocess.CalledProcessError:
+        return False
+
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
+    if is_gpu_available():
+        try:
+            import warnings
 
-        warnings.filterwarnings('ignore', category=UserWarning)
-        
-        import cudf  # type: ignore
+            warnings.filterwarnings('ignore', category=UserWarning)
+            
+            import cudf  # type: ignore
 
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
+            return True, "ok", cudf
+        except ModuleNotFoundError as e:
+            return False, e, None
+    else:
+        return False, 'no gpu available', None
 
 def resolve_engine(
     engine: Union[EngineAbstract, str],
