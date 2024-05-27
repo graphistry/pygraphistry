@@ -21,7 +21,7 @@ class DepManager:
         elif pkg not in GPU_REQ:
             self._add_deps(pkg)
 
-    def _is_gpu_available():
+    def _is_gpu_available(self):
         try:
             output = subprocess.check_output("nvidia-smi", shell=True)
             return len(output) > 0
