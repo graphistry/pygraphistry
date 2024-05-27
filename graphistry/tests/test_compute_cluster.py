@@ -4,12 +4,14 @@ import pytest
 import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
-from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
-from graphistry.umap_utils import lazy_umap_import_has_dependancy
 
-has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import_has_dependency()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
-
+from graphistry.dep_manager import deps
+umap = deps.umap
+dbscan = deps.dbscan
+if deps.cuml:
+    import cuml.DBSCAN as cuDBSCAN
+else:
+    cuDBSCAN = None
 
 ndf = edf = pd.DataFrame({'src': [1, 2, 1, 4], 'dst': [4, 5, 6, 1], 'label': ['a', 'b', 'b', 'c']})
 
@@ -24,7 +26,7 @@ class TestComputeCluster(unittest.TestCase):
             self.assertTrue(g._edge_dbscan is not None, 'instance has no `_edge_dbscan` method')
             self.assertTrue(DBSCAN in g._edges, 'edge df has no `_dbscan` attribute')
     
-    @pytest.mark.skipif(not has_dbscan or not has_umap, reason="requires ai dependencies")
+    @pytest.mark.skipif(not dbscan or not umap, reason="requires ai dependencies")
     def test_umap_cluster(self):
         g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
         for kind in ['nodes', 'edges']:
@@ -37,14 +39,14 @@ class TestComputeCluster(unittest.TestCase):
             else:
                 self.assertEqual(g2._edges[DBSCAN].tolist(), g3._edges[DBSCAN].tolist())
 
-    @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
+    @pytest.mark.skipif(not dbscan, reason="requires ai dependencies")
     def test_featurize_cluster(self):
         g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
         for kind in ['nodes', 'edges']:
             g = g.featurize(kind=kind, n_topics=2).dbscan(kind=kind, verbose=True)
             self._condition(g, kind)
             
-    @pytest.mark.skipif(not has_dbscan or not has_umap, reason="requires ai dependencies")
+    @pytest.mark.skipif(not dbscan or not umap, reason="requires ai dependencies")
     def test_dbscan_params(self):
         dbscan_params = [ModelDict('Testing UMAP', kind='nodes', min_dist=0.2, min_samples=1, cols=None, target=False, 
                                    fit_umap_embedding=False, verbose=True, engine_dbscan='sklearn'), 
@@ -57,7 +59,7 @@ class TestComputeCluster(unittest.TestCase):
             g2 = g.dbscan(**params)
             self.assertTrue(g2._dbscan_params == params, f'dbscan params not set correctly, found {g2._dbscan_params} but expected {params}')
         
-    @pytest.mark.skipif(not has_gpu_dbscan or not has_umap, reason="requires ai dependencies")
+    @pytest.mark.skipif(not cuDBSCAN or not umap, reason="requires ai dependencies")
     def test_transform_dbscan(self):
         kind = 'nodes'
         g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')

@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-
+from .dep_manager import deps
 
 class Engine(Enum):
     PANDAS : str = 'pandas'
@@ -21,17 +21,6 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
-#TODO use new importer when it lands (this is copied from umap_utils)
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
 
 def resolve_engine(
     engine: Union[EngineAbstract, str],
@@ -58,15 +47,14 @@ def resolve_engine(
         if isinstance(g_or_df, pd.DataFrame):
             return Engine.PANDAS
 
-        has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
-        if has_cudf_dependancy_:
-            import cudf
+        cudf = deps.cudf
+        if cudf:
             if isinstance(g_or_df, cudf.DataFrame):
                 return Engine.CUDF
             raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')
     
-    has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
-    if has_cudf_dependancy_:
+    cudf = deps.cudf
+    if cudf:
         return Engine.CUDF
     return Engine.PANDAS
 
@@ -86,7 +74,7 @@ def df_to_engine(df, engine: Engine):
         else:
             return df.to_pandas()
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         if isinstance(df, cudf.DataFrame):
             return df
         else:
@@ -97,7 +85,7 @@ def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.concat
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.concat
     raise NotImplementedError("Only pandas/cudf supported")
 
@@ -105,7 +93,7 @@ def df_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.DataFrame
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.DataFrame
     raise NotImplementedError("Only pandas/cudf supported")
 
@@ -113,6 +101,6 @@ def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.Series
     elif engine == Engine.CUDF:
-        import cudf
+        cudf = deps.cudf
         return cudf.Series
     raise NotImplementedError("Only pandas/cudf supported")
