@@ -3,6 +3,7 @@ from typing import Any, Callable, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
+from inspect import getmodule
 
 from graphistry.privacy import Privacy, Mode
 
@@ -1119,8 +1120,21 @@ class PlotterBase(Plottable):
         base = self
 
         if not (source is None):
-            base = base.bind(source=source)
+            if not (source is None):
+                if isinstance(source, str):
+                    if ':' in source:
+                        source = source.replace(':', '_').replace('-', '_')
+                elif isinstance(source, list):
+                    source = [s.replace(':', '_').replace('-', '_') if isinstance(s, str) else s for s in source]
+                base = base.bind(source=source)
         if not (destination is None):
+            if not (destination is None):
+                if isinstance(destination, str):
+                    if ':' in destination:
+                        destination = destination.replace(':', '_').replace('-', '_')
+                elif isinstance(destination, list):
+                    destination = [d.replace(':', '_').replace('-', '_') if isinstance(d, str) else d for d in destination]
+                base = base.bind(destination=destination)
             base = base.bind(destination=destination)
         if edge is not None:
             base = base.bind(edge=edge)
@@ -1382,9 +1396,11 @@ class PlotterBase(Plottable):
         if graph is None:
             if self._edges is None:
                 error('Graph/edges must be specified.')
+            self._edges.columns = self._edges.columns.to_series().apply(lambda x: x.replace(':', '_')).apply(lambda x: x.replace('-', '_'))
             g = self._edges
         else:
             g = graph
+        print(g)
         n = self._nodes if nodes is None else nodes
         name = name or self._name or ("Untitled " + random_string(10))
         description = description or self._description or ("")
