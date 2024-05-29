@@ -1396,7 +1396,7 @@ class PlotterBase(Plottable):
         if graph is None:
             if self._edges is None:
                 error('Graph/edges must be specified.')
-            self._edges.columns = self._edges.columns.to_series().apply(lambda x: x.replace(':', '_')).apply(lambda x: x.replace('-', '_'))
+            self._edges.columns = self._edges.columns.to_series().apply(lambda x: x.replace(':', '_')).apply(lambda x: x.replace('-', '_'))  # type: ignore
             g = self._edges
         else:
             g = graph
