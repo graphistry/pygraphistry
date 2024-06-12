@@ -393,6 +393,27 @@ def set_currency_to_float(
     mask = where_is_currency_column(df, col)
     df[col, mask] = df[col, mask].apply(convert_money_string_to_float)
 
+def try_coerce_to_numeric(ndf: pd.DataFrame):
+    try:
+        nndf = ndf.copy()
+        object_columns = nndf.select_dtypes(include=['object']).columns
+        for j in object_columns:
+            num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
+            if num_floats > len(nndf[j]) / 2:  # most of column is float
+                try:
+                    nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
+                    exploded = False
+                    logger.info("Coerced strings to floats")
+                except:
+                    nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
+                    nndf = nndf.explode(j)
+                    nndf[j] = nndf[j].astype(float)
+                    nndf.reset_index(drop=True, inplace=True)
+                    exploded = True
+                    logger.info("Exploded rows with multiple values in single cell")
+    except:
+        pass
+    return nndf, exploded
 
 def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
     is_all_numeric = True
@@ -890,6 +911,7 @@ def process_dirty_dataframes(
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
+    ndf, explode = try_coerce_to_numeric(ndf)
     all_numeric = is_dataframe_all_numeric(ndf)
     if not all_numeric and has_dirty_cat:
         data_encoder = SuperVectorizer(
@@ -912,22 +934,22 @@ def process_dirty_dataframes(
             nndf[object_columns] = nndf[object_columns].astype(str)
             X_enc = data_encoder.fit_transform(nndf, y)
             logger.info("obj columns: %s are being converted to str", object_columns)
-        except AssertionError:
-            nndf = ndf.copy()
-            object_columns = pd.DataFrame(nndf).select_dtypes(include=['object']).columns
-            for j in object_columns:
-                num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
-                if num_floats > len(nndf[j]) / 2:
-                    print(nndf[j].dropna())
-                    try:
-                        nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
-                        logger.info("Coerced strings to floats")
-                    except:
-                        nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
-                        nndf = nndf.explode(j)
-                        nndf[j] = nndf[j].astype(float)
-                        logger.info("Exploded rows with multiple values in single cell")
-            X_enc = data_encoder.fit_transform(nndf, y)
+        # except AssertionError:  # is actually all_numeric
+            # nndf = pd.DataFrame(ndf.copy())
+            # object_columns = nndf.select_dtypes(include=['object']).columns
+            # for j in object_columns:
+            #     num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
+            #     if num_floats > len(nndf[j]) / 2:  # most of column is float
+            #         try:
+            #             nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
+            #             logger.info("Coerced strings to floats")
+            #             X_enc = data_encoder.fit_transform(nndf, y)
+            #         except:
+            #             nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
+            #             nndf = nndf.explode(j)
+            #             nndf[j] = nndf[j].astype(float)
+            #             logger.info("Exploded rows with multiple values in single cell")
+                        # X_enc, _, data_encoder, _ = get_numeric_transformers(nndf, None)
         X_enc = make_array(X_enc)
 
         import warnings

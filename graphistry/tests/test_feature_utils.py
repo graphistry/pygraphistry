@@ -438,6 +438,18 @@ class TestFeatureMethods(unittest.TestCase):
                                   return_scalers=True)
 
 
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_type_edgecase(self):
+        values = pd.Series(np.random.rand(50))
+        num_to_convert = int(len(values) * 0.05)
+        indices_to_convert = np.random.choice(len(values), num_to_convert, replace=False)
+        for i in indices_to_convert:
+            values[i] = str(values[i])
+        values.loc[13] = '92.026 123.903 702.124'
+        values.loc[33] = '26.092 903.123'
+
+        graphistry.nodes(values).featurize()
+        assert True
 
 if __name__ == "__main__":
     unittest.main()

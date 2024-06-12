@@ -408,7 +408,7 @@ class TestUMAPMethods(unittest.TestCase):
         indices_to_convert = np.random.choice(len(values), num_to_convert, replace=False)
         for i in indices_to_convert:
             values[i] = str(values[i])
-        values.loc[13] = '92.026 123.903'
+        values.loc[13] = '92.026 123.903 702.124'
         values.loc[33] = '26.092 903.123'
 
         graphistry.nodes(values).umap()
