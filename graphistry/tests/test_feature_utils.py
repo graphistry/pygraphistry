@@ -456,5 +456,6 @@ class TestFeatureMethods(unittest.TestCase):
         graphistry.nodes(df).featurize()
         assert True
 
+
 if __name__ == "__main__":
     unittest.main()
