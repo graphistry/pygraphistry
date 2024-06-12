@@ -440,15 +440,20 @@ class TestFeatureMethods(unittest.TestCase):
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_type_edgecase(self):
-        values = pd.Series(np.random.rand(50))
-        num_to_convert = int(len(values) * 0.05)
-        indices_to_convert = np.random.choice(len(values), num_to_convert, replace=False)
-        for i in indices_to_convert:
-            values[i] = str(values[i])
-        values.loc[13] = '92.026 123.903 702.124'
-        values.loc[33] = '26.092 903.123'
+        df = pd.DataFrame({
+            'A': np.random.rand(50),
+            'B': np.random.rand(50)
+        })
+        num_to_convert = int(len(df.A.values) * 0.1)
+        indices_to_convert = np.random.choice(len(df.A.values), num_to_convert, replace=False)
+        indices_to_convertB = np.random.choice(len(df.A.values), num_to_convert, replace=False)
+        for i,j in zip(indices_to_convert, indices_to_convertB):
+            df.A[i] = str(df.A[i])
+            df.B[j] = str(df.B[j])
+        df.A.loc[13] = '92.026 123.903 702.124'
+        df.B.loc[33] = '26.092 903.123'
 
-        graphistry.nodes(values).featurize()
+        graphistry.nodes(df).featurize()
         assert True
 
 if __name__ == "__main__":
