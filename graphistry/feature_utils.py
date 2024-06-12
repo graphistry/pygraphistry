@@ -404,11 +404,14 @@ def try_coerce_to_numeric(ndf: pd.DataFrame):
                     nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
                     logger.info("Coerced strings to floats")
                 except:
-                    nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
-                    nndf = nndf.explode(j)
+                    # nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
+                    # nndf = nndf.explode(j)
+                    # logger.info("Exploded rows with multiple values in single cell")
+                    nndf[j] = nndf[j].apply(lambda x: str(x).split()[0] if isinstance(x, str) and ' ' in x else x)
                     nndf[j] = nndf[j].astype(float)
                     nndf.reset_index(drop=True, inplace=True)
-                    logger.info("Exploded rows with multiple values in single cell")
+                    logger.info("took first float of tuple in single cell")
+
     except:
         pass
     return nndf
@@ -932,22 +935,6 @@ def process_dirty_dataframes(
             nndf[object_columns] = nndf[object_columns].astype(str)
             X_enc = data_encoder.fit_transform(nndf, y)
             logger.info("obj columns: %s are being converted to str", object_columns)
-        # except AssertionError:  # is actually all_numeric
-            # nndf = pd.DataFrame(ndf.copy())
-            # object_columns = nndf.select_dtypes(include=['object']).columns
-            # for j in object_columns:
-            #     num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
-            #     if num_floats > len(nndf[j]) / 2:  # most of column is float
-            #         try:
-            #             nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
-            #             logger.info("Coerced strings to floats")
-            #             X_enc = data_encoder.fit_transform(nndf, y)
-            #         except:
-            #             nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
-            #             nndf = nndf.explode(j)
-            #             nndf[j] = nndf[j].astype(float)
-            #             logger.info("Exploded rows with multiple values in single cell")
-                        # X_enc, _, data_encoder, _ = get_numeric_transformers(nndf, None)
         X_enc = make_array(X_enc)
 
         import warnings
