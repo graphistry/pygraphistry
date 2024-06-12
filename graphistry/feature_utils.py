@@ -912,6 +912,22 @@ def process_dirty_dataframes(
             nndf[object_columns] = nndf[object_columns].astype(str)
             X_enc = data_encoder.fit_transform(nndf, y)
             logger.info("obj columns: %s are being converted to str", object_columns)
+        except AssertionError:
+            nndf = ndf.copy()
+            object_columns = pd.DataFrame(nndf).select_dtypes(include=['object']).columns
+            for j in object_columns:
+                num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
+                if num_floats > len(nndf[j]) / 2:
+                    print(nndf[j].dropna())
+                    try:
+                        nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
+                        logger.info("Coerced strings to floats")
+                    except:
+                        nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
+                        nndf = nndf.explode(j)
+                        nndf[j] = nndf[j].astype(float)
+                        logger.info("Exploded rows with multiple values in single cell")
+            X_enc = data_encoder.fit_transform(nndf, y)
         X_enc = make_array(X_enc)
 
         import warnings
