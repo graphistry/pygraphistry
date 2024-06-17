@@ -44,7 +44,7 @@ base_extras_light = {
 }
 
 base_extras_data = {
-    'data-gen': ['names-dataset', 'faker', 'random-address','phone-gen']
+    'data-gen': ['random-address', 'factory_boy']
 }
 
 
