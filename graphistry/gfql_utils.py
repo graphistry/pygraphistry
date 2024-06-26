@@ -1,6 +1,7 @@
 import requests
 import json
 import logging
+from inspect import getmodule
 
 from graphistry import server, api_token
 
@@ -36,5 +37,17 @@ def run_serialized_gfql_query(dataset_id, operations):
 
 
 def serial_gfql(dataset_id,operations={"type": "Edge","filter_dict": {}}):
-    response = run_serialized_gfql_query(dataset_id, operations)
+    if 'frame' in str(getmodule(dataset_id)):
+        import graphistry as g
+        try:
+            dataset_id = g.edges(dataset_id).materialize_nodes()
+        except:
+            dataset_id = g.nodes(dataset_id)
+    if 'plotter' in str(getmodule(dataset_id)):
+        import re
+        shareable_and_embeddable_url = dataset_id.plot(render=False)
+        dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
+        dataset_id = dataset_id.group(1)
+    if isinstance(dataset_id,str):
+        response = run_serialized_gfql_query(dataset_id, operations)
     return response.text
