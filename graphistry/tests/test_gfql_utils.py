@@ -11,6 +11,7 @@ class TestGFQL_serial_remote(unittest.TestCase):
     @pytest.fixture
     def grab_fb_dataset_id() -> None:
         df = pd.read_csv('https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/facebook_combined.txt', sep=' ', names=['s', 'd'])
+        import graphistry
         g = graphistry.edges(df, 's', 'd').materialize_nodes()
         shareable_and_embeddable_url = g.plot(render=False)
         dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
