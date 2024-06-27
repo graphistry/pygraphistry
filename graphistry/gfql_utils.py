@@ -1,13 +1,22 @@
 import requests
 import json
+import re
 import logging
+from typing import TYPE_CHECKING, List, Any
 from inspect import getmodule
 
-from graphistry import server, api_token
+if TYPE_CHECKING:
+    MIXIN_BASE = FeatureMixin
+else:
+    MIXIN_BASE = object
 
 logger = logging.getLogger(__name__)
 
-def process_gfql_query_direct(dataset_id,operations,server,auth_token):
+class GFQLUtils(MIXIN_BASE):
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+    
+def process_gfql_query_direct(self, dataset_id: str,operations: List[Any], server: str, auth_token:str)-> None:
     
     url = 'https://'+server+'/api/v2/etl/datasets/'+dataset_id+'/gfql/'
     headers = {
@@ -20,13 +29,13 @@ def process_gfql_query_direct(dataset_id,operations,server,auth_token):
 }
     return requests.post(url, headers=headers, json=data)
 
-def run_serialized_gfql_query(dataset_id, operations):
+def run_serialized_gfql_query(self, dataset_id: str, operations: List[Any]) -> None:
     if not isinstance(operations, str):
         operations_str = json.dumps(operations)
     else:
         operations_str = operations
-
-    response_data = process_gfql_query_direct(
+    from graphistry import server, api_token
+    response_data = process_gfql_query_direct(self,
         dataset_id = dataset_id,
         operations = operations,
         server = server(),
@@ -36,18 +45,23 @@ def run_serialized_gfql_query(dataset_id, operations):
     return response_data
 
 
-def serial_gfql(dataset_id,operations={"type": "Edge","filter_dict": {}}):
+def run(self,dataset_id,operations={"type": "Edge","filter_dict": {}}) -> None:
+    response = None
+    print(str(getmodule(dataset_id)))
     if 'frame' in str(getmodule(dataset_id)):
-        import graphistry as g
+        print('part1')
+        import graphistry
         try:
-            dataset_id = g.edges(dataset_id).materialize_nodes()
+            dataset_id = graphistry.edges(dataset_id).materialize_nodes()
         except:
             dataset_id = g.nodes(dataset_id)
     if 'plotter' in str(getmodule(dataset_id)):
+        print('part2')
         import re
         shareable_and_embeddable_url = dataset_id.plot(render=False)
         dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
         dataset_id = dataset_id.group(1)
     if isinstance(dataset_id,str):
-        response = run_serialized_gfql_query(dataset_id, operations)
+        print('part3')
+        response = run_serialized_gfql_query(self,dataset_id, operations)
     return response.text
