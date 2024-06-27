@@ -5,6 +5,8 @@ import logging
 from typing import TYPE_CHECKING, List, Any
 from inspect import getmodule
 
+from .feature_utils import FeatureMixin
+
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
 else:
