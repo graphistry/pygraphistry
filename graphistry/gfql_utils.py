@@ -54,7 +54,7 @@ def run(self,dataset_id,operations={"type": "Edge","filter_dict": {}}) -> None:
         try:
             dataset_id = graphistry.edges(dataset_id).materialize_nodes()
         except:
-            dataset_id = g.nodes(dataset_id)
+            dataset_id = graphistry.nodes(dataset_id)
     if 'plotter' in str(getmodule(dataset_id)):
         print('part2')
         import re
