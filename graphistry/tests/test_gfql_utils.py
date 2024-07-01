@@ -18,12 +18,12 @@ class test_GFQLUtils(unittest.TestCase):
         dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
         return g, dataset_id.group(1)
         
-    def null_filter_ex(dataset_id=grab_fb_dataset_id) -> None:
+    def null_filter_ex(g,dataset_id=grab_fb_dataset_id) -> None:
         g.gfql(operations = [{"type": "Edge",
                         "filter_dict": {}}]
      )
         
-    def simple_filter_ex(dataset_id=grab_fb_dataset_id) -> None:
+    def simple_filter_ex(g,dataset_id=grab_fb_dataset_id) -> None:
         g.gfql(operations = [{"type": "Edge",
                         "filter_dict": {},
                         "direction": "undirected",
