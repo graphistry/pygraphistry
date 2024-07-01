@@ -17,7 +17,7 @@ class GFQLMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
         pass
     
-    def _process_gfql_query_direct(self, dataset_id: str, operations: List[Any], server: str, auth_token: str)-> None:
+    def _process_gfql_query_direct(self, dataset_id: str, operations: List[Any], server: str, auth_token: str) -> None:
         
         url = 'https://' + server + '/api/v2/etl/datasets/' + dataset_id + '/gfql/'
         headers = {
