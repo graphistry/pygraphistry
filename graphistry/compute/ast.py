@@ -105,10 +105,9 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
             k: predicates_from_json(v) if isinstance(v, dict) else v
             for k, v in d[key].items()
         }
-    elif key in d and d[key] is not None:
+    if d[key] is not None:
         raise ValueError('filter_dict must be a dict or None')
-    else:
-        return None
+    return None
 
 ##############################################################################
 

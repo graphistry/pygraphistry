@@ -223,8 +223,7 @@ class PlotterBase(Plottable):
         if in_ipython():
             from IPython.lib.pretty import pretty
             return pretty(rep)
-        else:
-            return str(rep)
+        return str(rep)
 
     def addStyle(self, fg=None, bg=None, page=None, logo=None):
         """Set general visual styles
@@ -1399,7 +1398,7 @@ class PlotterBase(Plottable):
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
-        elif api_version == 3:
+        else:
             logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
             PyGraphistry.refresh()
             logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
@@ -1825,11 +1824,10 @@ class PlotterBase(Plottable):
         if isinstance(table, pa.Table):
             #TODO: should we hash just in case there's an older-identity hash match?
             return table
-        
+
         if isinstance(table, pd.DataFrame):
             hashed = None
             if memoize:
-                
                 try:
                     hashed = hash_pdf(table)
                 except TypeError:
@@ -1838,15 +1836,13 @@ class PlotterBase(Plottable):
                                 'try identifying which columns have types that Pandas cannot hash, and convert them '
                                 'to hashable types like strings.')
 
-                try:
-                    if hashed in PlotterBase._pd_hash_to_arrow:
-                        logger.debug('pd->arrow memoization hit: %s', hashed)
-                        return PlotterBase._pd_hash_to_arrow[hashed].v
-                    else:
-                        logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
-                except:
-                    logger.debug('Failed to hash pdf', exc_info=True)
-                    1
+            try:
+                if hashed in PlotterBase._pd_hash_to_arrow:
+                    logger.debug('pd->arrow memoization hit: %s', hashed)
+                    return PlotterBase._pd_hash_to_arrow[hashed].v
+                logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
+            except:
+                logger.debug('Failed to hash pdf', exc_info=True)
 
             out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
 
@@ -1858,7 +1854,6 @@ class PlotterBase(Plottable):
             return out
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
-
             hashed = None
             if memoize:
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
@@ -1866,15 +1861,13 @@ class PlotterBase(Plottable):
                     hashlib.sha256(table.hash_values().to_numpy().tobytes()).hexdigest()
                     + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
                 )
-                try:
-                    if hashed in PlotterBase._cudf_hash_to_arrow:
-                        logger.debug('cudf->arrow memoization hit: %s', hashed)
-                        return PlotterBase._cudf_hash_to_arrow[hashed].v
-                    else:
-                        logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
-                except:
-                    logger.debug('Failed to hash cudf', exc_info=True)
-                    1
+            try:
+                if hashed in PlotterBase._cudf_hash_to_arrow:
+                    logger.debug('cudf->arrow memoization hit: %s', hashed)
+                    return PlotterBase._cudf_hash_to_arrow[hashed].v
+                logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
+            except:
+                logger.debug('Failed to hash cudf', exc_info=True)
 
             out = table.to_arrow()
 
@@ -1884,8 +1877,7 @@ class PlotterBase(Plottable):
                 PlotterBase._cudf_hash_to_arrow[hashed] = w
 
             return out
-        
-        # TODO: per-gdf hashing? 
+
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
@@ -1910,35 +1902,33 @@ class PlotterBase(Plottable):
     def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):  # noqa: C901
 
         logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
-            mode, memoize, name, description, type(edges), type(nodes))
+                    mode, memoize, name, description, type(edges), type(nodes))
 
         try:
             if len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
         except:
             1
-        #compatibility checks
+        # compatibility checks
         if mode == 'json':
             if not (metadata is None):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
                     raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
             if not (self._complex_encodings is None
-                or self._complex_encodings == {  # noqa: W503
-                    'node_encodings': {'current': {}, 'default': {} },
-                    'edge_encodings': {'current': {}, 'default': {} }}):
+                    or self._complex_encodings == {  # noqa: W503
+                        'node_encodings': {'current': {}, 'default': {} },
+                        'edge_encodings': {'current': {}, 'default': {} }}):
                 raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')
 
         if mode == 'json':
             edges_df = self._table_to_pandas(edges)
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
-        elif mode == 'arrow':
+        if mode == 'arrow':
             edges_arr = self._table_to_arrow(edges, memoize)
             nodes_arr = self._table_to_arrow(nodes, memoize)
             return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
-            #token=None, dataset_id=None, url_params = None)
-        else:
-            raise ValueError('Unknown mode: ' + mode)
+        raise ValueError('Unknown mode: ' + mode)
 
 
     # Main helper for creating ETL1 payload
@@ -2349,22 +2339,17 @@ class PlotterBase(Plottable):
 
     def layout_settings(
         self,
-
         play: Optional[int] = None,
-
         locked_x: Optional[bool] = None,
         locked_y: Optional[bool] = None,
         locked_r: Optional[bool] = None,
-
         left: Optional[float] = None,
         top: Optional[float] = None,
         right: Optional[float] = None,
         bottom: Optional[float] = None,
-
         lin_log: Optional[bool] = None,
         strong_gravity: Optional[bool] = None,
         dissuade_hubs: Optional[bool] = None,
-
         edge_influence: Optional[float] = None,
         precision_vs_speed: Optional[float] = None,
         gravity: Optional[float] = None,
@@ -2392,21 +2377,18 @@ class PlotterBase(Plottable):
                 g.plot()
         """
 
-        settings : dict = {
+        settings: dict = {
             **({} if play is None else {'play': play}),
             **({} if locked_x is None else {'lockedX': locked_x}),
             **({} if locked_y is None else {'lockedY': locked_y}),
             **({} if locked_r is None else {'lockedR': locked_r}),
-
             **({} if left is None else {'left': left}),
             **({} if top is None else {'top': top}),
             **({} if right is None else {'right': right}),
             **({} if bottom is None else {'bottom': bottom}),
-
             **({} if lin_log is None else {'linLog': lin_log}),
             **({} if strong_gravity is None else {'strongGravity': strong_gravity}),
             **({} if dissuade_hubs is None else {'dissuadeHubs': dissuade_hubs}),
-
             **({} if edge_influence is None else {'edgeInfluence': edge_influence}),
             **({} if precision_vs_speed is None else {'precisionVsSpeed': precision_vs_speed}),
             **({} if gravity is None else {'gravity': gravity}),
@@ -2415,8 +2397,7 @@ class PlotterBase(Plottable):
 
         if len(settings.keys()) > 0:
             return self.settings(url_params={**self._url_params, **settings})
-        else:
-            return self
+        return self
 
 
     def scene_settings(
@@ -2451,7 +2432,7 @@ class PlotterBase(Plottable):
                 g.plot()
         """
 
-        settings : dict = {
+        settings: dict = {
             **({} if menu is None else {'menu': menu}),
             **({} if info is None else {'info': info}),
             **({} if show_arrows is None else {'showArrows': show_arrows}),
@@ -2464,5 +2445,4 @@ class PlotterBase(Plottable):
 
         if len(settings.keys()) > 0:
             return self.settings(url_params={**self._url_params, **settings})
-        else:
-            return self
+        return self

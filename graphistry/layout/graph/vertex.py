@@ -26,13 +26,12 @@ class Vertex(VertexBase):
 
     @property
     def index(self):
-        from .graphBase import GraphBase
-        if self.__index:
-            return self.__index
-        elif isinstance(self.component, GraphBase):
-            self.__index = self.component.verticesPoset.index(self)
-            return self.__index
-        else:
+            from .graphBase import GraphBase
+            if self.__index:
+                return self.__index
+            if isinstance(self.component, GraphBase):
+                self.__index = self.component.verticesPoset.index(self)
+                return self.__index
             return None
 
     def __lt__(self, v):

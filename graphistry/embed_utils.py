@@ -347,7 +347,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _score_triplets(self, triplets, threshold, anomalous, retain_old_edges, return_dataframe):
         """Score triplets using the trained model."""
-        
+    
         log(f"{triplets.shape[0]} triplets for inference")
         ############################################################
         # the bees knees 
@@ -363,7 +363,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             predicted_links = triplets
             this_score = scores
-            
+        
         predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
         predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
         predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
@@ -371,7 +371,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         predicted_links['score'] = this_score.detach().numpy()
         predicted_links.sort_values(by='score', ascending=False, inplace=True)
-        
+    
         log(f"-- {predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
 
         if retain_old_edges:
@@ -381,13 +381,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             ).drop_duplicates()
         else:
             all_links = predicted_links
-            
         
         if return_dataframe:
             return all_links
-        else:
-            g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
-            return g_new
+        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
+        return g_new
         
         
     def predict_links(
@@ -550,12 +548,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
 
     def _eval(self, threshold: float):
-        if self._test_idx is not None:
-            triplets = self._triplets[self._test_idx]  # type: ignore
-            score = self._score(triplets)
-            score = len(score[score >= threshold]) / len(score)  # type: ignore
-            return score
-        else:
+            if self._test_idx is not None:
+                triplets = self._triplets[self._test_idx]  # type: ignore
+                score = self._score(triplets)
+                score = len(score[score >= threshold]) / len(score)  # type: ignore
+                return score
             log("WARNING: train_split must be < 1 for _eval()")
 
 

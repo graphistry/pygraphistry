@@ -94,8 +94,7 @@ def make_safe_gpu_dataframes(X, y, engine):
     if has_cudf_dependancy_:
         # print('DBSCAN CUML Matrices')
         return safe_cudf(X, y)
-    else:
-        return X, y
+    return X, y
 
 
 def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, target):
@@ -318,7 +317,7 @@ class ClusterMixin(MIXIN_BASE):
     def _transform_dbscan(
         self, df: pd.DataFrame, ydf, kind, verbose
     ) -> Tuple[Union[pd.DataFrame, None], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        
+    
         res = self.bind()
         if hasattr(res, "_dbscan_params"):
             # Assume that we are transforming to last fit of dbscan
@@ -344,11 +343,11 @@ class ClusterMixin(MIXIN_BASE):
                 X_ = emb
             else:
                 X_ = XX
-            
+        
             if res.engine_dbscan == 'cuml':
                 print('Transform DBSCAN not yet supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
-            
+        
             X_, emb = make_safe_gpu_dataframes(X_, emb, 'pandas')  
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
@@ -357,13 +356,13 @@ class ClusterMixin(MIXIN_BASE):
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:
                 df = df.assign(_dbscan=labels)
-            
+        
             if verbose:
                 print(f"Transformed DBSCAN: {len(df[DBSCAN].unique())} clusters")
 
             return emb, X, y, df  # type: ignore
-        else:
-            raise Exception("No dbscan model found. Please run `g.dbscan()` first")
+    
+        raise Exception("No dbscan model found. Please run `g.dbscan()` first")
 
     def transform_dbscan(
         self,

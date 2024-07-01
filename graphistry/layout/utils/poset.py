@@ -27,11 +27,10 @@ class Poset(object):
         return "\n".join(s)
 
     def add(self, obj):
-        if obj is None:
-            raise ValueError
-        if obj in self:
-            return self.get(obj)
-        else:
+            if obj is None:
+                raise ValueError
+            if obj in self:
+                return self.get(obj)
             self.o[obj] = obj
             return obj
 

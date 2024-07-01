@@ -94,10 +94,9 @@ def strtobool(val: Any) -> bool:
     val = str(val).lower()
     if val in ('y', 'yes', 't', 'true', 'on', '1'):
         return True
-    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+    if val in ('n', 'no', 'f', 'false', 'off', '0'):
         return False
-    else:
-        raise ValueError("invalid truth value %r" % (val,))
+    raise ValueError("invalid truth value %r" % (val,))
 
 class PyGraphistry(object):
     _config = _get_initial_config()
@@ -282,9 +281,8 @@ class PyGraphistry(object):
             input("Press Enter to open browser ...")
             # open browser to auth_url
             webbrowser.open(auth_url)
-        else:
-            print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
-            print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
+        print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
+        print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
 
         if sso_timeout is not None:
             time.sleep(1)
@@ -320,21 +318,9 @@ class PyGraphistry(object):
             else:
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
                 return None
-        else:
-            # print("Start getting token ...")
-            # token = None
-            # for i in range(10):
-            #     token, org_name = PyGraphistry._sso_get_token()
-            #     if token:
-            #         # set org_name to sso org
-            #         PyGraphistry._config['org_name'] = org_name
-            #         print("Successfully logged in")
-            #         return PyGraphistry.api_token()
-            #     print("Keep trying to get token ...")
-            #     time.sleep(5)
 
-            print("Please run graphistry.sso_get_token() to complete the authentication")
-            return None
+        print("Please run graphistry.sso_get_token() to complete the authentication")
+        return None
 
     @staticmethod
     def sso_get_token():
@@ -454,9 +440,8 @@ class PyGraphistry(object):
         """Cache credentials for JWT token access. Default off due to not being safe."""
         if value is None:
             return PyGraphistry._config["store_token_creds_in_memory"]
-        else:
-            v = bool(strtobool(value)) if isinstance(value, str) else value
-            PyGraphistry._config["store_token_creds_in_memory"] = v
+        v = bool(strtobool(value)) if isinstance(value, str) else value
+        PyGraphistry._config["store_token_creds_in_memory"] = v
 
     @staticmethod
     def client_protocol_hostname(value=None):
@@ -475,8 +460,7 @@ class PyGraphistry(object):
                 else cfg_client_protocol_hostname
             )
             return cph
-        else:
-            PyGraphistry._config["client_protocol_hostname"] = value
+        PyGraphistry._config["client_protocol_hostname"] = value
 
     @staticmethod
     def api_key(value=None):
@@ -2434,8 +2418,7 @@ class PyGraphistry(object):
             json_response = response.json()
             if json_response.get('status', None) == 'OK':
                 return True
-            else:
-                return json_response.get('message', '')
+            return json_response.get('message', '')
         except:
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
@@ -2499,12 +2482,12 @@ switch_org = PyGraphistry.switch_org
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, np.ndarray) and obj.ndim == 1:
-            return obj.tolist()
-        elif isinstance(obj, np.generic):
-            return obj.item()
-        elif isinstance(obj, type(pd.NaT)):
-            return None
-        elif isinstance(obj, datetime):
-            return obj.isoformat()
-        return json.JSONEncoder.default(self, obj)
+            if isinstance(obj, np.ndarray) and obj.ndim == 1:
+                return obj.tolist()
+            if isinstance(obj, np.generic):
+                return obj.item()
+            if isinstance(obj, type(pd.NaT)):
+                return None
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            return json.JSONEncoder.default(self, obj)

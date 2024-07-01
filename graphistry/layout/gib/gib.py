@@ -15,14 +15,13 @@ logger = setup_logger(__name__)
 def resolve_partition_key(g, partition_key=None):
     if partition_key is not None:
         return partition_key
-    elif g._nodes is not None and 'partition' in g._nodes:
+    if g._nodes is not None and 'partition' in g._nodes:
         return 'partition'
-    elif g._nodes is not None and 'community' in g._nodes:
+    if g._nodes is not None and 'community' in g._nodes:
         return 'community'
-    elif g._nodes is not None and 'cluster' in g._nodes:
+    if g._nodes is not None and 'cluster' in g._nodes:
         return 'cluster'
-    else:
-        return 'partition'
+    return 'partition'
 
 
 def group_in_a_box_layout(

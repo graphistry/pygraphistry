@@ -83,10 +83,9 @@ def is_legacy_cuml():
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
-        else:
-            return False
     except ModuleNotFoundError:
         return False
+    return False
 
 
 UMAPEngineConcrete = Literal['cuml', 'umap_learn']
@@ -135,10 +134,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         return new_kwargs['X'], new_kwargs['y']
 
     has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
-    if has_cudf_dependancy_:
-        return safe_cudf(X, y)
-    else:
-        return X, y
+    return safe_cudf(X, y) if has_cudf_dependancy_ else (X, y)
 
 ###############################################################################
 
@@ -248,13 +244,12 @@ class UMAPMixin(MIXIN_BASE):
 
     #@safe_gpu_dataframes
     def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
-        if y is None:
-            return None
-        if y.ndim == 1:
-            return y
-        elif y.ndim == 2 and y.shape[1] == 1:
-            return y
-        else:
+            if y is None:
+                return None
+            if y.ndim == 1:
+                return y
+            if y.ndim == 2 and y.shape[1] == 1:
+                return y
             logger.warning(
                 f"* Ignoring target column of shape {y.shape} in UMAP fit, "
                 "as it is not one dimensional"
@@ -262,11 +257,10 @@ class UMAPMixin(MIXIN_BASE):
             return None
     
     def _get_embedding(self, kind='nodes'):
-        if kind == 'nodes':
-            return self._node_embedding
-        elif kind == 'edges':
-            return self._edge_embedding
-        else:
+            if kind == 'nodes':
+                return self._node_embedding
+            if kind == 'edges':
+                return self._edge_embedding
             raise ValueError('kind must be one of `nodes` or `edges`')
 
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None, verbose=False):
@@ -719,7 +713,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-            
+        
         if isinstance(df, type(emb)):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
@@ -747,8 +741,7 @@ class UMAPMixin(MIXIN_BASE):
                 return res.bind(point_x=x_name, point_y=y_name).layout_settings(
                     play=play
                 )
-            else:
-                return res.bind(point_x=x_name, point_y=y_name)
+            return res.bind(point_x=x_name, point_y=y_name)
 
         return res
 

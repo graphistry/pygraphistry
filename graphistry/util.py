@@ -154,17 +154,18 @@ def check_set_memoize(
         logger.warning(
             f"! Failed {name} speedup attempt. Continuing without memoization speedups."
         )
+        return False
+
     try:
         if hashed in weakref:
             logger.debug(f"{name} memoization hit: %s", hashed)
             return weakref[hashed].v
-        else:
-            logger.debug(
-                f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
-            )
+        logger.debug(
+            f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
+        )
     except:
         logger.debug(f"Failed to hash {name} kwargs", exc_info=True)
-        pass
+        return False
 
     if memoize and (hashed is not None):
         w = WeakValueWrapper(g)
@@ -382,8 +383,7 @@ def is_notebook():
             return False
     except:
         return False
-    else:  # pragma: no cover
-        return True
+    return True
     
     
 def printmd(string, color=None, size=20):

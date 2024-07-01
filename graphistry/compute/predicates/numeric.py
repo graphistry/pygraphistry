@@ -106,8 +106,7 @@ class Between(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         if self.inclusive:
             return (s >= self.lower) & (s <= self.upper)
-        else:
-            return (s > self.lower) & (s < self.upper)
+        return (s > self.lower) & (s < self.upper)
         
     def validate(self) -> None:
         assert isinstance(self.lower, (int, float))

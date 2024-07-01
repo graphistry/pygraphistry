@@ -370,46 +370,46 @@ def collapse_algo(
     
     if compute_key in seen:  # it has already traversed this path, skip
         return g
-    else:
-        if has_property(g, parent, attribute, column):  # if (T, *)
-            # add start node to super node index
-            tkey = f"{parent} {parent}"  # it will reduce this to `parent` but can add to `seen`
-            if tkey not in compute_key:  # its love!
-                seen[tkey] = 1
-                collapse_nodes_and_edges(g, parent, parent)
-            if has_property(g, child, attribute, column):  # if (T, T)
-                if VERBOSE:
-                    logger.info("-" * 80)
-                    logger.info(
-                        f" ** [ parent: {parent}, child: {child} ] both have property"
-                    )
-                collapse_nodes_and_edges(
-                    g, parent, child
-                )  # will make a new parent off of parent, child names
-                # add to seen
-                seen[compute_key] = 1
-                for e in get_edges_of_node(
-                    g, parent, outgoing_edges=True, hops=1
-                ).values:  # False just includes the child node and goes into infinite loop when parent = child
-                    collapse_algo(
-                        g, e, child, attribute, column, seen
-                    )  # now child is the parent, and the edges are the start node
-        # else do nothing collapse-y to parent, move on to child
-        else:  # if (F, *)
-            #  do nothing to child, parent is child, and child is edge and recurse
-            for e in get_edges_of_node(g, child, outgoing_edges=True, hops=1).values:
-                if VERBOSE:
-                    logger.info(
-                        f" -- Parent {parent} does not have property, looking at node <[ {e} from {child} ]>"
-                    )
-
-                if (e == child) and (parent == child):
-                    # get it unstuck
-                    return g
-                
+    
+    if has_property(g, parent, attribute, column):  # if (T, *)
+        # add start node to super node index
+        tkey = f"{parent} {parent}"  # it will reduce this to `parent` but can add to `seen`
+        if tkey not in compute_key:  # its love!
+            seen[tkey] = 1
+            collapse_nodes_and_edges(g, parent, parent)
+        if has_property(g, child, attribute, column):  # if (T, T)
+            if VERBOSE:
+                logger.info("-" * 80)
+                logger.info(
+                    f" ** [ parent: {parent}, child: {child} ] both have property"
+                )
+            collapse_nodes_and_edges(
+                g, parent, child
+            )  # will make a new parent off of parent, child names
+            # add to seen
+            seen[compute_key] = 1
+            for e in get_edges_of_node(
+                g, parent, outgoing_edges=True, hops=1
+            ).values:  # False just includes the child node and goes into infinite loop when parent = child
                 collapse_algo(
                     g, e, child, attribute, column, seen
                 )  # now child is the parent, and the edges are the start node
+    else:  # if (F, *)
+        #  do nothing to child, parent is child, and child is edge and recurse
+        for e in get_edges_of_node(g, child, outgoing_edges=True, hops=1).values:
+            if VERBOSE:
+                logger.info(
+                    f" -- Parent {parent} does not have property, looking at node <[ {e} from {child} ]>"
+                )
+
+            if (e == child) and (parent == child):
+                # get it unstuck
+                return g
+            
+            collapse_algo(
+                g, e, child, attribute, column, seen
+            )  # now child is the parent, and the edges are the start node
+
     return g
 
 

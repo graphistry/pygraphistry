@@ -19,9 +19,8 @@ def assert_json_serializable(data):
 def serialize_to_json_val(obj: Any) -> JSONVal:
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [serialize_to_json_val(item) for item in obj]
-    elif isinstance(obj, dict):
+    if isinstance(obj, dict):
         return {key: serialize_to_json_val(value) for key, value in obj.items()}
-    else:
-        raise TypeError(f"Unsupported type for to_json: {type(obj)}")
+    raise TypeError(f"Unsupported type for to_json: {type(obj)}")

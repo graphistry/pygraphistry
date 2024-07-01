@@ -320,6 +320,7 @@ class ComputeMixin(MIXIN_BASE):
             )
 
             g2 = g2.drop_nodes(roots[g2._node])
+
         nodes_df0 = nodes_with_levels[0]
         if len(nodes_with_levels) > 1:
             nodes_df = pd.concat([nodes_df0] + nodes_with_levels[1:])

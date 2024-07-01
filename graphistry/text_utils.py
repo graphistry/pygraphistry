@@ -134,7 +134,7 @@ class SearchToGraphMixin(MIXIN_BASE):
                 g2 = g.umap(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            
+        
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
             Otherwise, can set `g2.build_index()` to build it ahead of time.
 
@@ -162,7 +162,6 @@ class SearchToGraphMixin(MIXIN_BASE):
                     f"Columns to search for `{query}` \
                              need to be given when fuzzy=False, found {cols}"
                 )
-
             logger.info(f"-- Word Match: [[ {query} ]]")
             return (
                 pd.concat(
@@ -173,9 +172,8 @@ class SearchToGraphMixin(MIXIN_BASE):
                 ),
                 None,
             )
-        else:
-            logger.info(f"-- Search: [[ {query} ]]")
-            return self._query(query, thresh=thresh, top_n=top_n)
+        logger.info(f"-- Search: [[ {query} ]]")
+        return self._query(query, thresh=thresh, top_n=top_n)
 
     def search_graph(
         self,

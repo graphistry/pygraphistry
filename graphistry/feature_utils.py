@@ -181,12 +181,11 @@ def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
     if y is None:
         return df[[]]  # oh brills, basically index
-    elif isinstance(y, str):
+    if isinstance(y, str):
         return df[[y]]
-    elif isinstance(y, list):
+    if isinstance(y, list):
         return df[y]
-    else:
-        raise ValueError(f"Unexpected type for y: {type(y)}")
+    raise ValueError(f"Unexpected type for y: {type(y)}")
 
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
@@ -202,12 +201,11 @@ def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
     if X is None:
         return df
-    elif isinstance(X, str):
+    if isinstance(X, str):
         return df[[X]]
-    elif isinstance(X, list):
+    if isinstance(X, list):
         return df[X]
-    else:
-        raise ValueError(f"Unexpected type for X: {type(X)}")
+    raise ValueError(f"Unexpected type for X: {type(X)}")
 
 
 # #########################################################################
@@ -466,10 +464,7 @@ def check_if_textual_column(
                 f"of words {mean_n_words:.2f}"
             )
             return True
-        else:
-            return False
-    else:
-        return False
+    return False
 
 
 def get_textual_columns(
@@ -2200,11 +2195,10 @@ class FeatureMixin(MIXIN_BASE):
             if scaled:
                 return getattr(self, encoder).transform_scaled(df, ydf)
             return getattr(self, encoder).transform(df, ydf)
-        else:
-            logger.debug(
-                "Fit on data (g.featurize(kind='..', ...))"
-                "before being able to transform data"
-            )
+        logger.debug(
+            "Fit on data (g.featurize(kind='..', ...))"
+            "before being able to transform data"
+        )
 
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 

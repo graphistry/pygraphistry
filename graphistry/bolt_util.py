@@ -163,15 +163,14 @@ def neo_val_to_pd_val(v):
     if v_mod == 'neo4j.time':
         if v.__class__ == neo4j.time.DateTime:
             return v.to_native()  # datetime.datetime
-        elif v.__class__ == neo4j.time.Date:
+        if v.__class__ == neo4j.time.Date:
             return datetime.combine(v.to_native(), t0)  # datatime.datatime
-        elif v.__class__ == neo4j.time.Time:
+        if v.__class__ == neo4j.time.Time:
             return pd.to_timedelta(v.iso_format())  # timedelta
-        elif v.__class__ == neo4j.time.Duration:
+        if v.__class__ == neo4j.time.Duration:
             #TODO expand out?
             return v.iso_format()  # str
-        else:
-            return str(v)
+        return str(v)
 
     #handle neo4j.spatial.* later
 

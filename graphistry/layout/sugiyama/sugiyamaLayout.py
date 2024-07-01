@@ -293,10 +293,7 @@ class SugiyamaLayout(object):
 
         # we will simply ignore the given root not corresponding to any vertices
         found = g.get_vertex_from_data(root)
-        if found is not None:
-            return found
-        else:
-            return None
+        return found
 
     def _edge_inverter(self):
         """
@@ -597,8 +594,7 @@ class SugiyamaLayout(object):
         def scale_x(value):
             if x_bounds[0] == x_bounds[1]:
                 return value
-            else:
-                return (value - x_bounds[0]) / (x_bounds[1] - x_bounds[0])
+            return (value - x_bounds[0]) / (x_bounds[1] - x_bounds[0])
 
         for layer in self.layers:
             for v in layer:

@@ -73,9 +73,9 @@ def resolve_engine(
 def df_to_pdf(df, engine: Engine):
     if engine == Engine.PANDAS:
         return df
-    elif engine == Engine.CUDF:
+    if engine == Engine.CUDF:
         return df.to_pandas()
-    elif engine == Engine.DASK:
+    if engine == Engine.DASK:
         return df.compute()
     raise ValueError('Only engines pandas/cudf supported')
 
@@ -83,20 +83,18 @@ def df_to_engine(df, engine: Engine):
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
-        else:
-            return df.to_pandas()
+        return df.to_pandas()
     elif engine == Engine.CUDF:
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
-        else:
-            return cudf.DataFrame.from_pandas(df)
+        return cudf.DataFrame.from_pandas(df)
     raise ValueError('Only engines pandas/cudf supported')
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.concat
-    elif engine == Engine.CUDF:
+    if engine == Engine.CUDF:
         import cudf
         return cudf.concat
     raise NotImplementedError("Only pandas/cudf supported")
@@ -104,7 +102,7 @@ def df_concat(engine: Engine):
 def df_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.DataFrame
-    elif engine == Engine.CUDF:
+    if engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
     raise NotImplementedError("Only pandas/cudf supported")
@@ -112,7 +110,7 @@ def df_cons(engine: Engine):
 def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
         return pd.Series
-    elif engine == Engine.CUDF:
+    if engine == Engine.CUDF:
         import cudf
         return cudf.Series
     raise NotImplementedError("Only pandas/cudf supported")

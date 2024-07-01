@@ -23,10 +23,9 @@ def df_to_gdf(df: Any):
     import cudf
     if isinstance(df, cudf.DataFrame):
         return df
-    elif isinstance(df, pd.DataFrame):
+    if isinstance(df, pd.DataFrame):
         return cudf.from_pandas(df)
-    else:
-        raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
+    raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
 
 
 def from_cugraph(self,
@@ -284,7 +283,7 @@ def compute_cugraph(
             .merge(out, how='left', on=g._node)
         )
         return g.nodes(nodes_gdf)
-    elif alg in edge_compute_algs_to_attr:
+    if alg in edge_compute_algs_to_attr:
         out = getattr(cugraph, alg)(G, **params)
         if isinstance(out, tuple):
             out = out[0]
@@ -307,7 +306,7 @@ def compute_cugraph(
             .merge(out, how='left', on=[g._source, g._destination])
         )
         return g.edges(edges_gdf)
-    elif alg in graph_compute_algs:
+    if alg in graph_compute_algs:
         out = getattr(cugraph, alg)(G, **params)
         if isinstance(out, tuple):
             out = out[0]

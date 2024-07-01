@@ -386,24 +386,6 @@ def format_hyperedges(
     is_using_categories = len(defs.categories.keys()) > 0
     cat_lookup = make_reverse_lookup(defs.categories)
 
-    # mt_pdf = pd.DataFrame({
-    #     **{
-    #         **({defs.category: pd.Series([], dtype='object')} if is_using_categories else {}),
-    #         defs.edge_type: pd.Series([], dtype='object'),
-    #         defs.attrib_id: pd.Series([], dtype='object'),
-    #         defs.event_id: pd.Series([], dtype='object'),
-    #         defs.category: pd.Series([], dtype='object'),
-    #         defs.node_id: pd.Series([], dtype='object'),
-    #     },
-    #     **({
-    #         x: pd.Series([], dtype=events[x].dtype)
-    #         for x in entity_types
-    #     } if drop_edge_attrs else {
-    #         x: pd.Series([], dtype=events[x].dtype)
-    #         for x in events.columns
-    #     })
-    # })
-
     subframes = []
     for col in sorted(entity_types):
         fields = list(set([defs.event_id] + ([x for x in events.columns] if not drop_edge_attrs else [ col ])))
@@ -439,7 +421,6 @@ def format_hyperedges(
             + [defs.edge_type, defs.attrib_id, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-            #subframes = [df.persist() for df in subframes]
             for df in subframes:
                 logger.debug('edge sub: %s', df.dtypes)
         out = concat(subframes, engine, debug).reset_index(drop=True)[ result_cols ]
@@ -448,8 +429,7 @@ def format_hyperedges(
             out.compute()
             logger.debug('////format_hyperedges')
         return out
-    else:
-        return mt_series(engine)
+    return mt_series(engine)
 
 
 def direct_edgelist_shape(entity_types: List[str], defs: HyperBindings) -> Dict[str, List[str]]:
@@ -459,11 +439,10 @@ def direct_edgelist_shape(entity_types: List[str], defs: HyperBindings) -> Dict[
     """
     if defs.edges is not None:
         return defs.edges
-    else:
-        out = {}
-        for entity_i in range(len(entity_types)):
-            out[ entity_types[entity_i] ] = entity_types[(entity_i + 1):]
-        return out
+    out = {}
+    for entity_i in range(len(entity_types)):
+        out[ entity_types[entity_i] ] = entity_types[(entity_i + 1):]
+    return out
   
       
 #ex output: DataFrameLike([{'edgeType': 'state', 'attribID': 'state::CA', 'eventID': 'eventID::0'}])
@@ -513,8 +492,7 @@ def format_direct_edges(
             out.compute()
             logger.debug('////format_direct_edges')
         return out
-    else:
-        return events[:0][[]]
+    return events[:0][[]]
 
 
 def format_hypernodes(events, defs, drop_na):

@@ -120,12 +120,10 @@ class Layer(list):
         layer_index = layout_vertex.layer
         if layout_vertex.nvs is not None and direction in layout_vertex.nvs:
             return layout_vertex.nvs[direction]
-        else:
-            above = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index - 1]
-            below = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index + 1]
-            layout_vertex.nvs = {-1: above, +1: below}
-            # if layout_vertex.dummy:
-            return layout_vertex.nvs[direction]
+        above = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index - 1]
+        below = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index + 1]
+        layout_vertex.nvs = {-1: above, +1: below}
+        return layout_vertex.nvs[direction]
         # try:
         #     return layout_vertex.nvs[direction]
         # except AttributeError:
