@@ -1,6 +1,5 @@
 import requests
 import json
-import re
 import logging
 from typing import TYPE_CHECKING, List, Any
 from inspect import getmodule
@@ -18,13 +17,13 @@ class GFQLMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
         pass
     
-    def _process_gfql_query_direct(self, dataset_id: str,operations: List[Any], server: str, auth_token:str)-> None:
+    def _process_gfql_query_direct(self, dataset_id: str,operations: List[Any], server: str, auth_token: str)-> None:
         
-        url = 'https://'+server+'/api/v2/etl/datasets/'+dataset_id+'/gfql/'
+        url = 'https://'+server+'/api/v2/etl/datasets/' + dataset_id + '/gfql/'
         headers = {
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer '+auth_token
-            }
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer ' + auth_token
+        }
 
         data = {
             "gfql_operations": operations
@@ -44,7 +43,7 @@ class GFQLMixin(MIXIN_BASE):
 
 
     def gfql(self,
-             operations: List[Any] ={"type": "Edge","filter_dict": {}}) -> None:
+             operations: List[Any] = {"type": "Edge","filter_dict": {}}) -> None:
         response = None
         import re
         shareable_and_embeddable_url = self.plot(render=False)
