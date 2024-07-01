@@ -5,6 +5,7 @@ from .layouts import LayoutsMixin
 from .feature_utils import FeatureMixin  # type: ignore
 from .dgl_utils import DGLGraphMixin  # type: ignore
 from .umap_utils import UMAPMixin  # type: ignore
+from .gfql_utils import GFQLMixin  # type: ignore
 from .embed_utils import HeterographEmbedModuleMixin  # type: ignore
 from .text_utils import SearchToGraphMixin  # type: ignore
 from .compute.conditional import ConditionalMixin  # type: ignore
@@ -17,6 +18,7 @@ mixins = ([
     SearchToGraphMixin,
     DGLGraphMixin, ClusterMixin,
     UMAPMixin,
+    GFQLMixin,
     FeatureMixin, ConditionalMixin,
     LayoutsMixin,
     ComputeMixin, PlotterBase, object
@@ -33,6 +35,7 @@ class Plotter(  # type: ignore
         ConditionalMixin.__init__(self, *args, **kwargs)
         FeatureMixin.__init__(self, *args, **kwargs)
         UMAPMixin.__init__(self, *args, **kwargs)
+        GFQLMixin.__init__(self, *args, **kwargs)
         ClusterMixin.__init__(self, *args, **kwargs)
         DGLGraphMixin.__init__(self, *args, **kwargs)
         SearchToGraphMixin.__init__(self, *args, **kwargs)
