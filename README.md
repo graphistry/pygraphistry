@@ -11,9 +11,9 @@
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-**PyGraphistry is a Python visual graph AI library to extract, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** Installing with optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your `time to graph` for going from raw data to visualizations and AI models down to three lines of code.
+**PyGraphistry is a dataframe-native Python visual graph AI library to extract, query, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** The GFQL query language supports running a large subset of the Cypher property graph query language without requiring external software and adds optional GPU acceleration. Installing PyGraphistry with the optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your **time to graph** for going from raw data to visualizations and AI models down to three lines of code.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
+The optional visual engine, Graphistry, gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
@@ -42,7 +42,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   </tr>
 </table>
 
-## PyGraphistry is...
+## **PyGraphistry is:**
 
 * **Fast & gorgeous:** Interactively cluster, filter, inspect large amounts of data, and zip through timebars. It clusters large graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
@@ -145,6 +145,36 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     enriched_nodes = my_function2(g1._nodes)
     g2 = g1.edges(enriched_edges).nodes(enriched_nodes)
     g2.plot()
+    ```
+
+* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb))
+
+  Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
+
+    ```python
+    from graphistry import n, e_undirected, is_in
+
+    g2 = g1.chain([
+      n({'user': 'Biden'}),
+      e_undirected(),
+      n(name='bridge'),
+      e_undirected(),
+      n({'user': is_in(['Trump', 'Obama'])})
+    ])
+
+    print('# bridges', len(g2._nodes[g2._nodes.bridge]))
+    g2.plot()
+    ```
+
+    Enable GFQL's optional automatic GPU acceleration for 43X+ speedups:
+    
+    ```python
+    # Switch from Pandas CPU dataframes to RAPIDS GPU dataframes
+    import cudf
+    g2 = g1.edges(lambda g: cudf.DataFrame(g._edges))
+    # GFQL will automaticallly run on a GPU
+    g3 = g2.chain([n(), e(hops=3), n()])
+    g3.plot()
     ```
 
 * [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
@@ -391,7 +421,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     preds = model.predict(X_new)
     ```
 
- * Encode model definitions and compare models against each other
+* Encode model definitions and compare models against each other
 
    ```python
     # graphistry
@@ -415,7 +445,6 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     # compare g2 vs g3 or add to different pipelines
     ```
 
-
 See `help(g.featurize)` for more options
 
 ### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
@@ -436,6 +465,7 @@ See `help(g.featurize)` for more options
       new_df = pd.read_csv(...)
       embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes', return_graph=False)
     ```
+
 * Infer a new graph from new data using the old umap coordinates to run inference without having to train a new umap model.
 
     ```python
@@ -447,7 +477,6 @@ See `help(g.featurize)` for more options
       g3 = g.transform_umap(new_df, return_graph=True, merge_policy=True)
       g3.plot()  # useful to see how new data connects to old -- play with `sample` and `n_neighbors` to control how much of old to include
     ```
-    
 
 * UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
 
@@ -532,8 +561,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       
     ```
 
-    
-* If edges are not given, `g.umap(..)` will supply them: 
+* If edges are not given, `g.umap(..)` will supply them:
 
     ```python
       ndf = pd.read_csv(nodes.csv)
@@ -542,7 +570,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       
       g2.search_graph('my natural language query', ...).plot()
     ```
-    
+
 See `help(g.search_graph)` for options
 
 ### Knowledge Graph Embeddings
@@ -598,7 +626,7 @@ See `help(g.search_graph)` for options
 
 See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` for options
 
-### DBSCAN 
+### DBSCAN
 
 * Enrich UMAP embeddings or featurization dataframe with GPU or CPU DBSCAN
 
@@ -1073,7 +1101,7 @@ g.addStyle(logo={
 The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
 ```python
-from graphistry import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 g = (graphistry
   .edges(pd.DataFrame({
     's': ['a', 'b'],
@@ -1101,20 +1129,52 @@ g2.plot() # nodes are values from cols s, d, k1
   .hop( # filter to subgraph
     #almost all optional
     direction='forward', # 'reverse', 'undirected'
-    hops=1, # number or None if to_fixed_point
+    hops=2, # number (1..n hops, inclusive) or None if to_fixed_point
     to_fixed_point=False, 
-    source_node_match={"k2": 0},
+
+    #every edge source node must match these
+    source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},
+    source_node_query='k2 == 0',
+
+    #every edge must match these
     edge_match={"k1": "x"},
-    destination_node_match={"k2": 2})
-  .chain([ # filter to subgraph
+    edge_query='k1 == "x"',
+
+    #every edge destination node must match these
+    destination_node_match={"k2": 2},
+    destination_node_query='k2 == 2 or k2 == 4',
+  )
+  .chain([ # filter to subgraph with Cypher-style GFQL
     n(),
-    n({'k2': 0}),
+    n({'k2': 0, "m": 'ok'}), #specific values
+    n({'type': is_in(["type1", "type2"])}), #multiple valid values
+    n(query='k2 == 0 or k2 == 4'), #dataframe query
     n(name="start"), # add column 'start':bool
     e_forward({'k1': 'x'}, hops=1), # same API as hop()
     e_undirected(name='second_edge'),
+    e_reverse(
+      {'k1': 'x'}, # edge property match
+      hops=2, # 1 to 2 hops
+      #same API as hop()
+      source_node_match={"k2": 2},
+      source_node_query='k2 == 2 or k2 == 4',
+      edge_match={"k1": "x"},
+      edge_query='k1 == "x"',
+      destination_node_match={"k2": 0},
+      destination_node_query='k2 == 0')
   ])
+  # replace as one node the node w/ given id + transitively connected nodes w/ col=attr
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
+
+Both `hop()` and `chain()` (GFQL) match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
+
+* categorical: is_in, duplicated
+* temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
+* numeric: gt, lt, ge, le, eq, ne, between, isna, notna
+* string: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
+
+Both `hop()` and `chain()` will run on GPUs when passing in RAPIDS dataframes. Specify parameter `engine='cudf'` to be sure.
 
 #### Table to graph
 
@@ -1122,6 +1182,30 @@ g2.plot() # nodes are values from cols s, d, k1
 df = pd.read_csv('events.csv')
 hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
 g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
+```python
+hg = graphistry.hypergraph(
+  df,
+  ['from_user', 'to_user', 'email', 'org'],
+  direct=True,
+  opts={
+
+   # when direct=True, can define src -> [ dst1, dst2, ...] edges
+  'EDGES': {
+    'org': ['from_user'], # org->from_user
+    'from_user': ['email', 'to_user'],  #from_user->email, from_user->to_user
+  },
+
+  'CATEGORIES': {
+    # determine which columns share the same namespace for node generation:
+    # - if user 'louie' is both a from_user and to_user, show as 1 node
+    # - if a user & org are both named 'louie', they will appear as 2 different nodes
+    'user': ['from_user', 'to_user']
+  }
+})
+g = hg['graph']
 g.plot()
 ```
 
@@ -1162,6 +1246,10 @@ assert 'pagerank' in g2._nodes.columns
 
 #### Graph pattern matching
 
+PyGraphistry supports GFQL, its PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
+
+See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb) and the CPU/GPU [benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb)
+
 Traverse within a graph, or expand one graph against another
 
 Simple node and edge filtering via `filter_edges_by_dict()` and `filter_nodes_by_dict()`:
@@ -1178,16 +1266,37 @@ Method `.hop()` enables slightly more complicated edge filters:
 
 ```python
 
+from graphistry import is_in, gt
+
 # (a)-[{"v": 1, "type": "z"}]->(b) based on g
 g2b = g2.hop(
   source_node_match={g2._node: "a"},
   edge_match={"v": 1, "type": "z"},
   destination_node_match={g2._node: "b"})
+g2b = g2.hop(
+  source_node_query='n == "a"',
+  edge_query='v == 1 and type == "z"',
+  destination_node_query='n == "b"')
+
+# (a {x in [1,2] and y > 3})-[e]->(b) based on g
+g2c = g2.hop(
+  source_node_match={
+    g2._node: "a",
+    "x": is_in([1,2]),
+    "y": gt(3)
+  },
+  destination_node_match={g2._node: "b"})
+)
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
 
+# (a or b)-[1 to 8 hops]->(anynode), based on graph g2
+g3 = g2.hop(pd.DataFrame({g2._node: is_in(['a', 'b'])}), hops=8)
+
 # (c)<-[any number of hops]-(any node), based on graph g3
+# Note multihop matches check source/destination/edge match/query predicates 
+# against every encountered edge for it to be included
 g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point=True)
 
 # (c)-[incoming or outgoing edge]-(any node),
@@ -1200,10 +1309,12 @@ g5.plot()
 Rich compound patterns are enabled via `.chain()`:
 
 ```python
-from graphistry import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 
 g2.chain([ n() ])
-g2.chain([ n({"v": 1, "y": True}) ])
+g2.chain([ n({"x": 1, "y": True}) ]),
+g2.chain([ n(query='x == 1 and y == True') ]),
+g2.chain([ n({"z": is_in([1,2,4,'z'])}) ]), # multiple valid values
 g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
 g3 = g2.chain([
   n(name="start"),  # tag node matches
@@ -1215,6 +1326,30 @@ g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
 print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
 print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
+
+See table above for more predicates like `is_in()` and `gt()`
+
+Queries can be serialized and deserialized, such as for saving and remote execution:
+
+```python
+from graphistry.compute.chain import Chain
+
+pattern = Chain([n(), e(), n()])
+pattern_json = pattern.to_json()
+pattern2 = Chain.from_json(pattern_json)
+g.chain(pattern2).plot()
+```
+
+Benefit from automatic GPU acceleration by passing in GPU dataframes:
+
+```python
+import cudf
+
+g1 = graphistry.edges(cudf.read_csv('data.csv'), 's', 'd')
+g2 = g1.chain(..., engine='cudf')
+```
+
+The parameter `engine` is optional, defaulting to `'auto'`.
 
 #### Pipelining
 
