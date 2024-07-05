@@ -42,15 +42,15 @@ class GFQLMixin(MIXIN_BASE):
         return response_data
 
 
+
     def gfql(self,
              operations: Dict[str, Collection[str]] = {"type": "Edge","filter_dict": {}},
              dataset_id: Optional[str] = None):
         response = None
         import re
-        import graphistry
         if dataset_id is None:
-            shareable_and_embeddable_url = graphistry.plot(render=False)
-            dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
-            dataset_id = dataset_id.group(1)
+            shareable_and_embeddable_url = self.plot(render=False)
+            dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)  # type: ignore
+            dataset_id = dataset_id.group(1)  # type: ignore
         response = self._run_serialized_gfql_query(dataset_id, operations)
         return response.text
