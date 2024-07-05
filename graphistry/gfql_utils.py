@@ -49,7 +49,7 @@ class GFQLMixin(MIXIN_BASE):
         response = None
         import re
         if dataset_id is None:
-            shareable_and_embeddable_url = self.plot(render=False)
+            shareable_and_embeddable_url = self.plot(render=False)  # type: ignore
             dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)  # type: ignore
             dataset_id = dataset_id.group(1)  # type: ignore
         response = self._run_serialized_gfql_query(dataset_id, operations)
