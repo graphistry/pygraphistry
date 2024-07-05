@@ -1,7 +1,7 @@
 import requests
 import json
 import logging
-from typing import TYPE_CHECKING, List, Any
+from typing import TYPE_CHECKING, List, Any, Optional
 from inspect import getmodule
 
 from .feature_utils import FeatureMixin
@@ -44,7 +44,7 @@ class GFQLMixin(MIXIN_BASE):
 
     def gfql(self,
              operations: List[Any] = {"type": "Edge","filter_dict": {}},
-             dataset_id: str = None):
+             dataset_id: Optional[str] = None):
         response = None
         import re
         import graphistry
