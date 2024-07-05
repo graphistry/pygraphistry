@@ -14,10 +14,10 @@ else:
 logger = logging.getLogger(__name__)
 
 class GFQLMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs):
         pass
     
-    def _process_gfql_query_direct(self, dataset_id: str, operations: List[Any], server: str, auth_token: str) -> None:
+    def _process_gfql_query_direct(self, dataset_id: str, operations: List[Any], server: str, auth_token: str):
         
         url = 'https://' + server + '/api/v2/etl/datasets/' + dataset_id + '/gfql/'
         headers = {
@@ -30,7 +30,7 @@ class GFQLMixin(MIXIN_BASE):
     }
         return requests.post(url, headers=headers, json=data)
 
-    def _run_serialized_gfql_query(self, dataset_id: str, operations: List[Any]) -> None:
+    def _run_serialized_gfql_query(self, dataset_id: str, operations: List[Any]):
         from graphistry import server, api_token
         response_data = self._process_gfql_query_direct(
             dataset_id = dataset_id,
@@ -43,12 +43,15 @@ class GFQLMixin(MIXIN_BASE):
 
 
     def gfql(self,
-             operations: List[Any] = {"type": "Edge","filter_dict": {}}) -> None:
+             operations: List[Any] = {"type": "Edge","filter_dict": {}},
+             dataset_id: str = None):
         response = None
         import re
-        shareable_and_embeddable_url = self.plot(render=False)
-        dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
-        dataset_id = dataset_id.group(1)
+        import graphistry
+        if dataset_id is None:
+            shareable_and_embeddable_url = self.plot(render=False)
+            dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
+            dataset_id = dataset_id.group(1)
         response = self._run_serialized_gfql_query(dataset_id, operations)
         return response.text
     
