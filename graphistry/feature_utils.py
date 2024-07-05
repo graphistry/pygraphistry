@@ -31,12 +31,12 @@ if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
     try:
         from sklearn.pipeline import Pipeline
-    except ImportError:
+    except:
         Pipeline = Any
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError:
-        SentenceTransformer = None
+    # try:
+    from sentence_transformers import SentenceTransformer
+    # except:
+        # SentenceTransformer = Any
     try:
         from dirty_cat import (
             SuperVectorizer,
