@@ -9,22 +9,21 @@ import graphistry
 
 class test_GFQLUtils(unittest.TestCase):
 
-    @pytest.fixture
-    def grab_fb_dataset_id() -> None:
+    def setUp(self) -> None:
         ge_df = pd.read_csv('https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/facebook_combined.txt', sep=' ', names=['s', 'd'])
-        g = graphistry.edges(ge_df, 's', 'd')
-        g = g.nodes(g._nodes, 'id')
-        shareable_and_embeddable_url = g.plot(render=False)
+        self.g = graphistry.edges(ge_df, 's', 'd')
+        self.g = self.g.nodes(self.g._nodes, 'id')
+        shareable_and_embeddable_url = self.g.plot(render=False)
         dataset_id = re.search(r'dataset=([^&]+)&type', shareable_and_embeddable_url)
-        return g, dataset_id.group(1)
+        self.dataset_id = dataset_id.group(1)
         
-    def null_filter_ex(g,dataset_id=grab_fb_dataset_id) -> None:
-        g.gfql(operations = [{"type": "Edge",
+    def null_filter_ex(self) -> None:
+        self.g.gfql(operations = [{"type": "Edge",
                         "filter_dict": {}}]
      )
         
-    def simple_filter_ex(g,dataset_id=grab_fb_dataset_id) -> None:
-        g.gfql(operations = [{"type": "Edge",
+    def simple_filter_ex(self) -> None:
+        self.g.gfql(operations = [{"type": "Edge",
                         "filter_dict": {},
                         "direction": "undirected",
                             "to_fixed_point": False,
