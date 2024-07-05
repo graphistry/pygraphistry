@@ -54,4 +54,4 @@ class GFQLMixin(MIXIN_BASE):
             dataset_id = dataset_id.group(1)
         response = self._run_serialized_gfql_query(dataset_id, operations)
         return response.text
-    
+
