@@ -1,7 +1,7 @@
 import requests
 import json
 import logging
-from typing import TYPE_CHECKING, List, Any, Optional
+from typing import TYPE_CHECKING, Optional, Dict
 from inspect import getmodule
 
 from .feature_utils import FeatureMixin
