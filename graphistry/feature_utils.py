@@ -33,10 +33,7 @@ if TYPE_CHECKING:
         from sklearn.pipeline import Pipeline
     except:
         Pipeline = Any
-    # try:
     from sentence_transformers import SentenceTransformer
-    # except:
-        # SentenceTransformer = Any
     try:
         from dirty_cat import (
             SuperVectorizer,
