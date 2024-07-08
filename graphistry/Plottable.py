@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from typing_extensions import Literal
 import pandas as pd
 
@@ -330,3 +330,30 @@ class Plottable(object):
         if 1 + 1:
             return RuntimeError('should not happen')
         return self
+
+    def encode_axis(self, rows=[]) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def settings(self, height: Optional[float] = None, url_params: Dict[str, Any] = {}, render: Optional[bool] = None) -> 'Plottable':
+        """Specify iframe height and add URL parameter dictionary.
+
+        The library takes care of URI component encoding for the dictionary.
+
+        :param height: Height in pixels.
+        :type height: int
+
+        :param url_params: Dictionary of querystring parameters to append to the URL.
+        :type url_params: dict
+
+        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
+        :type render: bool
+
+        """
+
+        res = self.copy()
+        res._height = height or self._height
+        res._url_params = dict(self._url_params, **url_params)
+        res._render = self._render if render is None else render
+        return res
