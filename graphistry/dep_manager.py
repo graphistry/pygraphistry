@@ -19,7 +19,7 @@ class DepManager:
         except:
             pass
 
-    def import_from(self,pkg:str, name:str):
+    def import_from(self, pkg:str, name:str):
         try:
             module = __import__(pkg, fromlist=[name])
             self.pkgs[name] = module
