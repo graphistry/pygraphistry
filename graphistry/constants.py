@@ -52,6 +52,8 @@ N_HASHERS_DEFAULT = 100
 # scikit-learn params
 SKLEARN = "sklearn"
 
+# gpu-req libs
+GPU_REQ = ['cudf','cupy', 'cuml', 'numba', 'cuda']
 # #############################################################
 # Caching and other internals
 CACHE_COERCION_SIZE = 100

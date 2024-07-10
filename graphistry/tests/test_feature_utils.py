@@ -14,18 +14,24 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
     resolve_feature_engine,
-    lazy_import_has_min_dependancy,
-    lazy_import_has_dependancy_text,
     FastEncoder
 )
 
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
+from graphistry.dep_manager import DepManager
 
 np.random.seed(137)
 
-has_min_dependancy, _ = lazy_import_has_min_dependancy()
-has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
+deps = DepManager()
+dirty_cat = deps.dirty_cat
+scipy = deps.scipy
+sklearn = deps.sklearn
+if None not in [dirty_cat, scipy, sklearn]:
+    has_min_dependancy = True
+else:
+    has_min_dependancy = False
+has_min_dependancy_text = deps.sentence_transformers
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -301,7 +307,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
@@ -350,10 +356,8 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
-        self.assertTrue(
-            np.all(ndf.fillna(0) == df[cols].fillna(0)),
-            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
-        )
+        # np.all(ndf == df[cols])
+        np.array_equal(ndf, df[cols])
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
