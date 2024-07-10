@@ -27,7 +27,7 @@ test_workarounds = ['scikit-learn<=1.3.2']
 
 dev_extras = {
     'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
-    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
+    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest', 'parameterized'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],
@@ -44,10 +44,11 @@ base_extras_light = {
 }
 
 base_extras_heavy = {
-  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
+  'umap-learn': ['umap-learn', 'dirty-cat', 'scikit-learn==1.3.2'],  
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
 base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['cu-cat'] = ['cu-cat']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 

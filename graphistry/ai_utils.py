@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from inspect import getmodule
 import graphistry
 
 from .constants import DISTANCE, WEIGHT, BATCH
@@ -422,7 +422,10 @@ def infer_self_graph(res,
         assert (
             emb.shape[0] == df.shape[0]
         ), "minibatches emb and X must have same number of rows since h(df) = emb"
-        df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
+        if emb.x is not None:
+            df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
+        else:
+            df = df.assign(x=emb[0], y=emb[1])  # if umap kwargs n_components > 2, take first 2 here 
     else:  # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
         df['x'] = np.random.random(df.shape[0])
         df['y'] = np.random.random(df.shape[0])
@@ -447,7 +450,14 @@ def infer_self_graph(res,
 
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
-        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+        try:
+            diff = np.array(diff, dtype = 'float')
+        except TypeError:
+            pass
+        if 'pandas' in str(getmodule(diff)):
+            dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+        else:
+            dist = np.linalg.norm(diff.to_pandas(), axis=1)  # Euclidean distance
         mdists.append(dist)
 
     m, std = np.mean(mdists), np.std(mdists)

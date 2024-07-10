@@ -157,6 +157,7 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-umap-learn-core.sh
 
+
   test-full-ai:
 
     needs: [ test-minimal-python ]
