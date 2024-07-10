@@ -296,6 +296,7 @@ compute_algs = [
     'k_core',
     #'modularity',
     'pagerank',
+    'personalized_pagerank',
     'spanning_tree'
 ]
 
@@ -336,7 +337,7 @@ def compute_igraph(
 
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
-            g = graphistry.edges(edges, 's', 'd')
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes()
             g2 = g.compute_igraph('pagerank')
             assert 'pagerank' in g2._nodes.columns
 
@@ -345,7 +346,7 @@ def compute_igraph(
 
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
-            g = graphistry.edges(edges, 's', 'd')
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes()
             g2 = g.compute_igraph('pagerank', out_col='my_pr')
             assert 'my_pr' in g2._nodes.columns
 
@@ -354,7 +355,7 @@ def compute_igraph(
 
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
-            g = graphistry.edges(edges, 's', 'd')
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes()
             g2 = g.compute_igraph('pagerank', directed=False)
             assert 'pagerank' in g2._nodes.columns
 
@@ -363,9 +364,18 @@ def compute_igraph(
 
                 import graphistry, pandas as pd
                 edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
-                g = graphistry.edges(edges, 's', 'd')
+                g = graphistry.edges(edges, 's', 'd').materialize_nodes()
                 g2 = g.compute_igraph('pagerank', params={'damping': 0.85})
                 assert 'pagerank' in g2._nodes.columns
+
+    **Example: Personalized Pagerank**
+        ::
+
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes()
+            g2 = g.compute_igraph('personalized_pagerank')
+            assert 'personalized_pagerank' in g2._nodes.columns
 
     """
 
