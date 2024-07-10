@@ -89,10 +89,8 @@ def lazy_import_has_min_dependancy():
     try:
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
-        from dirty_cat import __version__ as dirty_cat_version
         from sklearn import __version__ as sklearn_version
         logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
         return True, 'ok'
     except ModuleNotFoundError as e:
@@ -992,7 +990,14 @@ def process_dirty_dataframes(
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
-        X_enc = data_encoder.fit_transform(ndf, y)
+        try:
+            X_enc = data_encoder.fit_transform(ndf, y)
+        except TypeError:
+            nndf = ndf.copy()
+            object_columns = nndf.select_dtypes(include=['object']).columns
+            nndf[object_columns] = nndf[object_columns].astype(str)
+            X_enc = data_encoder.fit_transform(nndf, y)
+            logger.info("obj columns: %s are being converted to str", object_columns)
         X_enc = make_array(X_enc)
 
         import warnings
@@ -1038,7 +1043,7 @@ def process_dirty_dataframes(
             X_enc = X_enc.fillna(0.0)
 
     else:
-        logger.info("-*-*- DataFrame is completely numeric")
+        logger.debug("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
@@ -1048,6 +1053,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and has_dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1099,6 +1105,15 @@ def process_dirty_dataframes(
             "--Fitting SuperVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
+    elif (
+        y is not None
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and not has_dirty_cat  # noqa: E126,W503
+    ):
+        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        y2 = y.select_dtypes(include=[np.number])  # type: ignore
+        y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 

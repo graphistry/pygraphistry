@@ -1314,7 +1314,7 @@ class PlotterBase(Plottable):
 
     def plot(
         self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True,
-        extra_html="", override_html_style=None
+        extra_html="", override_html_style=None, validate: bool = True
     ):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -1352,6 +1352,9 @@ class PlotterBase(Plottable):
 
         :param override_html_style: Set fully custom style tag.
         :type override_html_style: Optional[str]
+
+        :param validate: Controls validations, including those for encodings.
+        :type validate: Optional[bool]
 
         **Example: Simple**
             ::
@@ -1405,7 +1408,7 @@ class PlotterBase(Plottable):
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
-            dataset.post(as_files=as_files, memoize=memoize)
+            dataset.post(as_files=as_files, memoize=memoize, validate=validate)
             dataset.maybe_post_share_link(self)
             info = {
                 'name': dataset.dataset_id,

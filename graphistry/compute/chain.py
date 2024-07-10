@@ -90,6 +90,9 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         getattr(g_step, df_fld)[[id]]
         for (_, g_step) in steps
     ]).drop_duplicates(subset=[id])
+    for (op, g_step) in steps:
+        logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
+        logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
 
     # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
@@ -293,6 +296,13 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         )
         g_stack.append(g_step)
 
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
+
     logger.debug('======================== BACKWARDS ========================')
 
     # Backwards
@@ -324,6 +334,13 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             )
         )
         g_stack_reverse.append(g_step_reverse)
+
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack_reverse):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
 
     logger.debug('============ COMBINE NODES ============')
     final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
