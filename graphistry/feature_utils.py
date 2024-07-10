@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     try:
         from sentence_transformers import SentenceTransformer
     except:
-        Pipeline = Any
+        SentenceTransformer = Any
     try:
         from dirty_cat import (
             SuperVectorizer,
