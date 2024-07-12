@@ -147,7 +147,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [chain and hop demo](demos/gfql/simple_gfql_notebook.ipynb), [benchmark](demos/gfql/gfql_cpv_gpu_enchmark.ipynb)
+* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb),[benchmark](demos/gfql/gfql_hops_cpu_gpu.ipynb)
 
   Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
 
@@ -1248,7 +1248,7 @@ assert 'pagerank' in g2._nodes.columns
 
 PyGraphistry supports GFQL, its PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
 
-See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [starting with chain and hop](demos/gfql/simple_gfql_notebook.ipynb) and the CPU/GPU [benchmark](demos/gfql/gfql_cpv_gpu_enchmark.ipynb)
+See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), and the CPU/GPU [benchmark](demos/gfql/gfql_hops_cpu_gpu.ipynb)
 
 Traverse within a graph, or expand one graph against another
 
