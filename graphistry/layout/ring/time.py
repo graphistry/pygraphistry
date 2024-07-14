@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from functools import lru_cache
+from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 
 
@@ -38,7 +39,11 @@ def unit_to_timedelta(unit: TimeUnit) -> np.timedelta64:
 def find_round_bin_width(
     duration: np.timedelta64, time_unit: Optional[TimeUnit] = None
 ) -> Tuple[TimeUnit, pd.DateOffset, np.timedelta64]:
-    duration_seconds = np.timedelta64(duration, 's')
+
+    assert isinstance(duration, np.timedelta64)
+
+    duration_seconds = np.timedelta64(duration, 's')  # np.datetime64('2014') breaks
+
     units: List[Tuple[TimeUnit, pd.DateOffset, np.timedelta64]] = [
         ('s', pd.DateOffset(seconds=1), np.timedelta64(1, 's')),
         ('m', pd.DateOffset(minutes=1), np.timedelta64(60, 's')),
@@ -59,13 +64,16 @@ def find_round_bin_width(
         #[(x, y, z) for (x, y, z) in units if x == time_unit]
     ):
         if duration_seconds <= td_unit:
-            print('HIT unit', unit, 'td_unit', td_unit)
+            #print('HIT unit', unit, 'td_unit', td_unit)
             return unit, date_offset, td_unit
-        print('MISS unit', unit, 'td_unit', td_unit)
+        #print('MISS unit', unit, 'td_unit', td_unit)
     return 'C', pd.DateOffset(years=100), np.timedelta64(100 * 365, 'D')  # Default to centuries if too large
 
 
 def round_to_nearest(time: np.datetime64, unit: np.timedelta64) -> np.datetime64:
+
+    assert isinstance(time, np.datetime64)
+    assert isinstance(unit, np.timedelta64)
 
     # Convert the unit to nanoseconds
     unit_in_ns = unit.astype('timedelta64[ns]').astype('int64')
@@ -111,16 +119,25 @@ def time_stats(
     time_unit: Optional[TimeUnit] = None
 ) -> Tuple[TimeUnit, np.timedelta64, pd.DateOffset, np.datetime64, np.datetime64, int]:
 
+    assert time_start is None or isinstance(time_start, np.datetime64)
+    assert time_end is None or isinstance(time_end, np.datetime64)
+
     if time_start is None:
-        time_start = s.min().to_numpy()
+        time_start = s.min()
+        if not isinstance(time_start, np.datetime64):
+            #print('unexpected type', type(time_start))
+            time_start = time_start.to_numpy()
     if time_end is None:
-        time_end = s.max().to_numpy()
+        time_end = s.max()
+        if not isinstance(time_end, np.datetime64):
+            #print('unexpected type', type(time_end))
+            time_end = time_end.to_numpy()
 
     assert isinstance(time_start, np.datetime64)
     assert isinstance(time_end, np.datetime64)
-    print('time_start', time_start)
-    print('time_end', time_end)
-    print('dur', np.timedelta64((time_end - time_start), 'D'))
+    #print('time_start', time_start)
+    #print('time_end', time_end)
+    #print('dur', np.timedelta64((time_end - time_start), 'D'))
 
     if num_rings is None:
         if time_unit is not None:
@@ -130,17 +147,17 @@ def time_stats(
             num_rings = rounded + 1
         else:
             num_rings = 10 if len(s) > 1000 else 5
-            print('target_bins', num_rings)
+            #print('target_bins', num_rings)
     
     step_dur_s = ((time_end - time_start) / num_rings)
-    print('step_dur_s', step_dur_s)
-    print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
-    print('time_unit', time_unit)
+    #print('step_dur_s', step_dur_s)
+    #print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
+    #print('time_unit', time_unit)
     round_unit, rounded_set_offset, rounded_step_dur = find_round_bin_width(step_dur_s, time_unit=time_unit)
-    print('rounded', step_dur_s, time_unit, '->', rounded_step_dur, round_unit, rounded_set_offset)
+    #print('rounded', step_dur_s, time_unit, '->', rounded_step_dur, round_unit, rounded_set_offset)
 
     time_start_rounded = round_to_nearest(time_start, rounded_step_dur)
-    print('time_start_rounded', time_start, rounded_step_dur, '->', time_start_rounded)
+    #print('time_start_rounded', time_start, rounded_step_dur, '->', time_start_rounded)
     time_end_rounded = round_to_nearest(
         time_start_rounded + rounded_step_dur * num_rings,
         rounded_step_dur)
@@ -167,16 +184,24 @@ def gen_axis(
     reverse: bool = False
 ) -> List[Dict]:
     
+    assert isinstance(time_start, np.datetime64)
+    assert isinstance(step_dur, np.timedelta64)
+    assert isinstance(rounded_set_offset, pd.DateOffset)
+    assert isinstance(time_start, np.datetime64)
+
     def offset_time_to_r(
         offset: pd.DateOffset,
     ) -> float:
+        
+        assert isinstance(offset, pd.DateOffset)
+
         #return (
         #    (time_start + offset).astype('int64') - time_start.astype('int64')
         #) * scalar + r_start
         time_start_timestamp = pd.Timestamp(time_start)
         
         # Add the DateOffset to the Timestamp
-        print('adding', time_start, time_start_timestamp, offset)
+        #print('adding', time_start, time_start_timestamp, offset)
         time_end_timestamp = time_start_timestamp + offset
         
         tf = time_end_timestamp.value - time_start_timestamp.value
@@ -221,7 +246,8 @@ def time_ring(
     reverse: bool = False,
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
-    play_ms: int = 2000
+    play_ms: int = 2000,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
     """Radial graph layout where nodes are positioned based on a datetime64-typed column time_col
 
@@ -303,8 +329,15 @@ def time_ring(
 
     """
 
+    assert time_start is None or isinstance(time_start, np.datetime64)
+    assert time_end is None or isinstance(time_end, np.datetime64)
+
     if g._nodes is None:
         raise ValueError('Expected nodes table')
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+    engine_concrete = resolve_engine(engine, g._nodes)
 
     if time_col is None:
         for col in g._nodes.columns:
@@ -323,7 +356,7 @@ def time_ring(
     s = g._nodes[time_col].astype('datetime64[ns]')
     sf = s.astype('int64')
 
-    print('=================================================')
+    #print('=================================================')
     (
         round_unit,
         rounded_step_dur,
@@ -338,25 +371,35 @@ def time_ring(
     scalar = (max_r - min_r) / (sf_max - sf_min)
     r = (sf - sf_min) * scalar + min_r  # (min_r + (max_r - min_r) / num_rings)
 
-    print('round_unit', round_unit)
-    print('rounded_step_dur', rounded_step_dur)
-    print('rounded_set_offset', rounded_set_offset)
-    print('time_start_rounded', time_start_rounded)
-    print('time_end_rounded', time_end_rounded)
-    print('s_min', s.min())
-    print('s_max', s.max())
+    #print('round_unit', round_unit)
+    #print('rounded_step_dur', rounded_step_dur)
+    #print('rounded_set_offset', rounded_set_offset)
+    #print('time_start_rounded', time_start_rounded)
+    #print('time_end_rounded', time_end_rounded)
+    #print('s_min', s.min())
+    #print('s_max', s.max())
 
     if reverse:
         r = -r + (max_r + min_r)
 
     idx = r.reset_index(drop=True).index.to_series()
-    if 'cudf' in str(g._nodes.__class__):
+    if engine_concrete == Engine.CUDF:
         import cudf
-        x = r * cudf.Series(np.cos(idx))
-        y = r * cudf.Series(np.sin(idx))
-    else:
+        import cupy as cp
+        if not isinstance(idx, cudf.Series):
+            if isinstance(idx, pd.Series):
+                idx = cudf.Series(idx)
+            else:
+                raise ValueError(f'Expected cudf or pd dataframe, received {type(g._nodes)}')
+        idx_cp = idx.to_cupy()
+        r_cp = r.to_cupy()
+        x = cudf.Series(r_cp * cp.cos(idx_cp))
+        y = cudf.Series(r_cp * cp.sin(idx_cp))
+    elif engine_concrete == Engine.PANDAS:
         x = r * pd.Series(np.cos(idx))
         y = r * pd.Series(np.sin(idx))
+    else:
+        raise ValueError(f'time_ring() only supports cudf/pandas, but selected engine: {engine_concrete}')
 
     axis = gen_axis(
         num_rings,
@@ -385,7 +428,7 @@ def time_ring(
               'lockedR': True,
               'bg': '%23E2E2E2'  # Light grey due to labels being fixed to dark
           })
-          .encode_point_color(time_col, ['blue', 'yellow', 'red'], as_continuous=True)  # type: ignore
+          #.encode_point_color(time_col, ['blue', 'yellow', 'red'], as_continuous=True)  # type: ignore
     )
 
     return g2
