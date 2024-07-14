@@ -234,22 +234,22 @@ def time_ring(
 ) -> Plottable:
     """Radial graph layout where nodes are positioned based on a datetime64-typed column time_col
 
-    Uses GPU when cudf nodes are used, otherwise pandas
- with custom start and end times**
-    Parameters
+    Uses GPU when cudf nodes are used, otherwise pandas with custom start and end times
 
+    Parameters
+    ----------
         :g: Plottable
         :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
         :num_rings: Optional[int] Number of rings
-        :time_start: Optional[np.datetime64] First ring and axis label
-        :time_end: Optional[np.datetime64] Last ring and axis label
+        :time_start: Optional[numpy.datetime64] First ring and axis label
+        :time_end: Optional[numpy.datetime64] Last ring and axis label
         :time_unit: Optional[TimeUnit] Time unit for axis labels
         :min_r: float Minimum radius, default 100
         :max_r: float Maximum radius, default 1000
         :reverse: bool Reverse the direction of the rings in terms of time
         :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
-        :format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
-        :play_ms: initial layout time in milliseconds, default 2000
+        :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
+        :play_ms: int initial layout time in milliseconds, default 2000
 
     :returns: Plotter
     :rtype: Plotter
@@ -308,7 +308,6 @@ def time_ring(
             assert 'datetime64' in g._nodes.my_time_col.dtype.name  
             g2 = g.time_ring('my_time_col', reverse=True)
             g2.plot()
-
 
     """
 
