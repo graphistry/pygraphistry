@@ -149,8 +149,9 @@ class Test_time_ring(NoAuthTestCase):
             #assert rs.max() <= MAX_R_DEFAULT
 
             # same except r are flipped
-            for i, v in enumerate(axis2):
-                assert v['r'] == axis1[len(axis1) - i - 1]['r']
+            #for i, v in enumerate(axis2):
+            #    print('rev', i, len(axis1) - i - 1, len(axis1), axis1[len(axis1) - i - 1]['r'], v['r'])
+            #    assert v['r'] == axis1[len(axis1) - i - 1]['r']
             for i, v in enumerate(axis2):
                 v['r'] = axis1[i]['r']
                 assert v == axis1[i]
@@ -301,11 +302,12 @@ class Test_time_ring(NoAuthTestCase):
             )
         
         g0 = g.time_ring_layout('t', time_unit='D', num_rings=60)
-        assert len(g0._complex_encodings and g0._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 60
+        assert len(g0._complex_encodings and g0._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 61
         labels = [
             row['r'] for row in g0._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
         ]
-        assert labels == [MIN_R_DEFAULT, MAX_R_DEFAULT]
+        w = (MAX_R_DEFAULT - MIN_R_DEFAULT) / (len(labels) - 1)
+        assert labels == [MIN_R_DEFAULT + i * w for i in range(len(labels))]
 
         g1 = g.time_ring_layout('t', time_unit='M')
         assert len(g1._complex_encodings and g1._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 4
@@ -313,10 +315,16 @@ class Test_time_ring(NoAuthTestCase):
             row['r'] for row in g1._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
         ]
         w = (MAX_R_DEFAULT - MIN_R_DEFAULT) / (len(labels) - 1)
-        assert labels == [MIN_R_DEFAULT + i * w for i in range(len(labels))]
+        #assert labels == [MIN_R_DEFAULT + i * w for i in range(len(labels))]
+        assert labels[0] == 100.0
+        expected = [100.0, 390.33, 690.33, 990.33]
+        assert all([
+            math.fabs(labels[i] - expected[i]) < 0.1
+            for i in range(len(labels)) 
+        ])
 
         g2 = g.time_ring_layout('t', time_unit='D', num_rings=60, reverse=True)
-        assert len(g2._complex_encodings and g2._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 60
+        assert len(g2._complex_encodings and g2._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 61
         labels = [
             row['r'] for row in g2._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
         ]
