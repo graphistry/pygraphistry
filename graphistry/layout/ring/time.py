@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing_extensions import Literal  # 3.7
 import numpy as np
 import pandas as pd
 from functools import lru_cache
