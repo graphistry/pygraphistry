@@ -185,7 +185,7 @@ def gen_axis(
         assert isinstance(offset, pd.DateOffset)
 
         time_start_timestamp = pd.Timestamp(time_start)  # type:ignore
-        time_end_timestamp = time_start_timestamp + offset
+        time_end_timestamp = time_start_timestamp + offset  # type:ignore
         #print('adding', time_start, time_start_timestamp, offset)
         
         tf = time_end_timestamp.value - time_start_timestamp.value        
