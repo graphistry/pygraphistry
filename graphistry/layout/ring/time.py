@@ -321,7 +321,7 @@ def time_ring(
     engine_concrete = resolve_engine(engine, g._nodes)
 
 
-    if not isinstance(time_col, str) and not isinstance(time_col, None):
+    if time_col is not None and not isinstance(time_col, str):
         raise ValueError('time_col should be a string or None')
 
     if time_col is None:
