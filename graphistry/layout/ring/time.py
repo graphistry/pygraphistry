@@ -60,8 +60,6 @@ def find_round_bin_width(
 
     for unit, date_offset, td_unit in (
         units
-        #if time_unit is None else
-        #[(x, y, z) for (x, y, z) in units if x == time_unit]
     ):
         if duration_seconds <= td_unit:
             #print('HIT unit', unit, 'td_unit', td_unit)
@@ -75,19 +73,10 @@ def round_to_nearest(time: np.datetime64, unit: np.timedelta64) -> np.datetime64
     assert isinstance(time, np.datetime64)
     assert isinstance(unit, np.timedelta64)
 
-    # Convert the unit to nanoseconds
     unit_in_ns = unit.astype('timedelta64[ns]').astype('int64')
-    
-    # Convert time to nanoseconds since epoch
     time_in_ns = time.astype('datetime64[ns]').astype('int64')
-    
-    # Avoid rounding error issues
-    adjustment = unit_in_ns // 2
-
-    # Calculate the number of units since the epoch
+    adjustment = unit_in_ns // 2  # Avoid rounding error issues
     rounded_time_in_ns = ((time_in_ns + adjustment) // unit_in_ns) * unit_in_ns
-
-    # Convert back to the original datetime64 format
     rounded_time = rounded_time_in_ns.astype('datetime64[ns]')
 
     return rounded_time
@@ -195,18 +184,11 @@ def gen_axis(
         
         assert isinstance(offset, pd.DateOffset)
 
-        #return (
-        #    (time_start + offset).astype('int64') - time_start.astype('int64')
-        #) * scalar + r_start
         time_start_timestamp = pd.Timestamp(time_start)
-        
-        # Add the DateOffset to the Timestamp
+        time_end_timestamp = time_start_timestamp + offset        
         #print('adding', time_start, time_start_timestamp, offset)
-        time_end_timestamp = time_start_timestamp + offset
         
-        tf = time_end_timestamp.value - time_start_timestamp.value
-        
-        # Compute the result using the scalar and r_start
+        tf = time_end_timestamp.value - time_start_timestamp.value        
         out = tf * scalar + r_start
 
         if reverse:
@@ -221,7 +203,6 @@ def gen_axis(
           ) if label is None else label(
               time_start + step_dur * step, step, step_dur
           ),
-          #"r": r_start + ((num_rings - step) if reverse else step) * step_r,
           "r": offset_time_to_r(rounded_set_offset * step),
           "internal": True
       }
@@ -339,6 +320,10 @@ def time_ring(
         engine = EngineAbstract(engine)
     engine_concrete = resolve_engine(engine, g._nodes)
 
+
+    if not isinstance(time_col, str) and not isinstance(time_col, None):
+        raise ValueError('time_col should be a string or None')
+
     if time_col is None:
         for col in g._nodes.columns:
             if 'datetime' in g._nodes[col].dtype.name:
@@ -346,9 +331,6 @@ def time_ring(
                 break
         if time_col is None:
             raise ValueError('No time_col provided and no datetime[*] dtype node column found')
-
-    if not isinstance(time_col, str):
-        raise ValueError('time_col should be a string')
 
     if 'datetime64' not in g._nodes[time_col].dtype.name:
         raise ValueError(f'time_col must be datetime64, received {time_col}::{g._nodes.dtypes}')
@@ -369,7 +351,7 @@ def time_ring(
     sf_max = time_end_rounded.astype('datetime64[ns]').astype('int64')
     sf_min = time_start_rounded.astype('datetime64[ns]').astype('int64')
     scalar = (max_r - min_r) / (sf_max - sf_min)
-    r = (sf - sf_min) * scalar + min_r  # (min_r + (max_r - min_r) / num_rings)
+    r = (sf - sf_min) * scalar + min_r
 
     #print('round_unit', round_unit)
     #print('rounded_step_dur', rounded_step_dur)
