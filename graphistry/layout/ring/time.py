@@ -8,7 +8,8 @@ from graphistry.Plottable import Plottable
 
 
 TimeUnit = Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
-"""Time unit for axis labels
+"""
+Time unit for axis labels
 
 - 's': seconds
 - 'm': minutes
