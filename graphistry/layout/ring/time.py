@@ -184,8 +184,8 @@ def gen_axis(
         
         assert isinstance(offset, pd.DateOffset)
 
-        time_start_timestamp = pd.Timestamp(time_start)
-        time_end_timestamp = time_start_timestamp + offset        
+        time_start_timestamp = pd.Timestamp(time_start)  #type:ignore
+        time_end_timestamp = time_start_timestamp + offset
         #print('adding', time_start, time_start_timestamp, offset)
         
         tf = time_end_timestamp.value - time_start_timestamp.value        
@@ -203,7 +203,7 @@ def gen_axis(
           ) if label is None else label(
               time_start + step_dur * step, step, step_dur
           ),
-          "r": offset_time_to_r(rounded_set_offset * step),
+          "r": offset_time_to_r(rounded_set_offset * step),  #type:ignore
           "internal": True
       }
       for step in range(0, num_rings + 1)
