@@ -31,11 +31,11 @@ if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
     try:
         from sklearn.pipeline import Pipeline
-    except:
+    except ImportError:
         Pipeline = Any
     try:
         from sentence_transformers import SentenceTransformer
-    except:
+    except ImportError:
         SentenceTransformer = Any
     try:
         from dirty_cat import (
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
-    except:
+    except ImportError:
         FunctionTransformer = Any
         BaseEstimator = object
         TransformerMixin = object
