@@ -16,8 +16,6 @@ MAX_R_DEFAULT = 1000
 def gen_axis(
     order: List[str],  # if combine_unhandled, missing those, else, with
     val_to_r: Dict[Any, float],
-    min_r: float,
-    max_r: float,
     unhandled: Set[Any],
     combine_unhandled: bool,
     append_unhandled: bool,
@@ -27,13 +25,13 @@ def gen_axis(
 ) -> List[Dict]:
     
     # also includes items from unhandled when not combine_unhandled
-    axis = [
+    axis_out = [
         {
             "label":
                 axis[val]
                 if axis is not None else (
-                   str(val)
-                   if label is None else label(
+                    str(val)
+                    if label is None else label(
                         val,
                         i,
                         val_to_r[val]
@@ -47,20 +45,20 @@ def gen_axis(
 
     if combine_unhandled and len(unhandled) > 0:
         # add other ring, position based on reverse
-        axis += [{
+        axis_out += [{
             "label":
                 "Other"
                 if axis is not None or label is None else
                 label(
                     unhandled,
-                    len(axis) if (append_unhandled and not reverse) or (not append_unhandled and reverse) else 0,
+                    len(order) if (append_unhandled and not reverse) or (not append_unhandled and reverse) else 0,
                     val_to_r[next(iter(unhandled))]
                 ),
             "r": val_to_r[next(iter(unhandled))],
             "internal": True
         }]
     
-    return axis
+    return axis_out
 
 def find_first_numeric_column(df: Any) -> str:
     for col in df.columns:
@@ -70,13 +68,13 @@ def find_first_numeric_column(df: Any) -> str:
 
 def ring_categorical(
     g: Plottable,
-    ring_col: str = None,
+    ring_col: str,
     order: Optional[List[Any]] = None,
     drop_empty: bool = True,
     combine_unhandled: bool = False,
     append_unhandled: bool = True,
-    min_r: Optional[float] = MIN_R_DEFAULT,
-    max_r: Optional[float] = MAX_R_DEFAULT,
+    min_r: float = MIN_R_DEFAULT,
+    max_r: float = MAX_R_DEFAULT,
     axis: Optional[Dict[Any,str]] = None,
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_labels: Optional[Callable[[Any, int, float], str]] = None,
@@ -207,7 +205,7 @@ def ring_categorical(
             else:
                 order = list(unhandled) + order
 
-    val_to_ring = {
+    val_to_ring: Dict[Any, int] = {
         v: i if not reverse else len(order) - i - 1
         for i, v in enumerate(order)
     }
@@ -235,11 +233,9 @@ def ring_categorical(
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)
 
-    axis = gen_axis(
+    axis_out = gen_axis(
         order,
         val_to_r,
-        min_r,
-        max_r,
         unhandled,
         combine_unhandled,
         append_unhandled,
@@ -249,14 +245,14 @@ def ring_categorical(
     )
 
     if format_axis is not None:
-        axis = format_axis(axis)
+        axis_out = format_axis(axis_out)
 
     #print('axis', axis)
 
     g2 = (
         g
           .nodes(lambda g: g._nodes.assign(x=x, y=y, r=r))
-          .encode_axis(axis)
+          .encode_axis(axis_out)
           .bind(point_x='x', point_y='y')
           .settings(url_params={
               'play': play_ms,

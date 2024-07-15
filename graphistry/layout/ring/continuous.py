@@ -54,6 +54,7 @@ def gen_axis(
             }
             for k, v in axis_input.items()
         ]
+        return axis
 
 def find_first_numeric_column(df: Any) -> str:
     for col in df.columns:
@@ -224,13 +225,14 @@ def ring_continuous(
             num_rings = int((v_end - v_start) / v_step)
             ring_step = (max_r - min_r) / num_rings        
         else:
+            assert ring_step is not None
             num_rings = int((max_r - min_r) / ring_step)
             v_step = (v_end - v_start) / num_rings
 
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)
 
-    axis = gen_axis(
+    axis_out = gen_axis(
         axis,
         num_rings,
         v_start,
@@ -242,14 +244,14 @@ def ring_continuous(
     )
 
     if format_axis is not None:
-        axis = format_axis(axis)
+        axis_out = format_axis(axis_out)
 
     #print('axis', axis)
 
     g2 = (
         g
           .nodes(lambda g: g._nodes.assign(x=x, y=y, r=r))
-          .encode_axis(axis)
+          .encode_axis(axis_out)
           .bind(point_x='x', point_y='y')
           .settings(url_params={
               'play': play_ms,
