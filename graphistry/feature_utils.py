@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError:
-        SentenceTransformer = Any
+        SentenceTransformer = Any  # type:ignore
     try:
         from dirty_cat import (
             SuperVectorizer,
