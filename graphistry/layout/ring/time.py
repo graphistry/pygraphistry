@@ -5,6 +5,7 @@ import pandas as pd
 from functools import lru_cache
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
+from .util import polar_to_xy
 
 
 TimeUnit = Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
@@ -365,24 +366,8 @@ def time_ring(
     if reverse:
         r = -r + (max_r + min_r)
 
-    idx = r.reset_index(drop=True).index.to_series()
-    if engine_concrete == Engine.CUDF:
-        import cudf
-        import cupy as cp
-        if not isinstance(idx, cudf.Series):
-            if isinstance(idx, pd.Series):
-                idx = cudf.Series(idx)
-            else:
-                raise ValueError(f'Expected cudf or pd dataframe, received {type(g._nodes)}')
-        idx_cp = idx.to_cupy()
-        r_cp = r.to_cupy()
-        x = cudf.Series(r_cp * cp.cos(idx_cp))
-        y = cudf.Series(r_cp * cp.sin(idx_cp))
-    elif engine_concrete == Engine.PANDAS:
-        x = r * pd.Series(np.cos(idx))
-        y = r * pd.Series(np.sin(idx))
-    else:
-        raise ValueError(f'time_ring() only supports cudf/pandas, but selected engine: {engine_concrete}')
+    angle = r.reset_index(drop=True).index.to_series()
+    x, y = polar_to_xy(g, r, angle, engine_concrete)
 
     axis = gen_axis(
         num_rings,
