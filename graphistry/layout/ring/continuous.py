@@ -230,8 +230,6 @@ def ring_continuous(
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)
 
-    v_range = v_end - v_start
-
     axis = gen_axis(
         axis,
         num_rings,
