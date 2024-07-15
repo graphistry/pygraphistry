@@ -260,14 +260,14 @@ def time_ring(
 
     ::
 
-            g.time_ring().plot()
+            g.time_ring_layout().plot()
 
     **Example: Time ring layout**
 
     ::
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name
-            g2 = g.time_ring('my_time_col')
+            g2 = g.time_ring_layout('my_time_col')
             g2.plot()        
 
     **Example: Time ring layout with 7 rings**
@@ -275,7 +275,7 @@ def time_ring(
     ::
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name
-            g2 = g.time_ring('my_time_col', num_rings=7)
+            g2 = g.time_ring_layout('my_time_col', num_rings=7)
             g2.plot()
     
     **Example: Time ring layout using days**
@@ -283,7 +283,7 @@ def time_ring(
     ::
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name
-            g2 = g.time_ring('my_time_col', time_unit='D')
+            g2 = g.time_ring_layout('my_time_col', time_unit='D')
             g2.plot()
 
     **Example: Time ring layout without labels**
@@ -292,14 +292,14 @@ def time_ring(
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name
             EMPTY_AXIS_LIST = []
-            g2 = g.time_ring('my_time_col', format_labels=lambda axis: EMPTY_AXIS_LIST)
+            g2 = g.time_ring_layout('my_time_col', format_labels=lambda axis: EMPTY_AXIS_LIST)
 
     **Example: Time ring layout with specific first and last ring positions**
 
     ::
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name
-            g2 = g.time_ring('my_time_col', min_r=200, max_r=2000)
+            g2 = g.time_ring_layout('my_time_col', min_r=200, max_r=2000)
             g2.plot()
 
     **Example: Time ring layout in reverse order**
@@ -307,7 +307,7 @@ def time_ring(
     ::
 
             assert 'datetime64' in g._nodes.my_time_col.dtype.name  
-            g2 = g.time_ring('my_time_col', reverse=True)
+            g2 = g.time_ring_layout('my_time_col', reverse=True)
             g2.plot()
 
     """
