@@ -1028,6 +1028,8 @@ For more in-depth examples, check out the tutorials on [badges](demos/more_examp
 
 #### Axes
 
+For more automated use, see the section on radial layouts below.
+
 Radial axes support three coloring types (`'external'`, `'internal'`, and `'space'`) and optional labels:
 
 ```python
@@ -1405,6 +1407,8 @@ for v in g._nodes['some_col'].unique():
 
 ### Control layouts
 
+A hierachical view via horizontal or vertical trees
+
 #### Tree
 
 ```python
@@ -1420,6 +1424,91 @@ g3b = g2a.layout_settings(locked_y=True, play=0)
 g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
+```
+
+#### Radial
+
+A hierarchical view via radial rings that may be more space-efficient and aesthetic than the equivalent tree layout
+
+Supports time-based, continuous, and categorical modes:
+
+##### Radial: Time-based
+
+Use when the value column defining the ring order is a time column. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_time_ring.ipynb)
+
+```python
+g.time_ring_layout().plot()  # finds a time column and infers all settings
+
+g.time_ring_layout(
+  time_col='my_node_time_col',
+  num_rings=20,
+  time_start=np.datetime64('2014-01-22'),
+  time_end=np.datetime64('2015-01-22'),
+  time_unit= 'Y',  # s, m, h, D, W, M, Y, C 
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0,  # biggest ring radius
+  reverse=False,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
+  #play_ms: int = 2000,
+  #engine='auto'  # 'auto', 'pandas', 'cudf'
+).plot()
+```
+
+#### Continuous
+
+Use when the value column defining the ring order is a continuous number, like distance or amount. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_continuous_ring.ipynb)
+
+```python
+g.ring_continuous_layout()  # find a numeric column and infers all settings
+
+g.ring_continuous_layout(
+  ring_col='my_numeric_col',
+  #v_start=  # first ring at this value 
+  #v_end=  # last ring at this value
+  #v_step=  # distance between rings in the value domain
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0, # biggest ring radius
+  normalize_ring_col=True,  # remap [v_start,v_end] to [min_r,max_r]
+  num_rings=20,
+  ring_step=100,
+
+  #Control axis labels and styles
+  #axis: Optional[Union[Dict[float,str],List[str]]] = None,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_labels: Optional[Callable[[float, int, float], str]] = None,
+
+  reverse=False,
+  play_ms=0,
+  #engine='auto',  # 'auto', 'pandas', 'cudf'
+)
+```
+
+#### Categorical
+
+Use when the value column defining the ring order is a categorical value, such as a name or ID. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_categorical_ring.ipynb)
+
+```python
+g.ring_categorical_layout('my_categorical_col')  # infers all settings
+
+g.ring_categorical_layout(
+  ring_col='my_numeric_col',
+  order=['col1', 'my_col2'],
+  drop_empty=True,  # remove unpopulated rings
+  combine_unhandled=False,  # Put values not covered by order into one ring Other vs a ring per unique value
+  append_unhandled=True,  # Append vs prepend
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0, # biggest ring radius
+
+  #Control axis labels and styles
+  #axis: Optional[Dict[Any,str]] = None,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_labels: Optional[Callable[[Any, int, float], str]] = None,
+
+  reverse=False,
+  play_ms=0,
+  #engine='auto',  # 'auto', 'pandas', 'cudf'
+)
 ```
 
 ### Plugin: igraph
