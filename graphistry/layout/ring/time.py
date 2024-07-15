@@ -3,7 +3,7 @@ from typing_extensions import Literal  # 3.7
 import numpy as np
 import pandas as pd
 from functools import lru_cache
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine
+from graphistry.Engine import EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from .util import polar_to_xy
 
@@ -251,6 +251,7 @@ def time_ring(
         :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
         :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
         :play_ms: int initial layout time in milliseconds, default 2000
+        :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter
@@ -318,10 +319,7 @@ def time_ring(
     if g._nodes is None:
         raise ValueError('Expected nodes table')
 
-    if isinstance(engine, str):
-        engine = EngineAbstract(engine)
     engine_concrete = resolve_engine(engine, g._nodes)
-
 
     if time_col is not None and not isinstance(time_col, str):
         raise ValueError('time_col should be a string or None')
@@ -390,13 +388,13 @@ def time_ring(
     g2 = (
         g
           .nodes(lambda g: g._nodes.assign(x=x, y=y, r=r))
+          .bind(point_x='x', point_y='y')
           .encode_axis(axis)
           .settings(url_params={
               'play': play_ms,
               'lockedR': True,
               'bg': '%23E2E2E2'  # Light grey due to labels being fixed to dark
           })
-          #.encode_point_color(time_col, ['blue', 'yellow', 'red'], as_continuous=True)  # type: ignore
     )
 
     return g2
