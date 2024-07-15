@@ -1,7 +1,12 @@
 from typing import Any, Callable, cast, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import math, pandas as pd
 from .Plottable import Plottable
-from .layout import SugiyamaLayout, group_in_a_box_layout as group_in_a_box_layout_base, time_ring as time_ring_base
+from .layout import (
+    SugiyamaLayout,
+    group_in_a_box_layout as group_in_a_box_layout_base,
+    ring_continuous as ring_continuous_base,
+    time_ring as time_ring_base
+)
 from .layout.graph import Graph
 from .util import deprecated, setup_logger
 logger = setup_logger(__name__)
@@ -24,6 +29,10 @@ class LayoutsMixin(MIXIN_BASE):
     def time_ring_layout(self, *args, **kwargs):
         return time_ring_base(self, *args, **kwargs)
     time_ring_layout.__doc__ = time_ring_base.__doc__
+
+    def ring_continuous_layout(self, *args, **kwargs):
+        return ring_continuous_base(self, *args, **kwargs)
+    ring_continuous_layout.__doc__ = ring_continuous_base.__doc__
 
     def tree_layout(self,
                     level_col: Optional[str] = None,
