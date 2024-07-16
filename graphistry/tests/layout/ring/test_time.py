@@ -1,12 +1,10 @@
 from typing import List
-import logging, math, os, numpy as np, pandas as pd, pytest, warnings
+import math, os, numpy as np, pandas as pd, pytest, warnings
 from graphistry.compute import ComputeMixin
 from graphistry.layout.ring.time import MIN_R_DEFAULT, MAX_R_DEFAULT
 from graphistry.layouts import LayoutsMixin
 from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
 
 test_cudf = "TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"
@@ -19,7 +17,6 @@ class LG(LayoutsMixin):
 
 class LGFull(LayoutsMixin, ComputeMixin, PlotterBase):
     def __init__(self, *args, **kwargs):
-        print('LGFull init')
         super(LGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
@@ -139,8 +136,6 @@ class Test_time_ring(NoAuthTestCase):
             axis1: List = g1._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
             g2 = g0.time_ring_layout('t', reverse=True)
             axis2: List = g2._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
-            print('axis1', axis1)
-            print('axis2', axis2)
             assert len(axis1) == len(axis2)
 
 
@@ -364,9 +359,6 @@ class Test_time_ring(NoAuthTestCase):
                 }))
                 .time_ring_layout('t')
             )
-        print('g ::', type(g))
-        print('g._nodes ::', type(g._nodes))
-        print('g._edges ::', type(g._edges))
         assert isinstance(g._nodes, cudf.DataFrame)
         assert isinstance(g._edges, cudf.DataFrame)
         assert 'x' in g._nodes
