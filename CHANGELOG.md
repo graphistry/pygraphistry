@@ -7,13 +7,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.33.8 - 2024-04-30]
+## [0.34.0 - 2024-04-30]
 
 ### Added
+
+* Ring layouts: `ring_categorical_layout()`, `ring_continuous_layout()`, `time_ring_layout()`
+* Plottable interface includes `encode_axis()`, `settings()`
+
+### Infra
+
+* Test GPU infra updated to Graphistry 2.41 (RAPIDS 23.10, CUDA 11.8)
+* Faster test preamble
+
+### Fixed
+
+* cudf materialize nodes auto inference
+* workaround feature_utils typecheck fail 
+
+### Docs
+
+* Ring layouts
+
+### Breaking 🔥
+
+* Dropping support for Python 3.7 (EOL)
+
+## [0.33.8 - 2024-04-30]
+
+### Fixed
 
 * Fix from_json when json object contains predicates.
 
 ## [0.33.7 - 2024-04-06]
+
+### Fixed
 
 * Fix refresh() for SSO
 
