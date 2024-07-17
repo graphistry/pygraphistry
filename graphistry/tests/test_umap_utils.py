@@ -1,15 +1,15 @@
-from xml.sax.handler import feature_external_ges
+from typing import Any
 import pytest
 import unittest
 import warnings
 
+import gc
 import graphistry
-
 import os
 import logging
 import numpy as np
 import pandas as pd
-from graphistry import Plottable
+from graphistry.config import config
 from graphistry.feature_utils import remove_internal_namespace_if_present
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
@@ -30,6 +30,7 @@ from graphistry.umap_utils import (
     lazy_cuml_import_has_dependancy,
     lazy_cudf_import_has_dependancy,
 )
+from graphistry.util import cache_coercion_helper
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
@@ -347,6 +348,7 @@ class TestUMAPMethods(unittest.TestCase):
         cols = ndf.columns
         logger.debug("g_nodes: %s", g._nodes)
         logger.debug("df: %s", df)
+        assert ndf.shape == df[cols].shape
         assert ndf.reset_index(drop=True).equals(df[cols].reset_index(drop=True))
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
@@ -637,6 +639,19 @@ class TestUMAPAIMethods(TestUMAPMethods):
     reason="requires cuml feature dependencies",
 )
 class TestCUMLMethods(TestUMAPMethods):
+
+    def setup_method(self, method: Any) -> None:
+        cache_coercion_helper.cache_clear()
+        gc.collect()
+
+    @classmethod
+    def setup_class(cls: Any) -> None:
+        config.set('encode_textual.batch_size', 8)
+
+    @classmethod
+    def teardown_class(cls: Any) -> None:
+        config.unset('encode_textual.batch_size')
+
     @pytest.mark.skipif(
         not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
@@ -681,9 +696,13 @@ class TestCUMLMethods(TestUMAPMethods):
         reason="requires cuml feature dependencies",
     )
     def test_node_umap(self):
-        g = graphistry.nodes(ndf_reddit)
+        g = graphistry.nodes(ndf_reddit[:len(ndf_reddit) // 2].reset_index(drop=True))
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
         targets = [None, single_target_reddit, double_target_reddit]
+        for i, target in enumerate(targets):
+            if target is None:
+                continue
+            targets[i] = target[:len(g._nodes)].reset_index(drop=True)
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -696,7 +715,7 @@ class TestCUMLMethods(TestUMAPMethods):
                 targets=targets,
                 name="Node UMAP with `(target, use_col)=`",
                 kind="nodes",
-                df=ndf_reddit,
+                df=g._nodes,
             )
 
     @pytest.mark.skipif(

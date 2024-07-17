@@ -1,5 +1,5 @@
 from graphistry.Plottable import Plottable
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -341,7 +341,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def encode_axis(self, rows=[]):
+    def encode_axis(self, rows: List[Dict] = []) -> Plottable:
         """Render radial and linear axes with optional labels
 
         :param rows: List of rows - { label: Optional[str],?r: float, ?x: float, ?y: float, ?internal: true, ?external: true, ?space: true }
