@@ -34,6 +34,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Dropping support for Python 3.7 (EOL)
 
+## [0.33.9 - 2024-07-04]
+
+### Added
+
+* Added `personalized_pagerank` to the list of supported `compute_igraph` algorithms.
+
 ## [0.33.8 - 2024-04-30]
 
 ### Fixed
