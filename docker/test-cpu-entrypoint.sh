@@ -12,13 +12,12 @@ else
     source pygraphistry/bin/activate
 fi
 
-echo "=== env ==="
-python --version
-python -m pip --version
-pip show mypy
-pip show pandas
-pip show numpy
-env
+#echo "=== env ==="
+#python --version
+#python -m pip --version
+#pip show pandas
+#pip show numpy
+#env
 
 echo "=== Linting ==="
 if [[ "$WITH_LINT" != "0" ]]; then
@@ -27,6 +26,7 @@ fi
 
 echo "=== Type checking ==="
 if [[ "$WITH_TYPECHECK" != "0" ]]; then
+    pip show mypy
     ./bin/typecheck.sh
 fi
 
