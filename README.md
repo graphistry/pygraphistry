@@ -730,7 +730,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
     * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ([contact](https://www.graphistry.com/demo-request))
 
 2. PyGraphistry Python client:
-    * `pip install --user graphistry` (Python 3.7+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
+    * `pip install --user graphistry` (Python 3.8+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
     * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
     * See immediately following `configure` section for how to connect
@@ -1405,9 +1405,9 @@ for v in g._nodes['some_col'].unique():
   g3 = g3.collapse(node='root_node_id', column='some_col', attribute=v)
 ```
 
-### Control layouts
+### Hierarchical layouts: Tree and radial
 
-A hierachical view via horizontal or vertical trees
+A hierachical view via horizontal or vertical trees, or radial. Graph data may also be presented using these layouts.
 
 #### Tree
 
@@ -1425,6 +1425,8 @@ g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
 ```
+
+To use with non-tree data, e.g., graphs with cycles, we recommend computing a tree such as via a minimum spanning tree, and then using that achieved layout with this algorithm. Alternatively, the radial layouts may more naturally support your graph.
 
 #### Radial
 
