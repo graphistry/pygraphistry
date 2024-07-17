@@ -240,24 +240,37 @@ def compute_cugraph(
 
     :return: Plottable
     :rtype: Plottable
-    
+
+    **Example: Pass params to cugraph**
+        ::
+
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.compute_cugraph('betweenness_centrality', params={'k': 2})
+            assert 'betweenness_centrality' in g2._nodes.columns
+
     **Example: Pagerank**
         ::
 
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
             g2 = g.compute_cugraph('pagerank')
+            assert 'pagerank' in g2._nodes.columns
+
+    **Example: Personalized Pagerank**
+        ::
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.compute_cugraph('pagerank', params={'personalization': cudf.DataFrame({'vertex': ['a'], 'values': [1]})})
             assert 'pagerank' in g2._nodes.columns
 
     **Example: Katz centrality with rename**
         ::
 
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
             g2 = g.compute_cugraph('katz_centrality', out_col='katz_centrality_renamed')
             assert 'katz_centrality_renamed' in g2._nodes.columns
-
-    **Example: Pass params to cugraph**
-        ::
-        
-            g2 = g.compute_cugraph('k_truss', params={'k': 2})
-            assert 'k_truss' in g2._nodes.columns
 
     """
 
