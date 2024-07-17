@@ -222,7 +222,8 @@ def ring_categorical(
         for v in unhandled:
             val_to_ring[v] = unhandled_ring
     
-    scalar = (max_r - min_r) / len(set(val_to_ring.values()))
+    num_rings = len(set(val_to_ring.values())) - 1
+    scalar = (max_r - min_r) / num_rings
     val_to_r = {
         val: ring * scalar + min_r
         for val, ring in val_to_ring.items()
