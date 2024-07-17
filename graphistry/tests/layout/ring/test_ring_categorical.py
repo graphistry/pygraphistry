@@ -51,8 +51,8 @@ class Test_categorical_ring(NoAuthTestCase):
         assert not g._nodes.x.isna().any()
         assert not g._nodes.y.isna().any()
         rs = (g._nodes['x'] * g._nodes['x'] + g._nodes['y'] * g._nodes['y']).apply(np.sqrt)
-        assert rs.min() >= MIN_R_DEFAULT
-        assert rs.max() <= MAX_R_DEFAULT
+        assert math.fabs(rs.min() - MIN_R_DEFAULT) < 0.1
+        assert math.fabs(rs.max() - MAX_R_DEFAULT) < 0.1
         assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) > 0
 
     def test_configured_pd(self):
