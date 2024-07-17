@@ -7,7 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.34.0 - 2024-04-30]
+## [0.34.0 - 2024-07-17]
+
+### Infra
+
+* Upgrade pypi automation to py3.8
+
+## [0.34.0 - 2024-07-17]
 
 ### Added
 
