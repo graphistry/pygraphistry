@@ -13,11 +13,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Ring layouts: `ring_categorical_layout()`, `ring_continuous_layout()`, `time_ring_layout()`
 * Plottable interface includes `encode_axis()`, `settings()`
+* Minimal global config manager
 
 ### Infra
 
 * Test GPU infra updated to Graphistry 2.41 (RAPIDS 23.10, CUDA 11.8)
 * Faster test preamble
+* More aggressive low-memory support in GPU UMAP unit tests 
 
 ### Fixed
 
