@@ -6,8 +6,8 @@ set -ex
 
 MAYBE_RAPIDS="echo 'no rapids'"
 if [[ "$RAPIDS" == "1" ]]; then
-    source activate rapids
-    MAYBE_RAPIDS="source activate rapids"
+    source activate base
+    MAYBE_RAPIDS="source activate base"
 else
     source pygraphistry/bin/activate
 fi

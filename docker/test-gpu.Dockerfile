@@ -1,7 +1,7 @@
 #NOTE: context is ..
 
-ARG BASE_VERSION=v2.40.4
-ARG CUDA_SHORT_VERSION=11.5
+ARG BASE_VERSION=v2.41.0
+ARG CUDA_SHORT_VERSION=11.8
 FROM graphistry/graphistry-nvidia:${BASE_VERSION}-${CUDA_SHORT_VERSION}
 ARG PIP_DEPS="-e .[umap-learn,test,ai]"
 
@@ -13,7 +13,7 @@ COPY README.md setup.py setup.cfg versioneer.py MANIFEST.in ./
 COPY graphistry/_version.py ./graphistry/_version.py
 
 RUN --mount=type=cache,target=/root/.cache \
-    source activate rapids \
+    source activate base \
     && pip list \
     && touch graphistry/__init__.py \
     && echo "PIP_DEPS: $PIP_DEPS" \
