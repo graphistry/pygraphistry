@@ -19,6 +19,7 @@ from typing import (
 from typing_extensions import Literal  # Literal native to py3.8+
 
 from graphistry.compute.ComputeMixin import ComputeMixin
+from graphistry.config import config as graphistry_config
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
@@ -731,7 +732,8 @@ def encode_textual(
         else:
             model_name = os.path.split(model_name)[-1]
             model = SentenceTransformer(f"{model_name}")
-            embeddings = model.encode(res.values)
+            batch_size = graphistry_config.get('encode_textual.batch_size')
+            embeddings = model.encode(res.values, **({'batch_size': batch_size} if batch_size is not None else {}))
             transformed_columns = _get_sentence_transformer_headers(
                 embeddings, text_cols
             )
