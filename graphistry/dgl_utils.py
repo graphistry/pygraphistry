@@ -5,6 +5,10 @@ from typing import Dict, Optional, TYPE_CHECKING, Tuple
 import numpy as np
 import pandas as pd
 
+from graphistry.utils.lazy_import import (
+    lazy_dgl_import,
+    lazy_torch_import_has_dependency
+)
 from . import constants as config
 from .feature_utils import (
     FeatureEngine,
@@ -32,26 +36,6 @@ if TYPE_CHECKING:
         pass
 else:
     MIXIN_BASE = object
-
-
-def lazy_dgl_import_has_dependency():
-    try:
-        import warnings
-        warnings.filterwarnings('ignore')
-        import dgl  # noqa: F811
-        return True, 'ok', dgl
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-
-def lazy_torch_import_has_dependency():
-    try:
-        import warnings
-        warnings.filterwarnings('ignore')
-        import torch  # noqa: F811
-        return True, 'ok', torch
-    except ModuleNotFoundError as e:
-        return False, e, None
 
 
 logger = setup_logger(name=__name__)
@@ -181,7 +165,7 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
-    _, _, dgl = lazy_dgl_import_has_dependency()  # noqa: F811
+    _, _, dgl = lazy_dgl_import()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
@@ -225,7 +209,7 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
-            lazy_dgl_import_has_dependency()
+            lazy_dgl_import()
             lazy_torch_import_has_dependency()
             self.train_split = train_split
             self.device = device
