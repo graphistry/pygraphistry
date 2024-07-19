@@ -10,6 +10,7 @@ from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
+from graphistry.utils.lazy_import import lazy_cudf_import, lazy_dbscan_import
 
 logger = logging.getLogger("compute.cluster")
 
@@ -20,37 +21,6 @@ else:
 
 DBSCANEngineConcrete = Literal["cuml", "umap_learn"]
 DBSCANEngine = Literal[DBSCANEngineConcrete, "auto"]
-
-
-def lazy_dbscan_import_has_dependency():
-    has_min_dependency = True
-    DBSCAN = None
-    try:
-        from sklearn.cluster import DBSCAN
-    except ImportError:
-        has_min_dependency = False
-        logger.info("Please install sklearn for CPU DBSCAN")
-
-    has_cuml_dependency = True
-    cuDBSCAN = None
-    try:
-        from cuml import DBSCAN as cuDBSCAN
-    except ImportError:
-        has_cuml_dependency = False
-        logger.info("Please install cuml for GPU DBSCAN")
-
-    return has_min_dependency, DBSCAN, has_cuml_dependency, cuDBSCAN
-
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
 
 
 def resolve_cpu_gpu_engine(
@@ -64,7 +34,7 @@ def resolve_cpu_gpu_engine(
             _,
             has_cuml_dependency,
             _,
-        ) = lazy_dbscan_import_has_dependency()
+        ) = lazy_dbscan_import()
         if has_cuml_dependency:
             return "cuml"
         if has_min_dependency:
@@ -90,7 +60,7 @@ def make_safe_gpu_dataframes(X, y, engine):
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
 
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
+    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
     if has_cudf_dependancy_:
         # print('DBSCAN CUML Matrices')
         return safe_cudf(X, y)
@@ -209,7 +179,7 @@ class ClusterMixin(MIXIN_BASE):
     ):
         """DBSCAN clustering on cpu or gpu infered by .engine flag
         """
-        _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
+        _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import()
 
         if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')

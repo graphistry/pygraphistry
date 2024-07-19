@@ -5,12 +5,13 @@ import unittest
 import graphistry
 import numpy as np
 
-from graphistry.embed_utils import lazy_embed_import_dep, check_cudf
+from graphistry.embed_utils import check_cudf
+from graphistry.utils.lazy_import import lazy_embed_import
 
 import logging
 logger = logging.getLogger(__name__)
 
-dep_flag, _, _, _, _, _, _, _ = lazy_embed_import_dep()
+dep_flag, _, _, _, _, _, _, _ = lazy_embed_import()
 has_cudf, cudf = check_cudf()
 
 # enable tests if has cudf and env didn't explicitly disable
