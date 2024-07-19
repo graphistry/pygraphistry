@@ -13,6 +13,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Ring layouts now support filtered inputs, giving expected positions
 
+* `encode_axis()` updates are now functional, not inplace
+
 ### Changed
 
 * Centralize lazy imports into `graphistry.utils.lazy_import`

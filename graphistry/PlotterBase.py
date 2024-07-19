@@ -373,14 +373,12 @@ class PlotterBase(Plottable):
 
         """
 
-        complex_encodings = self._complex_encodings or {}
+        complex_encodings = {**self._complex_encodings} if self._complex_encodings else {}
         if 'node_encodings' not in complex_encodings:
             complex_encodings['node_encodings'] = {}
-        node_encodings = complex_encodings['node_encodings']
-        if 'current' not in node_encodings:
-            node_encodings['current'] = {}
-        if 'default' not in node_encodings:
-            node_encodings['default'] = {}
+        node_encodings = {**complex_encodings['node_encodings']}
+        node_encodings['current'] = {**node_encodings['current']} if 'current' in node_encodings else {}
+        node_encodings['default'] = {**node_encodings['default']} if 'default' in node_encodings else {}
         node_encodings['default']["pointAxisEncoding"] = {
             "graphType": "point",
             "encodingType": "axis",
