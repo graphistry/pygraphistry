@@ -1,6 +1,6 @@
-import logging, numpy as np, pandas as pd
+import numpy as np, pandas as pd
 from typing import Any, List, Union, TYPE_CHECKING
-from typing_extensions import Literal
+from inspect import getmodule
 
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
@@ -81,12 +81,24 @@ class ComputeMixin(MIXIN_BASE):
             if isinstance(g._edges, pd.DataFrame):
                 engine_concrete = Engine.PANDAS
             else:
+
+                def raiser(df: Any):
+                    raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(df)))
+
                 try:
-                    import cudf
-                    if isinstance(g._edges, cudf.DataFrame):
-                        engine_concrete = Engine.CUDF
-                except:
-                    raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
+                    if 'cudf' in str(getmodule(g._edges)):
+                        import cudf
+                        if isinstance(g._edges, cudf.DataFrame):
+                            engine_concrete = Engine.CUDF
+                        else:
+                            raiser(g._edges)
+                    else:
+                        raiser(g._edges)
+                except ImportError as e:
+                    raise e
+                except Exception:
+                    raiser(g._edges)
+
         else:
             engine_concrete = Engine(engine.value)
 

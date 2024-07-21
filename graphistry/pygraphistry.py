@@ -1284,6 +1284,8 @@ class PyGraphistry(object):
 
         return Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
 
+
+
     @staticmethod
     def encode_point_color(
         column,
