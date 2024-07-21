@@ -120,7 +120,6 @@ nitpick_ignore = [
     ('py:class', 'umap'),
     ('py:class', 'sentence_transformers'),
     ('py:class', 'dirty_cat'),
-    ('py:class', 'cu_cat'),
     ('py:class', 'sklearn'),
     ('py:class', 'scipy'),
     ('py:class', 'seaborn'),

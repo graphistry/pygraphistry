@@ -49,14 +49,6 @@ if TYPE_CHECKING:
         TableVectorizer = Any
         GapEncoder = Any
     try:
-        from cu_cat import (
-            TableVectorizer,
-            GapEncoder,
-        )  # type: ignore
-    except:
-        TableVectorizer = Any
-        GapEncoder = Any
-    try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except ImportError:
@@ -81,23 +73,13 @@ else:
 #@check_set_memoize
 
 def assert_imported_engine(feature_engine):
-    if None not in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == CUDA_CAT:
-        logger.debug(f"CUML VERSION: {deps.cuml.__version__}")
-        logger.debug(f"CUDF VERSION: {deps.cudf.__version__}")
-        logger.debug(f"CU_CAT VERSION: {deps.cu_cat.__version__}")
-    elif None in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == CUDA_CAT:
-        logger.warning(  # noqa
-                "cu_cat, cuml and/or cudf not found, trying running"  # noqa
-                "`pip install rapids`"  # noqa
-                "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
-            )
     if None not in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
         logger.debug(f"SCIPY VERSION: {deps.scipy.__version__}")
         logger.debug(f"SKLEARN VERSION: {deps.sklearn.__version__}")
         logger.debug(f"DIRTY_CAT VERSION: {deps.dirty_cat.__version__}")
     elif None in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
             logger.error(  # noqa
-                "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
+                "dirty_cat not found for featurizing"  # noqa
             )
         
 
@@ -110,7 +92,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda", "gpu"]:
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cuda", "gpu"]:
                 try:
                     new_kwargs[key] = cudf.from_pandas(value.astype(np.float64))
                 except:
@@ -145,7 +127,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -156,10 +138,8 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
+        if deps.dirty_cat and deps.scipy and deps.sklearn:
             return "dirty_cat"
-        elif deps.cu_cat:
-            return "cu_cat"
         elif deps.sentence_transformers:
             return "torch"
         else:
@@ -167,7 +147,7 @@ def resolve_feature_engine(
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
-        '"pandas", "dirty_cat", "torch", "cu_cat", or "auto"'
+        '"pandas", "dirty_cat", "torch", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
     )
 
@@ -975,12 +955,8 @@ def process_dirty_dataframes(
                 pass
         return data
     
-    if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
-        from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
-        from cuml.preprocessing import FunctionTransformer
-    else:
-        from dirty_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
-        from sklearn.preprocessing import FunctionTransformer
+    from dirty_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
+    from sklearn.preprocessing import FunctionTransformer
 
     t = time()
 
@@ -1021,8 +997,6 @@ def process_dirty_dataframes(
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
-                data_encoder.fit_transform(limit_text_length(ndf,100), y)  # rerun to limit text length after X_enc fit
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
@@ -1079,7 +1053,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and deps.dirty_cat or deps.cu_cat  # noqa: E126,W503
+        and deps.dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)  # type: ignore
@@ -1154,7 +1128,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not deps.dirty_cat or deps.cu_cat  # noqa: E126,W503
+        and not deps.dirty_cat  # noqa: E126,W503
     ):
         logger.warning("-*-*- y is not numeric and no featurizer, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore

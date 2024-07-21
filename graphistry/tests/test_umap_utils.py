@@ -92,8 +92,7 @@ def _eq(df1, df2):
 
 feature_engines = []
 engines = []
-if cu_cat and cuml:
-    feature_engines.append('cu_cat')
+if cuml:
     engines.append('cuml')
 if dirty_cat:
     feature_engines.append('dirty_cat')
@@ -744,10 +743,7 @@ class TestCUMLMethods(TestUMAPMethods):
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
-        if self.feature_engine == 'cu_cat':
-            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"].to_pandas() )
-        else:
-            assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
+        assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
             g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None

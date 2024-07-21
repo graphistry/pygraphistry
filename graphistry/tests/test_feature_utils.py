@@ -27,7 +27,6 @@ np.random.seed(137)
 
 cudf = deps.cudf
 cuml = deps.cuml
-cu_cat = deps.cu_cat
 dirty_cat = deps.dirty_cat
 scipy = deps.scipy
 sklearn = deps.sklearn
@@ -35,8 +34,6 @@ has_min_dependancy = None
 has_cuda_dependancy = None
 if None not in [dirty_cat, scipy, sklearn]:
     has_min_dependancy = True
-if None not in [cu_cat, cudf, cuml]:
-    has_cuda_dependancy = True
 has_min_dependancy_text = deps.sentence_transformers
 
 logger = logging.getLogger(__name__)
@@ -189,8 +186,6 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
 
 
 feature_engines = []
-if deps.cu_cat and deps.cuml and deps.cudf:
-    feature_engines.append('cu_cat')
 if deps.dirty_cat:
     feature_engines.append('dirty_cat')
     
@@ -247,12 +242,7 @@ class TestFastEncoder(unittest.TestCase):
         fenc.fit(feature_engine = self.feature_engine,
                  use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
-        if self.feature_engine == 'cu_cat':
-            fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-            self.x, self.y = fenc.fit_transform(feature_engine = 'cu_cat',  # cu_cat fit_transform >> fit().transform()
-                    use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
-        else:
-            self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
+        self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
         fenc.fit(src='src', dst='dst', feature_engine = self.feature_engine,
@@ -262,15 +252,8 @@ class TestFastEncoder(unittest.TestCase):
                  cardinality_threshold=2, n_topics=4)
         self.Xe, self.Ye = fenc.X, fenc.y
 
-        if self.feature_engine == 'cu_cat':
-            self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = 'cu_cat',
-                use_ngrams=True, ngram_range=(1, 1),
-                use_scaler=None,
-                use_scaler_target=None,
-                cardinality_threshold=2, n_topics=4)
-        else:
-            self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
-            self.xe = self.xe.iloc[:,:-8]  # drop the title/label columns, not sure why they are there ??
+        self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
+        self.xe = self.xe.iloc[:,:-8]  # drop the title/label columns, not sure why they are there ??
         
     @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
@@ -288,58 +271,30 @@ class TestFastEncoder(unittest.TestCase):
 @parameterized_class([{"feature_engine": fe} for fe in feature_engines])        
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        if 'cu_cat' in str(getmodule(data_encoder)):
-            assert 'cupy' in str(getmodule(x))
-            # assert 'cupy' in str(getmodule(y))
-            # self.assertIsInstance(
-            #     x,
-            #     cupy.ndarray,
-            #     f"Returned data matrix is not DataFrame for {name} {value}",
-            # )
-            self.assertFalse(
-                cudf.DataFrame(x).empty,  # from cupy to cudf
-                f"DataFrame should not be empty for {name} {value}",
-            )
-            self.assertIsInstance(
-                y,
-                cudf.DataFrame,
-                f"Returned Target is not a cudf DataFrame for {name} {value}",
-            )
-            self.assertIsInstance(
-            data_encoder,
-            cu_cat._table_vectorizer.TableVectorizer,
-            f"Data Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
-            )
-            self.assertIsInstance(
-                target_encoder,
-                cu_cat._table_vectorizer.TableVectorizer,
-                f"Data Target Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+        self.assertIsInstance(
+            x,
+            pd.DataFrame,
+            f"Returned data matrix is not Pandas DataFrame for {name} {value}",
         )
-        else:
-            self.assertIsInstance(
-                x,
-                pd.DataFrame,
-                f"Returned data matrix is not Pandas DataFrame for {name} {value}",
-            )
-            self.assertIsInstance(
-                y,
-                pd.DataFrame,
-                f"Returned Target is not a Pandas DataFrame for {name} {value}",
-            )
-            self.assertFalse(
-                x.empty,
-                f"DataFrame should not be empty for {name} {value}",
-            )
-            self.assertIsInstance(
-            data_encoder,
+        self.assertIsInstance(
+            y,
+            pd.DataFrame,
+            f"Returned Target is not a Pandas DataFrame for {name} {value}",
+        )
+        self.assertFalse(
+            x.empty,
+            f"DataFrame should not be empty for {name} {value}",
+        )
+        self.assertIsInstance(
+        data_encoder,
+        dirty_cat._table_vectorizer.TableVectorizer,
+        f"Data Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+        )
+        self.assertIsInstance(
+            target_encoder,
             dirty_cat._table_vectorizer.TableVectorizer,
-            f"Data Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
-            )
-            self.assertIsInstance(
-                target_encoder,
-                dirty_cat._table_vectorizer.TableVectorizer,
-                f"Data Target Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
-            )
+            f"Data Target Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+        )
         self.assertFalse(
             y.empty,
             f"Target DataFrame should not be empty for {name} {value}",
@@ -354,7 +309,7 @@ class TestFeatureProcessors(unittest.TestCase):
             for min_words in [
                 2,
                 4000,
-            ]:  # last one should skip encoding, and throw all to cu_cat
+            ]:
 
                 X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
