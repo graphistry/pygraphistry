@@ -5,7 +5,7 @@ from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 from inspect import getmodule
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
-from .dep_manager import deps
+from .utils.dep_manager import deps
 
 
 if TYPE_CHECKING:

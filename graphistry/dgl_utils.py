@@ -17,7 +17,7 @@ from .feature_utils import (
 )
 
 from .util import setup_logger
-from .dep_manager import deps
+from .utils.dep_manager import deps
 
 if TYPE_CHECKING:
     import scipy

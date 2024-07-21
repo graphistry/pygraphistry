@@ -5,7 +5,7 @@ import unittest
 import graphistry
 import numpy as np
 # import tqdm as tqdm_
-from graphistry.dep_manager import deps
+from utils.dep_manager import deps
 from graphistry import networks
 
 import logging

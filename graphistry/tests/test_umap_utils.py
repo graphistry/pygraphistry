@@ -25,7 +25,7 @@ from graphistry.tests.test_feature_utils import (
     model_avg_name,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.dep_manager import deps
+from utils.dep_manager import deps
 from parameterized import parameterized_class
 
 cuml = deps.cuml

@@ -12,7 +12,7 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize
-from .dep_manager import deps
+from .utils.dep_manager import deps
 
 import logging
 

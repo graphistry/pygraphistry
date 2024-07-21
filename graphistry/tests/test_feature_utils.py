@@ -20,7 +20,7 @@ from graphistry.feature_utils import (
 
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
-from graphistry.dep_manager import deps
+from utils.dep_manager import deps
 from parameterized import parameterized_class
 
 np.random.seed(137)

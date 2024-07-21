@@ -24,7 +24,7 @@ from .constants import CUDA_CAT, DIRTY_CAT
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
-from .dep_manager import deps
+from .utils.dep_manager import deps
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(__name__)

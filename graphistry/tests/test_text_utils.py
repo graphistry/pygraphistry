@@ -12,7 +12,7 @@ from graphistry.tests.test_feature_utils import (
     edge_df,
 )
 
-from graphistry.dep_manager import DepManager
+from utils.dep_manager import DepManager
 deps = DepManager()
 has_umap = deps.umap
 # has_dependancy = assert_imported_feature_utils()
