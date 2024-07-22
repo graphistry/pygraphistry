@@ -162,14 +162,12 @@ freedom = ['title: dyslexics, experience, language',
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
 
 def allclose_stats(X, x, tol, name):
-    if 'cudf' in str(getmodule(X)) or 'cupy' in str(getmodule(X)):
-        x = x.to_numpy()
-        X = X.to_numpy()
     if not np.allclose(X.std(), x.std(), tol):
         print(f'{name}.std() are not aligned at {tol} tolerance...!')
 
     if not np.allclose(X.mean(), x.mean(), tol):
         print(f'{name}.means() are not aligned at {tol} tolerance...!')
+        
     if not np.allclose(X, x, tol):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 

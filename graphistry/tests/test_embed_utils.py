@@ -33,12 +33,12 @@ else:
 
 cudf = deps.cudf
 if cudf:
-    test_cudf = True
+    has_cudf = True
 else:
-    test_cudf = False
+    has_cudf = False
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = test_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
 
 class TestEmbed(unittest.TestCase):
 

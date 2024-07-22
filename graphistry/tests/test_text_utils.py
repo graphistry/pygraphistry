@@ -15,11 +15,6 @@ from graphistry.tests.test_feature_utils import (
 from utils.dep_manager import DepManager
 deps = DepManager()
 has_umap = deps.umap
-# has_dependancy = assert_imported_feature_utils()
-# scipy_ = deps.scipy
-# dirty_cat_ = deps.dirty_cat
-# sklearn_ = deps.sklearn
-# has_umap = assert_imported_umap
 
 logger = logging.getLogger(__name__)
 
