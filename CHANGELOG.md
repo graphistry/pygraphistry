@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.34.1 - 2024-07-22]
+## [0.34.2 - 2024-07-22]
 
 ### Fixed
 
@@ -22,7 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Centralize lazy imports into `graphistry.utils.lazy_import`
 * Lazy imports distinguish `ModuleNotFound` (=> `False`) from `ImportError` (warn + `False`)
 
-## [0.34.0 - 2024-07-17]
+## [0.34.1 - 2024-07-17]
 
 ### Infra
 
