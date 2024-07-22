@@ -5,6 +5,11 @@ from inspect import getmodule
 
 import pandas as pd
 
+from graphistry.utils.lazy_import import (
+    lazy_cudf_import,
+    lazy_umap_import,
+    lazy_cuml_import,
+)
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
@@ -26,51 +31,15 @@ else:
 ###############################################################################
 
 
-def lazy_umap_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import umap  # noqa
-
-        return True, "ok", umap
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-
-def lazy_cuml_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            import cuml  # type: ignore
-
-        return True, "ok", cuml
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
-
 def assert_imported():
-    has_dependancy_, import_exn, _ = lazy_umap_import_has_dependancy()
+    has_dependancy_, import_exn, _ = lazy_umap_import()
     if not has_dependancy_:
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
         raise import_exn
 
 
 def assert_imported_cuml():
-    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import_has_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import()
     if not has_cuml_dependancy_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")
         raise import_cuml_exn
@@ -99,10 +68,10 @@ def resolve_umap_engine(
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, _ = lazy_cuml_import_has_dependancy()
+        has_cuml_dependancy_, _, _ = lazy_cuml_import()
         if has_cuml_dependancy_:
             return 'cuml'
-        has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
+        has_umap_dependancy_, _, _ = lazy_umap_import()
         if has_umap_dependancy_:
             return 'umap_learn'
 
@@ -134,7 +103,7 @@ def make_safe_gpu_dataframes(X, y, engine):
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
 
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
+    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
     if has_cudf_dependancy_:
         return safe_cudf(X, y)
     else:
@@ -203,9 +172,9 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import_has_dependancy()
+            _, _, umap_engine = lazy_umap_import()
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import_has_dependancy()
+            _, _, umap_engine = lazy_cuml_import()
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -554,7 +523,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
         # temporary until we have full cudf support in feature_utils.py
-        has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+        has_cudf, _, cudf = lazy_cudf_import()
 
         if has_cudf:
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)

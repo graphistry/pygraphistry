@@ -25,17 +25,17 @@ from graphistry.tests.test_feature_utils import (
     lazy_import_has_min_dependancy,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.umap_utils import (
-    lazy_umap_import_has_dependancy,
-    lazy_cuml_import_has_dependancy,
-    lazy_cudf_import_has_dependancy,
+from graphistry.utils.lazy_import import (
+    lazy_cudf_import,
+    lazy_cuml_import,
+    lazy_umap_import,
 )
 from graphistry.util import cache_coercion_helper
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
-has_cuml, _, _ = lazy_cuml_import_has_dependancy()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
-has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+has_cuml, _, _ = lazy_cuml_import()
+has_umap, _, _ = lazy_umap_import()
+has_cudf, _, cudf = lazy_cudf_import()
 
 # print('has_dependancy', has_dependancy)
 # print('has_cuml', has_cuml)

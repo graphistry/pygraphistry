@@ -1,25 +1,15 @@
 from typing import TYPE_CHECKING, Any
+from graphistry.utils.lazy_import import lazy_networks_import
+
 from . import constants as config
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-def lazy_import_networks():  # noqa
-    try:
-        import dgl
-        import dgl.nn as dglnn
-        import dgl.function as fn
-        import torch
-        import torch.nn as nn
-        import torch.nn.functional as F
-        Module = nn.Module
-        return nn, dgl, dglnn, fn, torch, F, Module
-    except:
-        return Any, Any, Any, Any, Any, Any, object
 
 if TYPE_CHECKING:  # noqa
-    _, dgl, dglnn, fn, torch, F, Module = lazy_import_networks()
+    _, dgl, dglnn, fn, torch, F, Module = lazy_networks_import()
 else:
     nn = Any 
     dgl = Any
@@ -40,12 +30,12 @@ except:
 class GCN(Module):  # type: ignore
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        _, _, dglnn, _, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_networks_import()
         self.conv1 = dglnn.GraphConv(in_feats, h_feats)
         self.conv2 = dglnn.GraphConv(h_feats, num_classes)
 
     def forward(self, g, in_feat):
-        _, _, _, _, _, F, _ = lazy_import_networks()
+        _, _, _, _, _, F, _ = lazy_networks_import()
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
@@ -65,7 +55,7 @@ class RGCN(Module):  # type: ignore
 
     def __init__(self, in_feats, hid_feats, out_feats, rel_names):
         super().__init__()
-        _, _, dglnn, _, _, _, _ = lazy_import_networks()        
+        _, _, dglnn, _, _, _, _ = lazy_networks_import()        
         
         self.conv1 = dglnn.HeteroGraphConv(
             {rel: dglnn.GraphConv(in_feats, hid_feats) for rel in rel_names},
@@ -88,7 +78,7 @@ class RGCN(Module):  # type: ignore
 class HeteroClassifier(Module):  # type: ignore
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
-        nn, _, _, _, _, _, _ = lazy_import_networks()
+        nn, _, _, _, _, _, _ = lazy_networks_import()
         self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
         self.classify = nn.Linear(hidden_dim, n_classes)
 
@@ -111,7 +101,7 @@ class MLPPredictor(Module):  # type: ignore
 
     def __init__(self, in_features, out_classes):
         super().__init__()
-        nn, _, _, _, _, _, _ = lazy_import_networks()
+        nn, _, _, _, _, _, _ = lazy_networks_import()
         self.W = nn.Linear(in_features * 2, out_classes)
 
     def apply_edges(self, edges):
@@ -133,7 +123,7 @@ class MLPPredictor(Module):  # type: ignore
 class SAGE(Module):  # type: ignore
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
-        _, _, dglnn, _, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_networks_import()
         self.conv1 = dglnn.SAGEConv(
             in_feats=in_feats, out_feats=hid_feats, aggregator_type="mean"
         )
@@ -152,7 +142,7 @@ class SAGE(Module):  # type: ignore
 
 class DotProductPredictor(Module):  # type: ignore
     def forward(self, graph, h):
-        _, _, _, fn, _, _, _ = lazy_import_networks()
+        _, _, _, fn, _, _, _ = lazy_networks_import()
 
         # h contains the node representations computed from the GNN defined
         # in the node classification section (Section 5.1).
@@ -176,7 +166,7 @@ class LinkPredModel(Module):  # type: ignore
 
 class LinkPredModelMultiOutput(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features, out_classes):
-        _, _, dglnn, _, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_networks_import()
         super().__init__()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
@@ -197,7 +187,7 @@ class RGCNEmbed(Module):  # type: ignore
     def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
-        nn, _, dglnn, _, torch, _, _ = lazy_import_networks()
+        nn, _, dglnn, _, torch, _, _ = lazy_networks_import()
         self.node_ids = torch.tensor(range(num_nodes))
         
         self.node_ids = self.node_ids.to(device)
@@ -212,7 +202,7 @@ class RGCNEmbed(Module):  # type: ignore
 
     def forward(self, g, node_features=None):
 
-        _, dgl, _, _, torch, F, _ = lazy_import_networks()
+        _, dgl, _, _, torch, F, _ = lazy_networks_import()
 
         x = self.emb(self.node_ids)
         x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
@@ -236,7 +226,7 @@ class HeteroEmbed(Module):  # type: ignore
         reg = 0.01
     ):
         super().__init__()
-        nn, _, _, _, torch, _, _ = lazy_import_networks()
+        nn, _, _, _, torch, _, _ = lazy_networks_import()
         self.reg = reg
         self.proto = proto
         self.node_features = node_features
@@ -267,7 +257,7 @@ class HeteroEmbed(Module):  # type: ignore
         return score
 
     def loss(self, node_embedding, triplets, labels):
-        _, _, _, _, torch, F, _ = lazy_import_networks()
+        _, _, _, _, torch, F, _ = lazy_networks_import()
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
@@ -290,7 +280,7 @@ class HeteroEmbed(Module):  # type: ignore
 #ACC = metrics.accuracy_score
    
 def train_link_pred(model, G, epochs=100, use_cross_entropy_loss = False):
-    _, _, _, _, torch, F, _ = lazy_import_networks()
+    _, _, _, _, torch, F, _ = lazy_networks_import()
     # take the node features out
     node_features = G.ndata["feature"].float()
     # we are predicting edges

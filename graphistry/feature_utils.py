@@ -20,6 +20,13 @@ from typing_extensions import Literal  # Literal native to py3.8+
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
+from graphistry.utils.lazy_import import (
+    lazy_sentence_transformers_import,
+    lazy_import_has_min_dependancy,
+    lazy_dirty_cat_import,
+    assert_imported_text,
+    assert_imported
+)
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
@@ -67,56 +74,6 @@ else:
     TransformerMixin = Any
 
 
-#@check_set_memoize
-def lazy_import_has_dependancy_text():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        from sentence_transformers import SentenceTransformer
-        return True, 'ok', SentenceTransformer
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-def lazy_import_has_min_dependancy():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        import scipy.sparse  # noqa
-        from scipy import __version__ as scipy_version
-        from sklearn import __version__ as sklearn_version
-        logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"sklearn VERSION: {sklearn_version}")
-        return True, 'ok'
-    except ModuleNotFoundError as e:
-        return False, e
-
-def lazy_import_has_dirty_cat():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        import dirty_cat 
-        return True, 'ok', dirty_cat
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-def assert_imported_text():
-    has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
-    if not has_dependancy_text_:
-        logger.error(  # noqa
-            "AI Package sentence_transformers not found,"
-            "trying running `pip install graphistry[ai]`"
-        )
-        raise import_text_exn
-
-
-def assert_imported():
-    has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
-    if not has_min_dependancy_:
-        logger.error(  # noqa
-                     "AI Packages not found, trying running"  # noqa
-                     "`pip install graphistry[ai]`"  # noqa
-        )
-        raise import_min_exn
 
 
 # ############################################################################
@@ -154,7 +111,7 @@ def resolve_feature_engine(
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
-        has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
+        has_dependancy_text_, _, _ = lazy_sentence_transformers_import()
         if has_dependancy_text_:
             return "torch"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
@@ -708,7 +665,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
+    _, _, SentenceTransformer = lazy_sentence_transformers_import()
 
     t = time()
     text_cols = get_textual_columns(
@@ -886,7 +843,7 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    has_dirty_cat, _, dirty_cat = lazy_import_has_dirty_cat()
+    has_dirty_cat, _, dirty_cat = lazy_dirty_cat_import()
     if has_dirty_cat:
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
@@ -1126,7 +1083,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    has_deps_text, import_text_exn, _ = lazy_import_has_dependancy_text()
+    has_deps_text, import_text_exn, _ = lazy_sentence_transformers_import()
     if has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
@@ -1497,7 +1454,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
+    _, _, SentenceTransformer = lazy_sentence_transformers_import()
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):

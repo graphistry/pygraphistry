@@ -3,23 +3,10 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
+from graphistry.utils.lazy_import import lazy_embed_import
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 
-
-def lazy_embed_import_dep():
-    try:
-        import torch
-        import torch.nn as nn
-        import dgl
-        from dgl.dataloading import GraphDataLoader
-        import torch.nn.functional as F
-        from .networks import HeteroEmbed
-        from tqdm import trange
-        return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
-
-    except:
-        return False, None, None, None, None, None, None, None
 
 def check_cudf():
     try:
@@ -30,7 +17,7 @@ def check_cudf():
         
 
 if TYPE_CHECKING:
-    _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+    _, torch, _, _, _, _, _, _ = lazy_embed_import()
     TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
@@ -147,7 +134,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res
 
     def _build_graph(self, res) -> Plottable:
-        _, _, _, dgl, _, _, _, _ = lazy_embed_import_dep()
+        _, _, _, dgl, _, _, _, _ = lazy_embed_import()
         s, r, t = res._triplets.T
 
         if res._train_idx is not None:
@@ -169,7 +156,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
 
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
-        _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
+        _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import()
         g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -188,7 +175,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return model, g_dataloader
 
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
-        _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
+        _, torch, nn, _, _, _, _, trange = lazy_embed_import()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -232,7 +219,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     @property
     def _gcn_node_embeddings(self):
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        _, torch, _, _, _, _, _, _ = lazy_embed_import()
         g_dgl = self._kg_dgl.to(self._device)
         em = self._embed_model(g_dgl).detach()
         torch.cuda.empty_cache()
@@ -540,7 +527,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        _, torch, _, _, _, _, _, _ = lazy_embed_import()
         emb = self._kg_embeddings.clone().detach()
         if not isinstance(triplets, torch.Tensor):
             triplets = torch.tensor(triplets)
@@ -571,7 +558,7 @@ class SubgraphIterator:
         return self.num_steps
 
     def __getitem__(self, i:int):
-        _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
+        _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import()
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)
@@ -593,7 +580,7 @@ class SubgraphIterator:
 
     @staticmethod
     def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        _, torch, _, _, _, _, _, _ = lazy_embed_import()
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
