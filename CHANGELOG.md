@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* Graceful CPU fallbacks: When lazy GPU dependency imports throw `ImportError`, commonly seen due to broken CUDA environments or having CUDA libraries but no GPU, warn and fall back to CPU.
+
+* Ring layouts now support filtered inputs, giving expected positions
+
+* `encode_axis()` updates are now functional, not inplace
+
+### Changed
+
+* Centralize lazy imports into `graphistry.utils.lazy_import`
+* Lazy imports distinguish `ModuleNotFound` (=> `False`) from `ImportError` (warn + `False`)
+
 ## [0.34.0 - 2024-07-17]
 
 ### Infra

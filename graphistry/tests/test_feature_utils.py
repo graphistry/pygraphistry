@@ -14,18 +14,20 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
     resolve_feature_engine,
-    lazy_import_has_min_dependancy,
-    lazy_import_has_dependancy_text,
     FastEncoder
 )
 
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
+from graphistry.utils.lazy_import import (
+    lazy_import_has_min_dependancy,
+    lazy_sentence_transformers_import
+)
 
 np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
-has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
+has_min_dependancy_text, _, _ = lazy_sentence_transformers_import()
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
