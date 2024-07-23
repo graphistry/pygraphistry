@@ -23,13 +23,11 @@ if TYPE_CHECKING:
     import scipy
     MIXIN_BASE = FeatureMixin
     try:
-        import torch
+        torch = deps.torch
     except:
         pass
-    try:
-        dgl = deps.dgl
-    except:
-        pass
+    dgl = deps.dgl
+
 else:
     MIXIN_BASE = object
 
