@@ -146,7 +146,7 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
 
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: Optional[str] = None, device: str = "cpu"
-) -> Tuple["dgl", "scipy.sparse.coo_matrix", Dict]:
+) -> Tuple["dgl.DGLGraph", "scipy.sparse.coo_matrix", Dict]:
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
     :eg
         g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')

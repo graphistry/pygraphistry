@@ -1,30 +1,47 @@
-import importlib
+from importlib import import_module, __import__
 
 class DepManager:
+    """ 
+        This class is a helper to manage dependencies
+        It allows for dynamic imports and attribute access
+        It is used in the Graphistry Python client to manage optional dependencies
+    
+    : param pkgs: dict, cache to store imported packages, prevent redudant imports
+    : returns: None
+    
+    **Example**
+        ::
+    
+            deps = DepManager()
+            has_dbscan = deps.dbscan
+            has_umap = deps.umap
+    """    
     def __init__(self):
-        self.pkgs = {}
+        self.pkgs = {}  # Cache dict to store imported packages, prevent redudant imports
 
     def __getattr__(self, pkg:str):
-        self._add_deps(pkg)
+        self._add_deps(pkg)  # Import package
         try:
-            return self.pkgs[pkg]
+            return self.pkgs[pkg]  # Return package
         except KeyError:
             return None
 
     def _add_deps(self, pkg:str):
         try:
-            pkg_val = importlib.import_module(pkg)
-            self.pkgs[pkg] = pkg_val
-            setattr(self, pkg, pkg_val)
-        except:
-            pass
+            pkg_val = import_module(pkg)
+            self.pkgs[pkg] = pkg_val  # store in cache dict
+            setattr(self, pkg, pkg_val)  # add pkg to deps instance
+        except ImportError:
+            print('Could not import package: ' + pkg + 'submodule')
+            # pass
 
     def import_from(self, pkg:str, name:str):
         try:
-            module = __import__(pkg, fromlist=[name])
+            module = __import__(pkg, fromlist=[name])  # like _add_deps, but uses __import__ to get top-level pkg/ modules
             self.pkgs[name] = module
-        except:
-            pass
+        except ImportError:
+            # pass
+            print('Could not import package: ' + pkg)
 
 
 deps = DepManager()
