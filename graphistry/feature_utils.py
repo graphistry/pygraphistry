@@ -887,7 +887,7 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    has_dirty_cat, _, dirty_cat = lazy_dirty_cat_import()
+    has_dirty_cat = deps.dirty_cat
     if has_dirty_cat:
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
@@ -1141,7 +1141,7 @@ def process_nodes_dataframes(
     else:
         logger.debug(
             "! Skipping encoding any textual features"
-            f"since dependency {import_text_exn} is not met"
+            f"since dependency `sentence_transformer` is not met"
         )
 
     other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore

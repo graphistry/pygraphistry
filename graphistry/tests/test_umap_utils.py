@@ -1,14 +1,17 @@
+from typing import Any
 from xml.sax.handler import feature_external_ges
 import pytest
 import unittest
 import warnings
 
+import gc
 import graphistry
 
 import os
 import logging
 import numpy as np
 import pandas as pd
+from graphistry.config import config
 from graphistry import Plottable
 from graphistry.feature_utils import remove_internal_namespace_if_present
 
@@ -32,10 +35,11 @@ has_cuml = deps.cuml
 cuml = deps.cuml
 has_umap = deps.umap
 umap = deps.umap
+has_cudf = deps.cudf
 cudf = deps.cudf
 dirty_cat = deps.dirty_cat
-cu_cat = deps.cu_cat
-
+if deps.sklearn and deps.scipy:
+    has_dependancy = True
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")

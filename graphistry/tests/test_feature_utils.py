@@ -15,6 +15,7 @@ import warnings
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
+    resolve_feature_engine,
     FastEncoder
 )
 
