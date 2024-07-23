@@ -1140,8 +1140,8 @@ def process_nodes_dataframes(
         )
     else:
         logger.debug(
-            "! Skipping encoding any textual features"
-            f"since dependency `sentence_transformer` is not met"
+            "! Skipping encoding any textual features,"
+            "since dependency sentence_transformer is not met"
         )
 
     other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
@@ -1359,7 +1359,7 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-    cudf = deps.cudf
+
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
