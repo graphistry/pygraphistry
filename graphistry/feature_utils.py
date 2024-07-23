@@ -527,13 +527,11 @@ class Embedding:
         self.fit(n_dim)
         return self.transform(self.index)
 
-
 def identity(x):
     return x
 
 
 def get_preprocessing_pipeline(
-    X: pd.DataFrame,
     use_scaler: str = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
@@ -563,31 +561,17 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    if 'cudf' in str(getmodule(X)):
-        from cuml.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            # MultiLabelBinarizer,
-            QuantileTransformer,
-            RobustScaler,
-            StandardScaler,
-            SimpleImputer,
-        )
-        from sklearn.preprocessing import MultiLabelBinarizer
-    else:
-        from sklearn.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            MultiLabelBinarizer,
-            QuantileTransformer,
-            RobustScaler,
-            StandardScaler,
-        )
-        from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import (
+        FunctionTransformer,
+        KBinsDiscretizer,
+        MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer,
+        RobustScaler,
+        StandardScaler,
+    )
     from sklearn.pipeline import Pipeline
-    
+    from sklearn.impute import SimpleImputer
     available_preprocessors = [
         "minmax",
         "quantile",
@@ -647,23 +631,12 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    X_type = str(getmodule(X))
-    if 'cudf' not in X_type:
-        X = transformer.fit_transform(X)
-        if keep_n_decimals:
-            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        X = pd.DataFrame(X, columns=columns, index=index)
-    elif 'cudf' in X_type:
-        try:
-            X = transformer.fit_transform(X)
-        except TypeError:
-            X = transformer.fit_transform(X.to_cupy())  #  type: ignore  # noqa
-        if keep_n_decimals:
-            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        cudf = deps.cudf
-        assert cudf is not None
-        X = cudf.DataFrame(X, columns=columns, index=index)
-    return X
+
+    X = transformer.fit_transform(X)
+    if keep_n_decimals:
+        X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+
+    return pd.DataFrame(X, columns=columns, index=index)
 
 
 def impute_and_scale_df(
@@ -680,7 +653,6 @@ def impute_and_scale_df(
 ) -> Tuple[pd.DataFrame, Pipeline]:
 
     transformer = get_preprocessing_pipeline(
-        X = df,
         impute=impute,
         use_scaler=use_scaler,
         n_quantiles=n_quantiles,
@@ -770,15 +742,9 @@ def encode_textual(
             f"Encoded Textual Data using {model} at "
             f"{len(df) / ((time() - t) / 60):.2f} rows per minute"
         )
-    try:
-        res = pd.DataFrame(embeddings,
+    res = pd.DataFrame(embeddings,
                        columns=transformed_columns,
                        index=df.index)
-    except TypeError:
-        cudf = deps.cudf
-        res = cudf.DataFrame(embeddings)
-        res.columns = transformed_columns,
-        res.set_index(df.index,inplace=True)
 
     return res, text_cols, model
 
@@ -813,23 +779,14 @@ def smart_scaler(
             strategy=strategy,
             keep_n_decimals=keep_n_decimals,
         )  # noqa
-    
-    if use_scaler and not X_enc.size != 0:
+
+    if use_scaler and not X_enc.empty:
         logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
 
-    if use_scaler_target and not y_enc.size != 0:
+    if use_scaler_target and not y_enc.empty:
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
-    
-    if 'dataframe' not in str(getmodule(X_enc)):
-        try:
-            X_enc = pd.DataFrame(X_enc)
-            y_enc = pd.DataFrame(y_enc)
-        except:
-            cudf = deps.cudf
-            X_enc = cudf.DataFrame(X_enc)
-            y_enc = cudf.DataFrame(y_enc)
 
     return X_enc, y_enc, pipeline, pipeline_target
 
@@ -871,10 +828,7 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    if 'cudf' in str(getmodule(ndf)):
-        from cuml.preprocessing import FunctionTransformer
-    else:
-        from sklearn.preprocessing import FunctionTransformer
+    from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -908,7 +862,6 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
-    feature_engine: Optional[str] = "dirty_cat",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -934,51 +887,23 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-
-    assert_imported_engine(feature_engine)
-    def limit_text_length(data, char_limit):
-        # Check if the input is a DataFrame
-        if 'dataframe' in str(getmodule(data)):
-            # If it's a DataFrame, apply the function to each column
-            for col in data.columns:
-                # data[col] = data[col].apply(lambda x: x[:char_limit] if isinstance(x, str) else x)
-                try:
-                    data[col] = data[col].str.slice(stop=char_limit)
-                except:
-                    pass
-        else:
-            # If it's not a DataFrame (e.g., a Series), apply the function directly
-            # data = data.apply(lambda x: x[:char_limit] if isinstance(x, str) else x)
-            try:
-                data = data.str.slice(stop=char_limit)
-            except:
-                pass
-        return data
-    
-    from dirty_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
+    has_dirty_cat, _, dirty_cat = lazy_dirty_cat_import()
+    if has_dirty_cat:
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
-
     t = time()
 
-    if not is_dataframe_all_numeric(ndf):
-        if feature_engine == CUDA_CAT:
-            data_encoder = TableVectorizer(
-                auto_cast=True,
-                cardinality_threshold=cardinality_threshold_target,
-                high_card_cat_transformer=GapEncoder(n_topics),
-                datetime_transformer = "passthrough"
-            )
-        else:
-            data_encoder = TableVectorizer(
-                auto_cast=True,
-                cardinality_threshold=cardinality_threshold,
-                high_card_cat_transformer=GapEncoder(n_topics),
-                #  numerical_transformer=StandardScaler(), This breaks
-                #  since -- AttributeError: Transformer numeric
-                #  (type StandardScaler)
-                #  does not provide get_feature_names.
-            )
-
+    all_numeric = is_dataframe_all_numeric(ndf)
+    if not all_numeric and has_dirty_cat:
+        data_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold,
+            high_card_cat_transformer=GapEncoder(n_topics),
+            #  numerical_transformer=StandardScaler(), This breaks
+            #  since -- AttributeError: Transformer numeric
+            #  (type StandardScaler)
+            #  does not provide get_feature_names.
+        )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
@@ -1011,41 +936,20 @@ def process_dirty_dataframes(
         )
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
-
-        data_encoder.get_feature_names_out = callThrough(features_transformed) 
-        if 'cudf' not in str(getmodule(ndf)) and 'cupy' not in str(getmodule(X_enc)):
-            X_enc = pd.DataFrame(
-                X_enc, columns=features_transformed, index=ndf.index
-            )
-            X_enc = X_enc.fillna(0.0)
-        elif 'cudf' in str(getmodule(ndf)) and 'cudf' not in str(getmodule(X_enc)):
-            cudf = deps.cudf
-            try:
-                X_enc = cudf.DataFrame(X_enc)
-            except TypeError:
-                X_enc = cudf.DataFrame(X_enc.toarray())  # if sparse cupy array
-            # ndf = set_to_datetime(ndf,'A','A')
-            dt_count = ndf.select_dtypes(include=["datetime", "datetimetz"]).columns.to_list()
-            if len(dt_count) > 0:
-                dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
-                features_transformed.extend(dt_new)
-            duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
-            if len(duplicates) > 0:
-                counts = {}  # type: ignore
-                new_list = []
-                for x in features_transformed:
-                    counts[x] = counts.get(x, 0) + 1
-                    new_list.append(f"{x}_{counts[x]}" if counts[x] > 1 else x)
-                X_enc.columns = new_list
-            else:
-                X_enc.columns = features_transformed
-            X_enc.set_index(ndf.index, inplace=True)
-            X_enc = X_enc.fillna(0.0)
-
-
+        data_encoder.get_feature_names_out = callThrough(features_transformed)
+        
+        X_enc = pd.DataFrame(
+            X_enc, columns=features_transformed, index=ndf.index
+        )
+        X_enc = X_enc.fillna(0.0)
+    elif all_numeric and not has_dirty_cat:
+        numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
+        logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
+        X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
     else:
         logger.debug("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
+
 
     if multilabel and y is not None:
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
@@ -1056,26 +960,17 @@ def process_dirty_dataframes(
         and deps.dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
-        logger.debug("-Fitting Targets --\n%s", y.columns)  # type: ignore
+        logger.debug("-Fitting Targets --\n%s", y.columns)
 
-        if feature_engine == CUDA_CAT:
-
-            label_encoder = TableVectorizer(
-                auto_cast=True,
-                cardinality_threshold=cardinality_threshold_target,
-                high_card_cat_transformer=GapEncoder(n_topics_target),
-                datetime_transformer = "passthrough"
-            )
-        else:
-            label_encoder = TableVectorizer(
-                auto_cast=True,
-                cardinality_threshold=cardinality_threshold_target,
-                high_card_cat_transformer=GapEncoder(n_topics_target)
-                # if not similarity
-                # else SimilarityEncoder(
-                #     similarity=similarity, categories=categories, n_prototypes=2
-                # ),  # Similarity
-            )
+        label_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold_target,
+            high_card_cat_transformer=GapEncoder(n_topics_target)
+            if not similarity
+            else SimilarityEncoder(
+                similarity=similarity, categories=categories, n_prototypes=2
+            ),  # Similarity
+        )
 
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_array(y_enc)
@@ -1091,28 +986,10 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        X_enc, y_enc = make_safe_gpu_dataframes(X_enc, y_enc,engine=feature_engine)
-        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:  # since CC can be cpu this needs strict GPU/cudf check
-            cudf = deps.cudf
-            try:
-                y_enc = cudf.DataFrame(y_enc)
-            except TypeError:
-                y_enc = cudf.DataFrame(y_enc.toarray()) 
-            try:
-                y_enc.columns = labels_transformed
-            except ValueError:
-                y_enc.columns = np.arange((y_enc.shape[1]))
-            y_enc.set_index(y.index, inplace=True)  # type: ignore
-            y_enc = y_enc.fillna(0.0)
 
-        else:
-            try:
-                y_enc = y_enc.get()  # not sure how/why cudf here if dirty_cat on gpu machine
-            except:
-                pass
-            y_enc = pd.DataFrame(y_enc,
+        y_enc = pd.DataFrame(y_enc,
                              columns=labels_transformed,
-                             index=y.index)  # type: ignore
+                             index=y.index)
         # y_enc = y_enc.fillna(0)
         # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
@@ -1130,7 +1007,7 @@ def process_dirty_dataframes(
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
         and not deps.dirty_cat  # noqa: E126,W503
     ):
-        logger.warning("-*-*- y is not numeric and no featurizer, dropping non-numeric")
+        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
         y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
@@ -1264,7 +1141,7 @@ def process_nodes_dataframes(
     else:
         logger.debug(
             "! Skipping encoding any textual features"
-            "since dependency Sentence Transformers is not met"
+            f"since dependency {import_text_exn} is not met"
         )
 
     other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
@@ -1278,21 +1155,20 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel,
-        feature_engine=feature_engine,
+        multilabel=multilabel
     )
 
     if embedding:
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
 
-    if not text_enc.empty and not X_enc.size != 0:
+    if not text_enc.empty and not X_enc.empty:
         logger.info("-" * 60)
         logger.info("<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat(
             [text_enc, X_enc], axis=1
         )  # np.c_[embeddings, X_enc.values]
-    elif not text_enc.empty and X_enc.size != 0:
+    elif not text_enc.empty and X_enc.empty:
         logger.info("-" * 60)
         logger.info("<= Found only textual embedding =>")
         X_enc = text_enc
@@ -1339,10 +1215,7 @@ class FastMLB:
     
     def __call__(self, df):
         ydf = df[self.columns]
-        if 'cudf' not in str(getmodule(ydf)):
-            return self.mlb.transform(ydf.squeeze())
-        elif 'cudf' in str(getmodule(ydf)) and len(ydf.columns) == 1:
-            return self.mlb.transform(ydf[ydf.columns[0]])
+        return self.mlb.transform(ydf.squeeze())
     
     def fit(self, X, y=None):
         return self
@@ -1363,21 +1236,15 @@ class FastMLB:
 
 def encode_multi_target(ydf, mlb = None):
     from sklearn.preprocessing import (
-        MultiLabelBinarizer,  # Not available on cuml and arrow has trouble comparing unique strings for some reason
+        MultiLabelBinarizer,
     )
-    if 'cudf' not in str(getmodule(ydf)):
-        ydf = ydf.squeeze()  # since its a dataframe, we want series
-        column_name = ydf.name
-        assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
-    elif 'cudf' in str(getmodule(ydf)) and len(ydf.columns) == 1:
-        ydf = ydf[ydf.columns[0]]
-        column_name = ydf.name
-        ydf = ydf.to_pandas()  # arrow()
-        # assert 'arrow' in str((ydf)), 'Target needs to be a single column of (list of lists), also needs to be pyarrow.Series'
+    ydf = ydf.squeeze()  # since its a dataframe, we want series
+    assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
+    column_name = ydf.name
     
     if mlb is None:
         mlb = MultiLabelBinarizer()
-        T = mlb.fit_transform(ydf)
+        T = mlb.fit_transform(ydf) 
     else:
         T = mlb.transform(ydf)
 
@@ -1385,7 +1252,7 @@ def encode_multi_target(ydf, mlb = None):
     columns = [
         str(k) for k in mlb.classes_
     ]
-    T = pd.DataFrame(T, columns=columns, index=ydf.index)  # pandas here since no mlb in cuml
+    T = pd.DataFrame(T, columns=columns, index=ydf.index)
     logger.info(f"Shape of Target Encoding: {T.shape}")
         
     label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns)  # memorizes which cols to use.
@@ -1406,31 +1273,20 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     """
     # uses mlb with fit=T/F so we can use it in transform mode
     # to recreate edge feature concat definition
-    edf_type = str(getmodule(edf))
     source = edf[src]
     destination = edf[dst]
-    source_dtype = str(getmodule(source))
     logger.debug("Encoding Edges using MultiLabelBinarizer")
-    if fit and 'cudf' not in source_dtype:
+    if fit:
         T = mlb.fit_transform(zip(source, destination))
-    elif fit and 'cudf' in source_dtype:
-        T = mlb.fit_transform(zip(source.to_pandas(), destination.to_pandas()))
-    elif not fit and 'cudf' not in source_dtype:
+    else:
         T = mlb.transform(zip(source, destination))
-    elif not fit and 'cudf' in source_dtype:
-        T = mlb.transform(zip(source.to_pandas(), destination.to_pandas()))
-
     T = 1.0 * T  # coerce to float
     columns = [
         str(k) for k in mlb.classes_
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
-    if 'cudf' in edf_type:
-        cudf = deps.cudf
-        T = cudf.DataFrame(T, columns=columns, index=edf.index)
-    else:
-        T = pd.DataFrame(T, columns=columns, index=edf.index)
+    T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f"Shape of Edge Encoding: {T.shape}")
     return T, mlb
 
@@ -1586,16 +1442,11 @@ def process_edge_dataframes(
         feature_engine=feature_engine,
     )
 
-    if not X_enc.size != 0 and not T.empty:
+    if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        T,X_enc = make_safe_gpu_dataframes(T, X_enc,engine=feature_engine)
-        T_type = str(getmodule(T))
-        if 'cudf' in T_type:
-            X_enc = cudf.concat([T, X_enc], axis=1)
-        else:
-            X_enc = pd.concat([T, X_enc], axis=1)
-    elif not T.empty and X_enc.size != 0:
+        X_enc = pd.concat([T, X_enc], axis=1)
+    elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
         X_enc = T
@@ -1655,31 +1506,19 @@ def transform_text(
         logger.debug(f"--Ngram tfidf {text_model}")
         tX = text_model.transform(df)
         tX = make_array(tX)
-        try:
-            tX = pd.DataFrame(  # how abot cudf here?
-                tX,
-                columns=list(text_model[0].vocabulary_.keys()),
-                index=df.index
-                )
-        except TypeError:
-            cudf = deps.cudf
-            tX = cudf.DataFrame(tX)
-            tX.columns = list(text_model[0].get_feature_names()),
-            tX.set_index(df.index,inplace=True)
+        tX = pd.DataFrame(
+            tX,
+            columns=list(text_model[0].vocabulary_.keys()),
+            index=df.index
+            )
     elif isinstance(text_model, SentenceTransformer):
         logger.debug(f"--HuggingFace Transformer {text_model}")
         tX = text_model.encode(df.values)
-        try:
-            tX = pd.DataFrame(  # and here?
-                tX,
-                columns=_get_sentence_transformer_headers(tX, text_cols),
-                index=df.index,
-            )
-        except TypeError:
-            cudf = deps.cudf
-            tX = cudf.DataFrame(tX)
-            tX.columns = _get_sentence_transformer_headers(tX, text_cols),
-            tX.set_index(df.index,inplace=True)
+        tX = pd.DataFrame(
+            tX,
+            columns=_get_sentence_transformer_headers(tX, text_cols),
+            index=df.index,
+        )
     else:
         raise ValueError(
             "`text_model` should be instance of"
@@ -1821,13 +1660,12 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind="nodes", feature_engine="pandas"):
+    def __init__(self, df, y=None, kind="nodes"):
         self._df = df
         self.feature_names_in = df.columns  
         self._y = pd.DataFrame([], index=df.index) if y is None else y
         self.target_names_in = self._y.columns
         self.kind = kind
-        self.feature_engine = feature_engine
         self._assertions()
         # these are the parts we can use to reconstruct transform.
         self.res_names = ("X_enc y_enc data_encoder label_encoder "
@@ -1885,14 +1723,6 @@ class FastEncoder:
         self._hecho(res)
         # data_encoder.feature_names_in = self.feature_names_in
         # label_encoder.target_names_in = self.target_names_in
-        if 'dataframe' not in str(getmodule(X_enc)):
-            try:
-                X_enc = pd.DataFrame(X_enc)
-                y_enc = pd.DataFrame(y_enc)
-            except:
-                cudf = deps.cudf
-                X_enc = cudf.DataFrame(X_enc)
-                y_enc = cudf.DataFrame(y_enc)
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
         self.X = X_encs
@@ -1919,29 +1749,13 @@ class FastEncoder:
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
     
-    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target, feature_engine):
+    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
-        X, y = make_safe_gpu_dataframes(X, y, engine=feature_engine)
-        if 'cudf' in str(getmodule(X)):
-            cudf = deps.cudf
-            if scaling_pipeline is not None and not X.empty:
-                x_index = X.index
-                x_col = X.columns
-                X = cudf.DataFrame(scaling_pipeline.transform(X))
-                X.columns = x_col
-                X.set_index(x_index,inplace=True)
-            if scaling_pipeline_target is not None and y is not None and not y.empty:
-                y_index = y.index
-                y_col = y.columns
-                y = cudf.DataFrame(scaling_pipeline_target.transform(y))
-                y.columns = y_col
-                y.set_index(y_index,inplace=True)
-        else:
-            if scaling_pipeline is not None and not X.empty:
-                X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
-            if scaling_pipeline_target is not None and y is not None and not y.empty:
-                y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
+        if scaling_pipeline is not None and not X.empty:
+            X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+        if scaling_pipeline_target is not None and y is not None and not y.empty:
+            y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
         return X, y
     
     def transform_scaled(self, df, ydf=None, scaling_pipeline=None, scaling_pipeline_target=None):
@@ -1949,7 +1763,7 @@ class FastEncoder:
             scaling_pipeline = self.scaling_pipeline
         if scaling_pipeline_target is None:
             scaling_pipeline_target = self.scaling_pipeline_target
-        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target, self.feature_engine)
+        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target)
 
     def fit_transform(self, src=None, dst=None, *args, **kwargs):
         self.fit(src=src, dst=dst, *args, **kwargs)
@@ -2036,7 +1850,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
         " -- Pruning weighted edge DataFrame "
         f"from {len(wdf):,} to {len(wdf2):,} edges."
     )
-    if index_to_nodes_dict is not None and isinstance(index_to_nodes_dict, dict):
+    if index_to_nodes_dict is not None:
         wdf2[config.SRC] = wdf2[config.SRC].map(index_to_nodes_dict)
         wdf2[config.DST] = wdf2[config.DST].map(index_to_nodes_dict)
     return wdf2
@@ -2071,15 +1885,7 @@ def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[lis
         return X
     if isinstance(column_parts, str):
         column_parts = [column_parts]
-    if 'cudf.core.dataframe' in str(getmodule(X)):
-        cudf = deps.cudf
-        res = cudf.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
-    else:
-        try:
-            res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
-        except TypeError:
-            res = pd.concat([get_matrix_by_column_part(X.to_pandas(), column_part) for column_part in column_parts], axis=1)  # type: ignore
-
+    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
     res = res.loc[:, ~res.columns.duplicated()]  # type: ignore
     return res
 
@@ -2161,7 +1967,7 @@ class FeatureMixin(MIXIN_BASE):
         res = self.copy() 
         ndf = res._nodes
         node = res._node
-    
+
         if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
@@ -2233,7 +2039,8 @@ class FeatureMixin(MIXIN_BASE):
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
-                setattr(fresh_res, attr, getattr(old_res, attr))
+                if hasattr(old_res, attr):
+                    setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
 
@@ -2249,7 +2056,7 @@ class FeatureMixin(MIXIN_BASE):
         print('-' * 80) if verbose else None
         print("** Featuring nodes") if verbose else None
         # ############################################################
-        encoder = FastEncoder(X_resolved, y_resolved, kind="nodes", feature_engine=feature_engine)
+        encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
         # ###########################################################
 
@@ -2369,7 +2176,7 @@ class FeatureMixin(MIXIN_BASE):
 
         print("** Featuring edges") if verbose else None
         ###############################################################
-        encoder = FastEncoder(X_resolved, y_resolved, kind="edges", feature_engine=feature_engine)
+        encoder = FastEncoder(X_resolved, y_resolved, kind="edges")
         encoder.fit(src=res._source, dst=res._destination, **nfkwargs)
         ##############################################################
 
@@ -2615,8 +2422,7 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         inplace: bool = False,
-        feature_engine: FeatureEngine = "pandas",
-        engine: str = "pandas",
+        feature_engine: FeatureEngine = "auto",
         dbscan: bool = False,
         min_dist: float = 0.5,  # DBSCAN eps
         min_samples: int = 1,  # DBSCAN min_samples
@@ -2732,7 +2538,6 @@ class FeatureMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
-
 
         if kind == "nodes":
             res = res._featurize_nodes(
