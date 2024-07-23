@@ -643,7 +643,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
 class TestCUMLMethods(TestUMAPMethods):
 
     def setup_method(self, method: Any) -> None:
-        cache_coercion_helper.cache_clear()
+        not has_dgl.cache_clear()
         gc.collect()
 
     @classmethod
