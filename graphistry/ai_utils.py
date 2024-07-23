@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from inspect import getmodule
+
 import graphistry
 
 from .constants import DISTANCE, WEIGHT, BATCH
@@ -447,7 +447,7 @@ def infer_self_graph(res,
 
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
-        dist = np.linalg.norm(diff, axis=1) # Euclidean distance
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
         mdists.append(dist)
 
     m, std = np.mean(mdists), np.std(mdists)

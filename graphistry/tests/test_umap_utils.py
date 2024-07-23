@@ -1,15 +1,15 @@
-from typing import Any
+from xml.sax.handler import feature_external_ges
 import pytest
 import unittest
 import warnings
 
-import gc
 import graphistry
+
 import os
 import logging
 import numpy as np
 import pandas as pd
-from graphistry.config import config
+from graphistry import Plottable
 from graphistry.feature_utils import remove_internal_namespace_if_present
 
 from graphistry.tests.test_feature_utils import (
@@ -25,21 +25,16 @@ from graphistry.tests.test_feature_utils import (
     model_avg_name,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.umap_utils import (
-    lazy_umap_import_has_dependancy,
-    lazy_cuml_import_has_dependancy,
-    lazy_cudf_import_has_dependancy,
-)
-from graphistry.util import cache_coercion_helper
+from graphistry.dep_manager import deps
+from parameterized import parameterized_class
 
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_cuml, _, _ = lazy_cuml_import_has_dependancy()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
-has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
-
-# print('has_dependancy', has_dependancy)
-# print('has_cuml', has_cuml)
-# print('has_umap', has_umap)
+has_cuml = deps.cuml
+cuml = deps.cuml
+has_umap = deps.umap
+umap = deps.umap
+cudf = deps.cudf
+dirty_cat = deps.dirty_cat
+cu_cat = deps.cu_cat
 
 logger = logging.getLogger(__name__)
 
@@ -90,20 +85,9 @@ def _eq(df1, df2):
     return tr(df1) == tr(df2)
 
 
-feature_engines = []
-engines = []
-if cuml:
-    engines.append('cuml')
-if dirty_cat:
-    feature_engines.append('dirty_cat')
-if umap:
-    engines.append('umap_learn')
-    
-
-@parameterized_class([{"feature_engine": fe, "engine": ge} for fe in feature_engines for ge in engines])
 class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def setUp(self):
         verbose = True
         g = graphistry.nodes(ndf_reddit)
@@ -119,8 +103,6 @@ class TestUMAPFitTransform(unittest.TestCase):
             g2 = g.umap(
                 y=['label', 'type'],
                 use_ngrams=True,
-                feature_engine = self.feature_engine,
-                engine = self.engine,
                 ngram_range=(1, 2),
                 use_scaler="robust",
                 cardinality_threshold=2,
@@ -153,8 +135,6 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_ngrams=True,
                 ngram_range=(1, 2),
                 use_scaler=None,
-                feature_engine = self.feature_engine,
-                engine = self.engine,
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
@@ -170,14 +150,14 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.g2e = g2
 
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
         assert set(self.X.columns) == set(self.x.columns), "Node Feature Columns do not match"
         assert set(self.Y.columns) == set(self.y.columns), "Node Target Columns do not match"
-        # assert set(self.Xe.columns) == set(self.xe.columns), "Edge Feature Columns do not match"  # not sure why this fails
+        assert set(self.Xe.columns) == set(self.xe.columns), "Edge Feature Columns do not match"
         assert set(self.Ye.columns) == set(self.ye.columns), "Edge Target Columns do not match"
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_index_match(self):
         # nodes
         d = self.g2._nodes.shape[0]
@@ -201,7 +181,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         assert _eq(self.Xe.index, self.xe.index).sum() == de, "Edge Feature Indexes do not match"
         assert _eq(self.Ye.index, self.ye.index).sum() == de, "Edge Target Indexes do not match"
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_index_match_in_infered_graph(self):
         # nodes
         g3 = self.g2._nodes
@@ -210,7 +190,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         assert _eq(g3.index, self.X.index).sum() == len(g3), "Node Transformed features Indexes do not match"
         assert _eq(g3.index, self.y.index).sum() == len(g3), "Node Transformed target Indexes do not match"
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_edge_index_match_in_infered_graph(self):
         g3 = self.g2e._edges
         assert _eq(g3.index, self.EMBe.index).sum() == len(g3), "Edge Emb Indexes do not match"
@@ -219,11 +199,11 @@ class TestUMAPFitTransform(unittest.TestCase):
         assert _eq(g3.index, self.ye.index).sum() == len(g3), "Edge Transformed Node target Indexes do not match"
 
     
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_umap_kwargs(self):
         umap_kwargs = {
             "n_components": 2,
-            # "metric": "euclidean",  # umap default already
+            "metric": "euclidean",
             "n_neighbors": 3,
             "min_dist": 1,
             "spread": 1,
@@ -233,16 +213,14 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        if self.feature_engine == 'dirty_cat':
-            umap_kwargs2['metric'] = 'euclidean'
-            umap_kwargs['metric'] = 'euclidean'
+        umap_kwargs2['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine, engine=self.engine)
-            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine, engine=self.engine)
+            g2 = g.umap(**umap_kwargs, engine='umap_learn')
+            g3 = g.umap(**umap_kwargs2, engine='umap_learn')
         assert g2._umap_params == umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
@@ -265,8 +243,7 @@ class TestUMAPFitTransform(unittest.TestCase):
             g5._umap_params == umap_kwargs2
         ), f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2}"
 
-
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_transform_umap(self):
         np.random.seed(41)
         test = self.test
@@ -290,7 +267,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 assert True
             else:
                 objs = (pd.DataFrame,)
-                if cudf:
+                if has_cudf:
                     objs = (pd.DataFrame, cudf.DataFrame)
                 assert len(g4) == 3
                 assert isinstance(g4[0], objs)
@@ -311,14 +288,12 @@ class TestUMAPFitTransform(unittest.TestCase):
             assert True
 
 
-
-@parameterized_class([{"feature_engine": fe, "engine": ge} for fe in feature_engines for ge in engines])
 class TestUMAPMethods(unittest.TestCase):
     def _check_attributes(self, g, attributes):
         msg = "Graphistry instance after umap should have `{}` as attribute"
         msg2 = "Graphistry instance after umap should not have None values for `{}`"
         objs = (pd.DataFrame,)
-        if cudf:
+        if has_cudf:
             objs = (pd.DataFrame, cudf.DataFrame)
 
         for attribute in attributes:
@@ -374,7 +349,7 @@ class TestUMAPMethods(unittest.TestCase):
         assert ndf.shape == df[cols].shape
         assert ndf.reset_index(drop=True).equals(df[cols].reset_index(drop=True))
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
@@ -401,7 +376,7 @@ class TestUMAPMethods(unittest.TestCase):
 
                     self.cases_test_graph(g2, kind=kind, df=df)
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_umap_simplest(self):
         df = pd.DataFrame({
             'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
@@ -410,7 +385,7 @@ class TestUMAPMethods(unittest.TestCase):
         graphistry.nodes(df).umap()
         assert True
     
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_umap_edgecase(self):
         df = pd.DataFrame({
             'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
@@ -426,7 +401,7 @@ class TestUMAPMethods(unittest.TestCase):
         graphistry.nodes(df).umap()
         assert True
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
         g = graphistry.nodes(triangleNodes)
         use_cols = [node_ints, node_floats, node_numeric]
@@ -440,7 +415,7 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleNodes,
         )
 
-    @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_edge_umap(self):
         g = graphistry.edges(triangleEdges, "src", "dst")
         use_cols = [edge_ints, edge_floats, edge_numeric]
@@ -455,11 +430,11 @@ class TestUMAPMethods(unittest.TestCase):
         )
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat, reason="requires umap feature dependencies"
+        not has_dependancy or not has_umap, reason="requires umap feature dependencies"
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-            g2 = g.umap(kind=kind, feature_engine=self.feature_engine)
+            g2 = g.umap(kind=kind, feature_engine="none")
             last_shape = 0
             for scale in np.linspace(0, 1, 8):
                 g3 = g2.filter_weighted_edges(scale=scale)
@@ -475,9 +450,47 @@ class TestUMAPMethods(unittest.TestCase):
                 last_shape = shape[0]
 
 
+class TestUMAPAIMethods(TestUMAPMethods):
+    @pytest.mark.skipif(
+        not has_dependancy or not has_umap,
+        reason="requires ai+umap feature dependencies",
+    )
+    def _test_umap(self, g, use_cols, targets, name, kind, df):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for scaler in ["kbins", "robust"]:
+                for cardinality in [2, 200]:
+                    for use_ngram in [True, False]:
+                        for use_col in use_cols:
+                            for target in targets:
+                                logger.debug("*" * 90)
+                                value = [
+                                    scaler,
+                                    cardinality,
+                                    use_ngram,
+                                    target,
+                                    use_col,
+                                ]
+                                logger.debug(f"{value}")
+                                logger.debug("-" * 80)
 
-@parameterized_class([{"feature_engine": fe, "engine": ge} for fe in feature_engines for ge in engines])
-class TestUMAPAICUMLMethods(TestUMAPMethods):
+                                g2 = g.umap(
+                                    kind=kind,
+                                    X=use_col,
+                                    y=target,
+                                    model_name=model_avg_name,
+                                    use_scaler=scaler,
+                                    use_scaler_target=scaler,
+                                    use_ngrams=use_ngram,
+                                    engine="umap_learn",
+                                    cardinality_threshold=cardinality,
+                                    cardinality_threshold_target=cardinality,
+                                    n_neighbors=3,
+                                    dbscan=False,
+                                )
+
+                                self.cases_test_graph(g2, kind=kind, df=df)
+
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
@@ -666,10 +679,9 @@ class TestCUMLMethods(TestUMAPMethods):
                                     y=target,
                                     model_name=model_avg_name,
                                     use_scaler=scaler,
-                                    # use_scaler_target=scaler,
+                                    use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine=self.engine,
-                                    feature_engine = self.feature_engine,
+                                    engine="cuml",
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3,
@@ -678,8 +690,8 @@ class TestCUMLMethods(TestUMAPMethods):
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_node_umap(self):
         g = graphistry.nodes(ndf_reddit[:len(ndf_reddit) // 2].reset_index(drop=True))
@@ -705,12 +717,12 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_edge_umap(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        targets = ["label"]  # cuml cant handle None here
+        targets = [None, "label"]
         use_cols = [None, "title"]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -727,17 +739,17 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.umap(feature_engine = self.feature_engine, engine = self.engine)
+        g2 = g.umap()
 
         logger.debug("======= g.umap() done ======")
-        g3a = g2.featurize(feature_engine = self.feature_engine, engine = self.engine)
+        g3a = g2.featurize()
         logger.debug("======= g3a.featurize() done ======")
-        g3 = g3a.umap(feature_engine = self.feature_engine, engine = self.engine)
+        g3 = g3a.umap()
         logger.debug("======= g3.umap() done ======")
         assert g2._node_features.shape == g3._node_features.shape, f"featurize() should be idempotent, found {g2._node_features.shape} != {g3._node_features.shape}"
         # since g3 has feature params with x and y.
@@ -750,8 +762,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_chaining_edges(self):
         g = graphistry.edges(edge_df, "src", "dst")
@@ -759,8 +771,8 @@ class TestCUMLMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind="edges",feature_engine = self.feature_engine, engine = self.engine)
-            g3 = g.featurize(kind="edges").umap(kind="edges",feature_engine = self.feature_engine, engine = self.engine)
+            g2 = g.umap(kind="edges")
+            g3 = g.featurize(kind="edges").umap(kind="edges")
 
         assert all(g2._feature_params["edges"]["X"] == g3._feature_params["edges"]["X"])
         assert all(
@@ -769,8 +781,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
         g = graphistry.nodes(ndf_reddit)
@@ -784,13 +796,11 @@ class TestCUMLMethods(TestUMAPMethods):
             g2 = g.umap(
                 X="type",
                 y="label",
-                feature_engine = self.feature_engine,
-                engine = self.engine,
                 cardinality_threshold_target=3,
                 n_topics_target=n_topics_target,
             )  # makes a GapEncoded Target
             g3 = g.umap(
-                X="type", y="label", feature_engine = self.feature_engine, engine = self.engine,cardinality_threshold_target=30000
+                X="type", y="label", cardinality_threshold_target=30000
             )  # makes a one-hot-encoded target
 
         assert all(
@@ -805,12 +815,12 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_target.shape[1] == n_topics_target, "Targets "
 
     @pytest.mark.skipif(
-        not umap or not dirty_cat,
-        reason="requires feature_engine and umap_engine dependencies",
+        not has_dependancy or not has_umap,
+        reason="requires cuml feature dependencies",
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
-            g2 = g.umap(kind=kind, feature_engine = self.feature_engine, engine = self.engine,model_name=model_avg_name)
+            g2 = g.umap(kind=kind, model_name=model_avg_name)
             last_shape = 0
             for scale in np.linspace(0, 1, 8):  # six sigma in 8 steps
                 g3 = g2.filter_weighted_edges(scale=scale)
@@ -823,8 +833,6 @@ class TestCUMLMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
-
-@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestCudfUmap(unittest.TestCase):
     # temporary tests for cudf pass thru umap
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
@@ -835,11 +843,11 @@ class TestCudfUmap(unittest.TestCase):
         df['profile'] = np.random.randint(0,1000,size=(self.samples, 1))
         self.df = cudf.from_pandas(df)
     
-    @pytest.mark.skipif(not umap, reason="requires umap")
-    @pytest.mark.skipif(not cuml, reason="requires cuml")
+    @pytest.mark.skipif(not has_dependancy or not has_cuml, reason="requires cuml dependencies")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_base(self):
-        graphistry.nodes(self.df).umap(engine = 'umap')._node_embedding.shape == (self.samples, 2)
-        graphistry.nodes(self.df).umap(engine = 'cuml')._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap('auto')._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap('engine')._node_embedding.shape == (self.samples, 2)
 
 
 if __name__ == "__main__":

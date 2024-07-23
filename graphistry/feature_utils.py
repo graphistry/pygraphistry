@@ -21,7 +21,7 @@ from typing_extensions import Literal  # Literal native to py3.8+
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
 from . import constants as config
-from .constants import CUDA_CAT, DIRTY_CAT
+from .constants import DIRTY_CAT
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
@@ -135,7 +135,7 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
+    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch"]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
         if deps.dirty_cat and deps.scipy and deps.sklearn:
