@@ -641,10 +641,10 @@ class TestUMAPAIMethods(TestUMAPMethods):
     reason="requires cuml feature dependencies",
 )
 class TestCUMLMethods(TestUMAPMethods):
-    dgl = deps.dgl
-    def setup_method(self, method: Any) -> None:
-        not dgl.cache_clear()
-        gc.collect()
+    # def setup_method(self, method: Any) -> None:
+    #     dgl = deps.dgl
+    #     not dgl.cache_clear()
+    #     gc.collect()
 
     @classmethod
     def setup_class(cls: Any) -> None:

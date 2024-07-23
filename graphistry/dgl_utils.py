@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     except:
         pass
     try:
-        import dgl
+        dgl = deps.dgl
     except:
         pass
 else:
