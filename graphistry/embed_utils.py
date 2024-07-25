@@ -9,7 +9,7 @@ from .utils.dep_manager import deps
 
 
 if TYPE_CHECKING:
-    torch = deps.torch
+    import torch
     TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
