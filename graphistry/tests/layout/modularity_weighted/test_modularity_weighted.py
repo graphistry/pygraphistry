@@ -27,7 +27,7 @@ class Test_from_igraph(NoAuthTestCase):
 
     def test_minimal_edges(self):
 
-        g = graphistry.edges(pd.DataFrame(chain))
+        g = graphistry.edges(pd.DataFrame(chain), 's', 'd')
         g2 = g.modularity_weighted_layout()
 
         assert 'community_multilevel' in g2._nodes
@@ -42,7 +42,7 @@ class Test_from_cudf(NoAuthTestCase):
     def test_minimal_edges(self):
 
         import cudf
-        g = graphistry.edges(cudf.DataFrame(chain))
+        g = graphistry.edges(cudf.DataFrame(chain), 's', 'd')
         g2 = g.modularity_weighted_layout()
 
         assert 'louvain' in g2._nodes
