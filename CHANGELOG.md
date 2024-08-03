@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.3 - 2024-08-03]
+
 ### Added
 
 * Layout `modularity_weighted_layout` that uses edge weights to more strongly emphasize community structure
@@ -18,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 
 * Upgrade tests to`docker compose` from `docker-compose` 
+* Remove deprecated `version` to address warnings
 
 ## [0.34.2 - 2024-07-22]
 
