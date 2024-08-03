@@ -4,6 +4,7 @@ from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
     group_in_a_box_layout as group_in_a_box_layout_base,
+    modularity_weighted_layout as modularity_weighted_layout_base,
     ring_categorical as ring_categorical_base,
     ring_continuous as ring_continuous_base,
     time_ring as time_ring_base
@@ -26,6 +27,10 @@ class LayoutsMixin(MIXIN_BASE):
     def group_in_a_box_layout(self, *args, **kwargs):
         return group_in_a_box_layout_base(self, *args, **kwargs)
     group_in_a_box_layout.__doc__ = group_in_a_box_layout_base.__doc__
+
+    def modularity_weighted_layout(self, *args, **kwargs):
+        return modularity_weighted_layout_base(self, *args, **kwargs)
+    modularity_weighted_layout.__doc__ = modularity_weighted_layout_base.__doc__
 
     def time_ring_layout(self, *args, **kwargs):
         return time_ring_base(self, *args, **kwargs)
