@@ -31,7 +31,7 @@ then
     echo "WITH_BUILD (transformer: $SENTENCE_TRANSFORMER)"
     COMPOSE_DOCKER_CLI_BUILD=1 \
     DOCKER_BUILDKIT=1 \
-    docker-compose build \
+    docker compose build \
         --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
         --build-arg PIP_DEPS="${PIP_DEPS}" \
         --build-arg SENTENCE_TRANSFORMER="${SENTENCE_TRANSFOMER}" \
