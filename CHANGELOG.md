@@ -15,6 +15,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Tutorial for `modularity_weighted_layout`
 
+### Infra
+
+* Upgrade tests to`docker compose` from `docker-compose` 
+
 ## [0.34.2 - 2024-07-22]
 
 ### Fixed
