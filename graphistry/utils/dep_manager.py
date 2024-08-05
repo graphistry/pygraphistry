@@ -1,5 +1,5 @@
 from importlib import import_module, __import__
-from .util import setup_logger
+from graphistry.util import setup_logger
 
 logger = setup_logger(__name__)
 

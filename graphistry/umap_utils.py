@@ -5,11 +5,6 @@ from inspect import getmodule
 
 import pandas as pd
 
-from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
-    lazy_umap_import,
-    lazy_cuml_import,
-)
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,

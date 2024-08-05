@@ -5,10 +5,6 @@ from typing import Dict, Optional, TYPE_CHECKING, Tuple
 import numpy as np
 import pandas as pd
 
-from graphistry.utils.lazy_import import (
-    lazy_dgl_import,
-    lazy_torch_import_has_dependency
-)
 from . import constants as config
 from .feature_utils import (
     FeatureEngine,
