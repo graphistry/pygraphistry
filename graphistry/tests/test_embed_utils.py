@@ -6,7 +6,7 @@ import graphistry
 import numpy as np
 
 # import tqdm as tqdm_
-from utils.dep_manager import deps
+from graphistry.utils.dep_manager import deps
 from graphistry import networks
 
 

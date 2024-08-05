@@ -6,7 +6,7 @@ from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
 
 from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
-from utils.dep_manager import deps
+from graphistry.utils.dep_manager import deps
 
 has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import_has_dependency()
 has_umap = deps.umap

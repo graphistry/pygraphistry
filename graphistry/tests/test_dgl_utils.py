@@ -4,7 +4,7 @@ import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
 
-from utils.dep_manager import DepManager
+from graphistry.utils.dep_manager import DepManager
 
 deps = DepManager()
 has_dgl = deps.dgl
