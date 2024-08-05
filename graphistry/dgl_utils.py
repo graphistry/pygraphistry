@@ -198,7 +198,7 @@ class DGLGraphMixin(MIXIN_BASE):
         Automagic DGL models from Graphistry Instances.
         
     """
-    def __init__(selfp
+    def __init__(self):
         self.dgl_initialized = False
 
     def dgl_lazy_init(self, train_split: float = 0.8, device: str = "cpu"):
