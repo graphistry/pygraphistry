@@ -986,7 +986,7 @@ def process_dirty_dataframes(
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             # if isinstance(label_encoder, TableVectorizer) or isinstance(
-            if 'TableVectorizer' in str(getmodule(label_encoder)) or isinstance(
+            if 'Vectorizer' in str(getmodule(label_encoder)) or isinstance(
                 label_encoder, FunctionTransformer
             ):
                 labels_transformed = label_encoder.get_feature_names_out()
