@@ -34,7 +34,7 @@ class DepManager:
             pkg_val = import_module(pkg)
             self.pkgs[pkg] = pkg_val  # store in cache dict
             setattr(self, pkg, pkg_val)  # add pkg to deps instance
-        except ModuleNotFound:
+        except ModuleNotFoundError:
             logger.debug(f"{pkg} not installed")
         except ImportError:
             logger.error(f"{pkg} installed but misconfigured")
@@ -43,7 +43,7 @@ class DepManager:
         try:
             module = __import__(pkg, fromlist=[name])  # like _add_deps, but uses __import__ to get top-level pkg/ modules
             self.pkgs[name] = module
-        except ModuleNotFound:
+        except ModuleNotFoundError:
             logger.debug(f"{pkg} not installed")
         except ImportError:
             logger.error(f"{pkg} installed but misconfigured")
