@@ -3,6 +3,7 @@ import pytest
 import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
+from graphistry.utils.lazy_import import lazy_dgl_import
 
 from utils.dep_manager import DepManager
 

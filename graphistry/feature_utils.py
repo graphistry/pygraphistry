@@ -20,6 +20,13 @@ from typing_extensions import Literal  # Literal native to py3.8+
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
+from graphistry.utils.lazy_import import (
+    lazy_sentence_transformers_import,
+    lazy_import_has_min_dependancy,
+    lazy_dirty_cat_import,
+    assert_imported_text,
+    assert_imported
+)
 from . import constants as config
 from .constants import DIRTY_CAT
 from .PlotterBase import WeakValueDictionary, Plottable
@@ -709,6 +716,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
+  
     SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     t = time()
@@ -1499,6 +1507,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
+
     SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     logger.debug("Transforming text using:")

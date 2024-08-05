@@ -1513,6 +1513,22 @@ g.ring_categorical_layout(
 )
 ```
 
+### Layout: Modularity weighted
+
+Weight edges by community membership to emphasize community structure. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb)
+
+```python
+g.modularity_weighted_layout().plot() 
+g.modularity_weighted_layout('my_community_col').plot()
+g.modularity_weighted_layout(
+  community_alg='louvain',
+  engine='cudf',
+  same_community_weight=2.0,
+  cross_community_weight=0.3,
+  edge_influence=2.0
+).plot()
+```
+
 ### Plugin: igraph
 
 With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):

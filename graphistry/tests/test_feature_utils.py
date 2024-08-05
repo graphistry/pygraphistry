@@ -21,6 +21,7 @@ from graphistry.feature_utils import (
 
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
+
 from utils.dep_manager import deps
 from parameterized import parameterized_class
 
@@ -36,6 +37,7 @@ has_cuda_dependancy = None
 if None not in [dirty_cat, scipy, sklearn]:
     has_min_dependancy = True
 has_min_dependancy_text = deps.sentence_transformers
+
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")

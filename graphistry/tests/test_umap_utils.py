@@ -40,6 +40,7 @@ cudf = deps.cudf
 dirty_cat = deps.dirty_cat
 if deps.sklearn and deps.scipy:
     has_dependancy = True
+
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")

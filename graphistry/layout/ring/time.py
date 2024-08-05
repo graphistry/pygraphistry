@@ -318,6 +318,8 @@ def time_ring(
 
     if g._nodes is None:
         raise ValueError('Expected nodes table')
+    
+    g = g.nodes(g._nodes.reset_index(drop=True))
 
     engine_concrete = resolve_engine(engine, g._nodes)
 

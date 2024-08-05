@@ -182,6 +182,8 @@ def ring_continuous(
     if g._nodes is None:
         raise ValueError('Missing nodes')
 
+    g = g.nodes(g._nodes.reset_index(drop=True))
+
     engine_concrete = resolve_engine(engine, g._nodes)
 
     if ring_col is None:

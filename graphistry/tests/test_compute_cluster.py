@@ -4,6 +4,7 @@ import pytest
 import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
+
 from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
 from utils.dep_manager import deps
 

@@ -5,6 +5,10 @@ from typing import Dict, Optional, TYPE_CHECKING, Tuple
 import numpy as np
 import pandas as pd
 
+from graphistry.utils.lazy_import import (
+    lazy_dgl_import,
+    lazy_torch_import_has_dependency
+)
 from . import constants as config
 from .feature_utils import (
     FeatureEngine,
@@ -161,7 +165,6 @@ def pandas_to_dgl_graph(
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
     dgl = deps.dgl  # noqa: F811
-
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
@@ -205,6 +208,8 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
+            dgl = deps.dgp
+            torch = deps.torch
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False

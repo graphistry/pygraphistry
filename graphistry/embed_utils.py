@@ -561,7 +561,6 @@ class SubgraphIterator:
         dgl = deps.dgl
 
         from dgl.dataloading import GraphDataLoader
-
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)

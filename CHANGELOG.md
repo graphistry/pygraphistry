@@ -7,7 +7,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.34.0 - 2024-07-17]
+## [0.34.3 - 2024-08-03]
+
+### Added
+
+* Layout `modularity_weighted_layout` that uses edge weights to more strongly emphasize community structure
+
+### Docs
+
+* Tutorial for `modularity_weighted_layout`
+
+### Infra
+
+* Upgrade tests to`docker compose` from `docker-compose` 
+* Remove deprecated `version` to address warnings
+
+## [0.34.2 - 2024-07-22]
+
+### Fixed
+
+* Graceful CPU fallbacks: When lazy GPU dependency imports throw `ImportError`, commonly seen due to broken CUDA environments or having CUDA libraries but no GPU, warn and fall back to CPU.
+
+* Ring layouts now support filtered inputs, giving expected positions
+
+* `encode_axis()` updates are now functional, not inplace
+
+### Changed
+
+* Centralize lazy imports into `graphistry.utils.lazy_import`
+* Lazy imports distinguish `ModuleNotFound` (=> `False`) from `ImportError` (warn + `False`)
+
+## [0.34.1 - 2024-07-17]
 
 ### Infra
 

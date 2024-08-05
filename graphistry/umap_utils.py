@@ -5,6 +5,11 @@ from inspect import getmodule
 
 import pandas as pd
 
+from graphistry.utils.lazy_import import (
+    lazy_cudf_import,
+    lazy_umap_import,
+    lazy_cuml_import,
+)
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
@@ -29,6 +34,7 @@ else:
 def assert_imported():
     umap_ = deps.umap
     if not umap_:
+
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
         # raise import_exn
 
@@ -36,6 +42,7 @@ def assert_imported():
 def assert_imported_cuml():
     cuml_ = deps.cuml
     if not cuml_:
+
         logger.warning("cuML not found, trying running " "`pip install cuml`")
         # raise import_cuml_exn
 
@@ -98,6 +105,7 @@ def make_safe_gpu_dataframes(X, y, engine, has_cudf):
         return new_kwargs['X'], new_kwargs['y']
     
     if has_cudf:
+
         return safe_cudf(X, y)
     else:
         return X, y

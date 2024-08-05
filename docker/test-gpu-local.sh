@@ -27,7 +27,7 @@ fi
 
 COMPOSE_DOCKER_CLI_BUILD=1 \
 DOCKER_BUILDKIT=1 \
-docker-compose build \
+docker compose build \
     --build-arg PIP_DEPS="${PIP_DEPS}" \
     test-gpu
 
