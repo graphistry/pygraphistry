@@ -147,7 +147,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb),[benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb)
+* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb))
 
   Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
 
@@ -177,7 +177,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g3.plot()
     ```
 
-* [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
+* [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
 
     ```python
     #optional but recommended
@@ -218,7 +218,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.umap(engine='cuml',metric='euclidean').plot()
     ```
 
-* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
+* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
 
     ```python
     g = graphistry.from_cugraph(G)
@@ -235,7 +235,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
      graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
-* [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
+* [Neo4j](http://neo4j.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
 
     ```python
     NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
@@ -259,7 +259,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.plot()
     ```
 
-* [Memgraph](https://memgraph.com/) ([notebook demo](demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb))
+* [Memgraph](https://memgraph.com/) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb))
 
    ```python
    from neo4j import GraphDatabase
@@ -298,7 +298,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* [Amazon Neptune (Gremlin)](https://aws.amazon.com/neptune/) ([notebook demo](demos/demos_databases_apis/neptune/neptune_tutorial.ipynb), [dashboarding demo](https://aws.amazon.com/blogs/database/enabling-low-code-graph-data-apps-with-amazon-neptune-and-graphistry/))
+* [Amazon Neptune (Gremlin)](https://aws.amazon.com/neptune/) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neptune/neptune_tutorial.ipynb), [dashboarding demo](https://aws.amazon.com/blogs/database/enabling-low-code-graph-data-apps-with-amazon-neptune-and-graphistry/))
 
     ```python
     # pip install --user gremlinpython==3.4.10
@@ -310,7 +310,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* [TigerGraph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
+* [TigerGraph](https://tigergraph.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
     ```python
     g = graphistry.tigergraph(protocol='https', ...)
@@ -341,14 +341,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2 = g.from_igraph(ig2, load_edges=False, node_attributes=[g._node, 'spinglass'])
     ```
 
-* [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
+* [NetworkX](https://networkx.github.io) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/networkx/networkx.ipynb))
 
     ```python
     graph = networkx.read_edgelist('facebook_combined.txt')
     graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
     ```
 
-* [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
+* [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
 
     ```python
     hg.hypernetx_to_graphistry_nodes(H).plot()
@@ -358,14 +358,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     hg.hypernetx_to_graphistry_bipartite(H.dual()).plot()
     ```
 
-* [Splunk](https://www.splunk.com) ([notebook demo](demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
+* [Splunk](https://www.splunk.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
 
     ```python
     df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})
     graphistry.edges(df, 'src_ip', 'dest_ip').plot()
     ```
 
-* [NodeXL](https://www.nodexl.com) ([notebook demo](demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
+* [NodeXL](https://www.nodexl.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
 
     ```python
     graphistry.nodexl('/my/file.xls').plot()
@@ -663,7 +663,7 @@ See `help(g.dbscan)` or `help(g.transform_dbscan)` for options
 
 ### Quickly configurable
 
-Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
+Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
 
   ```python
     g
@@ -730,7 +730,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
     * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ([contact](https://www.graphistry.com/demo-request))
 
 2. PyGraphistry Python client:
-    * `pip install --user graphistry` (Python 3.7+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
+    * `pip install --user graphistry` (Python 3.8+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
     * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
     * See immediately following `configure` section for how to connect
@@ -862,7 +862,7 @@ See additional examples in the [sharing tutorial](https://github.com/graphistry/
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [igraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [igraph](http://igraph.org) to run a community detection algorithm. You can [view](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
@@ -881,7 +881,7 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 ### Quick Visualization
 
-If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb) for creating graphs from rows of data (logs, samples, records, ...).
+If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb) for creating graphs from rows of data (logs, samples, records, ...).
 
 PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, igraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
@@ -934,11 +934,11 @@ g.bind(point_color='community', point_size='pagerank').plot()
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
 
-To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`.
+To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`.
 
 You may also want to bind `point_title`: `.bind(point_title='colA')`.
 
-For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb).
+For more in-depth examples, check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-colors.ipynb) and [sizes](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-sizes.ipynb).
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
@@ -946,9 +946,9 @@ For more in-depth examples, check out the tutorials on [colors](demos/more_examp
 
 By default, edges get colored as a gradient between their source/destination node colors. You can override this by setting `.bind(edge_color='colA')`, similar to how node colors function. ([See color documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2).)
 
-Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
+Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/edge-weights.ipynb).
 
-For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb).
+For more in-depth examples, check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-colors.ipynb) and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb).
 
 ### More advanced color and size controls
 
@@ -972,7 +972,7 @@ g.encode_point_color('type', as_categorical=True,
   categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 ```
 
-For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb).
+For more in-depth examples, check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-colors.ipynb).
 
 ### Custom icons and badges
 
@@ -1009,7 +1009,7 @@ g.encode_point_icon(
 )
 ```
 
-For more in-depth examples, check out the tutorials on [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb).
+For more in-depth examples, check out the tutorials on [icons](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-icons.ipynb).
 
 #### Badges
 
@@ -1024,9 +1024,11 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
   bg={'color': {'mapping': {'continuous': {'bins': [], 'other': 'black'}}}})
 ```
 
-For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
+For more in-depth examples, check out the tutorials on [badges](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
 #### Axes
+
+For more automated use, see the section on radial layouts below.
 
 Radial axes support three coloring types (`'external'`, `'internal'`, and `'space'`) and optional labels:
 
@@ -1248,7 +1250,7 @@ assert 'pagerank' in g2._nodes.columns
 
 PyGraphistry supports GFQL, its PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
 
-See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), and the CPU/GPU [benchmark](demos/gfql/benchmark_hops_cpu_gpu.ipynb)
+See also [graph pattern matching tutorial](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb) and the CPU/GPU [benchmark](https://github.com/graphistry/pygraphistry/tree/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb)
 
 Traverse within a graph, or expand one graph against another
 
@@ -1403,7 +1405,9 @@ for v in g._nodes['some_col'].unique():
   g3 = g3.collapse(node='root_node_id', column='some_col', attribute=v)
 ```
 
-### Control layouts
+### Hierarchical layouts: Tree and radial
+
+A hierachical view via horizontal or vertical trees, or radial. Graph data may also be presented using these layouts.
 
 #### Tree
 
@@ -1420,6 +1424,109 @@ g3b = g2a.layout_settings(locked_y=True, play=0)
 g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
+```
+
+To use with non-tree data, e.g., graphs with cycles, we recommend computing a tree such as via a minimum spanning tree, and then using that achieved layout with this algorithm. Alternatively, the radial layouts may more naturally support your graph.
+
+#### Radial
+
+A hierarchical view via radial rings that may be more space-efficient and aesthetic than the equivalent tree layout
+
+Supports time-based, continuous, and categorical modes:
+
+##### Radial: Time-based
+
+Use when the value column defining the ring order is a time column. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_time_ring.ipynb)
+
+```python
+g.time_ring_layout().plot()  # finds a time column and infers all settings
+
+g.time_ring_layout(
+  time_col='my_node_time_col',
+  num_rings=20,
+  time_start=np.datetime64('2014-01-22'),
+  time_end=np.datetime64('2015-01-22'),
+  time_unit= 'Y',  # s, m, h, D, W, M, Y, C 
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0,  # biggest ring radius
+  reverse=False,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
+  #play_ms: int = 2000,
+  #engine='auto'  # 'auto', 'pandas', 'cudf'
+).plot()
+```
+
+#### Continuous
+
+Use when the value column defining the ring order is a continuous number, like distance or amount. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_continuous_ring.ipynb)
+
+```python
+g.ring_continuous_layout()  # find a numeric column and infers all settings
+
+g.ring_continuous_layout(
+  ring_col='my_numeric_col',
+  #v_start=  # first ring at this value 
+  #v_end=  # last ring at this value
+  #v_step=  # distance between rings in the value domain
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0, # biggest ring radius
+  normalize_ring_col=True,  # remap [v_start,v_end] to [min_r,max_r]
+  num_rings=20,
+  ring_step=100,
+
+  #Control axis labels and styles
+  #axis: Optional[Union[Dict[float,str],List[str]]] = None,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_labels: Optional[Callable[[float, int, float], str]] = None,
+
+  reverse=False,
+  play_ms=0,
+  #engine='auto',  # 'auto', 'pandas', 'cudf'
+)
+```
+
+#### Categorical
+
+Use when the value column defining the ring order is a categorical value, such as a name or ID. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_categorical_ring.ipynb)
+
+```python
+g.ring_categorical_layout('my_categorical_col')  # infers all settings
+
+g.ring_categorical_layout(
+  ring_col='my_numeric_col',
+  order=['col1', 'my_col2'],
+  drop_empty=True,  # remove unpopulated rings
+  combine_unhandled=False,  # Put values not covered by order into one ring Other vs a ring per unique value
+  append_unhandled=True,  # Append vs prepend
+  min_r=100.0,  # smallest ring radius
+  max_r=1000.0, # biggest ring radius
+
+  #Control axis labels and styles
+  #axis: Optional[Dict[Any,str]] = None,
+  #format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
+  #format_labels: Optional[Callable[[Any, int, float], str]] = None,
+
+  reverse=False,
+  play_ms=0,
+  #engine='auto',  # 'auto', 'pandas', 'cudf'
+)
+```
+
+### Layout: Modularity weighted
+
+Weight edges by community membership to emphasize community structure. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb)
+
+```python
+g.modularity_weighted_layout().plot() 
+g.modularity_weighted_layout('my_community_col').plot()
+g.modularity_weighted_layout(
+  community_alg='louvain',
+  engine='cudf',
+  same_community_weight=2.0,
+  cross_community_weight=0.3,
+  edge_influence=2.0
+).plot()
 ```
 
 ### Plugin: igraph
@@ -1489,8 +1596,8 @@ g.layout_igraph('sugiyama', directed=True, params={}).plot()
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
-2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
-3. Explore the [demos folder](demos) for your favorite [file format, database, API](demos/demos_databases_apis), use case domain, kind of analysis, and [visual analytics feature](demos/more_examples/graphistry_features)
+2. Check out the [analyst](https://github.com/graphistry/pygraphistry/tree/master/demos/for_analysis.ipynb) and [developer](https://github.com/graphistry/pygraphistry/tree/master/demos/for_developers.ipynb) introductions, or [try your own CSV](https://github.com/graphistry/pygraphistry/tree/master/demos/upload_csv_miniapp.ipynb)
+3. Explore the [demos folder](https://github.com/graphistry/pygraphistry/tree/master/demos) for your favorite [file format, database, API](https://github.com/graphistry/pygraphistry/tree/master/demos/demos_databases_apis), use case domain, kind of analysis, and [visual analytics feature](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features)
 
 ## Resources
 

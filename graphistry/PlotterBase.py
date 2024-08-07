@@ -1,5 +1,5 @@
 from graphistry.Plottable import Plottable
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -341,7 +341,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def encode_axis(self, rows=[]):
+    def encode_axis(self, rows: List[Dict] = []) -> Plottable:
         """Render radial and linear axes with optional labels
 
         :param rows: List of rows - { label: Optional[str],?r: float, ?x: float, ?y: float, ?internal: true, ?external: true, ?space: true }
@@ -373,14 +373,11 @@ class PlotterBase(Plottable):
 
         """
 
-        complex_encodings = self._complex_encodings or {}
-        if 'node_encodings' not in complex_encodings:
-            complex_encodings['node_encodings'] = {}
-        node_encodings = complex_encodings['node_encodings']
-        if 'current' not in node_encodings:
-            node_encodings['current'] = {}
-        if 'default' not in node_encodings:
-            node_encodings['default'] = {}
+        complex_encodings = {**self._complex_encodings} if self._complex_encodings else {}
+        node_encodings = {**complex_encodings['node_encodings']} if 'node_encodings' not in complex_encodings else {}
+        complex_encodings['node_encodings'] = node_encodings
+        node_encodings['current'] = {**node_encodings['current']} if 'current' in node_encodings else {}
+        node_encodings['default'] = {**node_encodings['default']} if 'default' in node_encodings else {}
         node_encodings['default']["pointAxisEncoding"] = {
             "graphType": "point",
             "encodingType": "axis",
