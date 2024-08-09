@@ -47,6 +47,8 @@ class DepManager:
             logger.debug(f"{pkg} not installed")
         except ImportError:
             logger.error(f"{pkg} installed but misconfigured")
+        except Exception as e:
+            logger.warn("Unexpected exn during lazy import", exc_info=e)
 
 
 deps = DepManager()
