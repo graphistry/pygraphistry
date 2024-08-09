@@ -81,7 +81,7 @@ def resolve_umap_engine(
     )
 
 
-def make_safe_gpu_dataframes(X, y, engine, has_cudf):
+def make_safe_gpu_dataframes(X, y, engine, has_cuml):
 
     def safe_cudf(X, y):
         cudf = deps.cudf
@@ -101,7 +101,7 @@ def make_safe_gpu_dataframes(X, y, engine, has_cudf):
                 new_kwargs[key] = cudf.from_pandas(value)
         return new_kwargs['X'], new_kwargs['y']
     
-    if has_cudf:
+    if has_cuml:
 
         return safe_cudf(X, y)
     else:
@@ -303,7 +303,7 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
-        df, y = make_safe_gpu_dataframes(df, y, engine, self.has_cudf)
+        df, y = make_safe_gpu_dataframes(df, y, engine, deps.cuml)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
             emb = self._umap.transform(X)  # type: ignore
@@ -311,8 +311,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = self._umap.fit_transform(X)  # type: ignore  
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
-            # X, y_ = make_safe_gpu_dataframes(X, y_, self.engine, self.has_cudf)
+            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', deps.cuml)  # for now so we don't have to touch infer_edges, force to pandas
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
@@ -595,7 +594,7 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, self.has_cudf)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, deps.cuml)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, verbose, **umap_kwargs
@@ -625,7 +624,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, self.has_cudf)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, deps.cuml)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
