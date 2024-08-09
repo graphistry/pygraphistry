@@ -2,7 +2,7 @@ from inspect import getmodule
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-from graphistry.utils.lazy_import import lazy_cudf_import
+from .utils.dep_manager import deps
 
 
 class Engine(Enum):
@@ -49,14 +49,14 @@ def resolve_engine(
             return Engine.PANDAS
 
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
-            has_cudf_dependancy_, _, _ = lazy_cudf_import()
+            has_cudf_dependancy_ = deps.cudf
             if has_cudf_dependancy_:
                 import cudf
                 if isinstance(g_or_df, cudf.DataFrame):
                     return Engine.CUDF
                 raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')
     
-    has_cudf_dependancy_, _, _ = lazy_cudf_import()
+    has_cudf_dependancy_ = deps.cudf
     if has_cudf_dependancy_:
         return Engine.CUDF
     return Engine.PANDAS
