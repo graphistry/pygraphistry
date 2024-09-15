@@ -181,6 +181,20 @@ def resolve_scaler(use_scaler: Optional[ScalerType], feature_engine: FeatureEngi
     return use_scaler
 
 
+def resolve_scaler_target(use_scaler_target: Optional[ScalerType], feature_engine: FeatureEngineConcrete, multilabel: bool) -> ScalerType:
+
+    if multilabel:
+        return "none"
+
+    if use_scaler_target is None:
+        return "none" if feature_engine == "none" else "robust"
+
+    if feature_engine == "none" and (use_scaler_target is not None and use_scaler_target != "none"):
+        raise ValueError(f"Scaling is not supported with feature_engine='none', received {use_scaler_target} and downgrading to 'none'")
+    
+    return use_scaler_target
+
+
 # #########################################################################
 #
 #      Pandas Helpers
@@ -1341,7 +1355,7 @@ def process_edge_dataframes(
     )
 
     use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
-    use_scaler_target_resolved = resolve_scaler(use_scaler_target, feature_engine)
+    use_scaler_target_resolved = resolve_scaler_target(use_scaler_target, feature_engine, multilabel)
 
     if feature_engine in ["none", "pandas"]:
 
@@ -2504,7 +2518,7 @@ class FeatureMixin(MIXIN_BASE):
         logger.debug("Resolved Feature Engine: %s => %s", raw_feature_engine, feature_engine)
 
         use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
-        use_scaler_target_resolved = resolve_scaler(use_scaler_target, feature_engine)
+        use_scaler_target_resolved = resolve_scaler_target(use_scaler_target, feature_engine, multilabel)
         
         if kind == "nodes":
             res = res._featurize_nodes(
