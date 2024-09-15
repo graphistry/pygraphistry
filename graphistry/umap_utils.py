@@ -625,12 +625,7 @@ class UMAPMixin(MIXIN_BASE):
                     res = res.umap(X=self._nodes, y=self._edges, kind=kind, feature_engine=feature_engine, **umap_kwargs_combined, **featurize_kwargs)  # type: ignore
                 return res
 
-        if inplace:
-            res = self
-        else:
-            res = self.bind()
-
-        res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs)  # type: ignore
+        res = res.umap_lazy_init(res, **umap_kwargs_combined)
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
