@@ -371,10 +371,9 @@ class UMAPMixin(MIXIN_BASE):
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
-            verbose: Whether to print information about the graph inference
         """
         df, y = make_safe_gpu_dataframes(df, y, 'pandas')
-        X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
+        X, y_ = self.transform(df, y, kind=kind, return_graph=False)
         X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)  # type: ignore
         emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
@@ -383,8 +382,7 @@ class UMAPMixin(MIXIN_BASE):
             X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas')
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
-                                  eps=min_dist, sample=sample, n_neighbors=n_neighbors,
-                                  verbose=verbose) 
+                                  eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
             return g
         return emb, X, y_
 
@@ -752,7 +750,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)  # type: ignore
 
         if not inplace:
             return res

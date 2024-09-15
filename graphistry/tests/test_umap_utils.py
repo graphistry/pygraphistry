@@ -143,12 +143,10 @@ class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def setUp(self):
-        verbose = True
         g = graphistry.nodes(ndf_reddit)
         self.gn = g
         
         self.test = ndf_reddit.sample(5)
-
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -159,8 +157,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_ngrams=True,
                 ngram_range=(1, 2),
                 use_scaler="robust",
-                cardinality_threshold=2,
-                verbose=verbose,
+                cardinality_threshold=2
             )
 
         self.g2 = g2
@@ -168,10 +165,10 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
         self.emb, self.x, self.y = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False, verbose=verbose
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False
         )
         self.g3 = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True, verbose=verbose
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True
         )
 
         # do the same for edges
@@ -192,14 +189,13 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
-                verbose=verbose,
             )
 
         fenc = g2._edge_encoder
         self.Xe, self.Ye = fenc.X, fenc.y
         self.EMBe = g2._edge_embedding
         self.embe, self.xe, self.ye = g2.transform_umap(
-            edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
+            edge_df22, y=edge2_target_df, kind="edges", return_graph=False
         )        
         self.g2e = g2
 
@@ -388,7 +384,7 @@ class TestUMAPMethods(unittest.TestCase):
         ]
         self._check_attributes(g, attributes)
 
-    def cases_test_graph(self, g, kind="nodes", df=ndf_reddit, verbose=False):
+    def cases_test_graph(self, g, kind="nodes", df=ndf_reddit):
         if kind == "nodes":
             ndf = g._nodes
             self.cases_check_node_attributes(g)
