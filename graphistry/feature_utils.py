@@ -183,10 +183,11 @@ def resolve_scaler(use_scaler: Optional[ScalerType], feature_engine: FeatureEngi
 
 def resolve_scaler_target(use_scaler_target: Optional[ScalerType], feature_engine: FeatureEngineConcrete, multilabel: bool) -> ScalerType:
 
-    if multilabel:
-        return "none"
-
     if use_scaler_target is None:
+
+        if multilabel:
+            return "none"
+
         return "none" if feature_engine == "none" else "robust"
 
     if feature_engine == "none" and (use_scaler_target is not None and use_scaler_target != "none"):
