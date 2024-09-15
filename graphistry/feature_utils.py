@@ -595,9 +595,8 @@ def get_preprocessing_pipeline(
     elif use_scaler == "none":
         pass
     else:
-        logger.error(
-            f"`scaling` must be on of {available_preprocessors} "
-            f"or {None}, got {scaler}.\nData is not scaled"
+        raise ValueError(
+            f"Invalid scaler type. Received {use_scaler}. Available types are {available_preprocessors + ['none']}"
         )
     logger.debug(f"Using {use_scaler} scaling")
     transformer = Pipeline(steps=[("imputer", imputer), ("scaler", scaler)])
@@ -877,7 +876,7 @@ def process_dirty_dataframes(
     t = time()
 
     all_numeric = is_dataframe_all_numeric(ndf)
-    if not all_numeric and has_dirty_cat:
+    if not all_numeric and has_dirty_cat and (feature_engine in ["dirty_cat", "torch"]):
         data_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold,
@@ -924,7 +923,7 @@ def process_dirty_dataframes(
             X_enc, columns=features_transformed, index=ndf.index
         )
         X_enc = X_enc.fillna(0.0)
-    elif all_numeric and not has_dirty_cat:
+    elif not all_numeric and (not has_dirty_cat or feature_engine in ["pandas", "none"]):
         numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
         logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
