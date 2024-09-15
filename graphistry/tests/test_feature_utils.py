@@ -293,7 +293,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
                     y=double_target_reddit,
-                    use_scaler=None,
+                    use_scaler='none',
                     cardinality_threshold=40,
                     cardinality_threshold_target=40,
                     n_topics=20,
