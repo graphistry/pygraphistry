@@ -191,6 +191,9 @@ class PlotterBase(Plottable):
 
         # the fit umap instance
         self._umap = None
+        self._umap_params : Optional[Dict[str, Any]] = None
+        self._umap_fit_kwargs : Optional[Dict[str, Any]] = None
+        self._umap_transform_kwargs : Optional[Dict[str, Any]] = None
 
         self._adjacency = None
         self._entity_to_index = None
