@@ -1821,54 +1821,6 @@ class FastEncoder:
         return X, y
 
 
-# ######################################################################################################################
-#
-#
-#
-# ######################################################################################################################
-
-
-def prune_weighted_edges_df_and_relabel_nodes(
-    wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Optional[Dict] = None
-) -> pd.DataFrame:
-    """Prune the weighted edge DataFrame so to return high fidelity similarity scores.
-
-    :param wdf: weighted edge DataFrame gotten via UMAP
-    :param scale: lower values means less edges > (max - scale * std)
-    :param index_to_nodes_dict: dict of index to node name;
-            remap src/dst values if provided
-    :return: pd.DataFrame
-    """
-    # we want to prune edges, so we calculate some statistics
-    desc = wdf.describe()
-    eps = 1e-3
-
-    mean = desc[config.WEIGHT]["mean"]
-    std = desc[config.WEIGHT]["std"]
-    max_val = desc[config.WEIGHT]["max"] + eps
-    min_val = desc[config.WEIGHT]["min"] - eps
-    thresh = np.max(
-        [max_val - scale, min_val]
-    )  # if std =0 we add eps so we still have scale in the equation
-
-    logger.info(
-        f" -- edge weights: mean({mean:.2f}), "
-        f"std({std:.2f}), max({max_val}), "
-        f"min({min_val:.2f}), thresh({thresh:.2f})"
-    )
-    wdf2 = wdf[
-        wdf[config.WEIGHT] >= thresh
-    ]  # adds eps so if scale = 0, we have small window/wiggle room
-    logger.info(
-        " -- Pruning weighted edge DataFrame "
-        f"from {len(wdf):,} to {len(wdf2):,} edges."
-    )
-    if index_to_nodes_dict is not None:
-        wdf2[config.SRC] = wdf2[config.SRC].map(index_to_nodes_dict)
-        wdf2[config.DST] = wdf2[config.DST].map(index_to_nodes_dict)
-    return wdf2
-
-
 # ###########################################################################
 #
 #      Fast Memoize
