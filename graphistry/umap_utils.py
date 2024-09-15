@@ -668,7 +668,10 @@ class UMAPMixin(MIXIN_BASE):
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
-                index_to_nodes_dict = nodes  # {}?
+                assert isinstance(X_, cudf.DataFrame)
+                logger.debug('nodes type: %s', type(nodes))
+                import cupy as cp
+                index_to_nodes_dict = dict(zip(range(len(nodes)), cp.asnumpy(nodes)))
 
             # add the safe coercion here 
             X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
