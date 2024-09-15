@@ -3,6 +3,7 @@ from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 from inspect import getmodule
 
+import numpy as np
 import pandas as pd
 
 from graphistry.utils.lazy_import import (
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
 else:
     MIXIN_BASE = object
 
+
+DataFrameLike = Union[pd.DataFrame, Any]
 
 ###############################################################################
 
