@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+* UMAP: Optional kwargs passthrough to umap library constructor, fit, and transform methods: `g.umap(..., umap_kwargs={...}, umap_fit_kwargs={...}, umap_transform_kwargs={...})`
 * Additional GPU support in featurize paths
 
 ### Refactor
