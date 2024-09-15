@@ -20,6 +20,7 @@ from typing_extensions import Literal  # Literal native to py3.8+
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
+from graphistry.features import ScalerType
 from graphistry.utils.lazy_import import (
     lazy_sentence_transformers_import,
     lazy_import_has_min_dependancy,
@@ -166,6 +167,18 @@ def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
         return df[X]
     else:
         raise ValueError(f"Unexpected type for X: {type(X)}")
+
+
+
+def resolve_scaler(use_scaler: Optional[ScalerType], feature_engine: FeatureEngineConcrete) -> ScalerType:
+
+    if use_scaler is None:
+        return "none" if feature_engine == "none" else "robust"
+
+    if feature_engine == "none" and (use_scaler is not None and use_scaler != "none"):
+        raise ValueError(f"Scaling is not supported with feature_engine='none', received {use_scaler} and downgrading to 'none'")
+    
+    return use_scaler
 
 
 # #########################################################################
@@ -488,7 +501,7 @@ def identity(x):
 
 
 def get_preprocessing_pipeline(
-    use_scaler: str = "robust",
+    use_scaler: ScalerType = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -501,9 +514,7 @@ def get_preprocessing_pipeline(
 
     :param X: np.ndarray
     :param impute: whether to run imputing or not
-    :param use_scaler: string in None or
-            ["minmax", "quantile", "standard", "robust", "kbins"],
-            selects scaling transformer, default None
+    :param use_scaler: Selects scaling transformer
     :param n_quantiles: if use_scaler = 'quantile',
             sets the quantile bin size.
     :param output_distribution: if use_scaler = 'quantile',
@@ -566,6 +577,8 @@ def get_preprocessing_pipeline(
         scaler = KBinsDiscretizer(
             n_bins=n_bins, encode=encode, strategy=strategy
         )
+    elif use_scaler == "none":
+        pass
     else:
         logger.error(
             f"`scaling` must be on of {available_preprocessors} "
@@ -597,7 +610,7 @@ def fit_pipeline(
 
 def impute_and_scale_df(
     df: pd.DataFrame,
-    use_scaler: str = "robust",
+    use_scaler: ScalerType = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -708,8 +721,8 @@ def encode_textual(
 def smart_scaler(
     X_enc,
     y_enc,
-    use_scaler,
-    use_scaler_target,
+    use_scaler: ScalerType,
+    use_scaler_target: ScalerType,
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -721,9 +734,9 @@ def smart_scaler(
 ):
     pipeline = None
     pipeline_target = None
-    # noqa: W293
-    def encoder(X, use_scaler):  # noqa: E301
-        return impute_and_scale_df(  # noqa: E731
+
+    def encoder(X, use_scaler: ScalerType):
+        return impute_and_scale_df(
             X,
             use_scaler=use_scaler,
             impute=impute,
@@ -734,15 +747,15 @@ def smart_scaler(
             encode=encode,
             strategy=strategy,
             keep_n_decimals=keep_n_decimals,
-        )  # noqa
+        )
 
-    if use_scaler and not X_enc.empty:
+    if use_scaler != "none" and not X_enc.empty:
         logger.info(f"-Feature scaling using {use_scaler}")
-        X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
+        X_enc, pipeline = encoder(X_enc, use_scaler)
 
-    if use_scaler_target and not y_enc.empty:
+    if use_scaler_target != "none" and not y_enc.empty:
         logger.info(f"-Target scaling using {use_scaler_target}")
-        y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
+        y_enc, pipeline_target = encoder(y_enc, use_scaler_target)
 
     return X_enc, y_enc, pipeline, pipeline_target
 
@@ -818,6 +831,7 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
+    feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -835,8 +849,6 @@ def process_dirty_dataframes(
     :param cardinality_threshold_target: For target columns, below this
             threshold, encoder is OneHot, above, it is GapEncoder
     :param n_topics: number of topics for GapEncoder, default 42
-    :param use_scaler: None or string in
-            ['minmax', 'standard', 'robust', 'quantile']
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
             to use. If None or False, uses a SuperVectorizer
@@ -978,8 +990,8 @@ def process_nodes_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-    use_scaler: Optional[str] = "robust",
-    use_scaler_target: Optional[str] = "kbins",
+    use_scaler: ScalerType = "robust",
+    use_scaler_target: ScalerType = "kbins",
     multilabel: bool = False,
     embedding: bool = False,  # whether to produce random embeddings
     use_ngrams: bool = False,
@@ -1016,10 +1028,10 @@ def process_nodes_dataframes(
 
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
-    :param use_scaler: None or string in
-            ['minmax', 'standard', 'robust', 'quantile']
     :param n_topics: number of topics in Gap Encoder
-    :param use_scaler:
+    :param n_topics_target: number of topics in Gap Encoder for target
+    :param use_scaler: Scaling transformer
+    :param use_scaler_target: Scaling transformer for target
     :param confidence: Number between 0 and 1, will pass
             column for textual processing if total entries are string
             like in a column and above this relative threshold.
@@ -1044,7 +1056,7 @@ def process_nodes_dataframes(
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
             df, y
         )
-        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc,
             y_enc,
             use_scaler,
@@ -1111,7 +1123,8 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel
+        multilabel=multilabel,
+        feature_engine=feature_engine
     )
 
     if embedding:
@@ -1133,7 +1146,7 @@ def process_nodes_dataframes(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
 
-    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
         use_scaler,
@@ -1256,8 +1269,8 @@ def process_edge_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-    use_scaler: Optional[str] = None,
-    use_scaler_target: Optional[str] = None,
+    use_scaler: Optional[ScalerType] = None,
+    use_scaler_target: Optional[ScalerType] = None,
     multilabel: bool = False,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
@@ -1299,8 +1312,8 @@ def process_edge_dataframes(
     :param y: pandas DataFrame of edge labels
     :param src: source column to select in edf
     :param dst: destination column to select in edf
-    :param use_scaler: None or string in
-        ['minmax', 'standard', 'robust', 'quantile']
+    :param use_scaler: Scaling transformer
+    :param use_scaler_target': Scaling transformer for target
 
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
@@ -1327,6 +1340,9 @@ def process_edge_dataframes(
              " and is empty"
     )
 
+    use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
+    use_scaler_target_resolved = resolve_scaler(use_scaler_target, feature_engine)
+
     if feature_engine in ["none", "pandas"]:
 
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
@@ -1335,11 +1351,11 @@ def process_edge_dataframes(
         # add the two datasets together
         X_enc = pd.concat([T, X_enc], axis=1)
         # then scale them
-        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc,
             y_enc,
-            use_scaler,
-            use_scaler_target,
+            use_scaler_resolved,
+            use_scaler_target_resolved,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -1383,8 +1399,8 @@ def process_edge_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         n_topics_target=n_topics_target,
-        use_scaler=None,
-        use_scaler_target=None,
+        use_scaler="none",
+        use_scaler_target="none",
         multilabel=multilabel,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
@@ -1414,8 +1430,8 @@ def process_edge_dataframes(
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
-        use_scaler,
-        use_scaler_target,
+        use_scaler_resolved,
+        use_scaler_target_resolved,
         impute=impute,
         n_quantiles=n_quantiles,
         quantile_range=quantile_range,
@@ -1890,8 +1906,8 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = None,
-        use_scaler_target: Optional[str] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1945,8 +1961,6 @@ class FeatureMixin(MIXIN_BASE):
         # `X = ndf[cols]` and `X = cols` resolve to same thing
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
-
-        feature_engine = resolve_feature_engine(feature_engine)
         
         from .features import ModelDict
 
@@ -1988,7 +2002,6 @@ class FeatureMixin(MIXIN_BASE):
 
         old_res = reuse_featurization(res, memoize, fkwargs)
         if old_res:
-            print("--- [[ RE-USING NODE FEATURIZATION ]]") if verbose else None
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
@@ -2006,8 +2019,7 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
-        print('-' * 80) if verbose else None
-        print("** Featuring nodes") if verbose else None
+        logger.debug("** Featuring nodes")
         # ############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
@@ -2027,8 +2039,8 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = None,
-        use_scaler_target: Optional[str] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -2224,8 +2236,8 @@ class FeatureMixin(MIXIN_BASE):
         df: Optional[pd.DataFrame] = None,
         y: Optional[pd.DataFrame] = None,
         kind: str = "nodes",
-        use_scaler: Union[str, None] = None,
-        use_scaler_target: Union[str, None] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2260,8 +2272,8 @@ class FeatureMixin(MIXIN_BASE):
                 :df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
                 :y: pd.DataFrame, optional target data
                 :kind: str, one of `nodes`, `edges`
-                :use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
-                :use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                :use_scaler: Scaling transformer
+                :use_scaler_target: Scaling transformer on target
                 :impute: bool, if True, will impute missing values
                 :n_quantiles: int, number of quantiles to use for quantile scaler
                 :output_distribution: str, one of `normal`, `uniform`, `lognormal` 
@@ -2348,8 +2360,8 @@ class FeatureMixin(MIXIN_BASE):
         kind: str = "nodes",
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = None,
-        use_scaler_target: Optional[str] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = 42,
@@ -2394,12 +2406,11 @@ class FeatureMixin(MIXIN_BASE):
         :param y: Optional Target(s) columns or explicit DataFrame, default None
         :param use_scaler: selects which scaler (and automatically imputes
                 missing values using mean strategy)
-                to scale the data. Options are;
-                "minmax", "quantile", "standard", "robust",
-                "kbins", default None.
+                to scale the data.
                 Please see scikits-learn documentation
                 https://scikit-learn.org/stable/modules/preprocessing.html
                 Here 'standard' corresponds to 'StandardScaler' in scikits.
+        :param use_scaler_target: selects which scaler to scale the target
         :param cardinality_threshold: dirty_cat threshold on cardinality of
                 categorical labels across columns.
                 If value is greater than threshold, will run GapEncoder
@@ -2488,14 +2499,19 @@ class FeatureMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
+        raw_feature_engine = feature_engine
         feature_engine = resolve_feature_engine(feature_engine)
+        logger.debug("Resolved Feature Engine: %s => %s", raw_feature_engine, feature_engine)
 
+        use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
+        use_scaler_target_resolved = resolve_scaler(use_scaler_target, feature_engine)
+        
         if kind == "nodes":
             res = res._featurize_nodes(
                 X=X,
                 y=y,
-                use_scaler=use_scaler,
-                use_scaler_target=use_scaler_target,
+                use_scaler=use_scaler_resolved,
+                use_scaler_target=use_scaler_target_resolved,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
@@ -2527,8 +2543,8 @@ class FeatureMixin(MIXIN_BASE):
             res = res._featurize_edges(
                 X=X,
                 y=y,
-                use_scaler=use_scaler,
-                use_scaler_target=use_scaler_target,
+                use_scaler=use_scaler_resolved,
+                use_scaler_target=use_scaler_target_resolved,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
@@ -2570,8 +2586,8 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = None,
-        use_scaler_target: Optional[str] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -2661,8 +2677,8 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = None,
-        use_scaler_target: Optional[str] = None,
+        use_scaler: Optional[ScalerType] = None,
+        use_scaler_target: Optional[ScalerType] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
