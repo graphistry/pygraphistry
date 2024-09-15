@@ -621,8 +621,8 @@ class UMAPMixin(MIXIN_BASE):
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
             flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
 
-            if flag_nodes_cudf or flag_edges_cudf:
-                res = self
+            #if flag_nodes_cudf or flag_edges_cudf:
+            if False:
                 if flag_nodes_cudf:
                     res._nodes = res._nodes.to_pandas()
                 if flag_edges_cudf:
@@ -633,7 +633,22 @@ class UMAPMixin(MIXIN_BASE):
                     res = res.umap(X=self._nodes, y=self._edges, kind=kind, feature_engine=feature_engine, **umap_kwargs_combined, **featurize_kwargs)  # type: ignore
                 return res
 
-        res = res.umap_lazy_init(res, **umap_kwargs_combined)
+        res = res.umap_lazy_init(
+            res,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            spread=spread,
+            local_connectivity=local_connectivity,
+            repulsion_strength=repulsion_strength,
+            negative_sample_rate=negative_sample_rate,
+            n_components=n_components,
+            metric=metric,
+            engine=engine,
+            suffix=suffix,
+            umap_kwargs=umap_kwargs,
+            umap_fit_kwargs=umap_fit_kwargs,
+            umap_transform_kwargs=umap_transform_kwargs
+        )
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
@@ -665,8 +680,8 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            logger.debug("umap X_: %s", X_)
-            logger.debug("umap y_: %s", y_)
+            logger.debug("umap X_ (%s): %s", type(X_), X_)
+            logger.debug("umap y_ (%s): %s", type(y_), y_)
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
