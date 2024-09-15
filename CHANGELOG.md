@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* Additional GPU support in featurize paths
+
 ### Refactor
 
 * Narrow `use_scaler` and `use_scaler_target` typing to `ScalerType` (`Literal[...]`) vs `str`

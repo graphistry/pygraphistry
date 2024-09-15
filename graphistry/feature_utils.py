@@ -75,6 +75,13 @@ else:
     TransformerMixin = Any
 
 
+def is_cudf_df(df: Any) -> bool:
+    mod_str = str(getmodule(df))
+    return 'cudf' in mod_str and 'dataframe' in mod_str
+
+def is_cudf_s(s: Any) -> bool:
+    mod_str = str(getmodule(s))
+    return 'cudf' in mod_str and 'series' in mod_str
 
 
 # ############################################################################
@@ -132,7 +139,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame) or 'cudf' in str(getmodule(y)):
+    if isinstance(y, pd.DataFrame) or is_cudf_df(y):
         return y  # type: ignore
 
     if df is None:
@@ -153,7 +160,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame) or 'cudf' in str(getmodule(X)):
+    if isinstance(X, pd.DataFrame) or is_cudf_df(X):
         return X  # type: ignore
 
     if df is None:
@@ -231,7 +238,20 @@ def features_without_target(
         for c in yc:
             if c in xc:
                 remove_cols.append(c)
+    elif is_cudf_df(y):
+        import cudf
+        assert isinstance(y, cudf.DataFrame)
+        yc = y.columns
+        xc = df.columns
+        for c in yc:
+            if c in xc:
+                remove_cols.append(c)
     elif isinstance(y, pd.Series):
+        if y.name and (y.name in df.columns):
+            remove_cols = [y.name]
+    elif is_cudf_s(y):
+        import cudf
+        assert isinstance(y, cudf.Series)
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
@@ -255,7 +275,7 @@ def remove_node_column_from_symbolic(X_symbolic, node):
             logger.info(f"Removing `{node}` from input X_symbolic list")
             X_symbolic.remove(node)
         return X_symbolic
-    if isinstance(X_symbolic, pd.DataFrame):
+    if isinstance(X_symbolic, pd.DataFrame) or is_cudf_df(X_symbolic):
         logger.info(f"Removing `{node}` from input X_symbolic DataFrame")
         return X_symbolic.drop(columns=[node], errors="ignore")
 
@@ -418,7 +438,7 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
 
 def check_if_textual_column(
     df: pd.DataFrame,
-    col,
+    col: str,
     confidence: float = 0.35,
     min_words: float = 2.5,
 ) -> bool:
@@ -435,6 +455,16 @@ def check_if_textual_column(
             Default 2.5
     :return: bool, whether column is textual or not
     """
+
+    if df[col].dtype != "object" and df[col].dtype != "string":
+        return False
+    
+    if is_cudf_df(df):
+        import cudf
+        assert isinstance(df, cudf.DataFrame)
+        df2_small = df[[col]].head(100).to_pandas()
+        return check_if_textual_column(df2_small, col, confidence, min_words)
+
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
     if min_words == 0:  # force textual encoding of named columns
@@ -1680,14 +1710,12 @@ class FastEncoder:
         return res
 
     def _hecho(self, res):
-        logger.info("-" * 40)
         logger.info("\n-- Setting Encoder Parts from Fit ::")
         logger.info(f'Feature Columns In: {self.feature_names_in}')
         logger.info(f'Target Columns In: {self.target_names_in}')
 
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
-                logger.info("-" * 90)
                 logger.info(f"[[ {name} ]]:  {value}\n")
 
     def _set_result(self, res):
