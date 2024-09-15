@@ -84,7 +84,7 @@ else:
 # ############################################################################
 
 # umap
-#     _featurize_or_get_nodes_dataframe_if_X_is_None
+#     featurize_or_get_nodes_dataframe_if_X_is_None
 #         _featurize_nodes
 #             _node_featurizer
 #                 process_textual_or_other_dataframes
@@ -92,13 +92,13 @@ else:
 #                     process_dirty_dataframes
 #                     impute_and_scale_matrix
 #
-#    _featurize_or_get_edges_dataframe_if_X_is_None
+#    featurize_or_get_edges_dataframe_if_X_is_None
 #      _featurize_edges
 #             _edge_featurizer
 #                 featurize_edges:
 #                 rest of df goes to equivalent of _node_featurizer
 #
-#      _featurize_or_get_edges_dataframe_if_X_is_None
+#      featurize_or_get_edges_dataframe_if_X_is_None
 
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
@@ -1921,8 +1921,8 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[ScalerType] = None,
-        use_scaler_target: Optional[ScalerType] = None,
+        use_scaler: ScalerType = "none",
+        use_scaler_target: ScalerType = "none",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -2597,7 +2597,7 @@ class FeatureMixin(MIXIN_BASE):
         if not inplace:
             return res
 
-    def _featurize_or_get_nodes_dataframe_if_X_is_None(
+    def featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
@@ -2646,11 +2646,14 @@ class FeatureMixin(MIXIN_BASE):
             logger.info('-Reusing Existing Node Featurization')
             return res._node_features, res._node_target, res
 
+        use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
+        use_scaler_target_resolved = resolve_scaler_target(use_scaler_target, feature_engine, multilabel)
+
         res = res._featurize_nodes(
             X=X,
             y=y,
-            use_scaler=use_scaler,
-            use_scaler_target=use_scaler_target,
+            use_scaler=use_scaler_resolved,
+            use_scaler_target=use_scaler_target_resolved,
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
@@ -2681,14 +2684,40 @@ class FeatureMixin(MIXIN_BASE):
 
         assert res._node_features is not None  # ensure no infinite loop
 
-        return res._featurize_or_get_nodes_dataframe_if_X_is_None(
+        return res.featurize_or_get_nodes_dataframe_if_X_is_None(
             res._node_features,
             res._node_target,
+            use_scaler=use_scaler_resolved,
+            use_scaler_target=use_scaler_target_resolved,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            n_topics_target=n_topics_target,
+            multilabel=multilabel,
+            embedding=embedding,
+            use_ngrams=use_ngrams,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
+            min_words=min_words,
+            model_name=model_name,
+            similarity=similarity,
+            categories=categories,
+            impute=impute,
+            n_quantiles=n_quantiles,
+            output_distribution=output_distribution,
+            quantile_range=quantile_range,
+            n_bins=n_bins,
+            encode=encode,
+            strategy=strategy,
+            keep_n_decimals=keep_n_decimals,
+            remove_node_column=remove_node_column,
+            feature_engine=feature_engine,
             reuse_if_existing=True,
             memoize=memoize,
         )  # now we are guaranteed to have node feature and target matrices.
 
-    def _featurize_or_get_edges_dataframe_if_X_is_None(
+    def featurize_or_get_edges_dataframe_if_X_is_None(
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
@@ -2739,11 +2768,14 @@ class FeatureMixin(MIXIN_BASE):
             logger.info('-Reusing Existing Edge Featurization')
             return res._edge_features, res._edge_target, res
 
+        use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
+        use_scaler_target_resolved = resolve_scaler_target(use_scaler_target, feature_engine, multilabel)
+
         res = res._featurize_edges(
             X=X,
             y=y,
-            use_scaler=use_scaler,
-            use_scaler_target=use_scaler_target,
+            use_scaler=use_scaler_resolved,
+            use_scaler_target=use_scaler_target_resolved,
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
@@ -2772,9 +2804,33 @@ class FeatureMixin(MIXIN_BASE):
 
         assert res._edge_features is not None  # ensure no infinite loop
 
-        return res._featurize_or_get_edges_dataframe_if_X_is_None(
+        return res.featurize_or_get_edges_dataframe_if_X_is_None(
             res._edge_features,
             res._edge_target,
+            use_scaler,
+            use_scaler_target,
+            cardinality_threshold,
+            cardinality_threshold_target,
+            n_topics,
+            n_topics_target,
+            multilabel,
+            use_ngrams,
+            ngram_range,
+            max_df,
+            min_df,
+            min_words,
+            model_name,
+            similarity,
+            categories,
+            impute,
+            n_quantiles,
+            output_distribution,
+            quantile_range,
+            n_bins,
+            encode,
+            strategy,
+            keep_n_decimals,
+            feature_engine,
             reuse_if_existing=True,
             memoize=memoize,
         )

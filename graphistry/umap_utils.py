@@ -574,7 +574,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
 
@@ -612,7 +612,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
 
