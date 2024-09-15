@@ -609,6 +609,11 @@ class UMAPMixin(MIXIN_BASE):
         # temporary until we have full cudf support in feature_utils.py
         has_cudf, _, cudf = lazy_cudf_import()
 
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
+
         if has_cudf:
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
             flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
