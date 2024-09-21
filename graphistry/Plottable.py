@@ -74,6 +74,9 @@ class Plottable(object):
     _xy: Optional[pd.DataFrame]
 
     _umap : Optional[UMAP]
+    _umap_params: Optional[Dict[str, Any]]
+    _umap_fit_kwargs: Optional[Dict[str, Any]]
+    _umap_transform_kwargs: Optional[Dict[str, Any]]
 
     _adjacency : Optional[Any]
     _entity_to_index : Optional[dict]
