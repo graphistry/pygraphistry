@@ -1,3 +1,4 @@
+from typing_extensions import Literal
 from .util import setup_logger
 from .util import ModelDict
 
@@ -45,6 +46,7 @@ QUANTILE = 'quantile'
 ERROR = "error"
 
 SCALERS = [STANDARD, ROBUST, MINMAX, KBINS_SCALER, QUANTILE]
+ScalerType = Literal["none", "kbins", "standard", "robust", "minmax", "quantile"]
 NO_SCALER = None
 # Scaler options
 N_BINS = 10
