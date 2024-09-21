@@ -21,6 +21,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Narrow `use_scaler` and `use_scaler_target` typing to `ScalerType` (`Literal[...]`) vs `str`
 * Rename `featurize_or_get_nodes_dataframe_if_X_is_None` (and edges variant) as non-private due to being shared
 
+### Fixed
+
+* get_indegrees: Fix warning https://github.com/graphistry/pygraphistry/issues/587
+
 ## [0.34.3 - 2024-08-03]
 
 ### Added
