@@ -132,8 +132,9 @@ class ComputeMixin(MIXIN_BASE):
         nodes_df = g_nodes._nodes[
             [c for c in g_nodes._nodes.columns if c != col]
         ].merge(in_degree_df, how="left", on=g._node)
-        nodes_df[col].fillna(0, inplace=True)
-        nodes_df[col] = nodes_df[col].astype("int32")
+        nodes_df = nodes_df.assign(**{
+            col: nodes_df[col].fillna(0).astype("int32")
+        })
         return g.nodes(nodes_df, g_nodes._node)
 
     def get_outdegrees(self, col: str = "degree_out"):
