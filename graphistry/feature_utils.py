@@ -2033,7 +2033,7 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
-        logger.debug("** Featuring nodes")
+        logger.debug("** Featurizing nodes")
         # ############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
