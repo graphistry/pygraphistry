@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* GFQL: Fix traverse filtering logic for a multi-hop scenario check that was mistakingly disabled, leading to too many results being incorrectly returned
+
 ## [0.34.4 - 2024-09-20]
 
 ### Added
