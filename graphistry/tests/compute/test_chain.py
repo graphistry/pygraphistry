@@ -1,9 +1,10 @@
 import os
 import pandas as pd
 from graphistry.compute.predicates.is_in import is_in
+from graphistry.compute.predicates.numeric import gt
 import pytest
 
-from graphistry.compute.ast import ASTNode, ASTEdge, n, e
+from graphistry.compute.ast import ASTNode, ASTEdge, n, e, e_undirected
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 
@@ -138,3 +139,38 @@ def test_chain_pred_cudf():
     g_edges = g.chain([e({'src': is_in([0])})])
     assert isinstance(g_edges._edges, cudf.DataFrame)
     assert len(g_edges._edges) == 1
+
+def test_preds_more_pd():
+
+    edf = pd.DataFrame({
+        's': ['a1', 'b3', 'b3'],
+        'd': ['b3', 'b3', 'c1']
+    })
+    g = CGFull().edges(edf, 's', 'd').materialize_nodes().get_degrees()
+
+    g2 = (g.get_degrees()
+        .chain([
+            n({'degree': gt(1)}),
+            e_undirected(),
+            n({'degree': gt(1)})
+        ])
+    )
+    assert len(g2._nodes) == 1
+
+def test_preds_more_pd_2():
+
+    edf = pd.DataFrame({
+        's': ['a1', 'b2', 'c2'],
+        'd': ['b2', 'c2', 'd1']
+    })
+    g = CGFull().edges(edf, 's', 'd').materialize_nodes().get_degrees()
+
+    g2 = (g.get_degrees()
+        .chain([
+            n({'degree': gt(1)}),
+            e_undirected(),
+            n({'degree': gt(1)})
+        ])
+    )
+    assert len(g2._nodes) == 2
+    assert set(g2._nodes[g._node].tolist()) == set(['b2', 'c2'])
