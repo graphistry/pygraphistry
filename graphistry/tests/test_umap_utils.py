@@ -1,3 +1,4 @@
+from time import time
 from typing import Any
 import pytest
 import unittest
@@ -34,7 +35,7 @@ from graphistry.util import cache_coercion_helper
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import()
-has_umap, _, _ = lazy_umap_import()
+has_umap, _, umap = lazy_umap_import()
 has_cudf, _, cudf = lazy_cudf_import()
 
 # print('has_dependancy', has_dependancy)
@@ -42,6 +43,7 @@ has_cudf, _, cudf = lazy_cudf_import()
 # print('has_umap', has_umap)
 
 logger = logging.getLogger(__name__)
+logging.getLogger("graphistry.umap_utils").setLevel(logging.DEBUG)
 
 warnings.filterwarnings("ignore")
 
@@ -87,16 +89,64 @@ def _eq(df1, df2):
     return df1 == df2
 
 
+@pytest.fixture(scope="module")
+def reddit_ndf() -> pd.DataFrame:
+    return ndf_reddit
+
+
+class TestUMAPFitTransformMore():
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_kwargs_threaded(self, reddit_ndf: pd.DataFrame):
+
+        g = graphistry.nodes(reddit_ndf.assign(zzz=2)).featurize(feature_engine='none')
+
+        #warmup
+        g2 = g.umap(
+            feature_engine='none',
+            engine='umap_learn',
+            umap_kwargs={'random_state': 43, 'n_epochs': 1},
+            umap_fit_kwargs={'force_all_finite': False},
+            umap_transform_kwargs={},  # no args in older versions..
+        )
+
+        start_time = time()
+        g2 = g.umap(
+            feature_engine='none',
+            engine='umap_learn',
+            umap_kwargs={'random_state': 43, 'n_epochs': 2},
+            umap_fit_kwargs={'force_all_finite': False},
+            umap_transform_kwargs={},  # no args in older versions..
+        )
+        runtime_small = time() - start_time
+
+        assert g2._umap_params['random_state'] == 43
+        assert g2._umap_fit_kwargs['force_all_finite'] is False
+        assert g2._umap_transform_kwargs == {}
+
+        start_time = time()
+        g2 = g.umap(
+            feature_engine='none',
+            engine='umap_learn',
+            umap_kwargs={'random_state': 43, 'n_epochs': 2000},
+            umap_fit_kwargs={'force_all_finite': False},
+            umap_transform_kwargs={},  # no args in older versions..
+        )
+        runtime_large = time() - start_time
+
+        logger.debug(f"runtime_small: {runtime_small}, runtime_large: {runtime_large}")
+
+        assert runtime_large > 1.5 * runtime_small
+
+
 class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def setUp(self):
-        verbose = True
         g = graphistry.nodes(ndf_reddit)
         self.gn = g
         
         self.test = ndf_reddit.sample(5)
-
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -107,8 +157,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_ngrams=True,
                 ngram_range=(1, 2),
                 use_scaler="robust",
-                cardinality_threshold=2,
-                verbose=verbose,
+                cardinality_threshold=2
             )
 
         self.g2 = g2
@@ -116,10 +165,10 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
         self.emb, self.x, self.y = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False, verbose=verbose
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False
         )
         self.g3 = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True, verbose=verbose
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True
         )
 
         # do the same for edges
@@ -140,14 +189,13 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
-                verbose=verbose,
             )
 
         fenc = g2._edge_encoder
         self.Xe, self.Ye = fenc.X, fenc.y
         self.EMBe = g2._edge_embedding
         self.embe, self.xe, self.ye = g2.transform_umap(
-            edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
+            edge_df22, y=edge2_target_df, kind="edges", return_graph=False
         )        
         self.g2e = g2
 
@@ -336,7 +384,7 @@ class TestUMAPMethods(unittest.TestCase):
         ]
         self._check_attributes(g, attributes)
 
-    def cases_test_graph(self, g, kind="nodes", df=ndf_reddit, verbose=False):
+    def cases_test_graph(self, g, kind="nodes", df=ndf_reddit):
         if kind == "nodes":
             ndf = g._nodes
             self.cases_check_node_attributes(g)
@@ -632,6 +680,53 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 logger.debug("-" * 80)
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
+
+
+@pytest.mark.skipif(
+    not has_dependancy or not has_cuml,
+    reason="requires cuml feature dependencies",
+)
+class TestCUMLMethodsMore():
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_kwargs_threaded(self, reddit_ndf: pd.DataFrame):
+
+        g = graphistry.nodes(cudf.from_pandas(reddit_ndf.assign(zzz=2))).featurize(feature_engine='none')
+
+        assert isinstance(g._nodes, cudf.DataFrame)
+        assert isinstance(g._node_features, cudf.DataFrame)
+
+        #warmup
+        g.umap(
+            feature_engine='none',
+            engine='cuml',
+            umap_kwargs={},
+            umap_fit_kwargs={},
+            umap_transform_kwargs={}
+        )
+
+        start_time = time()
+        g.umap(
+            feature_engine='none',
+            engine='cuml',
+            umap_kwargs={'n_epochs': 3},  # smaller values crash: https://github.com/rapidsai/cuml/issues/6068
+            umap_fit_kwargs={},
+            umap_transform_kwargs={}
+        )
+        runtime_small = time() - start_time
+
+        start_time = time()
+        g.umap(
+            feature_engine='none',
+            engine='cuml',
+            umap_kwargs={'n_epochs': 20000},
+            umap_fit_kwargs={},
+            umap_transform_kwargs={}
+        )
+        runtime_large = time() - start_time
+        #assert g2._umap_params['random_state'] == 43
+        logger.debug(f"runtime_small: {runtime_small}, runtime_large: {runtime_large}")
+        assert runtime_large > 1.5 * runtime_small
 
 
 @pytest.mark.skipif(

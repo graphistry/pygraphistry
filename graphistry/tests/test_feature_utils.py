@@ -30,6 +30,7 @@ has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_sentence_transformers_import()
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
