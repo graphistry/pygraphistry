@@ -243,8 +243,7 @@ def hop(self: Plottable,
                 logger.debug('--- direction in [reverse, undirected] ---')
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
-            #FIXME: What test case does this enable? Disabled to pass shortest path backwards pass steps
-            if False and target_wave_front is not None:
+            if target_wave_front is not None:
                 assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
