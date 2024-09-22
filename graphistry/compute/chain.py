@@ -85,14 +85,19 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
     concat = df_concat(engine)
 
+    logger.debug('-----------[ combine %s ---------------]', kind)
+
     # df[[id]]
     out_df = concat([
         getattr(g_step, df_fld)[[id]]
         for (_, g_step) in steps
     ]).drop_duplicates(subset=[id])
-    for (op, g_step) in steps:
-        logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
-        logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
+    if logger.isEnabledFor(logger.DEBUG):
+        for (op, g_step) in steps:
+            if kind == 'edges':
+                logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
+            else:
+                logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
     # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
@@ -107,7 +112,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
             out_df[op._name] = out_df[op._name].fillna(False).astype(bool)
     out_df = out_df.merge(getattr(g, df_fld), on=id, how='left')
 
-    logger.debug('COMBINED[%s] >> %s', kind, out_df)
+    logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 
     return out_df
 
