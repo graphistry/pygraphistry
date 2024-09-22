@@ -141,7 +141,11 @@ def hop(self: Plottable,
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
     #richly-attributed subset for dest matching & return-enriching
-    base_target_nodes = target_wave_front if target_wave_front is not None else g2._nodes
+    if target_wave_front is None:
+        base_target_nodes = g2._nodes
+    else:
+        base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+    #TODO precompute src/dst match subset if multihop?
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ LOOP PRE ~~~~~~~~~~~')
