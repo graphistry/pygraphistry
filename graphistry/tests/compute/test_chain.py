@@ -4,9 +4,249 @@ from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.numeric import gt
 import pytest
 
-from graphistry.compute.ast import ASTNode, ASTEdge, n, e, e_undirected
+from graphistry.compute.ast import ASTNode, ASTEdge, n, e, e_undirected, e_forward
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
+
+
+@pytest.fixture(scope='module')
+def g_long_forwards_chain():
+    """
+    a->b->c->d->e
+    """
+    return (CGFull()
+        .edges(pd.DataFrame({
+            's': ['a', 'b', 'c', 'd'],
+            'd': ['b', 'c', 'd', 'e'],
+            't': ['1', '2', '3', '4'],
+            'e': ['2', '3', '4', '5']}),
+            's', 'd')
+        .nodes(pd.DataFrame({
+            'v': ['a', 'b', 'c', 'd', 'e'],
+            'w': ['1', '2', '3', '4', '5']}),
+            'v'))
+
+@pytest.fixture(scope='module')
+def g_long_forwards_chain_dead_end():
+    """
+    a->b->c->d->e
+          c->x
+    """
+    return (CGFull()
+        .edges(pd.DataFrame({
+            's': ['a', 'b', 'c', 'd', 'c'],
+            'd': ['b', 'c', 'd', 'e', 'x']}),
+            's', 'd')
+        .nodes(pd.DataFrame({
+            'v': ['a', 'b', 'c', 'd', 'e', 'x']}),
+            'v'))
+
+@pytest.fixture(scope='module')
+def g_long_forwards_chain_loop():
+    """
+    a->b->c->d->e
+       c->x->c
+    """
+    return (CGFull()
+        .edges(pd.DataFrame({
+            's': ['a', 'b', 'c', 'd', 'c', 'x'],
+            'd': ['b', 'c', 'd', 'e', 'x', 'c']}),
+            's', 'd')
+        .nodes(pd.DataFrame({
+            'v': ['a', 'b', 'c', 'd', 'e', 'x']}),
+            'v'))
+
+class TestMultiHopChainForward():
+
+    def test_chain_short(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=2), n({'v': 'd'})])
+        assert len(g2._nodes) == 0
+        assert len(g2._edges) == 0
+    
+    def test_chain_exact(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=3), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_long(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=4), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_fixedpoint(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_predicates_ok_source(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                source_node_match={'w': is_in(['1', '2', '3'])},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_predicates_ok_edge(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                edge_match={
+                    't': is_in(['1', '2', '3']),
+                    'e': is_in(['2', '3', '4'])
+                },
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_predicates_ok_destination(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                destination_node_match={'w': is_in(['2', '3', '4'])},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_predicates_ok(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                source_node_match={'w': is_in(['1', '2', '3'])},
+                edge_match={
+                    't': is_in(['1', '2', '3']),
+                    'e': is_in(['2', '3', '4'])
+                },
+                destination_node_match={'w': is_in(['2', '3', '4'])},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_predicates_source_fail(self, g_long_forwards_chain):
+        BAD = []
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                source_node_match={'w': is_in(BAD)},
+                edge_match={
+                    't': is_in(['1', '2', '3']),
+                    'e': is_in(['2', '3', '4'])
+                },
+                destination_node_match={'w': is_in(['2', '3', '4'])},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert len(g2._nodes) == 0
+        assert len(g2._edges) == 0
+
+    def test_chain_predicates_dest_fail(self, g_long_forwards_chain):
+        BAD = []
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                source_node_match={'w': is_in(['1', '2', '3'])},
+                edge_match={
+                    't': is_in(['1', '2', '3']),
+                    'e': is_in(['2', '3', '4'])
+                },
+                destination_node_match={'w': is_in(BAD)},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert len(g2._nodes) == 0
+        assert len(g2._edges) == 0
+
+    def test_chain_predicates_edge_fail(self, g_long_forwards_chain):
+        BAD = []
+        g2 = g_long_forwards_chain.chain([
+            n({'v': 'a'}),
+            e_forward(
+                source_node_match={'w': is_in(['1', '2', '3'])},
+                edge_match={
+                    't': is_in(BAD),
+                    'e': is_in(['2', '3', '4'])
+                },
+                destination_node_match={'w': is_in(['2', '3', '4'])},
+                hops=3
+            ),
+            n({'v': 'd'})
+        ])
+        assert len(g2._nodes) == 0
+        assert len(g2._edges) == 0
+
+
+class TestMultiHopDeadend():
+
+    def test_chain_fixedpoint(self, g_long_forwards_chain_dead_end: CGFull):
+        """
+        Same as chain; x should not be considered a hint
+        """
+        g2 = g_long_forwards_chain_dead_end.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+
+class TestMultiHopLoop():
+
+    def test_chain_fixedpoint(self, g_long_forwards_chain_loop: CGFull):
+        """
+        Same as chain; + detour using x
+        """
+        g2 = g_long_forwards_chain_loop.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd', 'x'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'},
+            {'s': 'c', 'd': 'x'},
+            {'s': 'x', 'd': 'c'}
+        ]
 
 
 def test_chain_serialization_mt():
@@ -142,6 +382,8 @@ def test_chain_pred_cudf():
 
 def test_preds_more_pd():
 
+    # a->b3->c1
+    #    U
     edf = pd.DataFrame({
         's': ['a1', 'b3', 'b3'],
         'd': ['b3', 'b3', 'c1']
@@ -155,7 +397,7 @@ def test_preds_more_pd():
             n({'degree': gt(1)})
         ])
     )
-    assert len(g2._nodes) == 1
+    assert set(g2._nodes[g2._node].tolist()) == set(['b3'])
 
 def test_preds_more_pd_2():
 
