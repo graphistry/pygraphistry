@@ -9,7 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-* GFQL: Fix traverse filtering logic for a multi-hop scenario check that was mistakingly disabled, leading to too many results being incorrectly returned
+* GFQL: Fix `chain()`, `hop()` traverse filtering logic for a multi-hop edge scenarios
+* GFQL: Fix `hop()` predicate handling in multihop scenarios
 
 ## [0.34.4 - 2024-09-20]
 
