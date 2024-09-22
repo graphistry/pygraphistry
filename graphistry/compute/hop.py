@@ -199,11 +199,12 @@ def hop(self: Plottable,
                 [[g2._source, g2._destination, EDGE_ID]]
             )
             if target_wave_front is not None:
-                assert nodes is not None, "target_wave_front indicates nodes"
+                # target prev internal transitions (g._nodes) + starting point (target)
+                # final hop can only be to target
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
-                        nodes[[g2._node]]
+                        self._nodes[[g2._node]]
                         ], sort=False, ignore_index=True
                     ).drop_duplicates()
                 else:
@@ -248,11 +249,10 @@ def hop(self: Plottable,
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
             if target_wave_front is not None:
-                assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
-                        nodes[[g2._node]]
+                        self._nodes[[g2._node]]
                         ], sort=False, ignore_index=True
                     ).drop_duplicates()
                 else:
