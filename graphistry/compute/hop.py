@@ -175,12 +175,12 @@ def hop(self: Plottable,
         assert len(wave_front.columns) == 1, "just indexes"
         wave_front_iter : DataFrameT = query_if_not_none(
             source_node_query,
-                filter_by_dict(
-                    starting_nodes
-                    if first_iter else
-                    wave_front.merge(self._nodes, on=g2._node, how='left'),
-                    source_node_match
-                )
+            filter_by_dict(
+                starting_nodes
+                if first_iter else
+                wave_front.merge(self._nodes, on=g2._node, how='left'),
+                source_node_match
+            )
         )[[ g2._node ]]
         first_iter = False
 
