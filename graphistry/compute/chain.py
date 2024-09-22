@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, Union, cast, List, Tuple, TYPE_CHECKING
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
@@ -92,7 +93,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         getattr(g_step, df_fld)[[id]]
         for (_, g_step) in steps
     ]).drop_duplicates(subset=[id])
-    if logger.isEnabledFor(logger.DEBUG):
+    if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
                 logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
