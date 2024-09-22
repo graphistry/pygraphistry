@@ -329,7 +329,10 @@ def hop(self: Plottable,
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
                 logger.debug('matches_edges:\n%s', matches_edges)
 
-        combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        if len(matches_nodes) > 0:
+            combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        else:
+            combined_node_ids = new_node_ids
 
         if len(combined_node_ids) == len(matches_nodes):
             #fixedpoint, exit early: future will come to same spot!
