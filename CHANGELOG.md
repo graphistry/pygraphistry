@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.5 - 2024-09-23]
+
+### Fixed
+
+* GFQL: Fix `chain()` regression around an incorrectly disabled check manifesting as https://github.com/graphistry/pygraphistry/issues/583
+* GFQL: Fix `chain()`, `hop()` traverse filtering logic for a multi-hop edge scenarios
+* GFQL: Fix `hop()` predicate handling in multihop scenarios
+
+### Infra
+
+* GFQL: Expand test suite around multihop edge predicates in `hop()` and `chain()`
+
 ## [0.34.4 - 2024-09-20]
 
 ### Added

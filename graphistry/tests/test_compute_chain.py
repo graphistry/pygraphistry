@@ -192,9 +192,19 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert g3a._edges.shape == (1, 3)
         compare_graphs(g3a, g_out_nodes_1_hop, g_out_edges_1_hop)
 
+        #a->b
+        g3ba = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
+        assert g3ba._nodes.shape == (2, 2)
+        assert g3ba._edges.shape == (1, 3)
+
+        #a->b-c
+        g3baa = g.chain([n({'n': 'a'}), e_forward(hops=2)])
+        assert g3baa._nodes.shape == (3, 2)
+        assert g3baa._edges.shape == (2, 3)
+
         g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'})])
-        assert g3b._nodes.shape == (3, 2)
-        assert g3b._edges.shape == (2, 3)
+        assert g3b._nodes.shape == (3, 2), "nodes"
+        assert g3b._edges.shape == (2, 3), "edges"
         compare_graphs(g3b, g_out_nodes_2_hops, g_out_edges_2_hops)
 
         g3c = g.chain([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
