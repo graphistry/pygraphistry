@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.5 - 2024-09-23]
+
 ### Fixed
 
 * GFQL: Fix `chain()` regression around an incorrectly disabled check manifesting as https://github.com/graphistry/pygraphistry/issues/583
