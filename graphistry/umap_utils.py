@@ -659,12 +659,13 @@ class UMAPMixin(MIXIN_BASE):
 
         if kind == "nodes":
             index = res._nodes.index
+            
             if res._node is None:
                 logger.debug("-Writing new node name")
+                res._nodes[config.IMPLICIT_NODE_ID] = range(len(res._nodes))
+
                 res = res.nodes(  # type: ignore
-                    res._nodes.reset_index(drop=True)
-                    .reset_index()
-                    .rename(columns={"index": config.IMPLICIT_NODE_ID}),
+                    res._nodes,
                     config.IMPLICIT_NODE_ID,
                 )
                 res._nodes.index = index
