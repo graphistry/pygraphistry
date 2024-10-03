@@ -9,9 +9,9 @@ if TYPE_CHECKING:
     try:
         from pygraphviz import AGraph
     except:
-        pgv: Any = None
+        AGraph: Any = None  # type: ignore
 else:
-    pgv: Any = None
+    AGraph: Any = None
 
 
 logger = logging.getLogger(__name__)
