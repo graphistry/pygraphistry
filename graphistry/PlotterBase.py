@@ -14,7 +14,7 @@ from .plugins.igraph import (
     compute_igraph as compute_igraph_base,
     layout_igraph as layout_igraph_base
 )
-from .plugins.graphviz import Format, layout_graphviz as layout_graphviz_base, Prog
+from .plugins.graphviz import EdgeAttr, Format, GraphAttr, NodeAttr, layout_graphviz as layout_graphviz_base, Prog
 from .plugins.cugraph import (
     to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
     compute_cugraph as compute_cugraph_base,
@@ -1655,9 +1655,9 @@ class PlotterBase(Plottable):
         args: Optional[str] = None,
         directed: bool = True,
         strict: bool = False,
-        graph_attr: Optional[Dict[str, Any]] = None,
-        node_attr: Optional[Dict[str, Any]] = None,
-        edge_attr: Optional[Dict[str, Any]] = None,
+        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+        node_attr: Optional[Dict[NodeAttr, Any]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
         skip_styling: bool = False,
         render_to_disk: bool = False,  # unsafe in server settings
         path: Optional[str] = None,

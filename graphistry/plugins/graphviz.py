@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING, Set, Union
 import logging
 import pandas as pd
   
@@ -133,20 +133,153 @@ FORMATS = [
     "xlib"
 ]
 
+GraphAttr = Literal[
+    "_background", "bb", "beautify", "bgcolor",
+    "center", "charset", "class", "clusterrank", "colorscheme", "comment", "compound", "concentrate",
+    "Damping", "defaultdist", "dim", "dimen", "diredgeconstraints", "dpi",
+    "epsilon", "esep",
+    "fontcolor", "fontname", "fontnames", "fontpath", "fontsize", "forcelabels",
+    "gradientangle", "href", "id", "imagepath", "inputscale",
+    "K",
+    "label", "label_scheme", "labeljust", "labelloc", "landscape", "layerlistsep",
+    "layers", "layerselect", "layersep", "layout", "levels", "levelsgap", "lheight", "linelength", "lp", "lwidth",
+    "margin", "maxiter", "mclimit", "mindist", "mode", "model",
+    "newrank", "nodesep", "nojustify", "normalize", "notranslate", "nslimit", "nslimit1",
+    "oneblock", "ordering", "orientation", "outputorder", "overlap", "overlap_scaling", "overlap_shrink",
+    "pack", "packmode", "pad", "page", "pagedir", "quadtree", "quantum",
+    "rankdir", "ranksep", "ratio", "remincross", "repulsiveforce", "resolution", "root", "rotate", "rotation",
+    "scale", "searchsize", "sep", "showboxes", "size", "smoothing", "sortv", "splines", "start", "style", "stylesheet",
+    "target", "TBbalance", "tooltip", "truecolor", "URL", "viewport", "voro_margin", "xdotversion"
+]
+
+GRAPH_ATTRS: List[GraphAttr] = [
+    "_background", "bb", "beautify", "bgcolor",
+    "center", "charset", "class", "clusterrank", "colorscheme", "comment", "compound", "concentrate",
+    "Damping", "defaultdist", "dim", "dimen", "diredgeconstraints", "dpi",
+    "epsilon", "esep",
+    "fontcolor", "fontname", "fontnames", "fontpath", "fontsize", "forcelabels",
+    "gradientangle", "href", "id", "imagepath", "inputscale",
+    "K",
+    "label", "label_scheme", "labeljust", "labelloc", "landscape", "layerlistsep",
+    "layers", "layerselect", "layersep", "layout", "levels", "levelsgap", "lheight", "linelength", "lp", "lwidth",
+    "margin", "maxiter", "mclimit", "mindist", "mode", "model",
+    "newrank", "nodesep", "nojustify", "normalize", "notranslate", "nslimit", "nslimit1",
+    "oneblock", "ordering", "orientation", "outputorder", "overlap", "overlap_scaling", "overlap_shrink",
+    "pack", "packmode", "pad", "page", "pagedir", "quadtree", "quantum",
+    "rankdir", "ranksep", "ratio", "remincross", "repulsiveforce", "resolution", "root", "rotate", "rotation",
+    "scale", "searchsize", "sep", "showboxes", "size", "smoothing", "sortv", "splines", "start", "style", "stylesheet",
+    "target", "TBbalance", "tooltip", "truecolor", "URL", "viewport", "voro_margin", "xdotversion"
+]
+
+# https://graphviz.org/docs/nodes/
+NodeAttr = Literal[
+    "area", "class", "color", "colorscheme", "comment", "distortion",
+    "fillcolor", "fixedsize", "fontcolor", "fontname", "fontsize",
+    "gradientangle", "group", "height", "href", "id", "image", "imagepos", "imagescale",
+    "label", "labelloc", "layer", "margin", "nojustify", "ordering", "orientation",
+    "penwidth", "peripheries", "pin", "pos", "rects", "regular", "root",
+    "samplepoints", "shape", "shapefile", "showboxes", "sides", "skew", "sortv", "style",
+    "target", "tooltip", "URL", "vertices", "width", "xlabel", "xlp", "z"
+]
+NODE_ATTRS: List[NodeAttr] = [
+    "area", "class", "color", "colorscheme", "comment", "distortion",
+    "fillcolor", "fixedsize", "fontcolor", "fontname", "fontsize",
+    "gradientangle", "group", "height", "href", "id", "image", "imagepos", "imagescale",
+    "label", "labelloc", "layer", "margin", "nojustify", "ordering", "orientation",
+    "penwidth", "peripheries", "pin", "pos", "rects", "regular", "root",
+    "samplepoints", "shape", "shapefile", "showboxes", "sides", "skew", "sortv", "style",
+    "target", "tooltip", "URL", "vertices", "width", "xlabel", "xlp", "z"
+]
+
+EdgeAttr = Literal[
+    "arrowhead", "arrowsize", "arrowtail",
+    "class", "color", "colorscheme", "comment", "constraint",
+    "decorate", "dir", "edgehref", "edgetarget", "edgetooltip", "edgeURL",
+    "fillcolor", "fontcolor", "fontname", "fontsize",
+    "head_lp", "headclip", "headhref", "headlabel", "headport", "headtarget", "headtooltip", "headURL", "href",
+    "id", "label", "labelangle", "labeldistance", "labelfloat", "labelfontcolor",
+    "labelfontname", "labelfontsize", "labelhref", "labeltarget", "labeltooltip",
+    "labelURL", "layer", "len", "lhead", "lp", "ltail", "minlen", "nojustify",
+    "penwidth", "pos", "samehead", "sametail", "showboxes", "style",
+    "tail_lp", "tailclip", "tailhref", "taillabel", "tailport", "tailtarget",
+    "tailtooltip", "tailURL", "target", "tooltip",
+    "URL", "weight", "xlabel", "xlp"
+]
+EDGE_ATTRS: List[EdgeAttr] = [
+    "arrowhead", "arrowsize", "arrowtail",
+    "class", "color", "colorscheme", "comment", "constraint",
+    "decorate", "dir", "edgehref", "edgetarget", "edgetooltip", "edgeURL",
+    "fillcolor", "fontcolor", "fontname", "fontsize",
+    "head_lp", "headclip", "headhref", "headlabel", "headport", "headtarget", "headtooltip", "headURL", "href",
+    "id", "label", "labelangle", "labeldistance", "labelfloat", "labelfontcolor",
+    "labelfontname", "labelfontsize", "labelhref", "labeltarget", "labeltooltip",
+    "labelURL", "layer", "len", "lhead", "lp", "ltail", "minlen", "nojustify",
+    "penwidth", "pos", "samehead", "sametail", "showboxes", "style",
+    "tail_lp", "tailclip", "tailhref", "taillabel", "tailport", "tailtarget",
+    "tailtooltip", "tailURL", "target", "tooltip",
+    "URL", "weight", "xlabel", "xlp"
+]
+
+UNSANITARY_ATTRS: Set[Union[GraphAttr, EdgeAttr, NodeAttr]] = {
+    'fontpath',
+    'image',
+    'imagepath',
+    'shapefile',
+    'stylesheet'
+}
+
+
+############################################
+
+
 def g_to_pgv(
     g: Plottable,
     directed: bool = True,
     strict: bool = False,
+    drop_unsanitary: bool = False
 ) -> AGraph:
 
-    graph = AGraph(directed=directed, strict=strict)
+    import pygraphviz as pgv
+
+    assert g._nodes is not None
+    assert g._edges is not None
+
+    graph = pgv.AGraph(directed=directed, strict=strict)
+
+    node_attr_cols: Set[NodeAttr] = {
+        c
+        for c in NODE_ATTRS
+        if c in g._nodes.columns
+    }
+    if drop_unsanitary:
+        for c in node_attr_cols:
+            if c in UNSANITARY_ATTRS:
+                raise ValueError(f"Unsanitary node_attr {c} is not allowed")
 
     for _, row in g._nodes.iterrows():
-        graph.add_node(row[g._node], label=str(row[g._node]))
+        graph.add_node(
+            row[g._node],
+            **{c: row[c] for c in node_attr_cols if row[c] is not None},
+            label=str(row[g._node])
+        )
 
+    edge_attr_cols: Set[EdgeAttr] = {
+        c
+        for c in EDGE_ATTRS
+        if c in g._edges.columns
+    }
+    if drop_unsanitary:
+        for d in edge_attr_cols:
+            if d in UNSANITARY_ATTRS:
+                raise ValueError(f"Unsanitary edge_attr {d} is not allowed")
 
     for _, row in g._edges.iterrows():
-        graph.add_edge(row[g._source], row[g._destination], label=str(row[g._source]))
+        graph.add_edge(
+            row[g._source],
+            row[g._destination],
+            **{c: row[c] for c in edge_attr_cols if row[c] is not None},
+            label=str(row[g._source])
+        )
 
     return graph
 
@@ -178,22 +311,35 @@ def layout_graphviz_core(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[str, Any]] = None,
-    node_attr: Optional[Dict[str, Any]] = None,
-    edge_attr: Optional[Dict[str, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+    node_attr: Optional[Dict[NodeAttr, Any]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    drop_unsanitary: bool = False,
 ) -> AGraph:
 
-    graph = g_to_pgv(g, directed, strict)
+    graph = g_to_pgv(g, directed, strict, drop_unsanitary)
 
     if graph_attr is not None:
         for k, v in graph_attr.items():
+            if k not in GRAPH_ATTRS:
+                raise ValueError(f"Unknown graph_attr {k}, expected one of {GRAPH_ATTRS}")
+            if drop_unsanitary and k in UNSANITARY_ATTRS:
+                raise ValueError(f"Unsanitary graph_attr {k} is not allowed")
             graph.graph_attr[k] = v
     if node_attr is not None:
-        for k, v in node_attr.items():
-            graph.node_attr[k] = v
+        for k2, v in node_attr.items():
+            if k2 not in NODE_ATTRS:
+                raise ValueError(f"Unknown node_attr {k2}, expected one of {NODE_ATTRS}")
+            if drop_unsanitary and k in UNSANITARY_ATTRS:
+                raise ValueError(f"Unsanitary node_attr {k2} is not allowed")
+            graph.node_attr[k2] = v
     if edge_attr is not None:
-        for k, v in edge_attr.items():
-            graph.edge_attr[k] = v
+        for k3, v in edge_attr.items():
+            if k3 not in EDGE_ATTRS:
+                raise ValueError(f"Unknown edge_attr {k3}, expected one of {EDGE_ATTRS}")
+            if drop_unsanitary and k3 in UNSANITARY_ATTRS:
+                raise ValueError(f"Unsanitary edge_attr {k3} is not allowed")
+            graph.edge_attr[k3] = v
   
     if prog not in PROGS:
         raise ValueError(f"Unknown prog {prog}, expected one of {PROGS}")
@@ -213,13 +359,14 @@ def layout_graphviz(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[str, Any]] = None,
-    node_attr: Optional[Dict[str, Any]] = None,
-    edge_attr: Optional[Dict[str, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+    node_attr: Optional[Dict[NodeAttr, Any]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
     skip_styling: bool = False,
     render_to_disk: bool = False,  # unsafe in server settings
     path: Optional[str] = None,
     format: Optional[Format] = None,
+    drop_unsanitary: bool = False,
 ) -> Plottable:
     """
 
@@ -246,14 +393,14 @@ def layout_graphviz(
     :param strict: Whether the graph is strict (True) or not (False, default)
     :type strict: bool
 
-    :param graph_attr: Graphviz graph attributes
-    :type graph_attr: Optional[Dict[str, Any]]
+    :param graph_attr: Graphviz graph attributes, see https://graphviz.org/docs/graph/
+    :type graph_attr: Optional[Dict[GraphAttr, Any]]
 
-    :param node_attr: Graphviz node attributes
-    :type node_attr: Optional[Dict[str, Any]]
+    :param node_attr: Graphviz node attributes, see https://graphviz.org/docs/nodes/
+    :type node_attr: Optional[Dict[NodeAttr, Any]]
 
-    :param edge_attr: Graphviz edge attributes
-    :type edge_attr: Optional[Dict[str, Any]]
+    :param edge_attr: Graphviz edge attributes, see https://graphviz.org/docs/edges/
+    :type edge_attr: Optional[Dict[EdgeAttr, Any]]
 
     :param skip_styling: Whether to skip applying default styling (False, default) or not (True)
     :type skip_styling: bool
@@ -266,6 +413,9 @@ def layout_graphviz(
 
     :param format: Format of the rendered image when render_to_disk=True
     :type format: Optional[Format]
+
+    :param drop_unsanitary: Whether to drop unsanitary attributes (False, default) or not (True), recommended for sensitive settings
+    :type drop_unsanitary: bool
 
     :return: Graph with layout and style settings applied, setting x/y
     :rtype: Plottable
@@ -309,16 +459,51 @@ def layout_graphviz(
             import graphistry
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
-            g.layout_graphviz('dot', render_to_disk=True, path='graph.png', format='png')
+            g.layout_graphviz(
+                'dot',
+                render_to_disk=True,
+                path='graph.png',
+                format='png'
+            )
+
+    **Example: Save rendered image to disk as a png with passthrough of rendering styles**
+
+        ::
+
+            import graphistry
+            edges = pd.DataFrame({
+                's': ['a','b','c','d'],
+                'd': ['b','c','d','e'],
+                'color': ['red', None, None, 'yellow']
+            })
+            nodes = pd.DataFrame({
+                'n': ['a','b','c','d','e'],
+                'shape': ['circle', 'square', None, 'square', 'circle']
+            })
+            g = graphistry.edges(edges, 's', 'd')
+            g.layout_graphviz(
+                'dot',
+                render_to_disk=True,
+                path='graph.png',
+                format='png'
+            )
+
     """
 
-    graph = layout_graphviz_core(self, prog, args, directed, strict, graph_attr, node_attr, edge_attr)
+    g = self
+    assert g is not None
+    assert g._edges is not None
+    if g._nodes is None:
+        g = g.materialize_nodes()
+        assert g._nodes is not None
+
+    graph = layout_graphviz_core(g, prog, args, directed, strict, graph_attr, node_attr, edge_attr, drop_unsanitary)
 
     if render_to_disk:
         # no prog because position already baked into graph
         graph.draw(path=path, format=format)
 
-    g2 = g_with_pgv_layout(self, graph)
+    g2 = g_with_pgv_layout(g, graph)
 
     if not skip_styling:
         g3 = pgv_styling(g2)
