@@ -1411,6 +1411,8 @@ A hierachical view via horizontal or vertical trees, or radial. Graph data may a
 
 #### Tree
 
+Tip: Also try `g.layout_graphviz("dot")` and `"circo"`
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
 
@@ -1540,7 +1542,34 @@ g.layout_igraph('sugiyama', directed=True, params={}).plot()
 
 See list [`layout_algs`](https://github.com/graphistry/pygraphistry/blob/master/graphistry/plugins/igraph.py#L365)
 
-### Plugin: cugraph
+### Plugin: graphviz
+
+With graphviz installed, you can use its many layouts. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/graphviz/graphviz.ipynb)
+
+```python
+# 1. Engine: apt-get install graphviz graphviz-dev
+# 2. Bindings: pip install -q graphistry[pygraphviz]
+
+# graphviz dot layout with graphistry interactive render
+g.layout_graphviz('dot').plot()
+
+# save graphviz render to disk
+g.layout_graphviz('dot', render_to_disk=True, path='./graph.png', format='render')
+
+# custom attributes
+assert 'color' in g._edges.columns and 'shape' in g._nodes.columns
+g.layout_graphviz(
+  'dot',
+  graph_attrs={},
+  node_attrs={'color': 'green'},
+  edge_attrs={}).plot()
+
+help(g.layout_graphviz)
+```
+
+See layout algorithm list [`prog`](https://github.com/graphistry/pygraphistry/blob/master/graphistry/plugins_types/graphviz_types.py#L14). The layout algorithms, and attributes at global and node/edge-level, are in the [graphviz engine documentation](https://graphviz.org/docs/layouts/).
+
+### Plugin: cuGraph
 
 With [Nvidia RAPIDS cuGraph](https://www.rapids.ai) install:
 
