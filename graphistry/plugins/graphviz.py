@@ -42,8 +42,7 @@ def g_to_pgv(
     for _, row in g._nodes.iterrows():
         graph.add_node(
             row[g._node],
-            **{c: row[c] for c in node_attr_cols if row[c] is not None},
-            label=str(row[g._node])
+            **{c: row[c] for c in node_attr_cols if row[c] is not None}
         )
 
     edge_attr_cols: Set[EdgeAttr] = {
@@ -60,8 +59,7 @@ def g_to_pgv(
         graph.add_edge(
             row[g._source],
             row[g._destination],
-            **{c: row[c] for c in edge_attr_cols if row[c] is not None},
-            label=str(row[g._source])
+            **{c: row[c] for c in edge_attr_cols if row[c] is not None}
         )
 
     return graph
