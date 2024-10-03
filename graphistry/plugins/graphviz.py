@@ -6,12 +6,12 @@ from graphistry.Plottable import Plottable
 
 
 if TYPE_CHECKING:
-  try:
-    from pygraphviz import AGraph
-  except:
-    pgv: Any = None
+    try:
+        from pygraphviz import AGraph
+    except:
+        pgv: Any = None
 else:
-  pgv: Any = None
+    pgv: Any = None
 
 
 logger = logging.getLogger(__name__)
@@ -139,87 +139,87 @@ def g_to_pgv(
     strict: bool = False,
 ) -> AGraph:
 
-  graph = AGraph(directed=directed, strict=strict)
+    graph = AGraph(directed=directed, strict=strict)
 
-  for _, row in g._nodes.iterrows():
-      graph.add_node(row[g._node], label=str(row[g._node]))
+    for _, row in g._nodes.iterrows():
+        graph.add_node(row[g._node], label=str(row[g._node]))
 
 
-  for _, row in g._edges.iterrows():
-      graph.add_edge(row[g._source], row[g._destination], label=str(row[g._source]))
+    for _, row in g._edges.iterrows():
+        graph.add_edge(row[g._source], row[g._destination], label=str(row[g._source]))
 
-  return graph
+    return graph
 
 
 def g_with_pgv_layout(g: Plottable, graph: AGraph) -> Plottable:
 
-  node_positions = []
-  for node in graph.nodes():
-      # Get the position of the node
-      pos = node.attr['pos'].split(',')
-      x, y = float(pos[0]), float(pos[1])
-      node_positions.append({g._node: node, 'x': x, 'y': y})
-  positions_df = pd.DataFrame(node_positions)
-  nodes_df = positions_df.merge(g._nodes, on=g._node, how='left')
+    node_positions = []
+    for node in graph.nodes():
+        # Get the position of the node
+        pos = node.attr['pos'].split(',')
+        x, y = float(pos[0]), float(pos[1])
+        node_positions.append({g._node: node, 'x': x, 'y': y})
+    positions_df = pd.DataFrame(node_positions)
+    nodes_df = positions_df.merge(g._nodes, on=g._node, how='left')
 
-  return g.nodes(nodes_df)
+    return g.nodes(nodes_df)
 
 def pgv_styling(g: Plottable) -> Plottable:
-  g2 = g.settings(url_params={
-      'play': 0,
-      'edgeCurvature': 0.01,
-  })
-  return g2
+    g2 = g.settings(url_params={
+        'play': 0,
+        'edgeCurvature': 0
+    })
+    return g2
 
 
 def layout_graphviz_core(
-  g: Plottable,
-  prog: Prog = 'dot',
-  args: Optional[str] = None,
-  directed: bool = True,
-  strict: bool = False,
-  graph_attr: Optional[Dict[str, Any]] = None,
-  node_attr: Optional[Dict[str, Any]] = None,
-  edge_attr: Optional[Dict[str, Any]] = None,
+    g: Plottable,
+    prog: Prog = 'dot',
+    args: Optional[str] = None,
+    directed: bool = True,
+    strict: bool = False,
+    graph_attr: Optional[Dict[str, Any]] = None,
+    node_attr: Optional[Dict[str, Any]] = None,
+    edge_attr: Optional[Dict[str, Any]] = None,
 ) -> AGraph:
 
-  graph = g_to_pgv(g, directed)
+    graph = g_to_pgv(g, directed, strict)
 
-  if graph_attr is not None:
-    for k, v in graph_attr.items():
-      graph.graph_attr[k] = v
-  if node_attr is not None:
-    for k, v in node_attr.items():
-      graph.node_attr[k] = v
-  if edge_attr is not None:
-    for k, v in edge_attr.items():
-      graph.edge_attr[k] = v
+    if graph_attr is not None:
+        for k, v in graph_attr.items():
+            graph.graph_attr[k] = v
+    if node_attr is not None:
+        for k, v in node_attr.items():
+            graph.node_attr[k] = v
+    if edge_attr is not None:
+        for k, v in edge_attr.items():
+            graph.edge_attr[k] = v
   
-  if prog not in PROGS:
-    raise ValueError(f"Unknown prog {prog}, expected one of {PROGS}")
+    if prog not in PROGS:
+        raise ValueError(f"Unknown prog {prog}, expected one of {PROGS}")
 
-  if args:
-    #TODO: Security reasoning
-    raise NotImplementedError("NotImplementedError: Passthrough of commandline arguments not implemented")
+    if args:
+        #TODO: Security reasoning
+        raise NotImplementedError("NotImplementedError: Passthrough of commandline arguments not implemented")
 
-  graph.layout(prog=prog)
+    graph.layout(prog=prog)
 
-  return graph
+    return graph
 
 
 def layout_graphviz(
-  self: Plottable,
-  prog: Prog = 'dot',
-  args: Optional[str] = None,
-  directed: bool = True,
-  strict: bool = False,
-  graph_attr: Optional[Dict[str, Any]] = None,
-  node_attr: Optional[Dict[str, Any]] = None,
-  edge_attr: Optional[Dict[str, Any]] = None,
-  skip_styling: bool = False,
-  render_to_disk: bool = False,  # unsafe in server settings
-  path: Optional[str] = None,
-  format: Optional[Format] = None,
+    self: Plottable,
+    prog: Prog = 'dot',
+    args: Optional[str] = None,
+    directed: bool = True,
+    strict: bool = False,
+    graph_attr: Optional[Dict[str, Any]] = None,
+    node_attr: Optional[Dict[str, Any]] = None,
+    edge_attr: Optional[Dict[str, Any]] = None,
+    skip_styling: bool = False,
+    render_to_disk: bool = False,  # unsafe in server settings
+    path: Optional[str] = None,
+    format: Optional[Format] = None,
 ) -> Plottable:
     """
 
@@ -315,8 +315,8 @@ def layout_graphviz(
     graph = layout_graphviz_core(self, prog, args, directed, strict, graph_attr, node_attr, edge_attr)
 
     if render_to_disk:
-      # no prog because position already baked into graph
-      graph.draw(path=path, format=format)
+        # no prog because position already baked into graph
+        graph.draw(path=path, format=format)
 
     g2 = g_with_pgv_layout(self, graph)
 
@@ -326,4 +326,3 @@ def layout_graphviz(
         g3 = g2
 
     return g3
-
