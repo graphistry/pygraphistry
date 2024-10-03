@@ -40,6 +40,7 @@ base_extras_light = {
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl==3.1.0', 'xlrd'],
+    'pygraphviz': ['pygraphviz'],
     'jupyter': ['ipython'],
 }
 
