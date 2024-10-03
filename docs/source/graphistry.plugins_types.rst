@@ -18,6 +18,14 @@ graphistry.plugins\_types.cugraph\_types module
    :undoc-members:
    :show-inheritance:
 
+graphistry.plugins\_types.graphviz\_types module
+-----------------------------------------------
+
+.. automodule:: graphistry.plugins_types.graphviz_types
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
