@@ -14,6 +14,7 @@ from .plugins.igraph import (
     compute_igraph as compute_igraph_base,
     layout_igraph as layout_igraph_base
 )
+from .plugins.graphviz import Format, layout_graphviz as layout_graphviz_base, Prog
 from .plugins.cugraph import (
     to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
     compute_cugraph as compute_cugraph_base,
@@ -1649,6 +1650,23 @@ class PlotterBase(Plottable):
         )
     layout_cugraph.__doc__ = layout_cugraph_base.__doc__
     
+    def layout_graphviz(self,
+        prog: Prog = 'dot',
+        args: Optional[str] = None,
+        directed: bool = True,
+        strict: bool = False,
+        graph_attr: Optional[Dict[str, Any]] = None,
+        node_attr: Optional[Dict[str, Any]] = None,
+        edge_attr: Optional[Dict[str, Any]] = None,
+        skip_styling: bool = False,
+        render_to_disk: bool = False,  # unsafe in server settings
+        path: Optional[str] = None,
+        format: Optional[Format] = None
+    ) -> Plottable:
+        return layout_graphviz_base(
+            self, prog, args, directed, strict, graph_attr, node_attr, edge_attr, skip_styling, render_to_disk, path, format
+        )
+    layout_graphviz.__doc__ = layout_graphviz_base.__doc__
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
