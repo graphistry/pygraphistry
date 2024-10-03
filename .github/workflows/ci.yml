@@ -93,7 +93,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .[docs,test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter,pygraphviz]
+        python -m pip install -e .[docs,test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
 
     - name: Lint
       run: |
@@ -110,7 +110,7 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test.sh
 
-  test-graph-viz:
+  test-graphviz:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
@@ -140,7 +140,7 @@ jobs:
         source pygraphistry/bin/activate
         apt-get install graphviz graphviz-dev
         python -m pip install --upgrade pip
-        python -m pip install -e .[test,graphviz]
+        python -m pip install -e .[test,pygraphviz]
 
     - name: Type check
       run: |
