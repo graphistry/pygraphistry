@@ -14,7 +14,8 @@ from .plugins.igraph import (
     compute_igraph as compute_igraph_base,
     layout_igraph as layout_igraph_base
 )
-from .plugins.graphviz import EdgeAttr, Format, GraphAttr, NodeAttr, layout_graphviz as layout_graphviz_base, Prog
+from .plugins.graphviz import layout_graphviz as layout_graphviz_base
+from .plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 from .plugins.cugraph import (
     to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
     compute_cugraph as compute_cugraph_base,
