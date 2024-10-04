@@ -75,6 +75,7 @@ Here's a representative example of how to get started:
 .. code-block:: python
 
     import graphistry
+    import pandas as pd
 
     # Load a simple graph from a dataframe
     df = pd.DataFrame({
