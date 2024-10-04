@@ -1,10 +1,3 @@
-GFQL
-====
-.. toctree::
-   :maxdepth: 2
-   
-   gfql/index
-
 Login and Sharing
 =================
 .. toctree::
@@ -28,16 +21,23 @@ Layouts
 
    graphistry.layout
    
+GFQL Queries
+============
+.. toctree::
+   :maxdepth: 3
+   
+   gfql/index
+
 AI
 ===
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    ai/index
 
 
 Compute 
-==================
+=======
 .. toctree::
    :maxdepth: 3
 
@@ -47,7 +47,7 @@ Compute
 Plugins
 =======
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 3
    
    plugins/index
 

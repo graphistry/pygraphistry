@@ -41,3 +41,13 @@ Versioneer
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. toctree::
+   :hidden:
+
+   graphistry.compute.predicates
+   graphistry.plugins
+   graphistry.plugins_types
+   graphistry.validate
+   modules
+   versioneer
