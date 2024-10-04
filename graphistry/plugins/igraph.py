@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, List, Optional
+from typing import List, Optional
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -264,7 +264,7 @@ def to_igraph(
     )
 
 
-compute_algs = [
+compute_algs: List[str] = [
     'articulation_points',
     'authority_score',
     'betweenness',
@@ -430,7 +430,7 @@ def compute_igraph(
     return self.from_igraph(ig)
 
 
-layout_algs = [
+layout_algs: List[str] = [
     'auto', 'automatic',
     'bipartite',
     'circle', 'circular',

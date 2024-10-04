@@ -1,19 +1,20 @@
-:orphan:
-
-.. ^ FIXME
-
 graphistry.layout.ring package
 ==================================
 
-Submodules
-----------
-
-Module contents
----------------
-
-.. automodule:: graphistry.layout.ring
+.. automodule:: graphistry.layout.ring.categorical
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
-   
+.. automodule:: graphistry.layout.ring.continuous
+   :members:
+   :undoc-members:
+   :inherited-members:
+   :show-inheritance:
+
+.. automodule:: graphistry.layout.ring.time
+   :members:
+   :undoc-members:
+   :inherited-members:
+   :show-inheritance:

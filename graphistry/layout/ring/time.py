@@ -237,21 +237,19 @@ def time_ring(
 
     Uses GPU when cudf nodes are used, otherwise pandas with custom start and end times
 
-    Parameters
-    ----------
-        :g: Plottable
-        :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
-        :num_rings: Optional[int] Number of rings
-        :time_start: Optional[numpy.datetime64] First ring and axis label
-        :time_end: Optional[numpy.datetime64] Last ring and axis label
-        :time_unit: Optional[TimeUnit] Time unit for axis labels
-        :min_r: float Minimum radius, default 100
-        :max_r: float Maximum radius, default 1000
-        :reverse: bool Reverse the direction of the rings in terms of time
-        :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
-        :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
-        :play_ms: int initial layout time in milliseconds, default 2000
-        :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :g: Plottable
+    :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
+    :num_rings: Optional[int] Number of rings
+    :time_start: Optional[numpy.datetime64] First ring and axis label
+    :time_end: Optional[numpy.datetime64] Last ring and axis label
+    :time_unit: Optional[TimeUnit] Time unit for axis labels
+    :min_r: float Minimum radius, default 100
+    :max_r: float Maximum radius, default 1000
+    :reverse: bool Reverse the direction of the rings in terms of time
+    :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
+    :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
+    :play_ms: int initial layout time in milliseconds, default 2000
+    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter

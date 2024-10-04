@@ -19,4 +19,13 @@ class ASTPredicate(ASTSerializable):
 
     @abstractmethod
     def __call__(self, s: SeriesT) -> SeriesT:
+        """
+        Abstract method to apply the predicate to a pandas Series or compatible object.
+
+        Args:
+            s (SeriesT): The input pandas Series or compatible object.
+
+        Returns:
+            SeriesT: The resulting Series after applying the predicate.
+        """
         raise NotImplementedError()

@@ -26,7 +26,7 @@ stubs = [
 test_workarounds = ['scikit-learn<=1.3.2']
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
+    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1', 'pygments>2.10'],
     'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
@@ -40,6 +40,7 @@ base_extras_light = {
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl==3.1.0', 'xlrd'],
+    'pygraphviz': ['pygraphviz'],
     'jupyter': ['ipython'],
 }
 

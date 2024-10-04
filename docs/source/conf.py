@@ -26,7 +26,8 @@ author = "Graphistry, Inc."
 
 # The full version, including alpha/beta/rc tags
 version = LooseVersion(graphistry.__version__).vstring
-relesae = version
+relesae = version  # TODO remove?
+release = version
 
 # -- General configuration ---------------------------------------------------
 
@@ -41,6 +42,7 @@ extensions = [
     "sphinx_autodoc_typehints"
 ]
 
+autodoc_typehints = "description"
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -48,6 +50,7 @@ nitpick_ignore = [
     ('py:class', '3'),
     ('py:class', "<class 'dict'>"),
     ('py:class', "<class 'str'>"),
+    ('py:class', 'BiPartiteGraph'),
     ('py:class', "graphistry.compute.ASTSerializable.ASTSerializable"),
     ('py:class', "graphistry.compute.chain.Chain"),
     ('py:class', "graphistry.compute.predicates.ASTPredicate.ASTPredicate"),
@@ -100,6 +103,86 @@ nitpick_ignore = [
     ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
     ('py:class', 'graphistry.plugins.igraph.from_igraph'),
     ('py:class', 'graphistry.plugins.igraph.layout_igraph'),
+    ('py:data', 'graphistry.plugins_types.cugraph_types.CuGraphKind'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.EdgeAttr'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.EDGE_ATTRS'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.Format'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.FORMATS'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.GraphAttr'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.GRAPH_ATTRS'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.NodeAttr'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.NODE_ATTRS'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.Prog'),
+    ('py:data', 'graphistry.plugins_types.graphviz_types.PROGS'),    
+    
+    # Suppress individual items from PROGS
+    ('py:class', 'acyclic'),
+    ('py:class', 'ccomps'),
+    ('py:class', 'circo'),
+    ('py:class', 'dot'),
+    ('py:class', 'fdp'),
+    ('py:class', 'gc'),
+    ('py:class', 'gvcolor'),
+    ('py:class', 'gvpr'),
+    ('py:class', 'neato'),
+    ('py:class', 'nop'),
+    ('py:class', 'osage'),
+    ('py:class', 'patchwork'),
+    ('py:class', 'sccmap'),
+    ('py:class', 'sfdp'),
+    ('py:class', 'tred'),
+    ('py:class', 'twopi'),
+    ('py:class', 'unflatten'),
+    
+    # Suppress items from FORMATS
+    ('py:class', 'canon'),
+    ('py:class', 'cmap'),
+    ('py:class', 'cmapx'),
+    ('py:class', 'cmapx_np'),
+    ('py:class', 'dia'),
+    ('py:class', 'dot'),
+    ('py:class', 'fig'),
+    ('py:class', 'gd'),
+    ('py:class', 'gd2'),
+    ('py:class', 'gif'),
+    ('py:class', 'hpgl'),
+    ('py:class', 'imap'),
+    ('py:class', 'imap_np'),
+    ('py:class', 'ismap'),
+    ('py:class', 'jpe'),
+    ('py:class', 'jpeg'),
+    ('py:class', 'jpg'),
+    ('py:class', 'mif'),
+    ('py:class', 'mp'),
+    ('py:class', 'pcl'),
+    ('py:class', 'pdf'),
+    ('py:class', 'pic'),
+    ('py:class', 'plain'),
+    ('py:class', 'plain-ext'),
+    ('py:class', 'png'),
+    ('py:class', 'ps'),
+    ('py:class', 'ps2'),
+    ('py:class', 'svg'),
+    ('py:class', 'svgz'),
+    ('py:class', 'vml'),
+    ('py:class', 'vmlz'),
+    ('py:class', 'vrml'),
+    ('py:class', 'vtx'),
+    ('py:class', 'wbmp'),
+    ('py:class', 'xdot'),
+    ('py:class', 'xlib'),
+
+    #TimeUnit = Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
+    ('py:data', 'graphistry.compute.temporal.TimeUnit'),
+    ('py:class', 's'),
+    ('py:class', 'm'),
+    ('py:class', 'h'),
+    ('py:class', 'D'),
+    ('py:class', 'W'),
+    ('py:class', 'M'),
+    ('py:class', 'Y'),
+    ('py:class', 'C'),
+
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
@@ -111,11 +194,21 @@ nitpick_ignore = [
     ('py:class', 'Plotter'),
     ('py:class', 'Plottable'),
     ('py:class', 'CuGraphKind'),
+    ('py:class', 'cugraph'),
+    ('py:class', 'cugraph.BiPartiteGraph'),
     ('py:class', 'cugraph.Graph'),
+    ('py:class', 'cugraph.MultiGraph'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
     ('py:class', 'dgl'),
     ('py:class', 'matplotlib'),
+    ('py:class', 'MultiGraph'),
+    ('py:class', 'numpy'),
+    ('py:class', 'numpy.datetime64'),
+    ('py:class', 'numpy.timedelta64'),
+    ('py:class', 'pandas.core.frame.DataFrame'),
+    ('py:class', 'pandas.core.series.Series'),
+    ('py:class', 'pandas._libs.tslibs.offsets.DateOffset'),
     ('py:class', 'torch'),
     ('py:class', 'umap'),
     ('py:class', 'sentence_transformers'),
@@ -134,13 +227,14 @@ nitpick_ignore = [
     ('py:class', 'weakref.WeakKeyDictionary'),
     ('py:data', 'typing.Any'),
     ('py:data', 'typing.List'),
+    ('py:data', 'typing.List[typing_extensions.Literal]'),    
     ('py:data', 'typing.Literal'),
     ('py:data', 'typing.Optional'),
     ('py:data', 'typing.Callable'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),
+    ('py:class', 'typing_extensions.Literal'),
     ('py:class', 'Mode'),
-    ('py:class','pandas.core.frame.DataFrame'),
     ('py:class', 'graphistry.privacy.Privacy')
 ]
 

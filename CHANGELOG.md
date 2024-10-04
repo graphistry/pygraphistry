@@ -7,6 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.6 - 2024-10-04]
+
+### Added
+
+* Plugins: graphviz bindings, such as `g.layout_graphviz("dot")`
+
+### Docs
+
+* Reorganized readthedocs
+* Added intro tutorials: `10 Minutes to PyGraphistry`, `10 Minutes to GFQL`, `Login and Sharing`
+
 ## [0.34.5 - 2024-09-23]
 
 ### Fixed
