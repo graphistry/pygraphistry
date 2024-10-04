@@ -30,7 +30,7 @@ Prog = Literal[
     "twopi",
     "unflatten",
 ]
-PROGS = [
+PROGS: List[Prog] = [
     "acyclic",
     "ccomps",
     "circo",
@@ -89,7 +89,7 @@ Format = Literal[
     "xlib"
 ]
 
-FORMATS = [
+FORMATS: List[Format] = [
     "canon",
     "cmap",
     "cmapx",
