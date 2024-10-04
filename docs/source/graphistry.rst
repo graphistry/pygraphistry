@@ -4,6 +4,10 @@ GFQL
    :maxdepth: 2
    
    gfql/index
+   gfql/about
+   gfql/chain
+   gfql/hop
+   gfql/predicates/index
 
 
 Access
@@ -12,6 +16,8 @@ Access
    :maxdepth: 1
 
    access/index
+   access/privacy
+   access/register
 
 AI
 ===
