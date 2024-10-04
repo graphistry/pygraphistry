@@ -29,17 +29,20 @@ What Makes PyGraphistry Special?
 Installation
 ------------
 
-### Install PyGraphistry
+Install PyGraphistry
+~~~~~~~~~~~~~~~~~~~~~
 
 ::
 
     pip install graphistry
 
-### Install cuDF GPU dataframes (Optional)
+Install cuDF GPU dataframes (Optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For GPU acceleration with DataFrames, install **cuDF** via the `Nvidia RAPIDS Installation Guide <https://rapids.ai/>`_.
 
-### Register with PyGraphistry
+Register with PyGraphistry
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 While most of PyGraphistry can run locally, the visualization server requires an account on your own self-hosted Graphistry server or on Graphistry Hub. If you do not have an account yet, make a free GPU account at `graphistry.com <https://www.graphistry.com/get-started>`_ , or launch your own server.
 
@@ -60,7 +63,8 @@ Loading Data Efficiently
 
 The Python data science ecosystem supports loading almost any kind of data. Many users start with CSV, JSON, SQL, etc.
 
-### Loading Data as Parquet or Arrow
+Loading Data as Parquet or Arrow
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We often see teams adopt formats like **Parquet** and **Apache Arrow** as they are optimized for performance, interoperability, and reliability. Loading data with them can often be 10X+ faster.
 
@@ -102,7 +106,8 @@ Creating a Basic Visualization
 
 Let's create a simple graph visualization using the honeypot data.
 
-### Step 1: Prepare the Data
+Step 1: Prepare the Data
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 We'll create an edge list where each edge represents an attack from an attacker IP to a victim IP.
 
@@ -115,7 +120,8 @@ We'll create an edge list where each edge represents an attack from an attacker 
         'count': 'edge_count'
     })
 
-### Step 2: Plot the Graph
+Step 2: Plot the Graph
+~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
