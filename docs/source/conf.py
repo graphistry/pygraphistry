@@ -21,7 +21,7 @@ import graphistry
 # -- Project information -----------------------------------------------------
 
 project = "PyGraphistry"
-copyright = "2021, Graphistry, Inc."
+copyright = "2024, Graphistry, Inc."
 author = "Graphistry, Inc."
 
 # The full version, including alpha/beta/rc tags
