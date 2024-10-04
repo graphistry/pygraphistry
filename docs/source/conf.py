@@ -172,6 +172,17 @@ nitpick_ignore = [
     ('py:class', 'xdot'),
     ('py:class', 'xlib'),
 
+    #TimeUnit = Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
+    ('py:data', 'graphistry.compute.temporal.TimeUnit'),
+    ('py:class', 's'),
+    ('py:class', 'm'),
+    ('py:class', 'h'),
+    ('py:class', 'D'),
+    ('py:class', 'W'),
+    ('py:class', 'M'),
+    ('py:class', 'Y'),
+    ('py:class', 'C'),
+
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
@@ -192,6 +203,12 @@ nitpick_ignore = [
     ('py:class', 'dgl'),
     ('py:class', 'matplotlib'),
     ('py:class', 'MultiGraph'),
+    ('py:class', 'numpy'),
+    ('py:class', 'numpy.datetime64'),
+    ('py:class', 'numpy.timedelta64'),
+    ('py:class', 'pandas.core.frame.DataFrame'),
+    ('py:class', 'pandas.core.series.Series'),
+    ('py:class', 'pandas._libs.tslibs.offsets.DateOffset'),
     ('py:class', 'torch'),
     ('py:class', 'umap'),
     ('py:class', 'sentence_transformers'),
@@ -218,7 +235,6 @@ nitpick_ignore = [
     ('py:data', 'typing.Union'),
     ('py:class', 'typing_extensions.Literal'),
     ('py:class', 'Mode'),
-    ('py:class','pandas.core.frame.DataFrame'),
     ('py:class', 'graphistry.privacy.Privacy')
 ]
 

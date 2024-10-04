@@ -89,23 +89,21 @@ def ring_categorical(
 
     min_r, max_r are the first/last axis positions
 
-    Parameters
-    ----------
-        :g: Plottable
-        :ring_col: Optional[str] Column name of nodes numerica-typed column; defaults to first numeric node column
-        :order: Optional[List[Any]] Order of axis specified in category values
-        :drop_empty: bool (default True) Whether to drop axis when no values populating them
-        :combine_unhandled: bool (default False) Whether to collapse all unexpected values into one ring or one-per-unique-value
-        :append_unhandled: bool (default True) Whether to append or prepend the unexpected items axis 
-        :min_r: float Minimum radius, default 100
-        :max_r: float Maximum radius, default 1000
-        :ring_step: Optional[float] Distance between rings in terms of pixels
-        :axis: Optional[Dict[Any, str]], Set to provide labels for each ring by mapping from the categorical input domain values. Requires all values to be mapped.
-        :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
-        :format_label: Optional[Callable[[Any, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring position
-        :reverse: bool Reverse the direction of the rings
-        :play_ms: int initial layout time in milliseconds, default 2000
-        :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :g: Plottable
+    :ring_col: Optional[str] Column name of nodes numerica-typed column; defaults to first numeric node column
+    :order: Optional[List[Any]] Order of axis specified in category values
+    :drop_empty: bool (default True) Whether to drop axis when no values populating them
+    :combine_unhandled: bool (default False) Whether to collapse all unexpected values into one ring or one-per-unique-value
+    :append_unhandled: bool (default True) Whether to append or prepend the unexpected items axis 
+    :min_r: float Minimum radius, default 100
+    :max_r: float Maximum radius, default 1000
+    :ring_step: Optional[float] Distance between rings in terms of pixels
+    :axis: Optional[Dict[Any, str]], Set to provide labels for each ring by mapping from the categorical input domain values. Requires all values to be mapped.
+    :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
+    :format_label: Optional[Callable[[Any, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring position
+    :reverse: bool Reverse the direction of the rings
+    :play_ms: int initial layout time in milliseconds, default 2000
+    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter
