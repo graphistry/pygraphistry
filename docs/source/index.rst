@@ -66,6 +66,7 @@ For self-hosting and access to a free API key, refer to our Graphistry `Hub <htt
 
    graphistry
    modules
+   gfql/index
 
 Articles
 ==================
