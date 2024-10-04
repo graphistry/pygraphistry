@@ -1,11 +1,12 @@
-from typing import Any, Dict, Optional, TYPE_CHECKING, Set
+from typing import Any, Dict, Optional, Set
 import logging
 import pandas as pd
   
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.graphviz_types import (
     AGraph,
-    EDGE_ATTRS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS, EdgeAttr, Format, GraphAttr, NodeAttr, Prog
+    EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
+    EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 )
 
 
@@ -163,7 +164,7 @@ def layout_graphviz(
     :type self: Plottable
 
     :param prog: Layout algorithm - "dot", "neato", ...
-    :type prog: Prog
+    :type prog: :py:data:`graphistry.plugins_types.graphviz_types.Prog`
 
     :param args: Additional arguments to pass to the graphviz commandline for layout
     :type args: Optional[str]
@@ -175,13 +176,13 @@ def layout_graphviz(
     :type strict: bool
 
     :param graph_attr: Graphviz graph attributes, see https://graphviz.org/docs/graph/
-    :type graph_attr: Optional[Dict[GraphAttr, Any]]
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, Any]]
 
     :param node_attr: Graphviz node attributes, see https://graphviz.org/docs/nodes/
-    :type node_attr: Optional[Dict[NodeAttr, Any]]
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, Any]]
 
     :param edge_attr: Graphviz edge attributes, see https://graphviz.org/docs/edges/
-    :type edge_attr: Optional[Dict[EdgeAttr, Any]]
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, Any]]
 
     :param skip_styling: Whether to skip applying default styling (False, default) or not (True)
     :type skip_styling: bool
@@ -193,7 +194,7 @@ def layout_graphviz(
     :type path: Optional[str]
 
     :param format: Format of the rendered image when render_to_disk=True
-    :type format: Optional[Format]
+    :type format: Optional[:py:data:`graphistry.plugins_types.graphviz_types.Format`]
 
     :param drop_unsanitary: Whether to drop unsanitary attributes (False, default) or not (True), recommended for sensitive settings
     :type drop_unsanitary: bool
@@ -281,6 +282,8 @@ def layout_graphviz(
     graph = layout_graphviz_core(g, prog, args, directed, strict, graph_attr, node_attr, edge_attr, drop_unsanitary)
 
     if render_to_disk:
+        if format not in FORMATS:
+            raise ValueError(f"Unknown format {format}, expected one of {FORMATS}")
         # no prog because position already baked into graph
         graph.draw(path=path, format=format)
 
