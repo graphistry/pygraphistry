@@ -1,5 +1,5 @@
-GFQL
-====
+Access
+======
 
 .. toctree::
    :maxdepth: 2

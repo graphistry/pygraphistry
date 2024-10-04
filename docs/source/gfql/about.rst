@@ -47,7 +47,8 @@ Before we begin with examples, let's understand some basic concepts:
 Examples
 --------
 
-### 1. Find Nodes of a Certain Type
+1. Find Nodes of a Certain Type
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 You can filter nodes based on their properties using the `n()` function.
 
@@ -66,7 +67,8 @@ You can filter nodes based on their properties using the `n()` function.
 - `g.chain([...])` applies the chain of operations to the graph `g`.
 - `._nodes` retrieves the resulting nodes dataframe.
 
-### 2. Find 2-Hop Edge Sequences with an Attribute
+2. Find 2-Hop Edge Sequences with an Attribute
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 
@@ -85,7 +87,8 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 - `e_forward({"interesting": True}, hops=2)` traverses forward edges with `interesting == True` for 2 hops.
 - `g_2_hops.plot()` visualizes the resulting subgraph.
 
-### 3. Find Nodes 1-2 Hops Away and Label Each Hop
+3. Find Nodes 1-2 Hops Away and Label Each Hop
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Label hops in your traversal to analyze specific relationships.
 
@@ -110,7 +113,8 @@ Label hops in your traversal to analyze specific relationships.
 - `e_undirected(name="hop2")` continues traversal and labels edges as `hop2`.
 - The labels allow you to filter and analyze edges from specific hops.
 
-### 4. Query for Transaction Nodes Between Risky Nodes
+4. Query for Transaction Nodes Between Risky Nodes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Chain multiple traversals to find patterns between nodes.
 
@@ -137,7 +141,8 @@ Chain multiple traversals to find patterns between nodes.
 - Traverses backward to nodes with `risk2 == True`.
 - Identifies transaction nodes connected between two risky nodes.
 
-### 5. Filter by Multiple Node Types Using `is_in`
+5. Filter by Multiple Node Types Using `is_in`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use the `is_in` predicate to filter nodes or edges by multiple values.
 
@@ -169,7 +174,8 @@ Leveraging GPU Acceleration
 
 GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
 
-### 6. Automatic GPU Acceleration
+6. Automatic GPU Acceleration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Example: Run GFQL queries with GPU dataframes**
 
@@ -195,7 +201,8 @@ GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU
 - GFQL detects `cudf` dataframes and runs the query on the GPU.
 - Achieves significant performance improvements on large datasets.
 
-### 7. Forcing GPU Mode
+7. Forcing GPU Mode
+~~~~~~~~~~~~~~~~~~~~
 
 You can explicitly set the engine to ensure GPU execution.
 
@@ -215,7 +222,8 @@ Integration with PyData Ecosystem
 
 GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`.
 
-### 8. Combining GFQL with Graph Algorithms
+8. Combining GFQL with Graph Algorithms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Example: Compute PageRank on the resulting graph**
 
@@ -236,7 +244,8 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 - `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
 - The enriched graph now contains a `pagerank` column in the nodes dataframe.
 
-### 9. Visualizing the Graph
+9. Visualizing the Graph
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use PyGraphistry's visualization capabilities to explore your graph.
 
