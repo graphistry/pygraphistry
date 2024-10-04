@@ -511,7 +511,7 @@ def collapse_by(
             "This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
         )
         logger.info(
-            f"Hence, in this case, between O({complexity_min / n_edges:.2f} - {complexity_max/n_edges:.2f}) for "
+            f"Hence, in this case, between O({complexity_min / n_edges:.2f} - {complexity_max / n_edges:.2f}) for "
             f"this graph normalized by {n_edges} edges"
         )
         logger.info(
