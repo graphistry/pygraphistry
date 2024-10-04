@@ -1,3 +1,10 @@
+10 Minutes to PyGraphistry
+==========================
+.. toctree::
+   :maxdepth: 2
+
+   about
+
 Login and Sharing
 =================
 .. toctree::

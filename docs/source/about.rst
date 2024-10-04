@@ -34,7 +34,7 @@ Installation
 Install PyGraphistry
 ~~~~~~~~~~~~~~~~~~~~
 
-::
+.. code-block:: bash
 
     pip install graphistry
 
@@ -124,24 +124,27 @@ PyGraphistry supports various visual encodings to represent different attributes
 
 
 Example: Adding Color Encodings
-~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Let's add color encodings based on the vulnerability exploited.
 
 .. code-block:: python
 
     # Plot with color encoding
-    g2 = g.encode_edge_color('vulnName', categorical_mapping={
-        'MS08067 (NetAPI)': 'red',
-        'OtherVuln': 'blue',
-    }, default_mapping='gray')
+    g2 = g1.encode_edge_color(
+        'vulnName',
+        categorical_mapping={
+            'MS08067 (NetAPI)': 'red',
+            'OtherVuln': 'blue',
+        },
+        default_mapping='gray')
 
     g2.plot()
 
 Now, edges are colored based on the type of vulnerability, helping you distinguish different attack types.
 
 Adjusting Sizes, Labels, Icons, Badges, and More
-----------------------------------------
+------------------------------------------------
 
 You can adjust further node and edge settings using data. Sample calls include:
 
@@ -156,7 +159,7 @@ Additional settings, such as background colors and logo watermarks, can also be 
 
 
 Adding an Interactive Timebar
-----------------
+-----------------------------
 
 If your data includes temporal information, you can add a timebar to visualize changes over time.
 
@@ -169,7 +172,7 @@ If your data includes temporal information, you can add a timebar to visualize c
     # Plot with time encoding: Graphistry automatically detects Arrow/Parquet native types
     g.plot()
 
-The timebar allows you to interactively explore the graph as it evolves over time.
+The timebar appears as soon as the UI detects datetime values, and enables you to interactively explore the graph as it evolves over time.
 
 
 Applying Force-Directed Layout
@@ -186,19 +189,20 @@ By default, PyGraphistry uses a force-directed layout. You can adjust its parame
 More Layout Algorithms
 ----------------------
 
-PyGraphistry offers many layout algorithms and settings to help you display your graph meaningfully.
+PyGraphistry offers additional layout algorithms of its own, and streamlines using layouts from other libraries, so you can display your graph quickly and meaningfully.
 
-For example, GraphViz layouts can be used for laying out small trees and directed acyclic graphs (DAGs).
+For example, GraphViz layouts is known for its high quality for laying out small trees and directed acyclic graphs (DAGs):
 
 .. code-block:: python
 
+    # pygraphistry handles format conversions behind-the-scenes
     g2 = g1.layout_graphviz('dot')
     g2.plot()
 
 Using UMAP for Dimensionality Reduction
 ---------------------------------------
 
-For large graphs, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes and connect them into a similarity graph.
+For large datasets, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes and connect them into a similarity graph.
 
 .. code-block:: python
 
