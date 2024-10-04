@@ -28,7 +28,7 @@ Arrow File Uploader Module
 Validation
 ----------
 
-.. automodule:: graphistry.validate
+.. automodule:: graphistry.validate.validate_encodings
    :members:
    :undoc-members:
    :show-inheritance:
