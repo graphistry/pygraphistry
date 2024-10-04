@@ -225,6 +225,7 @@ By integrating directly with your existing data science workflows, GFQL empowers
 
 Start exploring GFQL today and unlock new possibilities in graph analytics!
 
+
 .. toctree::
    :maxdepth: 2
 
@@ -232,4 +233,3 @@ Start exploring GFQL today and unlock new possibilities in graph analytics!
    chain
    hop
    predicates/index
-
