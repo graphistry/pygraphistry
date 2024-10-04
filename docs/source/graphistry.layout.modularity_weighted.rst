@@ -1,7 +1,3 @@
-:orphan:
-
-.. ^ FIXME
-
 graphistry.layout.modularity_weighted package
 =============================================
 
