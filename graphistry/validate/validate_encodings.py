@@ -513,26 +513,18 @@ def validate_encodings(node_encodings: dict, edge_encodings: dict, node_attribut
 
     This function processes and validates the `node_encodings` and `edge_encodings` against the 
     provided node and edge attributes, ensuring they follow the expected format. If any encoding 
-    is invalid, a `ValueError` is raised with details. It is a subset of what the server checks, and run by the uploader.
-
-    Args:
-        node_encodings (dict): Encodings for the nodes in the graph.
-        edge_encodings (dict): Encodings for the edges in the graph.
-        node_attributes (Optional[List], optional): List of node attributes to validate encodings against. 
-            Defaults to None.
-        edge_attributes (Optional[List], optional): List of edge attributes to validate encodings against. 
-            Defaults to None.
-
-    Returns:
-        dict: A dictionary containing the validated encodings for nodes and edges, in the form:
-            {
-                'node_encodings': <validated_node_encodings>,
-                'edge_encodings': <validated_edge_encodings>
-            }
-
-    Raises:
-        ValueError: If the encodings are invalid. The exception will include a message detailing 
-            the error, and may include the problematic data.
+    is invalid, a `ValueError` is raised with details. It is a subset of what the server checks, and 
+    run by the uploader.
+    
+    :param node_encodings: Encodings for the nodes in the graph.
+    :type node_encodings: dict
+    :param edge_encodings: Encodings for the edges in the graph.
+    :type edge_encodings: dict
+    :param node_attributes: List of node attributes to validate encodings against.
+    :type node_attributes: Optional[List]
+    :param edge_attributes: List of edge attributes to validate encodings against.
+    :type edge_attributes: Optional[List]
+    :return: A dictionary containing the validated encodings for nodes and edges, in the form:
 
     Example:
         node_encodings = {'color': 'blue', 'size': 5}
