@@ -26,8 +26,10 @@ Constants
 ---------
 
 .. autodata:: graphistry.plugins.cugraph.compute_algs
+   :noindex:
 
 .. autodata:: graphistry.plugins.cugraph.layout_algs
+   :noindex:
 
 graphviz
 --------
