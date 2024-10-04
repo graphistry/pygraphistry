@@ -138,7 +138,7 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        apt-get install graphviz graphviz-dev
+        sudo apt-get install graphviz graphviz-dev
         python -m pip install --upgrade pip
         python -m pip install -e .[test,pygraphviz]
 
