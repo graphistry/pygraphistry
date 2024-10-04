@@ -11,8 +11,8 @@ Plugins
 .. toctree::
    :maxdepth: 3
 
-
    graphistry.plugins
+   graphistry.plugins_types
  
 
 Compute 
