@@ -508,6 +508,38 @@ def validate_edge_encodings(encodings, edge_attributes: Optional[List] = None):
 
 #json * json * -> {'node_encodings': json, 'edge_encodings': dict} raises ValueError({'message': str, ?'data': json})
 def validate_encodings(node_encodings: dict, edge_encodings: dict, node_attributes: Optional[List] = None, edge_attributes: Optional[List] = None) -> dict:
+    """
+    Validate node and edge encodings for compatibility with the given attributes.
+
+    This function processes and validates the `node_encodings` and `edge_encodings` against the 
+    provided node and edge attributes, ensuring they follow the expected format. If any encoding 
+    is invalid, a `ValueError` is raised with details. It is a subset of what the server checks, and run by the uploader.
+
+    Args:
+        node_encodings (dict): Encodings for the nodes in the graph.
+        edge_encodings (dict): Encodings for the edges in the graph.
+        node_attributes (Optional[List], optional): List of node attributes to validate encodings against. 
+            Defaults to None.
+        edge_attributes (Optional[List], optional): List of edge attributes to validate encodings against. 
+            Defaults to None.
+
+    Returns:
+        dict: A dictionary containing the validated encodings for nodes and edges, in the form:
+            {
+                'node_encodings': <validated_node_encodings>,
+                'edge_encodings': <validated_edge_encodings>
+            }
+
+    Raises:
+        ValueError: If the encodings are invalid. The exception will include a message detailing 
+            the error, and may include the problematic data.
+
+    Example:
+        node_encodings = {'color': 'blue', 'size': 5}
+        edge_encodings = {'weight': 0.2}
+        result = validate_encodings(node_encodings, edge_encodings)
+        # {'node_encodings': {'color': 'blue', 'size': 5}, 'edge_encodings': {'weight': 0.2}}
+    """
     node_encodings2 = validate_node_encodings(node_encodings, node_attributes)
     edge_encodings2 = validate_edge_encodings(edge_encodings, edge_attributes)
     return {'node_encodings': node_encodings2, 'edge_encodings': edge_encodings2}
