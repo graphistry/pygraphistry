@@ -324,7 +324,7 @@ class UMAPMixin(MIXIN_BASE):
 
         mins = (time() - t) / 60
         logger.info(f"-UMAP-ing took {mins:.2f} minutes total")
-        logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
+        logger.info(f" - or {X.shape[0] / mins:.2f} rows per minute")
         return self
 
 

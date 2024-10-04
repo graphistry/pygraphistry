@@ -511,13 +511,13 @@ def collapse_by(
             "This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
         )
         logger.info(
-            f"Hence, in this case, between O({complexity_min/n_edges:.2f} - {complexity_max/n_edges:.2f}) for "
+            f"Hence, in this case, between O({complexity_min / n_edges:.2f} - {complexity_max/n_edges:.2f}) for "
             f"this graph normalized by {n_edges} edges"
         )
         logger.info(
             "It is not recommended for large graphs -- one can expect a modern laptop CPU to scan 1-6k edges per minute"
         )
-        logger.info(f"Here we expect collapse to run in under {n_edges/1000:.3f} minutes")
+        logger.info(f"Here we expect collapse to run in under {n_edges / 1000:.3f} minutes")
         logger.info("*" * 100)
     t = time()
     
@@ -528,7 +528,7 @@ def collapse_by(
     if VERBOSE or verbose:
         logger.info("-" * 80)
         logger.info(
-            f"Total Collapse took {delta_mins:.2f} minutes or {n_edges/delta_mins:.2f} edges per minute"
+            f"Total Collapse took {delta_mins:.2f} minutes or {n_edges / delta_mins:.2f} edges per minute"
         )
     return normalize_graph(
         g, self_edges=self_edges, unwrap=unwrap
