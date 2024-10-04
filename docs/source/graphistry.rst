@@ -13,14 +13,14 @@ GFQL
    gfql/predicates/index
 
 
-Access
+Server
 ======
 .. toctree::
    :maxdepth: 1
 
-   access/index
-   access/privacy
-   access/register
+   server/index
+   server/privacy
+   server/register
 
 AI
 ===
@@ -66,12 +66,13 @@ Plugins
    plugins/index
 
 
-Plotter
-=======
+Visualization
+=============
 .. toctree::
    :maxdepth: 3
    
-   graphistry.plotter
+   visualization/index
+   visualization/plotter
 
 
 Compute 
@@ -97,19 +98,3 @@ Utilities
    :maxdepth: 3
 
    graphistry.utils
-
-
-Validation
-==================
-.. toctree::
-   :maxdepth: 3
-
-   graphistry.validate
-
-Versioneer
-==================
-
-.. automodule:: graphistry._version
-    :members:
-    :undoc-members:
-    :show-inheritance:

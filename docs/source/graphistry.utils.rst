@@ -23,3 +23,21 @@ Arrow File Uploader Module
     :members:
     :undoc-members:
     :show-inheritance:
+
+
+Validation
+----------
+
+.. automodule:: graphistry.validate
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+Versioneer
+----------
+
+.. automodule:: graphistry._version
+    :members:
+    :undoc-members:
+    :show-inheritance:
