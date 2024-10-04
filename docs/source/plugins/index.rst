@@ -1,33 +1,29 @@
-graphistry.plugins\_types package
-=================================
+cuGraph
+---------------
 
-
-.. toctree:: 
-   :maxdepth: 2
-   
-   graphistry.layout.utils
-
-Submodules
-----------
-
-graphistry.plugins\_types.cugraph\_types module
------------------------------------------------
-
-.. automodule:: graphistry.plugins_types.cugraph_types
+.. automodule:: graphistry.plugins.cugraph
    :members:
    :undoc-members:
    :show-inheritance:
 
-Constants
----------
+.. rubric:: Constants
+
+.. autodata:: graphistry.plugins.cugraph.compute_algs
+
+.. autodata:: graphistry.plugins.cugraph.layout_algs
 
 .. autodata:: graphistry.plugins_types.cugraph_types.CuGraphKind
 
-graphistry.plugins\_types.graphviz\_types module
-------------------------------------------------
 
-Constants
----------
+graphviz
+--------
+
+.. automodule:: graphistry.plugins.graphviz
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. rubric:: Constants
 
 .. autodata:: graphistry.plugins_types.graphviz_types.EdgeAttr
    :noindex:
@@ -59,10 +55,17 @@ Constants
 .. autodata:: graphistry.plugins_types.graphviz_types.PROGS
    :annotation: typing.List[graphistry.plugins_types.graphviz_types.Prog]
 
-Module contents
----------------
+igraph
+------------------------------------------------
 
-.. automodule:: graphistry.plugins_types
+.. automodule:: graphistry.plugins.igraph
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. rubric:: Constants
+
+.. autodata:: graphistry.plugins.igraph.compute_algs
+
+.. autodata:: graphistry.plugins.igraph.layout_algs
+
