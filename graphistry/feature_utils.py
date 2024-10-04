@@ -1187,7 +1187,7 @@ def process_nodes_dataframes(
         X_enc = text_enc
 
     logger.debug(
-        f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
+        f"--The entire Encoding process took {(time() - t) / 60:.2f} minutes"
     )
 
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
@@ -1468,7 +1468,7 @@ def process_edge_dataframes(
 
     logger.info(
         "**The entire Edge encoding process took"
-        f" {(time()-t)/60:.2f} minutes"
+        f" {(time() - t) / 60:.2f} minutes"
     )
 
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
