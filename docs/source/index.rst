@@ -110,17 +110,6 @@ Here's a representative example of how to get started:
 
    graphistry
 
-.. toctree::
-   :hidden:
-
-   graphistry.compute.predicates
-   graphistry.plugins
-   graphistry.plugins_types
-   graphistry.validate
-   modules
-   versioneer
-
-
 Articles
 ==================
 * `Graphistry: Visual Graph AI Interactive demo <https://github.com/graphistry/pygraphistry/blob/master/README.md#demo-of-friendship-communities-on-facebook/>`_
