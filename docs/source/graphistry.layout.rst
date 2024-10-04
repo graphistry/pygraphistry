@@ -27,7 +27,6 @@ Sugiyama
    :maxdepth: 1
 
    graphistry.layout.sugiyama
-   graphistry.layout.graph
    graphistry.layout.utils
 
 Module contents
