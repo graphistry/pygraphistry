@@ -1,5 +1,5 @@
-Registering with Graphistry
-===========================
+Logging in to Graphistry servers
+================================
 
 `graphistry.register()` is the global method used to initialize and configure your Graphistry client. It sets up your API credentials, specifies the server to connect to, and configures authentication settings. This function should be called before making any Graphistry API calls that use the server such as `.plot()`.
 
@@ -20,7 +20,8 @@ By default, this connects to **Graphistry Hub** (`hub.graphistry.com`) using the
 Core Concepts
 -------------
 
-### Personal Accounts vs Organizational Accounts
+Personal Accounts vs Organizational Accounts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Personal Accounts**: Meant for individual use, typically on Graphistry Hub.
 - **Organizational Accounts**: Managed with roles and permissions, often in an enterprise context.
@@ -30,7 +31,8 @@ Core Concepts
     user_info = graphistry.user()
     print(user_info.get("organization"))  # Returns organization info or None
 
-### Server Configuration
+Server Configuration
+~~~~~~~~~~~~~~~~~~~~~
 
 - **Default Server**: By default, `graphistry.register()` connects to the **Graphistry Hub**, including the **free GPU tier** for visual analytics.
 - **Custom Server**: If using a private deployment, specify the `server` argument to connect to your custom server.
@@ -45,7 +47,8 @@ Core Concepts
         password="my_password"
     )
 
-### Protocol Configuration
+Protocol Configuration
+~~~~~~~~~~~~~~~~~~~~~~
 
 - **TLS (HTTPS)**: Communication uses `https` by default for secure communication.
 - **Non-TLS (HTTP)**: If your server doesn't support TLS, set the `protocol` parameter to `"http"`.
@@ -61,7 +64,8 @@ Core Concepts
         password="my_password"
     )
 
-### Authentication Methods
+Authentication Methods
+~~~~~~~~~~~~~~~~~~~~~~~
 
 `graphistry.register()` supports several authentication methods:
 
@@ -82,7 +86,8 @@ Core Concepts
 
     SSO authentication options: `sso_opt_into_type` can be `"browser"`, `"display"`, or `None` (default is print).
 
-### Routing Configuration
+Routing Configuration
+~~~~~~~~~~~~~~~~~~~~~
 
 - **Server Routing**: By default, server API and browser UI requests route through the same `server`.
 - **Custom Browser Routing**: Override browser routing via `client_protocol_hostname`.
@@ -102,11 +107,13 @@ Advanced Features
 -----------------
 
 
-### JWT Session Handling
+JWT Session Handling
+~~~~~~~~~~~~~~~~~~~~
 
 `graphistry.register()` establishes a **JWT session** after authentication. The session token is managed automatically for future API calls.
 
-#### Retrieving the Current JWT Token
+Retrieving the Current JWT Token
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To retrieve the current JWT token, you can use the following command after registering:
 
@@ -137,7 +144,8 @@ Detailed Parameter Reference
 Examples
 ----------------------
 
-### Register with Username and Password
+Register with Username and Password
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -149,7 +157,8 @@ Examples
         password="my_password"
     )
 
-### Register with Personal Key ID and Secret
+Register with Personal Key ID and Secret
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -161,7 +170,8 @@ Examples
         personal_key_secret="my_key_secret"
     )
 
-### Register with SSO (Organization with Specific IdP)
+Register with SSO (Organization with Specific IdP)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -174,7 +184,8 @@ Examples
         sso_opt_into_type="browser"
     )
 
-### Register with Custom Server and Protocol
+Register with Custom Server and Protocol
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -188,7 +199,8 @@ Examples
         password="my_password"
     )
 
-### Register with Custom Browser Routing
+Register with Custom Browser Routing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 

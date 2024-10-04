@@ -1,5 +1,5 @@
-Privacy and Data Sharing in Graphistry
-======================================
+Sharing and Access Control
+==========================
 
 Graphistry provides powerful tools for visualizing and sharing graph data securely. Understanding how to manage privacy settings and share visualizations appropriately is essential for collaborative work and data security. This guide will help you understand how to control privacy settings using the Graphistry API. For more examples, see the `Sharing Tutorial Notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb>`_.
 
