@@ -1,6 +1,8 @@
 AI
 ====
 
+graphistry['ai'] provides a set of utilities for AI and machine learning workflows on graphs, with optional GPU support
+
 .. toctree::
    :maxdepth: 2
 
@@ -11,6 +13,7 @@ Featurize
     :members:
     :undoc-members:
     :show-inheritance:
+    :noindex:
 
 UMAP 
 ----
@@ -18,6 +21,7 @@ UMAP
     :members:
     :undoc-members:
     :show-inheritance:
+    :noindex:
 
 
 Semantic Search 
@@ -26,6 +30,7 @@ Semantic Search
     :members:
     :undoc-members:
     :show-inheritance:
+    :noindex:
 
 DBScan
 ------
@@ -33,3 +38,4 @@ DBScan
     :members:
     :undoc-members:
     :show-inheritance:
+    :noindex:

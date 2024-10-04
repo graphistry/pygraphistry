@@ -230,6 +230,9 @@ Start exploring GFQL today and unlock new possibilities in graph analytics!
    :maxdepth: 2
 
    about
+   translate
+   quick
+   predicates/quick
    chain
    hop
    predicates/index

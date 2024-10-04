@@ -5,6 +5,9 @@ GFQL
    
    gfql/index
    gfql/about
+   gfql/translate
+   gfql/quick
+   gfql/predicates/quick
    gfql/chain
    gfql/hop
    gfql/predicates/index
@@ -22,9 +25,37 @@ Access
 AI
 ===
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
    ai/index
+
+Featurize
+---------
+.. automodule:: graphistry.feature_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+UMAP
+----
+.. automodule:: graphistry.umap_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+Semantic Search
+---------------
+.. automodule:: graphistry.text_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+DBScan
+------
+.. automodule:: graphistry.compute.cluster
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 
 Plugins
