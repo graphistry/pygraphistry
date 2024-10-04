@@ -1,19 +1,41 @@
-plotter
-=======
+GFQL
+====
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 1
+   
+   gfql/index
 
-   graphistry.plotter
+
+Access
+======
+.. toctree::
+   :maxdepth: 1
+
+   access/index
+
+AI
+===
+.. toctree::
+   :maxdepth: 1
+
+   ai/index
 
 
 Plugins
-==================
+=======
+.. toctree::
+   :maxdepth: 1
+   
+   plugins/index
+
+
+Plotter
+=======
 .. toctree::
    :maxdepth: 3
+   
+   graphistry.plotter
 
-   graphistry.plugins
-   graphistry.plugins_types
- 
 
 Compute 
 ==================
@@ -39,52 +61,6 @@ Utilities
 
    graphistry.utils
 
-
-Featurize 
-==================
-.. automodule:: graphistry.feature_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
-UMAP 
-==================
-.. automodule:: graphistry.umap_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
-Semantic Search 
-==================
-.. automodule:: graphistry.text_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-DBScan
-==================
-.. automodule:: graphistry.compute.cluster
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-Arrow uploader Module
-============================
-
-.. automodule:: graphistry.arrow_uploader
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-Arrow File Uploader Module
-============================
-
-.. automodule:: graphistry.ArrowFileUploader
-    :members:
-    :undoc-members:
-    :show-inheritance:
 
 Validation
 ==================
