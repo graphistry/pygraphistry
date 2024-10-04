@@ -23,7 +23,6 @@ UMAP
     :show-inheritance:
     :noindex:
 
-
 Semantic Search 
 ---------------
 .. automodule:: graphistry.text_utils

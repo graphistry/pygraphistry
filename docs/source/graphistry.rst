@@ -13,8 +13,8 @@ GFQL
    gfql/predicates/index
 
 
-Server
-======
+Login and Sharing
+=================
 .. toctree::
    :maxdepth: 1
 

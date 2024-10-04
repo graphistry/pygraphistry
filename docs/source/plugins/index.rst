@@ -6,6 +6,7 @@ cuGraph is a GPU-accelerated graph library that leverages the Nvidia RAPIDS ecos
 .. automodule:: graphistry.plugins.cugraph
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
 .. rubric:: Constants
@@ -25,6 +26,7 @@ graphviz is a popular graph visualization library that PyGraphistry can interfac
 .. automodule:: graphistry.plugins.graphviz
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
 .. rubric:: Constants
@@ -67,6 +69,7 @@ igraph is a popular graph library that PyGraphistry can interface with. This all
 .. automodule:: graphistry.plugins.igraph
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
 .. rubric:: Constants
