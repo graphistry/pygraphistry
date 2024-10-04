@@ -1,6 +1,8 @@
 cuGraph
 ---------------
 
+cuGraph is a GPU-accelerated graph library that leverages the Nvidia RAPIDS ecosystem. PyGraphistry provides a more fluent interface to enrich and transform your data with cuGraph methods without the boilerplate.
+
 .. automodule:: graphistry.plugins.cugraph
    :members:
    :undoc-members:
@@ -17,6 +19,8 @@ cuGraph
 
 graphviz
 --------
+
+graphviz is a popular graph visualization library that PyGraphistry can interface with. This allows you to leverage graphviz's powerful layout algorithms, and optionally, static picture renderer. It is especially well-known for its "dot" layout algorithm for hierarchical and tree layouts of graphs with less than 10,000 nodes and edges.
 
 .. automodule:: graphistry.plugins.graphviz
    :members:
@@ -57,6 +61,8 @@ graphviz
 
 igraph
 ------------------------------------------------
+
+igraph is a popular graph library that PyGraphistry can interface with. This allows you to leverage igraph's layout algorithms, and optionally, algorithmic enrichments. It is CPU-based and can generally handle small/medium-sized graphs.
 
 .. automodule:: graphistry.plugins.igraph
    :members:
