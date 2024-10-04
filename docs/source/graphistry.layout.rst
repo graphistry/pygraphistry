@@ -1,59 +1,33 @@
 
 
-edge Module
------------------------------------
+Group in a box
+--------------
+.. toctree::
+   :maxdepth: 2
 
-.. automodule:: graphistry.layout.graph.edge
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
+   graphistry.layout.gib
 
-edgeBase Module
----------------------------------------
+Modularity weighted
+-------------------
+.. toctree::
+   :maxdepth: 2
 
-.. automodule:: graphistry.layout.graph.edgeBase
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
+   graphistry.layout.modularity_weighted
 
-graph Module
-------------------------------------
+Ring
+----
+.. toctree::
+   :maxdepth: 2
 
-.. automodule:: graphistry.layout.graph.graph
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
+   graphistry.layout.ring
 
-graphBase Module
-----------------------------------------
+Sugiyama
+--------
+.. toctree::
+   :maxdepth: 1
 
-.. automodule:: graphistry.layout.graph.graphBase
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
-vertex Module
--------------------------------------
-
-.. automodule:: graphistry.layout.graph.vertex
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
-vertexBase Module
------------------------------------------
-
-.. automodule:: graphistry.layout.graph.vertexBase
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
+   graphistry.layout.sugiyama
+   graphistry.layout.utils
 
 Module contents
 ---------------

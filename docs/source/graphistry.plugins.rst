@@ -1,16 +1,11 @@
-iGraph
-------------------------------------------------
+:orphan:
 
-.. automodule:: graphistry.plugins.igraph
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. ^ FIXME
 
+Plugins
+=======
 
-CuGraph
----------------
-
-.. automodule:: graphistry.plugins.cugraph
+.. automodule:: graphistry.plugins
    :members:
    :undoc-members:
    :show-inheritance:

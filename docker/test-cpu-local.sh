@@ -13,6 +13,7 @@ WITH_BUILD=${WITH_BUILD:-1}
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
 LOG_LEVEL=${LOG_LEVEL:-DEBUG}
 SENTENCE_TRANSFORMER=${SENTENCE_TRANSFORMER-average_word_embeddings_komninos}
+APTGET_INSTALL=${APTGET_INSTALL:-}
 
 NETWORK=""
 if [ "$WITH_NEO4J" == "1" ]
@@ -34,6 +35,7 @@ then
     docker compose build \
         --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
         --build-arg PIP_DEPS="${PIP_DEPS}" \
+        --build-arg APTGET_INSTALL="${APTGET_INSTALL}" \
         --build-arg SENTENCE_TRANSFORMER="${SENTENCE_TRANSFOMER}" \
         test-cpu
 fi
@@ -49,6 +51,7 @@ docker run \
     -e WITH_TEST=$WITH_TEST \
     -e LOG_LEVEL=$LOG_LEVEL \
     -v "`pwd`/../graphistry:/opt/pygraphistry/graphistry:ro" \
+    -v "/tmp:/tmp" \
     --rm \
     ${NETWORK} \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
