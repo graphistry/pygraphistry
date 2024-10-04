@@ -112,10 +112,27 @@ Here's a representative example of how to get started:
 
 Articles
 ==================
+
+We recommend reading the Graphistry blog and github demos. Some useful articles include:
+
 * `Graphistry: Visual Graph AI Interactive demo <https://github.com/graphistry/pygraphistry/blob/master/README.md#demo-of-friendship-communities-on-facebook/>`_
 * `PyGraphistry + Databricks <https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb>`_
 * `PyGraphistry + UMAP <https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/umap_learn/umap_learn.ipynb>`_
+* `What is Graph Intelligence? <https://gradientflow.com/what-is-graph-intelligence/>`_
 
+
+Support and Community
+---------------------
+
+Here are some resources to help you get started and connect with the PyGraphistry community:
+
+- **Get Started**: `www.graphistry.com/get-started <https://www.graphistry.com/get-started>`__
+- **Louie AI**: `www.louie.ai <https://www.louie.ai>`__
+- **Blog**: `graphistry.com/blog <https://www.graphistry.com/blog>`__
+- **Slack Channel**: `Graphistry Community Slack <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`__
+- **Zendesk Support**: `Graphistry Support <https://graphistry.zendesk.com/hc/en-us>`__
+- **GitHub Repository**: `PyGraphistry on GitHub <https://github.com/graphistry/pygraphistry>`__
+- **Twitter**: `@graphistry <https://twitter.com/graphistry>`__
 
 Indices and tables
 ==================
