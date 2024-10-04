@@ -48,7 +48,6 @@ AI
    ai/index
 
 
-
 Compute 
 ==================
 .. toctree::
@@ -63,8 +62,6 @@ Plugins
    :maxdepth: 1
    
    plugins/index
-
-
 
 
 Utilities
