@@ -14,6 +14,7 @@ Module contents
 .. automodule:: graphistry.layout.modularity_weighted
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
    

@@ -109,7 +109,6 @@ Here's a representative example of how to get started:
    :maxdepth: 3
 
    graphistry
-   modules
 
 Articles
 ==================
