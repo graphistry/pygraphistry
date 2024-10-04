@@ -1,12 +1,6 @@
 GFQL Predicates
 ===============
 
-.. automodule:: graphistry.compute.predicates
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
 ASTPredicate
 ------------
 
