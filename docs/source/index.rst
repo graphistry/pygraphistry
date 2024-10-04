@@ -118,6 +118,7 @@ Here's a representative example of how to get started:
    graphistry.plugins_types
    graphistry.validate
    modules
+   versioneer
 
 
 Articles
