@@ -1,14 +1,14 @@
-10 Minutes to PyGraphistry Visualization
-========================================
+10 Minutes to PyGraphistry
+==========================
 
-Welcome to **PyGraphistry**, the platform for graph visualization, analytics, and AI. By the end of this guide, you'll be able to create interactive, GPU-accelerated graph visualizations of your data. If you are already familiar with ideas like dataframes, PyGraphistry will be an easy fit.
+Welcome to **PyGraphistry**, the fast and easy platform for graph visualization, querying, analytics, and AI. By the end of this guide, you'll be able to create interactive, GPU-accelerated graph visualizations of your data. If you are already familiar with concepts like dataframes, PyGraphistry will be an easy fit.
 
-Why Graph Visualization?
+Why Graph Intelligence?
 ------------------------
 
-Graphs represent relationships between entities. Whether you're analyzing event logs, social media, security alerts, financial transactions, clickstreams, supply chains, or genomics, visualizing these relationships can reveal patterns and insights that are difficult to detect otherwise.
+Graphs represent relationships between entities. Whether you're analyzing event logs, social media interactions, security alerts, financial transactions, clickstreams, supply chains, or genomics data, visualizing and analyzing these relationships can reveal patterns and insights that are difficult to detect otherwise.
 
-**Graph visualization helps you:**
+**Graph visualization and analytics helps you:**
 
 - **Identify Patterns**: Spot clusters, behaviors, progressions, root causes, hubs, and anomalies.
 - **Understand Structures**: See how entities are connected and how information flows.
@@ -19,34 +19,36 @@ As datasets grow larger, traditional tools struggle with performance and complex
 What Makes PyGraphistry Special?
 --------------------------------
 
-**PyGraphistry** is a comprehensive Python library that simplifies working with larger graphs by leveraging GPU acceleration. It is most known for:
+**PyGraphistry** is a comprehensive Python library that simplifies working with larger graphs. It is known for:
 
-- **GPU Acceleration**: Enables smooth interaction with large datasets, supporting visualization of 10-100X more data than other tools.
-- **Advanced Visualization**: Provides rich visual encodings (e.g., color, size, icon, badges), interactive features (e.g., zooming, cross-filtering, drilldowns, timebars), and multiple layout algorithms.
-- **Seamless Integration**: Works seamlessly with popular Python data science libraries like Pandas, cuDF, and NetworkX, and integrates easily into Jupyter notebooks for interactive data exploration.
-- **Full Analytics Ecosystem**: Offers a native GFQL engine for graph queries and tools like visual UMAP clustering, allowing you to perform accelerated graph ETL, analytics, ML/AI, and visualization without needing a new database.
+- **GPU Acceleration**: Enables interaction with larger datasets, supporting visualization and analysis of 10-100X more data than other tools.
+- **Advanced Visualization**: Provides rich out-of-the-box visual encodings (e.g., color, size, icon, badges), interactive analysis features (e.g., zooming, cross-filtering, drilldowns, timebars), multiple layout algorithms.
+- **Seamless Integration**: Works seamlessly with popular Python data science libraries like Pandas, cuDF, and NetworkX, and integrates easily into notebooks, dashboard tools, web apps, databases, and other tools
+- **GFQL dataframe-native graph query language**: Run graph queries and analytics directly on dataframes, with optional GPU acceleration, which gives scalable results without the usual infrastructure overhead.
+- **Graphistry[AI]**: With native support for GPU feature engineering, UMAP clustering, and embeddings, quickly perform accelerated graph ETL, analytics, ML/AI, and visualization on large datasets.
+- **Multiple Interfaces**: In addition to the PyGraphistry Python bindings, Graphistry provides REST APIs, Node.js and React libraries, and **Louie.AI** for conversational analytics, making it accessible from various platforms and languages.
 
 Installation
 ------------
 
 Install PyGraphistry
-~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
 ::
 
     pip install graphistry
 
-Install cuDF GPU dataframes (Optional)
+Install cuDF GPU DataFrames (Optional)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For GPU acceleration with DataFrames, install **cuDF** via the `Nvidia RAPIDS Installation Guide <https://rapids.ai/>`_.
+For GPU acceleration with DataFrames, install **cuDF** via the `NVIDIA RAPIDS Installation Guide <https://rapids.ai/>`_.
 
 Register with PyGraphistry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-While most of PyGraphistry can run locally, the visualization server requires an account on your own self-hosted Graphistry server or on Graphistry Hub. If you do not have an account yet, make a free GPU account at `graphistry.com <https://www.graphistry.com/get-started>`_ , or launch your own server.
+While most of PyGraphistry can run locally, the GPU visualization server requires an account on your own self-hosted Graphistry server or on Graphistry Hub. If you do not have an account yet, create a free GPU account at `graphistry.com <https://www.graphistry.com/get-started>`_, or launch your own server.
 
-Then, in your Python environment, login with PyGraphistry:
+Then, in your Python environment, log in with PyGraphistry:
 
 .. code-block:: python
 
@@ -54,19 +56,14 @@ Then, in your Python environment, login with PyGraphistry:
 
     graphistry.register(api=3, server='hub.graphistry.com', username='YOUR_USERNAME', password='YOUR_PASSWORD')
 
-Replace with your actual credentials.
-
----
+Replace with your actual server and credentials.
 
 Loading Data Efficiently
 ------------------------
 
-The Python data science ecosystem supports loading almost any kind of data. Many users start with CSV, JSON, SQL, etc.
+The Python data science ecosystem supports connecting to most databases and file type types
 
-Loading Data as Parquet or Arrow
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-We often see teams adopt formats like **Parquet** and **Apache Arrow** as they are optimized for performance, interoperability, and reliability. Loading data with them can often be 10X+ faster.
+Many users start with CSV, JSON, and SQL database. We often see teams adopt formats like **Parquet** and **Apache Arrow**. Graphistry natively leverages these, so loading data with them can often be 10X+ faster than typical libraries.
 
 **Example: Loading Parquet Data**
 
@@ -104,47 +101,30 @@ Alternatively, if you don't have a GPU or cuDF, you can use Pandas:
 Creating a Basic Visualization
 ------------------------------
 
-Let's create a simple graph visualization using the honeypot data.
-
-Step 1: Prepare the Data
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-We'll create an edge list where each edge represents an attack from an attacker IP to a victim IP.
+Let's create a simple graph visualization using the honeypot data:
 
 .. code-block:: python
 
-    # Create the edge list
-    edges = df[['attackerIP', 'victimIP', 'count']].rename(columns={
-        'attackerIP': 'src',
-        'victimIP': 'dst',
-        'count': 'edge_count'
-    })
-
-Step 2: Plot the Graph
-~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    # Plot the graph
-    g = graphistry.edges(edges, 'attackerIP', 'victimIP')
-    g.plot()  # Make sure you called graphsitry.register() above
+    g = graphistry.edges(df, 'attackerIP', 'victimIP')
+    g.plot()  # Make sure you called graphistry.register() above
 
 This will render an interactive graph where nodes represent IP addresses, and edges represent attacks.
 
 Automatic GPU Acceleration
 --------------------------
 
-Note that the `plot()` step uploads the data to the Graphistry server for your server-GPU-accelerated visualization session. This results in smoother interactions and faster rendering, even with large datasets. 
+Note that the ``plot()`` step uploads the data to the Graphistry server for your server-GPU-accelerated visualization session. This results in smoother interactions and faster rendering, even with large datasets.
 
-Other times, PyGraphistry computes over data locally, such as with GFQL queries.  GPU acceleration will be automatically used if your enivornment supports GPU compute.
+Other times, PyGraphistry computes over data locally, such as with GFQL queries. GPU acceleration will be automatically used if your environment supports GPU compute.
 
 Adding Visual Encodings
 -----------------------
 
-PyGraphistry supports various visual encodings to represent different attributes in your data. You can encode attributes using color, size, icon, and badges.
+PyGraphistry supports various visual encodings to represent different attributes in your data.
 
-Adding Color Encodings
-----------------------
+
+Example: Adding Color Encodings
+~~~~~~~~~~~~~~~~~~~~~~
 
 Let's add color encodings based on the vulnerability exploited.
 
@@ -152,39 +132,42 @@ Let's add color encodings based on the vulnerability exploited.
 
     # Plot with color encoding
     g2 = g.encode_edge_color('vulnName', categorical_mapping={
-        'HTTP Vulnerability': 'red',
-        'IIS Vulnerability': 'blue',
+        'MS08067 (NetAPI)': 'red',
+        'OtherVuln': 'blue',
     }, default_mapping='gray')
-    
+
     g2.plot()
 
 Now, edges are colored based on the type of vulnerability, helping you distinguish different attack types.
 
-Adjusting Sizes, Icons, Badges, and More
------------------------------------------
+Adjusting Sizes, Labels, Icons, Badges, and More
+----------------------------------------
 
 You can adjust further node and edge settings using data. Sample calls include:
 
-* `encode_point_size()`: Adjust node sizes based on a column.
-* `encode_point_icon()`: Assign different icons to nodes based on a column.
-* `encode_point_badge()`: Add badges to nodes based on a column.
-* `encode_point_weight()`: Adjust node weights based on a column.
-* Equivalent for edges: `encode_edge_size()`, `encode_edge_icon()`, `encode_edge_badge()`.
+- ``bind(point_title=)``: Assign labels to nodes based on a column
+- ``encode_point_size()``: Adjust node sizes based on a column
+- ``encode_point_icon()``: Assign different icons to nodes based on a column
+- ``encode_point_badge()``: Add badges to nodes based on a column
+- ``encode_point_weight()``: Adjust node weights based on a column
+- Equivalent functions for edges: ``encode_edge_size()``, ``encode_edge_icon()``, ``encode_edge_badge()``
+
+Additional settings, such as background colors and logo watermarks, can also be configured.
 
 
-Adding a Timebar
+Adding an Interactive Timebar
 ----------------
 
 If your data includes temporal information, you can add a timebar to visualize changes over time.
 
 .. code-block:: python
 
-    # Convert timestamps to datetime
+    # Ensure column has a datetime dtype
     edges['time'] = cudf.to_datetime(df['time(max)'], unit='s')
-    g3 = graphistry.edges(edges)
+    g = graphistry.edges(edges)
 
-    # Plot with time encoding: Graphistry automatically detected arrow/parquet native types
-    g3.plot()
+    # Plot with time encoding: Graphistry automatically detects Arrow/Parquet native types
+    g.plot()
 
 The timebar allows you to interactively explore the graph as it evolves over time.
 
@@ -197,55 +180,75 @@ By default, PyGraphistry uses a force-directed layout. You can adjust its parame
 .. code-block:: python
 
     # Adjust layout settings
-    g4 = g.settings(url_params={'play': 7000, 'strongGravity': True, 'edgeInfluence': 2})
-    g4.plot()
+    g2 = g1.settings(url_params={'play': 7000, 'strongGravity': True, 'edgeInfluence': 2})
+    g2.plot()
 
 More Layout Algorithms
------------------------
+----------------------
 
 PyGraphistry offers many layout algorithms and settings to help you display your graph meaningfully.
 
-For example, graphviz layouts can be used for laying out small trees and directed acyclic graphs (DAGs).
+For example, GraphViz layouts can be used for laying out small trees and directed acyclic graphs (DAGs).
 
 .. code-block:: python
 
-    g5 = g.layout_graphviz('dot')
-    g5.plot()
+    g2 = g1.layout_graphviz('dot')
+    g2.plot()
 
 Using UMAP for Dimensionality Reduction
 ---------------------------------------
 
-For large graphs, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes and connect them into a similarity graph. 
+For large graphs, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes and connect them into a similarity graph.
 
 .. code-block:: python
 
     # Compute UMAP layout by clustering on some subset of columns
-    g6 = plot.umap(X=['attackerIP', 'victimIP', 'vulnName'])
-    g6.plot()
+    g1 = graphistry.umap(X=['attackerIP', 'victimIP', 'vulnName'])
+    g1.plot()
+
+
+Query graphs with GFQL
+----------------------------------
+
+GFQL, our dataframe-native graph query language, allows you to run optimized graph queries directly on dataframes without the need for a separate graph database system.
+
+Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vulnerability at some specific timestamp, and see everything 2 hops after:
+
+.. code-block:: python
+
+    g2 = g1.chain([
+        n(),
+        e(edge_query="vulnName == 'MS08067 (NetAPI)' & `time(max)` > 1421430000"),
+        n(),
+        e(hops=2)
+    ])
+
+    g2.plot()
+
+This GFQL query filters the edges based on the vulnerability name and time, then returns the matching nodes and edges for visualization.
+
 
 Utilizing Hypergraphs
-----------------------
+---------------------
 
-PyGraphistry supports hypergraphs, which allow you to visualize complex relationships involving more than two entities.
+PyGraphistry supports hypergraphs, which allow you to quickly visualize complex relationships involving more than two entities.
 
 **Example: Visualizing Attacks as Hyperedges**
 
 .. code-block:: python
 
-    # Generate the hypergraph
     hg = graphistry.hypergraph(df, ['attackerIP', 'victimIP', 'vulnName', 'victimPort'])
 
-    # Plot the hypergraph
     hg['graph'].plot()
 
 This will represent each attack as a hyperedge connecting the attacker IP, victim IP, vulnerability name, and port nodes.
 
 Embedding Visualizations into Web Apps
----------------------------------------
+--------------------------------------
 
 You can embed PyGraphistry visualizations in web applications using additional SDKs like **GraphistryJS**.
 
-The JavaScript client comes in 2 forms, and provide further configuration hooks:
+The JavaScript client comes in two forms and provides further configuration hooks:
 
 - **Vanilla JavaScript**: Use the GraphistryJS library to embed visualizations directly.
 - **React**: Use the Graphistry React components for seamless integration.
@@ -281,7 +284,8 @@ Next Steps
 - **Data Loading Best Practices**: Utilize Parquet or Arrow formats for efficient data loading.
 - **Explore Layouts and Encodings**: Experiment with different layouts and visual encodings to gain deeper insights.
 
-Resources:
+Resources
+---------
 
 - **GFQL Documentation**: Learn how to perform advanced graph queries.
 - **PyGraphistry API Reference**: Explore the full capabilities of PyGraphistry.
