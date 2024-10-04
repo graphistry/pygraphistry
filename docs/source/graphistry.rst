@@ -4,23 +4,13 @@ GFQL
    :maxdepth: 2
    
    gfql/index
-   gfql/about
-   gfql/translate
-   gfql/quick
-   gfql/predicates/quick
-   gfql/chain
-   gfql/hop
-   gfql/predicates/index
-
 
 Login and Sharing
 =================
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
    server/index
-   server/privacy
-   server/register
 
 
 Visualization
@@ -29,8 +19,6 @@ Visualization
    :maxdepth: 3
    
    visualization/index
-   visualization/plotter
-
 
 Layouts
 ==================
