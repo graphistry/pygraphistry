@@ -22,49 +22,6 @@ Login and Sharing
    server/privacy
    server/register
 
-AI
-===
-.. toctree::
-   :maxdepth: 2
-
-   ai/index
-
-Featurize
----------
-.. automodule:: graphistry.feature_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-UMAP
-----
-.. automodule:: graphistry.umap_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-Semantic Search
----------------
-.. automodule:: graphistry.text_utils
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-DBScan
-------
-.. automodule:: graphistry.compute.cluster
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
-Plugins
-=======
-.. toctree::
-   :maxdepth: 1
-   
-   plugins/index
-
 
 Visualization
 =============
@@ -75,6 +32,23 @@ Visualization
    visualization/plotter
 
 
+Layouts
+==================
+.. toctree::
+   :maxdepth: 3
+
+
+   graphistry.layout
+   
+AI
+===
+.. toctree::
+   :maxdepth: 2
+
+   ai/index
+
+
+
 Compute 
 ==================
 .. toctree::
@@ -83,13 +57,14 @@ Compute
    graphistry.compute
 
 
-Layouts
-==================
+Plugins
+=======
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 1
+   
+   plugins/index
 
 
-   graphistry.layout
 
 
 Utilities
