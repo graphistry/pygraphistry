@@ -97,6 +97,8 @@ setup(
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Topic :: Internet :: Log Analysis',
         'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
@@ -110,5 +112,5 @@ setup(
         'Topic :: Software Development :: Widget Sets',
         'Topic :: System :: Distributed Computing'
     ],
-    keywords=['cugraph', 'cudf', 'dask', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Network', 'NetworkX',  'Notebook', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'Visualization', 'Torch', 'DGL', 'GNN']
+    keywords=['cugraph', 'cudf', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
 )
