@@ -1,11 +1,8 @@
-PyGraphistry Documentation
-==========================
-
 .. toctree::
-   :maxdepth: 3
-   :caption: Contents:
+   :maxdepth: 2
+   
 
-   about
+   10min
    install
    server/index   
    visualization/index
@@ -15,3 +12,4 @@ PyGraphistry Documentation
    graphistry.compute
    plugins/index
    graphistry.utils
+   support

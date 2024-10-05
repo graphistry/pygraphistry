@@ -1,11 +1,5 @@
-graphistry.layout.gib package
-==================================
-
-Submodules
-----------
-
-Module contents
----------------
+Group-in-a-Box Layout
+=====================
 
 .. automodule:: graphistry.layout.gib.gib
    :members:

@@ -1,7 +1,11 @@
+.. _10min:
+
 10 Minutes to PyGraphistry
 ==========================
 
 Welcome to **PyGraphistry**, the fast and easy platform for graph visualization, querying, analytics, and AI. By the end of this guide, you'll be able to create interactive, GPU-accelerated graph visualizations of your data. If you are already familiar with concepts like dataframes, PyGraphistry will be an easy fit.
+
+PyGraphistry can be used standalone and automatically optimizes for both CPU systems and GPU systems. It is typically used in Python notebooks, dashboards, and web apps. The library includes the GFQL dataframe-native graph query language, official Python bindings for Graphistry GPU visualization & analytics servers, and a variety of graph data science tools.
 
 Why Graph Intelligence?
 ------------------------
@@ -21,8 +25,8 @@ What Makes PyGraphistry Special?
 
 **PyGraphistry** is a comprehensive Python library that simplifies working with larger graphs. It is known for:
 
-- **GPU Acceleration**: Enables interaction with larger datasets, supporting visualization and analysis of 10-100X more data than other tools.
-- **Advanced Visualization**: Provides rich out-of-the-box visual encodings (e.g., color, size, icon, badges), interactive analysis features (e.g., zooming, cross-filtering, drilldowns, timebars), multiple layout algorithms.
+- **GPU Acceleration**: Work with larger datasets visually or programatically
+- **Advanced Visualization**: Rich out-of-the-box visual encodings (e.g., color, size, icon, badges), interactive analysis features (e.g., zooming, cross-filtering, drilldowns, timebars), multiple layout algorithms.
 - **Seamless Integration**: Works seamlessly with popular Python data science libraries like Pandas, cuDF, and NetworkX, and integrates easily into notebooks, dashboard tools, web apps, databases, and other tools
 - **GFQL dataframe-native graph query language**: Run graph queries and analytics directly on dataframes, with optional GPU acceleration, which gives scalable results without the usual infrastructure overhead.
 - **Graphistry[AI]**: With native support for GPU feature engineering, UMAP clustering, and embeddings, quickly perform accelerated graph ETL, analytics, ML/AI, and visualization on large datasets.
@@ -38,17 +42,19 @@ Install PyGraphistry
 
     pip install graphistry
 
+This performs a minimal installation with dependencies limited to mostly just Pandas and PyArrow.
+
 Install cuDF GPU DataFrames (Optional)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For GPU acceleration with DataFrames, install **cuDF** via the `NVIDIA RAPIDS Installation Guide <https://rapids.ai/>`_.
 
-Register with PyGraphistry
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Register with PyGraphistry (Optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-While most of PyGraphistry can run locally, the GPU visualization server requires an account on your own self-hosted Graphistry server or on Graphistry Hub. If you do not have an account yet, create a free GPU account at `graphistry.com <https://www.graphistry.com/get-started>`_, or launch your own server.
+While most of PyGraphistry can run locally, use with a GPU visualization server requires an account on your own self-hosted Graphistry server or on Graphistry Hub. If you do not have an account yet, create a free GPU account at `graphistry.com <https://www.graphistry.com/get-started>`_, or launch your own server.
 
-Then, in your Python environment, log in with PyGraphistry:
+Then, log in your PyGraphistry client:
 
 .. code-block:: python
 
@@ -202,12 +208,15 @@ For example, GraphViz layouts is known for its high quality for laying out small
 Using UMAP for Dimensionality Reduction
 ---------------------------------------
 
-For large datasets, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes and connect them into a similarity graph.
+For large datasets, you can use UMAP for dimensionality reduction to layout the graph meaningfully. UMAP will identify nodes that are similar across their different attributes.
+
+Special to PyGraphistry, PyGraphistry records and renders the similarity edges between similar entities. We find this to be critical in practice for investigating results and using UMAP in analytical pipelines.
 
 .. code-block:: python
 
     # Compute UMAP layout by clustering on some subset of columns
     g1 = graphistry.umap(X=['attackerIP', 'victimIP', 'vulnName'])
+    print('# similarity edges', len(g1._edges))
     g1.plot()
 
 

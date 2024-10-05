@@ -1,4 +1,4 @@
-graphistry.layout.modularity_weighted package
+Modularity Weighted Layout
 =============================================
 
 Submodules

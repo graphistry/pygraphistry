@@ -38,14 +38,16 @@ PyGraphistry: Explore Relationships
 .. Quickstart:
 .. `Read our tutorial <https://github.com/graphistry/pygraphistry/blob/master/README.md>`_
 
-PyGraphistry is a Python visual graph AI library to extract, transform, query, analyze, model, and visualize big graphs. It includes several notable pieces:
-* Client to using the optional Graphistry server for GPU compute and visualization
-* A variety of efficient dataframe-native tabular and graph methods for loading and transforming graphs
-* The GFQL dataframe-native graph query language with optional GPU support
-* Graphistry[AI]: Installing optional graphistry[ai] dependencies adds graph autoML, including automatic feature engineering, UMAP, and graph neural net support
-* Plugins: Query databases like Neo4j, compute systems like Nvidia RAPIDS, and frameworks like igraph. PyGraphistry enables working with fast and familiar dataframe data representations, and PyGraphistry takes care of efficient conversions.
 
-Combined, PyGraphistry reduces your time to graph for going from raw data to visualizations to AI models in a few lines of code.
+PyGraphistry is a Python visual graph AI library to extract, transform, query, analyze, model, and visualize big graphs. It includes several notable pieces:
+
+* **Graphistry Client**: Convenience layer for using the optional Graphistry GPU server for accelerated compute and visualization
+* **Dataframe-native graph manipulation**: Optimized dataframe-native tabular and graph methods for loading, transforming, analyzing, and visualizing data as graphs
+* **GFQL**: Home for the GFQL graph dataframe-native query language, and with optional GPU support
+* **Graphistry[AI]**: Optional methods and integrations for graph autoML, including automatic feature engineering, UMAP, and graph neural networks
+* **Plugins**: Optimized and streamlined integrations for enriching your workflows - query databases like Neo4j and Splunk, compute systems like Nvidia RAPIDS, and enrich data with library calls to graph engines like igraph
+
+Combined, PyGraphistry reduces your time to graph for going from raw data to visualizations to AI insights in a few lines of code.
 
 The API reference documentation here provides useful packages, modules, and commands for PyGraphistry. In the navbar you can find an overview of all the packages and modules we provided and a few useful highlighted ones as well. You can search for them on our Search page. For a full tutorial, refer to our `PyGraphistry <https://github.com/graphistry/pygraphistry/>`_ repo.
 
@@ -77,7 +79,7 @@ Here's a representative example of how to get started:
     import graphistry
     import pandas as pd
 
-    # Load a simple graph from a dataframe
+    # Load data from any Python data science library or database
     df = pd.DataFrame({
       'src': ['A', 'B', 'C'],
       'dst': ['B', 'C', 'A'],
@@ -86,29 +88,38 @@ Here's a representative example of how to get started:
     })
     g1 = graphistry.edges(df, source="src", destination="dst")
 
-    # Optionally convert to GPU if available
+    # Use GPUs when available
     import cudf
     g2 = g1.edges(cudf.from_pandas(g1._edges))
 
-    # Wrangle the graph, using automatic GPU acceleration
+    # Many graph wrangling helpers + friendly dataframe-native graph manipulation
     g3 = g2.materialize_nodes().get_degrees()
     print(g3._nodes[['id', 'degree']])
 
-    # Server-accelerated visualization session
-    # Use a private server, or a free remote GPU account at graphistry.com/get-started (Graphistry Hub)
-    graphistry.register(api=3, username="my_username", password="my_password")
-    g3.plot()  # Upload the data and start a visual GPU session
+    # Server-accelerated GPU visualization
+    graphistry.register(api=3, server="hub.graphistry.com", username="A", password="B")
+    g3.plot()
 
-    # Visualize your data as a similarity graph using a UMAP dimensionality reduction
-    # umap will feature-encode your data, run UMAP, and connect similarity entities
-    # By default, GPUs will be used if available
+    # ML & AI
     umap_g = graphistry.nodes(df).umap()
     umap_g.plot()
 
-.. toctree::
-   :maxdepth: 3
+    # GFQL graph dataframe-native query language with optional GPU support
+    nearest_neighbors_df = umap_g.chain([ n({'id': 'A'}), e(hops=2), n()])._nodes
 
-   graphistry
+
+Support and Community
+---------------------
+
+Looking for help? Check out our resources and community:
+
+- **Get Started**: `www.graphistry.com/get-started <https://www.graphistry.com/get-started>`__
+- **Louie AI**: `www.louie.ai <https://www.louie.ai>`__
+- **Blog**: `graphistry.com/blog <https://www.graphistry.com/blog>`__
+- **Slack Channel**: `Graphistry Community Slack <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`__
+- **Zendesk Support**: `Graphistry Support <https://graphistry.zendesk.com/hc/en-us>`__
+- **GitHub Repository**: `PyGraphistry on GitHub <https://github.com/graphistry/pygraphistry>`__
+- **Twitter**: `@graphistry <https://twitter.com/graphistry>`__
 
 Articles
 ==================
@@ -121,19 +132,6 @@ We recommend reading the Graphistry blog and github demos. Some useful articles 
 * `What is Graph Intelligence? <https://gradientflow.com/what-is-graph-intelligence/>`_
 
 
-Support and Community
----------------------
-
-Here are some resources to help you get started and connect with the PyGraphistry community:
-
-- **Get Started**: `www.graphistry.com/get-started <https://www.graphistry.com/get-started>`__
-- **Louie AI**: `www.louie.ai <https://www.louie.ai>`__
-- **Blog**: `graphistry.com/blog <https://www.graphistry.com/blog>`__
-- **Slack Channel**: `Graphistry Community Slack <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`__
-- **Zendesk Support**: `Graphistry Support <https://graphistry.zendesk.com/hc/en-us>`__
-- **GitHub Repository**: `PyGraphistry on GitHub <https://github.com/graphistry/pygraphistry>`__
-- **Twitter**: `@graphistry <https://twitter.com/graphistry>`__
-
 Indices and tables
 ==================
 
@@ -141,3 +139,7 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
+.. toctree::
+   :maxdepth: 3
+
+   graphistry

@@ -34,9 +34,10 @@ Basic Installation
 
 Install PyGraphistry using `pip`:
 
-```bash
-pip install graphistry
-```
+.. code-block:: bash
+
+  pip install graphistry
+
 
 Importing and Version Check
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -99,60 +100,63 @@ Note that many of the below can be used in both CPU mode and GPU mode.
 
     Install with:
 
-    ```
-    pip install graphistry[ai]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[ai]
 
 - **Graph Libraries**:
   - `networkx`: Integration with NetworkX graphs.
 
     Install with:
 
-    ```
-    pip install graphistry[networkx]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[networkx]
+
 
   - `igraph`: Support for igraph graphs.
 
     Install with:
 
-    ```
-    pip install graphistry[igraph]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[igraph]
 
   - `pygraphviz`: Rendering graphs with Graphviz layouts.
 
     Install with:
 
-    ```
-    pip install graphistry[pygraphviz]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[pygraphviz]
 
 - **Graph Databases and Protocols**:
   - `gremlinpython`: Working with Gremlin graph databases.
 
     Install with:
 
-    ```
-    pip install graphistry[gremlin]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[gremlin]
+
 
   - `neo4j`, `neotime`: Connecting to Neo4j via the Bolt protocol.
 
     Install with:
 
-    ```
-    pip install graphistry[bolt]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[bolt]
+
 
 - **Data Formats**:
   - `openpyxl`, `xlrd`: Reading NodeXL files.
 
     Install with:
 
-    ```
-    pip install graphistry[nodexl]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[nodexl]
 
 - **Machine Learning and AI**:
 
@@ -160,35 +164,35 @@ Note that many of the below can be used in both CPU mode and GPU mode.
 
     Install with:
 
-    ```
-    pip install graphistry[umap-learn]
-    ```
+    .. code-block:: bash
+
+      pip install graphistry[umap-learn]
 
   - `scipy`, `dgl`, `torch<2`, `sentence-transformers`, `faiss-cpu`, `joblib`: Advanced AI functionalities.
 
     Install with:
 
-    ```
+    .. code-block:: bash
+
     pip install graphistry[ai]
-    ```
 
 - **Jupyter Support**:
   - `ipython`: Enhanced Jupyter notebook integration.
 
     Install with:
 
-    ```
-    pip install graphistry[jupyter]
-    ```
+    .. code-block:: bash
 
+      pip install graphistry[jupyter]
+ 
 Installing Multiple Extras
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 You can install multiple extras by listing them separated by commas:
 
-```bash
-pip install graphistry[networkx,umap-learn]
-```
+.. code-block:: bash
+
+  pip install graphistry[networkx,umap-learn]
 
 
 Installing All Optional Dependencies
@@ -196,9 +200,10 @@ Installing All Optional Dependencies
 
 To install all optional dependencies (not generally recommended due to size and potential conflicts):
 
-```bash
-pip install graphistry[all]
-```
+.. code-block:: bash
+
+  pip install graphistry[all]
+
 
 
 Common Questions
@@ -232,9 +237,10 @@ For contributors and developers who wish to work on PyGraphistry itself, we reco
 
 - **Install with**:
 
-```bash
-pip install graphistry[dev]
-```
+  .. code-block:: bash
+
+    pip install graphistry[dev]
+
 
 - **Includes**: Testing tools, documentation tools, and other development dependencies like `flake8`, `pytest`, `sphinx`, etc.
 

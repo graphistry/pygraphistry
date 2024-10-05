@@ -1,10 +1,7 @@
-:orphan:
-
-graphistry.layout.sugiyama package
+Sugiyama Layout
 ==================================
 
-Submodules
-----------
+We recommend using plugin versions of this layout instead, such as from :ref:`igraph`
 
 graphistry.layout.sugiyama.sugiyamaLayout module
 ------------------------------------------------
