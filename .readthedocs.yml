@@ -5,10 +5,6 @@
 # Required
 version: 2
 
-# Build documentation in the docs/ directory with Sphinx
-sphinx:
-   configuration: docs/source/conf.py
-
 build:
   os: ubuntu-22.04
   tools:
@@ -17,12 +13,9 @@ build:
     - pandoc       # Install Pandoc using apt
   commands:
     - ln -s ../../demos docs/source/demos
-
-# Optionally build your docs in additional formats such as PDF
-formats:
-  - pdf
-  - htmlzip
-  - epub
+    - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
+    - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
+    - sphinx-build -b htmlzip docs/source $READTHEDOCS_OUTPUT/htmlzip
 
 python:
   install:
