@@ -29,19 +29,6 @@ python:
       extra_requirements:
         - dev
 
-
-jobs:
-  build:
-    steps:
-      - checkout
-      - run:
-          name: Install Dependencies
-          command: |
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-      - run:
-          name: Create Symlink for notebook demos
-          command: |
-            ln -s ../../demos docs/source/demos
-      - sphinx:
-          configuration: docs/source/conf.py
+build:
+  commands:
+    - ln -s ../../demos docs/source/demos
