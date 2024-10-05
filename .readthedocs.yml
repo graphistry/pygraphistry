@@ -13,12 +13,14 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.8"
+  apt_packages:
+    - pandoc       # Install Pandoc using apt
 
 # Optionally build your docs in additional formats such as PDF
 formats:
   - pdf
   - htmlzip
-  - epub
+  - epubsource_
 
 python:
   install:
@@ -26,3 +28,20 @@ python:
       path: .
       extra_requirements:
         - dev
+
+
+jobs:
+  build:
+    steps:
+      - checkout
+      - run:
+          name: Install Dependencies
+          command: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+      - run:
+          name: Create Symlink for notebook demos
+          command: |
+            ln -s ../../demos docs/source/demos
+      - sphinx:
+          configuration: docs/source/conf.py

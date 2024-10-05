@@ -10,13 +10,17 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os, sys
-from distutils.version import LooseVersion
+import docutils.nodes, os, logging, re, sys
+from packaging.version import Version
 
-# sys.path.insert(0, os.path.abspath('.'))
+
 sys.path.insert(0, os.path.abspath("../.."))
-sys.path.insert(0, os.path.abspath('../../'))
 import graphistry
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 # -- Project information -----------------------------------------------------
 
@@ -25,8 +29,7 @@ copyright = "2024, Graphistry, Inc."
 author = "Graphistry, Inc."
 
 # The full version, including alpha/beta/rc tags
-version = LooseVersion(graphistry.__version__).vstring
-relesae = version  # TODO remove?
+version = str(Version(graphistry.__version__))
 release = version
 
 # -- General configuration ---------------------------------------------------
@@ -35,14 +38,24 @@ release = version
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'nbsphinx',
     "sphinx.ext.autodoc",
     #'sphinx.ext.autosummary',
     #'sphinx.ext.intersphinx',
     "sphinx.ext.ifconfig",
-    "sphinx_autodoc_typehints"
+    #"sphinx_autodoc_typehints",
+    "sphinx_copybutton",
 ]
 
+
+# TODO guarantee most notebooks are executable (=> maintained)
+# and switch to opt'ing out the few that are hard, e.g., DB deps
+nbsphinx_execute = 'never'
+nbsphinx_allow_errors = True  # Allow errors in notebooks
+
 autodoc_typehints = "description"
+always_document_param_types = True
+typehints_document_rtype = True
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -200,6 +213,7 @@ nitpick_ignore = [
     ('py:class', 'cugraph.MultiGraph'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
+    ('py:class', 'JSONVal'),
     ('py:class', 'dgl'),
     ('py:class', 'matplotlib'),
     ('py:class', 'MultiGraph'),
@@ -238,7 +252,8 @@ nitpick_ignore = [
     ('py:class', 'graphistry.privacy.Privacy')
 ]
 
-set_type_checking_flag = True
+#set_type_checking_flag = True
+
 # typehints_fully_qualified=True
 always_document_param_types = True
 typehints_document_rtype = True
@@ -249,18 +264,102 @@ templates_path = ["_templates"]
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 # source_suffix = ['.rst', '.md']
-source_suffix = ".rst"
-
-# The encoding of source files.
-source_encoding = "utf-8-sig"
-
+# source_suffix = ['.rst', '.ipynb']
+source_suffix = {
+    '.rst': 'restructuredtext',
+    #'.ipynb': 'nbsphinx',
+}
 # The master toctree document.
-master_doc = "index"
+root_doc = "index"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
+exclude_patterns = [
+
+    # nbsphinx stalls on these
+    'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',
+    'demos/ai/OSINT/jack-donations.ipynb',
+
+    #'demos/for_analysis.ipynb',
+    #'demos/for_developers.ipynb',
+    #'demos/upload_csv_miniapp.ipynb',
+
+    # not used yet
+    'demos/demos_databases_apis/splunk/splunk_demo_public.ipynb',
+    'demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.ipynb',
+    'demos/demos_databases_apis/neptune/neptune_tutorial.ipynb',
+    'demos/demos_databases_apis/sql/postgres.ipynb',
+    'demos/demos_databases_apis/gpu_rapids/part_iii_gpu_blazingsql.ipynb',
+    'demos/demos_databases_apis/gpu_rapids/part_ii_gpu_cudf.ipynb',
+    'demos/demos_databases_apis/gpu_rapids/part_iv_gpu_cuml.ipynb',
+    'demos/demos_databases_apis/gpu_rapids/cugraph.ipynb',
+    'demos/demos_databases_apis/gpu_rapids/part_i_cpu_pandas.ipynb',
+    'demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb',
+    'demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb',
+    'demos/demos_databases_apis/arango/arango_tutorial.ipynb',
+    'demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb',
+    'demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb',
+    'demos/demos_databases_apis/neo4j/contributed/Neo4jTwitter.ipynb',
+    'demos/demos_databases_apis/alienvault/OTXLockerGoga.ipynb',
+    'demos/demos_databases_apis/alienvault/usm.ipynb',
+    'demos/demos_databases_apis/alienvault/OTXIndicators.ipynb',
+    'demos/demos_databases_apis/gremlin-tinkerpop/TitanDemo.ipynb',
+    'demos/demos_databases_apis/hypernetx/hypernetx.ipynb',
+    'demos/demos_databases_apis/umap_learn/umap_learn.ipynb',
+    'demos/demos_databases_apis/graphviz/graphviz.ipynb',
+    'demos/demos_databases_apis/tigergraph/social_raw_REST_calls.ipynb',
+    'demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb',
+    'demos/demos_databases_apis/tigergraph/fraud_raw_REST_calls.ipynb',
+    'demos/demos_databases_apis/networkx/networkx.ipynb',
+    'demos/more_examples/simple/tutorial_csv_mini_app_icij_implants.ipynb',
+    'demos/more_examples/simple/MarvelTutorial.ipynb',
+    'demos/more_examples/simple/tutorial_basic_LesMiserablesCSV.ipynb',
+    'demos/more_examples/graphistry_features/layout_tree.ipynb',
+    'demos/more_examples/graphistry_features/encodings-icons.ipynb',
+    'demos/more_examples/graphistry_features/layout_time_ring.ipynb',
+    'demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb',
+    'demos/more_examples/graphistry_features/encodings-colors.ipynb',
+    'demos/more_examples/graphistry_features/encodings-sizes.ipynb',
+    'demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb',
+    'demos/more_examples/graphistry_features/layout_time_ring_dev.ipynb',
+    'demos/more_examples/graphistry_features/external_layout/simple_manual_layout.ipynb',
+    'demos/more_examples/graphistry_features/external_layout/networkx_layout.ipynb',
+    'demos/more_examples/graphistry_features/embed/simple-ssh-logs-rgcn-anomaly-detector.ipynb',
+    'demos/more_examples/graphistry_features/sharing_tutorial.ipynb',
+    'demos/more_examples/graphistry_features/encodings-badges.ipynb',
+    'demos/more_examples/graphistry_features/layout_categorical_ring.ipynb',
+    'demos/more_examples/graphistry_features/edge-weights.ipynb',
+    'demos/more_examples/graphistry_features/layout_continuous_ring.ipynb',
+    'demos/more_examples/graphistry_features/Workbooks.ipynb',
+    'demos/demos_by_use_case/bio/BiogridDemo.ipynb',
+    'demos/demos_by_use_case/logs/Tutorial Part 1 (Honey Pot).ipynb',
+    'demos/demos_by_use_case/logs/malware-hypergraph/Malware Hypergraph.ipynb',
+    'demos/demos_by_use_case/logs/aws_vpc_flow_cloudwatch/vpc_flow.ipynb',
+    'demos/demos_by_use_case/logs/Tutorial Part 2 (Apache Logs).ipynb',
+    'demos/demos_by_use_case/logs/network-threat-hunting-masterclass-zeek-bro/graphistry_corelight_webinar.ipynb',
+    'demos/demos_by_use_case/logs/owasp-amass-network-enumeration/amass.ipynb',
+    'demos/demos_by_use_case/logs/microservices-spigo/SystemArchitectureSpigo.ipynb',
+    'demos/demos_by_use_case/fraud/BitcoinTutorial.ipynb',
+    'demos/demos_by_use_case/social/Twitter.ipynb',
+    'demos/talks/infosec_jupyterthon2022/rgcn_login_anomaly_detection/advanced-identity-protection-40m.ipynb',
+    'demos/talks/infosec_jupyterthon2022/rgcn_login_anomaly_detection/intro-story.ipynb',
+    'demos/gfql/benchmark_hops_cpu_gpu.ipynb',
+    'demos/data/benchmarking/SparseDatasets.ipynb',
+    'demos/data/benchmarking/DenseDatasets.ipynb',
+    'demos/data/benchmarking/TestDatasets.ipynb',
+    'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',
+    'demos/ai/Introduction/simple-power-of-umap.ipynb',
+    'demos/ai/cyber/CyberSecurity-Slim.ipynb',
+    'demos/ai/cyber/redteam-umap-gtc-gpu.ipynb',
+    'demos/ai/cyber/cyber-redteam-umap-demo.ipynb',
+    'demos/ai/OSINT/jack-donations.ipynb',
+    'demos/ai/OSINT/Chavismo.ipynb',
+
+    # Preserve exclusion of Jupyter Notebook checkpoints
+    'demos/**/.ipynb_checkpoints/**',
+
+]
 
 pygments_style = "sphinx"
 todo_include_todos = False
@@ -278,7 +377,6 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = []  # '_static'
 
 html_show_sphinx = False
-html_show_sourcelink = False
 
 htmlhelp_basename = "PyGraphistrydoc"
 
@@ -301,7 +399,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (
-        master_doc,
+        root_doc,
         "PyGraphistry.tex",
         u"PyGraphistry Documentation",
         u"Graphistry, Inc.",
@@ -334,7 +432,7 @@ latex_domain_indices = False
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "pygraphistry", u"PyGraphistry Documentation", [author], 1)]
+man_pages = [(root_doc, "pygraphistry", u"PyGraphistry Documentation", [author], 1)]
 
 # If true, show URL addresses after external links.
 # man_show_urls = False
@@ -347,7 +445,7 @@ man_pages = [(master_doc, "pygraphistry", u"PyGraphistry Documentation", [author
 #  dir menu entry, description, category)
 texinfo_documents = [
     (
-        master_doc,
+        root_doc,
         "PyGraphistry",
         u"PyGraphistry Documentation",
         author,
@@ -442,3 +540,69 @@ epub_exclude_files = ["search.html"]
 
 # Example configuration for intersphinx: refer to the Python standard library.
 # intersphinx_mapping = {'https://docs.python.org/': None}
+
+
+
+# -- Custom Preprocessor Configuration ---------------------------------------
+
+def replace_iframe_src(app, doctree, docname):
+    """
+    Replace relative iframe src paths with absolute URLs in HTML content.
+    Specifically targets iframe tags with src attributes starting with /graph/.
+    """
+    # Define a flexible regex pattern to match <iframe> tags with src="/graph/..."
+    # This pattern accounts for single or double quotes and any additional attributes
+    pattern = re.compile(
+        r'(<iframe[^>]*src\s*=\s*[\'"])(/graph/[^\'"]+)([\'"][^>]*>)', 
+        re.IGNORECASE | re.DOTALL
+    )
+
+    # Flag to check if any replacement occurred in this document
+    replacement_occurred = False
+
+    # Iterate over all nodes in the doctree
+    for node in doctree.traverse():
+        # Process only nodes that can contain text
+        if isinstance(node, (docutils.nodes.raw, docutils.nodes.literal_block, docutils.nodes.paragraph, docutils.nodes.Text)):
+            # Determine the content based on node type
+            if isinstance(node, docutils.nodes.raw):
+                node_format = getattr(node, 'format', '').lower()
+                if node_format != 'html':
+                    continue  # Skip non-HTML raw nodes
+                original_content = node.rawsource
+                # Perform the regex substitution
+                updated_content, count = pattern.subn(r'\1https://hub.graphistry.com\2\3', original_content)
+                if count > 0:
+                    node.rawsource = updated_content
+                    logger.info(f"Updated {count} iframe src in document: {docname}")
+                    replacement_occurred = True
+            elif isinstance(node, docutils.nodes.literal_block) or isinstance(node, docutils.nodes.paragraph):
+                original_content = node.astext()
+                # Perform the regex substitution
+                updated_content, count = pattern.subn(r'\1https://hub.graphistry.com\2\3', original_content)
+                if count > 0:
+                    # Replace the node's text with updated content
+                    new_nodes = docutils.nodes.inline(text=updated_content)
+                    node.parent.replace(node, new_nodes)
+                    logger.info(f"Updated {count} iframe src in document: {docname}")
+                    replacement_occurred = True
+            elif isinstance(node, docutils.nodes.Text):
+                original_text = node.astext()
+                # Perform the regex substitution
+                updated_text, count = pattern.subn(r'\1https://hub.graphistry.com\2\3', original_text)
+                if count > 0:
+                    # Replace the text node with updated text
+                    new_text_node = docutils.nodes.Text(updated_text)
+                    node.parent.replace(node, new_text_node)
+                    logger.info(f"Updated {count} iframe src in document: {docname}")
+                    replacement_occurred = True
+
+    if not replacement_occurred:
+        logger.debug(f"No iframe src replacements made in document: {docname}")
+
+
+def setup(app):
+    """
+    Connect the replace_iframe_src function to the doctree-resolved event.
+    """
+    app.connect('doctree-resolved', replace_iframe_src)

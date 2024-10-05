@@ -26,7 +26,17 @@ stubs = [
 test_workarounds = ['scikit-learn<=1.3.2']
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1', 'pygments>2.10'],
+    'docs': [
+      'docutils==0.21.2',
+      'ipython==8.28',
+      'Jinja2==3.1.4',
+      'nbsphinx==0.9.5',
+      'pygments>2.10',
+      'sphinx==8.0.2',
+      #'sphinx_autodoc_typehints==1.11.1',
+      'sphinx-copybutton==0.5.2',
+      'sphinx-rtd-theme @ git+https://github.com/readthedocs/sphinx_rtd_theme@3.0.0rc4#egg=sphinx-rtd-theme',
+    ],
     'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
