@@ -20,7 +20,7 @@ build:
 formats:
   - pdf
   - htmlzip
-  - epubsource_
+  - epub
 
 python:
   install:
