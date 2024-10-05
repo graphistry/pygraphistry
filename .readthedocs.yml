@@ -10,8 +10,9 @@ build:
   tools:
     python: "3.8"
   apt_packages:
-    - pandoc       # Install Pandoc using apt
+    - pandoc
   commands:
+    - pip install ".[docs]"
     - ln -s ../../demos docs/source/demos
     - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
     - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
