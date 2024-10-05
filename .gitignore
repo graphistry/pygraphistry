@@ -87,3 +87,4 @@ demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
 
 # local jupyter dev
 jupyter_dev/
+docs/source/demos
