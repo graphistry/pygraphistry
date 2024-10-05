@@ -1,39 +1,28 @@
+Layout
+======
+
+Native layout engines within Graphistry.
+
+We recommend using the various plugins for additional layouts, such as for tree and hierarchical data diagramming.
 
 
-Group in a box
---------------
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
+   :caption: Contents:
 
    graphistry.layout.gib
-
-Modularity weighted
--------------------
-.. toctree::
-   :maxdepth: 2
-
    graphistry.layout.modularity_weighted
-
-Ring
-----
-.. toctree::
-   :maxdepth: 2
-
    graphistry.layout.ring
-
-Sugiyama
---------
-.. toctree::
-   :maxdepth: 1
-
    graphistry.layout.sugiyama
    graphistry.layout.utils
 
-Module contents
----------------
 
-.. automodule:: graphistry.layout
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
+Layout plugins: igraph, graphviz, and more
+-------------------------------------------
+
+Several plugins provide a large variety of additional layouts:
+
+* :ref:`cugraph` : GPU-accelerated FA2, a naive version of Graphistry's layout engine
+* :ref:`graphviz`: Especially strong at tree and hierarchical data diagramming such as the dot engine
+* :ref:`igraph` : A variety of layouts, including Sugiyama, Fruchterman-Reingold, and Kamada-Kawai
+* NetworkX: A variety of layouts

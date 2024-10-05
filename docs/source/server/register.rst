@@ -1,7 +1,9 @@
-Logging in to Graphistry servers
-================================
+API authentication to Graphistry servers
+========================================
 
-`graphistry.register()` is the global method used to initialize and configure your Graphistry client. It sets up your API credentials, specifies the server to connect to, and configures authentication settings. This function should be called before making any Graphistry API calls that use the server such as `.plot()`.
+`graphistry.register()` is the global method to authenticate your Graphistry client. It sets up your API credentials, specifies the server to connect to, and configures authentication settings. This function should be called before making any Graphistry API calls that use the server such as `.plot()`.
+
+Underneath, it manages use of JWT session tokens over the Graphistry REST API. Likewise, it streamlines using advanced optional modes such as SSO.
 
 Basic Usage
 -----------
@@ -70,17 +72,20 @@ Authentication Methods
 `graphistry.register()` supports several authentication methods:
 
 1. **Username & Password**:
-   .. code-block:: python
+
+    .. code-block:: python
 
         graphistry.register(api=3, username="my_username", password="my_password")
 
 2. **Personal Key ID & Secret** (for scripts or automation):
-   .. code-block:: python
+
+    .. code-block:: python
 
         graphistry.register(api=3, personal_key_id="my_key_id", personal_key_secret="my_key_secret")
 
 3. **Single Sign-On (SSO)** (for enterprise users):
-   .. code-block:: python
+
+    .. code-block:: python
 
         graphistry.register(api=3, idp_name="my_idp_name", sso_opt_into_type="browser")
 

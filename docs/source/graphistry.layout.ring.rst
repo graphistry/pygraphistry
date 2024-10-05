@@ -1,5 +1,5 @@
-graphistry.layout.ring package
-==================================
+Ring Layouts: Categorical, Continuous, Time
+===========================================
 
 .. automodule:: graphistry.layout.ring.categorical
    :members:

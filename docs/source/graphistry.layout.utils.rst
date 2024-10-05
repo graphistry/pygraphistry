@@ -1,4 +1,4 @@
-graphistry.layout.utils package
+Utils
 ===============================
 
 .. toctree:: 
