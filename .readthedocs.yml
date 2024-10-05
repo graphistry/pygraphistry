@@ -15,6 +15,8 @@ build:
     python: "3.8"
   apt_packages:
     - pandoc       # Install Pandoc using apt
+  commands:
+    - ln -s ../../demos docs/source/demos
 
 # Optionally build your docs in additional formats such as PDF
 formats:
@@ -28,7 +30,3 @@ python:
       path: .
       extra_requirements:
         - dev
-
-build:
-  commands:
-    - ln -s ../../demos docs/source/demos
