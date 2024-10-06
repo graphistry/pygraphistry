@@ -21,7 +21,7 @@ build:
     - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
     # pdf
     - sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
-    - (cd $READTHEDOCS_OUTPUT/latex && pdflatex yourprojectname.tex)
+    - (cd $READTHEDOCS_OUTPUT/latex && pdflatex PyGraphistry.tex)
 
 #for nav links?
 formats:
