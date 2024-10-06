@@ -22,6 +22,7 @@ build:
 
     - echo "Files in EPUB output directory before cleanup:" && find $READTHEDOCS_OUTPUT/epub
     - find $READTHEDOCS_OUTPUT/epub -type f ! -name '*.epub' -delete
+    - find $READTHEDOCS_OUTPUT/epub -type d -exec rm -r {} +
     - echo "Files in EPUB output directory after cleanup:" && find $READTHEDOCS_OUTPUT/epub
 
     # pdf
