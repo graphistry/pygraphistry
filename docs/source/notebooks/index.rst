@@ -1,11 +1,13 @@
-Tutorial Notebooks
-==================
+Notebook Tutorials
+==========================
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
-   ../demos/for_analysis.ipynb
-
-   ../demos/for_developers.ipynb
-
-   ../demos/upload_csv_miniapp.ipynb
+   intro
+   visualization
+   gfql
+   gpu
+   ai
+   plugins.connectors
+   plugins.compute

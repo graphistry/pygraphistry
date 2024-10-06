@@ -6,11 +6,12 @@ Layout Settings & Visualization Embedding
 This guide shows how to embed and configure Graphistry visualizations using the PyGraphistry Python API. For users interested in using URL parameters for embedding in HTML, refer to the external documentation.
 
 Using PyGraphistry for Customization
-====================================
+-------------------------------------
 
 You can use the PyGraphistry API to programmatically configure visualizations. Below are some examples of how to use the `g.settings` and `g.addStyle` methods to customize visualizations.
 
-### Scene Settings
+Scene Settings
+~~~~~~~~~~~~~~~
 
 Use `g.scene_settings()` to modify the appearance of the graph, including menus, node sizes, and edge opacity:
 
@@ -28,7 +29,8 @@ Use `g.scene_settings()` to modify the appearance of the graph, including menus,
        point_opacity=0.9
    ).plot()
 
-### Styling the Background and Foreground
+Styling the Background and Foreground
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With `g.addStyle()`, you can configure background and foreground styles, including colors, gradients, and images:
 
@@ -54,7 +56,8 @@ With `g.addStyle()`, you can configure background and foreground styles, includi
    # Apply blend mode for the foreground
    g.addStyle(fg={'blendMode': 'color-burn'})
 
-### Page and Logo Settings
+Page and Logo Settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Customize the page title, favicon, and logo using `g.addStyle()`:
 
@@ -77,7 +80,7 @@ Customize the page title, favicon, and logo using `g.addStyle()`:
 For more advanced Python configuration options, refer to the [PyGraphistry API documentation](https://hub.graphistry.com/docs).
 
 HTML/URL-based Configuration
-============================
+--------------------------------
 
 For users interested in configuring Graphistry visualizations through HTML and URL parameters, please refer to the official documentation:
 
@@ -86,7 +89,7 @@ For users interested in configuring Graphistry visualizations through HTML and U
 This guide covers how to embed Graphistry visualizations in web pages and configure visualizations via URL parameters like background color, layout settings, and more.
 
 IFrame CSS Style Tips
----------------------
+~~~~~~~~~~~~~~~~~~~~~~~
 
 When embedding visualizations in HTML, you can customize the appearance using CSS. Below are some common style tips for `<iframe>` elements:
 
