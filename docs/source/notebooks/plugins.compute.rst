@@ -1,4 +1,4 @@
-Plugins - Compute
+Plugins - Compute & Layout
 =============================
 
 .. toctree::
