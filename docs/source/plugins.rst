@@ -11,6 +11,7 @@ Contact for assistance for additional plugins, including but not limited to:
 
 * Databases:
 
+    * ArangoDB
     * AWS Neptune
     * Cassandra
     * Cosmos
@@ -27,6 +28,7 @@ Contact for assistance for additional plugins, including but not limited to:
     * Spark
     * SQL (ODBC): Postgres, BigQuery, Redshift, Snowflake, SQL Server, Athena, etc.
     * Tigergraph
+    * Trovares
 
 * Compute engines:
 

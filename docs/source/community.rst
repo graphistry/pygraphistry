@@ -3,6 +3,7 @@
 Join the Community
 ==================
 
+The Graphistry team is active in a few places, so come join us:
 
 - `Blog <https://www.graphistry.com/blog>`_
 - `Slack Channel <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`_

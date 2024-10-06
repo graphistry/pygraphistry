@@ -1,7 +1,9 @@
 .. _support:
 
-Additional Support
+Support
 =====================
+
+Stuck or thinking about a new project? Let's chat!
 
 - `Get Started <https://www.graphistry.com/get-started>`_
 - `Blog <https://www.graphistry.com/blog>`_
