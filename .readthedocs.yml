@@ -12,17 +12,21 @@ build:
   apt_packages:
     - pandoc
   commands:
+
+    # setup
     - pip install ".[docs]"
     - ln -s ../../demos docs/source/demos
+
     # html
     - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
     - (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
+
     # epub
     - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
 
     - echo "Files in EPUB output directory before cleanup:" && find $READTHEDOCS_OUTPUT/epub
-    - find $READTHEDOCS_OUTPUT/epub -type f ! -name '*.epub' -delete
-    - find $READTHEDOCS_OUTPUT/epub -type d -prune -exec rm -rf {} +
+    - find $READTHEDOCS_OUTPUT/epub -mindepth 1 -type f ! -name '*.epub' -delete
+    - find $READTHEDOCS_OUTPUT/epub -mindepth 1 -type d -exec rm -rf {} +
     - echo "Files in EPUB output directory after cleanup:" && find $READTHEDOCS_OUTPUT/epub
 
     # pdf
