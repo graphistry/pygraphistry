@@ -1,9 +1,6 @@
 GFQL Predicates
 ===============
 
-Compute Predicates
-==================
-
 .. automodule:: graphistry.compute.predicates
    :members:
    :undoc-members:
