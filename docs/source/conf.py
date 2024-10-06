@@ -203,6 +203,7 @@ nitpick_ignore = [
     ('py:class', 'Y'),
     ('py:class', 'C'),
 
+    ('py:class', 'abc.ABC'),
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
