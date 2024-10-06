@@ -19,6 +19,11 @@ build:
     - (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
     # epub
     - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
+
+    - echo "Files in EPUB output directory before cleanup:" && find $READTHEDOCS_OUTPUT/epub
+    - find $READTHEDOCS_OUTPUT/epub -type f ! -name '*.epub' -delete
+    - echo "Files in EPUB output directory after cleanup:" && find $READTHEDOCS_OUTPUT/epub
+
     # pdf
     - sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
     - (cd $READTHEDOCS_OUTPUT/latex && pdflatex PyGraphistry.tex)
