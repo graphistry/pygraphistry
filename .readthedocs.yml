@@ -11,17 +11,17 @@ build:
     python: "3.12"
   apt_packages:
     - pandoc
-  commands: |
-    pip install ".[docs]"
-    ln -s ../../demos docs/source/demos
-
-    sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
-    (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
-
-    sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
-
-    sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
-    (cd $READTHEDOCS_OUTPUT/latex && pdflatex yourprojectname.tex)
+  commands:
+    - pip install ".[docs]"
+    - ln -s ../../demos docs/source/demos
+    # html
+    - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
+    - (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
+    # epub
+    - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
+    # pdf
+    - sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
+    - (cd $READTHEDOCS_OUTPUT/latex && pdflatex yourprojectname.tex)
 
 #for nav links?
 formats:
@@ -34,4 +34,4 @@ python:
     - method: pip
       path: .
       extra_requirements:
-        - dev
+        - docs
