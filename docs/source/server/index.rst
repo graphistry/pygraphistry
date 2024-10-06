@@ -1,4 +1,4 @@
-Login and Sharing
+Login and Share
 =================
 
 PyGraphistry streamlines working with optional Graphistry server capabilities such as GPU-accelerated visual analytics, sharing visualizations, simplifying graph pipelines, GFQL compute endpoints, and sharing GPU resources.

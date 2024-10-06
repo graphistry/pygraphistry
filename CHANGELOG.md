@@ -7,6 +7,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.7 - 2024-10-06]
+
+### Docs
+
+* RTD: Added notebook tutorials 
+* RTD: Added various guides
+* RTD: Added cross-references
+* RTD: Cleaner navigation
+
+### Infra
+
+* Docs: Udated dependencies - Sphinx 8, Python 12, and various related
+* Docs: Added nbsphinx
+
 ## [0.34.6 - 2024-10-04]
 
 ### Added

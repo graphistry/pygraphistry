@@ -1,7 +1,7 @@
-Installation Guide
+Install
 ==================
 
-Welcome to the PyGraphistry Installation Guide. Choose the section that best fits your needs:
+Welcome to the PyGraphistry installation guide. Choose the section that best fits your needs:
 
 .. toctree::
    :maxdepth: 1
