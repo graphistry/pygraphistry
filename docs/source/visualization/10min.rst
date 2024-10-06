@@ -190,13 +190,22 @@ Once you're ready to visualize, use `.plot()` to render:
 
 .. _extra:
 
-Additional Resources
+
+Next Steps
+----------
+
+- `10 Minutes to GFQL <10min-gfql>`_: Use GFQL to query and manipulate your graph data before visualization.
+- `Layout guide <layout-guide>`_: Explore different layouts for your visualizations.
+- `Plugins <plugins>`_: Discover more ways to connect to your data and work with your favorite tools. 
+- `Layout catalog <layout-catalog>`_: Dive deeper into the layout options available in PyGraphistry.
+- `PyGraphistry API Reference <source/api/index.rst>`_
+
+External Resources
 --------------------
 
 To dive deeper into graph analytics and visualizations, check out the following resources:
 
 - `Graphistry Get Started <https://www.graphistry.com/get-started>`__
-- `PyGraphistry API Reference <source/api/index.rst>`__
 - `GraphistryJS Clients: NodeJS, React, & Vanilla <https://github.com/graphistry/graphistry-js>`__
 - `Graphistry GitHub <https://github.com/graphistry/pygraphistry>`__
 - `Slack Community <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`__

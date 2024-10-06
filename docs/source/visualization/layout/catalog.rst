@@ -1,3 +1,5 @@
+.. _layout-catalog:
+
 PyGraphistry Layout Catalog
 ============================
 

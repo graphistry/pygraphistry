@@ -1,3 +1,5 @@
+.. _10min-gfql:
+
 10 Minutes to GFQL
 ==================
 

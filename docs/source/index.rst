@@ -41,11 +41,12 @@ PyGraphistry: Explore Relationships
 
 PyGraphistry is a Python visual graph AI library to extract, transform, query, analyze, model, and visualize big graphs. It includes several notable pieces:
 
-* **Graphistry Client**: Convenience layer for using the optional Graphistry GPU server for accelerated compute and visualization
+* **`Graphistry Visualization Client <10min-viz>`_**: Convenience layer for using the optional Graphistry GPU server for accelerated compute and visualization
 * **Dataframe-native graph manipulation**: Optimized dataframe-native tabular and graph methods for loading, transforming, analyzing, and visualizing data as graphs
-* **GFQL**: Home for the GFQL graph dataframe-native query language, and with optional GPU support
+* **`GFQL (new!) <10min-gfql>`_ queries**: Home for the GFQL graph dataframe-native query language, and with optional GPU support
 * **Graphistry[AI]**: Optional methods and integrations for graph autoML, including automatic feature engineering, UMAP, and graph neural networks
-* **Plugins**: Optimized and streamlined integrations for enriching your workflows - query databases like Neo4j and Splunk, compute systems like Nvidia RAPIDS, and enrich data with library calls to graph engines like igraph
+* **`Plugins <plugins>`_**: Optimized and streamlined integrations for enriching your workflows - query databases like Neo4j and Splunk, compute systems like Nvidia RAPIDS, and enrich data with library calls to graph engines like igraph
+* **`Louie.AI (new!) <https://www.louie.ai>`_**: Use generative AI to talk to your data, including for GFQL queries and Graphistry visualizations
 
 Combined, PyGraphistry reduces your time to graph for going from raw data to visualizations to AI insights in a few lines of code.
 
@@ -67,12 +68,19 @@ The API reference documentation here provides useful packages, modules, and comm
 
 For self-hosting and access to a free API key, refer to our Graphistry `Hub <https://hub.graphistry.com/>`_.
 
-
-
 Quickstart
 ----------
 
-Here's a representative example of how to get started:
+1. Install:
+
+.. code-block:: bash
+
+    # Install from PyPI
+    pip install graphistry
+
+    # Optionally, get a free GPU account or self-hosted server at https://graphistry.com/get-started
+
+2. Start graphing!
 
 .. code-block:: python
 
@@ -108,19 +116,6 @@ Here's a representative example of how to get started:
     nearest_neighbors_df = umap_g.chain([ n({'id': 'A'}), e(hops=2), n()])._nodes
 
 
-Support and Community
----------------------
-
-Looking for help? Check out our resources and community:
-
-- **Get Started**: `www.graphistry.com/get-started <https://www.graphistry.com/get-started>`__
-- **Louie AI**: `www.louie.ai <https://www.louie.ai>`__
-- **Blog**: `graphistry.com/blog <https://www.graphistry.com/blog>`__
-- **Slack Channel**: `Graphistry Community Slack <https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g>`__
-- **Zendesk Support**: `Graphistry Support <https://graphistry.zendesk.com/hc/en-us>`__
-- **GitHub Repository**: `PyGraphistry on GitHub <https://github.com/graphistry/pygraphistry>`__
-- **Twitter**: `@graphistry <https://twitter.com/graphistry>`__
-
 Articles
 ==================
 
@@ -135,11 +130,15 @@ We recommend reading the Graphistry blog and github demos. Some useful articles 
 Indices and tables
 ==================
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+.. toctree::
+   :maxdepth: 3
+   :hidden:
+
+   graphistry
 
 .. toctree::
    :maxdepth: 3
 
-   graphistry
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

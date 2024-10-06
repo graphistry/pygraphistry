@@ -3,9 +3,9 @@ Plugins
 
 See API references for:
 
-* `cugraph <cugraph>`: GPU-accelerated graph analytics
-* `graphviz <graphviz>`: CPU graph analytics and layouts
-* `igraph <igraph>`: CPU graph analytics and layouts
+* `cugraph <cugraph>`_: GPU-accelerated graph analytics
+* `graphviz <graphviz>`_: CPU graph analytics and layouts
+* `igraph <igraph>`_: CPU graph analytics and layouts
 
 Contact for assistance for additional plugins, including but not limited to:
 

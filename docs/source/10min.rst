@@ -291,18 +291,17 @@ Alternatively, you can generate a URL to view the visualization in a separate br
 Next Steps
 ----------
 
-- **Graph Queries with GFQL**: Use GFQL to query and manipulate your graph data before visualization.
-- **Computational Enrichments**: Integrate graph algorithms like PageRank or community detection to enrich your data.
-- **Connectors**: Leverage connectors to import data from various sources like databases, APIs, or logs.
-- **Data Loading Best Practices**: Utilize Parquet or Arrow formats for efficient data loading.
-- **Explore Layouts and Encodings**: Experiment with different layouts and visual encodings to gain deeper insights.
+- `10 Minutes to Graphistry Visualization <10min-viz>`_: Learn how to create more advanced visualizations.
+- `10 Minutes to GFQL <10min-gfql>`_: Use GFQL to query and manipulate your graph data before visualization.
+- `Layout guide <layout-guide>`_: Explore different layouts for your visualizations.
+- `Plugins <plugins>`_: Discover more ways to connect to your data and work with your favorite tools. 
+- `PyGraphistry API Reference <source/api/index.rst>`_
 
-Resources
----------
-
-- **GFQL Documentation**: Learn how to perform advanced graph queries.
-- **PyGraphistry API Reference**: Explore the full capabilities of PyGraphistry.
-- **Graphistry Connectors**: Discover how to load data from different sources.
-- **GraphistryJS Documentation**: Learn how to embed visualizations in web applications.
+External Resources
+------------------
+- `Graphistry UI Guide <https://hub.graphistry.com/docs/ui/index/>`_
+- `GraphistryJS <https://github.com/graphistry/graphistry-js>`_: Node, React, and vanilla JS clients
+- `Graphistry REST API <https://hub.graphistry.com/docs/api/>`_: Work from any language
+- `Graphistry URL settings <https://hub.graphistry.com/docs/api/1/rest/url/#urloptions>`_: Control visualizations via URL parameters`
 
 Happy graphing!
