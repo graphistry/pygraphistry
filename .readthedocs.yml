@@ -11,12 +11,23 @@ build:
     python: "3.12"
   apt_packages:
     - pandoc
-  commands:
-    - pip install ".[docs]"
-    - ln -s ../../demos docs/source/demos
-    - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
-    - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
-    - sphinx-build -b htmlzip docs/source $READTHEDOCS_OUTPUT/htmlzip
+  commands: |
+    pip install ".[docs]"
+    ln -s ../../demos docs/source/demos
+
+    sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
+    (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
+
+    sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
+
+    sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
+    (cd $READTHEDOCS_OUTPUT/latex && pdflatex yourprojectname.tex)
+
+#for nav links?
+formats:
+  - pdf
+  - epub
+  - htmlzip
 
 python:
   install:
