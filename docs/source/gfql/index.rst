@@ -1,9 +1,32 @@
-GFQL: GraphFrame Query Language
-===============================
+GFQL: The Dataframe-Native Graph Query Language
+===============================================
 
 Welcome to **GFQL**, the first dataframe-native graph query language with GPU support. GFQL is part of the **PyGraphistry** ecosystem and is designed to make graph analytics easier and faster without the need for external complex infrastructure such as databases. Whether you're working with **CPUs** or leveraging **GPU acceleration** for massive datasets, GFQL integrates seamlessly with your data science workflows through a simple `pip install graphistry`.
 
 **GFQL bridges the gap** between traditional storage-tier graph databases and the modern compute tier, allowing you to perform your favorite high-performance graph queries directly on your dataframes. It's built to be familiar to users of Cypher, other graph query languages, and popular dataframe libraries. By being native to accelerated Python datascience dataframe technologies such as Apache Arrow, Numpy, Nvidia RAPIDS, and Graphistry, it can already do workloads like 100M+ edges in interactive time on a single machine.
+
+
+See also:
+
+.. toctree::
+   :maxdepth: 1
+
+   about
+   translate
+   quick
+   predicates/quick
+
+
+Why GFQL?
+---------
+
+GFQL addresses a critical gap in the data community by providing an in-process graph query language that operates at the compute tier. This means you can:
+
+- **Graph search**: Easily and efficiently query and filter nodes and edges using a familiar syntax.
+- **Avoid External Infrastructure**: Avoid calls to external infrastructures and eliminate the need for extra databases.
+- **Leverage Existing Workflows**: Integrate with your current Python data science tools and libraries.
+- **Achieve High Performance**: Utilize GPU acceleration for massive speedups in graph processing.
+- **Simplify Graph Analytics**: Write expressive and concise graph queries in Python.
 
 Key Features
 ------------
@@ -14,26 +37,10 @@ Key Features
 - **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
 - **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
 
-Why GFQL?
----------
-
-GFQL addresses a critical gap in the data community by providing an in-process graph query language that operates at the compute tier. This means you can:
-
-- **Avoid External Infrastructure**: No need to manage external graph databases or additional servers.
-- **Leverage Existing Workflows**: Integrate with your current Python data science tools and libraries.
-- **Achieve High Performance**: Utilize GPU acceleration for massive speedups in graph processing.
-- **Simplify Graph Analytics**: Write expressive and concise graph queries in Python.
-
-Getting Started
----------------
-
-To get started with GFQL, check out our **10 Minutes to GFQL** guide, which provides a quick introduction to the core concepts and capabilities:
-
-- :doc:`about`
-
-
-Installation
-------------
+Installation Guide
+------------------
+.. toctree::
+   :hidden:
 
 GFQL is built into pygraphistry:
 
@@ -43,13 +50,12 @@ GFQL is built into pygraphistry:
 
 Ensure you have `pandas` or `cudf` installed, depending on whether you want to run on CPU or GPU.
 
+For more information, see :doc:`../install/index` .
 
-Understanding GFQL
-------------------
+Key GFQL Concepts
+-------------------
 
 GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
-
-**Basic Concepts**
 
 - **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
 - **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
@@ -57,8 +63,8 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 
-Examples
---------
+Quick Examples
+--------------
 
 **Find Nodes of a Certain Type**
 
@@ -167,8 +173,8 @@ Example: Explicitly set the engine to ensure GPU execution.
 
     g_result = g_gpu.chain([ ... ], engine='cudf')
 
-Visualizing Your Graphs
------------------------
+Visualizing GFQL Results
+------------------------
 
 GFQL integrates with PyGraphistry, allowing you to visualize your graphs with GPU-accelerated rendering.
 
@@ -187,8 +193,7 @@ Example: Visualize high PageRank nodes.
     # Plot the subgraph
     g_high_pagerank.plot()
 
-Learn More
-----------
+.. rubric:: Learn More
 
 Explore the following sections to dive deeper into GFQL's capabilities:
 
@@ -196,43 +201,28 @@ Explore the following sections to dive deeper into GFQL's capabilities:
 
   - :doc:`about`
 
+- **Hop & Chain Quick Reference**: Learn how to chain multiple operations to build complex queries.
+
+  - :doc:`quick`
+
+- **Predicates Quick Reference**: Apply advanced filtering using predicates.
+
+  - :doc:`predicates/quick`
+
+GFQL APIs
+--------------------
+
+Access detailed documentation of GFQL's API:
+
 - **Chain Operations**: Learn how to chain multiple operations to build complex queries.
 
-  - :doc:`chain`
+  - :doc:`../api/gfql/chain`
 
 - **Hop Functions**: Understand how to traverse the graph using hop functions.
 
-  - :doc:`hop`
+  - :doc:`../api/gfql/hop`
 
 - **Predicates**: Apply advanced filtering using predicates.
 
-  - :doc:`predicates/index`
+  - :doc:`../api/gfql/predicates`
 
-Additional Resources
---------------------
-
-- **API Reference**: Access detailed documentation of GFQL's API to leverage its full potential.
-
-Community and Support
----------------------
-
-- **Join the Community**: Connect with other GFQL users and developers in our Slack channel.
-- **Get Support**: For enterprise support and consultation, feel free to reach out to our team.
-
----
-
-By integrating directly with your existing data science workflows, GFQL empowers you to perform high-performance graph analytics and visualization without the overhead of managing external databases or infrastructure.
-
-Start exploring GFQL today and unlock new possibilities in graph analytics!
-
-
-.. toctree::
-   :maxdepth: 2
-
-   about
-   translate
-   quick
-   predicates/quick
-   chain
-   hop
-   predicates/index

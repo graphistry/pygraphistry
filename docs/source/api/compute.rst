@@ -1,8 +1,8 @@
+Compute API Reference
+=====================
+
 ComputeMixin module
-------------------------------------------------
-
-Graphistry objects support a variety of compute methods
-
+-------------------
 .. automodule:: graphistry.compute.ComputeMixin
    :members:
    :undoc-members:

@@ -321,24 +321,24 @@ GFQL Functions and Equivalents
 
 **Node Matching**
 
-- **SQL**: `SELECT * FROM nodes WHERE ...`
-- **Pandas**: `nodes_df[ condition ]`
-- **Cypher**: `MATCH (n {property: value})`
-- **GFQL**: `n({ "property": value })`
+- **SQL**: ``SELECT * FROM nodes WHERE ...``
+- **Pandas**: ``nodes_df[ condition ]``
+- **Cypher**: ``MATCH (n {property: value})``
+- **GFQL**: ``n({ "property": value })``
 
 **Edge Matching**
 
-- **SQL**: `SELECT * FROM edges WHERE ...`
-- **Pandas**: `edges_df[ condition ]`
-- **Cypher**: `MATCH ()-[e {property: value}]->()`
-- **GFQL**: `e_forward({ "property": value })` or `e_reverse({ "property": value })`
+- **SQL**: ``SELECT * FROM edges WHERE ...``
+- **Pandas**: ``edges_df[ condition ]``
+- **Cypher**: ``MATCH ()-[e {property: value}]->()``
+- **GFQL**: ``e_forward({ "property": value })`` or ``e_reverse({ "property": value })`` or ``e({ "property": value })``
 
 **Traversal**
 
-- **SQL**: Complex joins or recursive queries.
-- **Pandas**: Multiple merges; not efficient for deep traversals.
-- **Cypher**: Patterns like `()-[]->()` for traversal.
-- **GFQL**: Chains of `n()`, `e_forward()`, `e_reverse()` functions.
+- **SQL**: Complex joins or recursive queries
+- **Pandas**: Multiple merges; not efficient for deep traversals
+- **Cypher**: Patterns like ``()-[]->()`` for traversal
+- **GFQL**: Chains of ``n()``, ``e_forward()``, ``e_reverse()``, and ``e()`` functions
 
 Tips for Users
 --------------

@@ -3,13 +3,10 @@
    
    10min
    install/index
-   server/index   
-   graphistry.layout   
+   server/index
+   visualization/index
    gfql/index
-   ai/index
-   graphistry.compute
-   plugins/index
-   graphistry.utils
+   plugins
    support
    notebooks/index
-   api
+   api/index

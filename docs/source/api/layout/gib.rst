@@ -1,3 +1,5 @@
+.. _gib-api:
+
 Group-in-a-Box Layout
 =====================
 

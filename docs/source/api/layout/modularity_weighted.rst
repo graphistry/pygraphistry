@@ -1,3 +1,5 @@
+.. _mod-layout-api:
+
 Modularity Weighted Layout
 =============================================
 

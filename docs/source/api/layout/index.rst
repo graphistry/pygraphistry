@@ -1,5 +1,7 @@
-Layout
-======
+.. _pyg-layout-api:
+
+Layouts
+=======
 
 Native layout engines within Graphistry.
 
@@ -10,11 +12,11 @@ We recommend using the various plugins for additional layouts, such as for tree 
    :maxdepth: 3
    :caption: Contents:
 
-   graphistry.layout.gib
-   graphistry.layout.modularity_weighted
-   graphistry.layout.ring
-   graphistry.layout.sugiyama
-   graphistry.layout.utils
+   gib
+   modularity_weighted
+   ring
+   sugiyama
+   legacy_utils
 
 
 Layout plugins: igraph, graphviz, and more
