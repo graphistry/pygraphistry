@@ -3,7 +3,7 @@ set -ex
 
 mkdir -p build
 
-RUN_INSTALLS="(apt update && apt install -y pandoc && cp -r /data /pygraphistry && cd /pygraphistry && python -m pip install -e .[docs,build] ) && ln -s /data/demos /doc/docs/source/demos"
+RUN_INSTALLS="(apt update && apt install -y pandoc && cp -r /data /pygraphistry && cd /pygraphistry && python -m pip install -e .[docs,build] ) && ln -s /data/demos /data/docs/source/demos"
 RUN_SPHINX="cd /data/docs && ./build.sh || ( echo 'Printing /tmp/sphinx*' && ( cat /tmp/sphinx* || echo no err_file ) && exit 1 )"
 
 #TODO make a docker layer so we can cache RUN_INSTALLS
