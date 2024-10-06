@@ -1,11 +1,9 @@
 .. toctree::
    :maxdepth: 2
    
-
    10min
-   install
+   install/index
    server/index   
-   visualization/index
    graphistry.layout   
    gfql/index
    ai/index
@@ -13,3 +11,5 @@
    plugins/index
    graphistry.utils
    support
+   notebooks/index
+   api

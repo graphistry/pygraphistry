@@ -51,11 +51,15 @@ extensions = [
 # TODO guarantee most notebooks are executable (=> maintained)
 # and switch to opt'ing out the few that are hard, e.g., DB deps
 nbsphinx_execute = 'never'
-nbsphinx_allow_errors = True  # Allow errors in notebooks
+nbsphinx_allow_errors = False  # Allow errors in notebooks
 
 autodoc_typehints = "description"
 always_document_param_types = True
 typehints_document_rtype = True
+
+#suppress_warnings = [
+#    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
+#]
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
