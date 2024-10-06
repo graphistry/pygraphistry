@@ -14,7 +14,7 @@ This page provides an overview of the main layouts available in PyGraphistry, in
 .. _pygraphistry-plugin:
 
 PyGraphistry Plugins
-====================
+---------------------
 
 PyGraphistry supports GPU-accelerated layouts, including ForceAtlas2, modularity-weighted algorithms, and hierarchical ring layouts for large-scale and specialized structures. (`API reference on Graphistry layouts <pyg-layout-api>`_)
 
@@ -37,7 +37,7 @@ Visit the `PyGraphistry visualization tutorial <_10min-viz>`_.
 .. _cugraph-plugin:
 
 cuGraph Plugin
-==============
+---------------
 
 cuGraph provides one GPU-optimized graph layout for scaling large datasets, making it a candidate for massive graphs. (`API reference on cuGraph <cugraph>`_)
 
@@ -52,7 +52,7 @@ cuGraph provides one GPU-optimized graph layout for scaling large datasets, maki
 .. _graphviz-plugin:
 
 Graphviz Plugin
-===============
+----------------
 
 Graphviz specializes in directed and hierarchical layouts, useful for flowcharts, dependency trees, and acyclic graphs (DAGs). (`API reference on graphviz layouts <graphviz>`_)
 
@@ -87,7 +87,7 @@ Visit the `API reference on graphviz page <graphviz>`_ for more examples.
 .. _igraph-plugin:
 
 igraph Plugin
-=============
+---------------
 
 The igraph plugin offers various layouts forvarious graph types. (`API reference on igraph <igraph>`_)
 
@@ -129,7 +129,7 @@ Visit the `API reference on graphviz <ref/igraph>`_ for more examples.
 .. _custom-layouts:
 
 Custom Layouts
-==============
+---------------
 
 Users can manually compute layouts from external sources or post-process the results. This allows flexibility in integrating custom embedding algorithms or other specialized layouts into PyGraphistry. (`API reference <pyg-layout-api>`_)
 
@@ -137,7 +137,7 @@ Users can manually compute layouts from external sources or post-process the res
 Manually apply a layout and visualize using `PyGraphistry's custom layout options <ref/custom-layout>`_.
 
 Further reading
-===============
+----------------
 
 
 - **`PyGraphistry API Reference <pyg-layout-api>`_**: GPU-accelerated layouts such as ForceAtlas2, modularity-weighted, hierarchical rings, UMAP, and group-in-a-box.
