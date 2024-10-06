@@ -27,14 +27,16 @@ docker run \
     --entrypoint=/bin/bash \
     --rm -it \
     -e USER_ID=$UID \
+    -e PIP_CACHE_DIR=/cache/pip \
     -v $(pwd)/..:/doc \
-    ddidier/sphinx-doc:3.2.1-1 
+    -v ~/.cache/pip:/cache/pip \
+    sphinxdoc/sphinx:8.0.2
 ```
 
 2. Install deps in a sandbox:
 
 ```python
-cp -r /doc /pygraphistry && ( cd /pygraphistry && python -m pip install -e .[docs] )
+cp -r /doc /pygraphistry && ln -s /pygraphistry/demos /doc/docs/source/demos && apt update && apt install -y git pandoc && ( cd /pygraphistry && python -m pip install -e .[docs] )
 ```
 
 This prevents your host env from getting littered
