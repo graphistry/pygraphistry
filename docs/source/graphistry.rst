@@ -7,6 +7,9 @@
    visualization/index
    gfql/index
    plugins
-   support
    notebooks/index
    api/index
+   community
+   support
+   ecosystem
+

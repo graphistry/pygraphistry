@@ -142,13 +142,19 @@ For details on runtime settings and customization, explore the :ref:`Layout Sett
 Further Reading
 ---------------
 
+Layout in general:
+
+- :ref:`Layout Catalog <layout-catalog>`
+- :ref:`Layout Settings <layout-settings>`
+
+Individaul layouts and plugins:
+
 - :ref:`Ring Layout API <ring-api>`
 - :ref:`GIB Layout API <gib-api>`
 - :ref:`Modularity Layout API <mod-layout-api>`
 - :ref:`GraphViz Plugin <graphviz-plugin>`
 - :ref:`cuGraph Plugin <cugraph-plugin>`
 - :ref:`iGraph Plugin <igraph-plugin>`
-- :ref:`Layout Settings <layout-settings>`
 
 
 
