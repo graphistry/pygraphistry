@@ -18,9 +18,12 @@ Basic Usage
 Node Matchers
 -------------
 
-**`n(filter_dict=None, name=None, query=None)`**
+.. code-block:: python
+
+  n(filter_dict=None, name=None, query=None)
 
 - Filter nodes based on attributes.
+
 - **Parameters**:
   - `filter_dict`: `{attribute: value}` or `{attribute: condition_function}`
   - `name`: Optional label; adds a boolean column in the result.
@@ -49,9 +52,17 @@ Node Matchers
 Edge Matchers
 -------------
 
-**`e_forward(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)`**
+.. code-block:: python
+
+  e_forward(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_reverse(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_undirected(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  
+  # alias for e_undirected
+  e(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
 
 - Traverse edges in the forward direction.
+
 - **Parameters**:
   - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
   - `edge_query`: Custom query string for edge attributes.
@@ -106,18 +117,22 @@ Edge Matchers
 - **`e_reverse`**: Same as `e_forward`, but traverses in reverse.
 - **`e_undirected`**: Traverses edges regardless of direction.
 
-Utility Functions
------------------
+Predicates
+-----------
 
-**`is_in(values)`**
+**`predicate(values)`**
 
-- Matches attribute values within a list.
+- Matches using a predicate on entity attributes.
+
+See :doc:`predicates/quick` for more information.
 
 **Example:**
 
 - Match nodes where `category` is `'A'`, `'B'`, or `'C'`:
 
   .. code-block:: python
+
+      from graphistry import n, is_in
 
       n({"category": is_in(["A", "B", "C"])})
 

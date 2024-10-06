@@ -1,5 +1,5 @@
-Module contents
-===============
+Utilities
+=================
 
 .. automodule:: graphistry.utils
    :members:
@@ -45,9 +45,8 @@ Versioneer
 .. toctree::
    :hidden:
 
-   graphistry.compute.predicates
-   graphistry.plugins
-   graphistry.plugins_types
-   graphistry.validate
    modules
+   plugins
+   plugins_types
+   validate
    versioneer

@@ -1,4 +1,6 @@
-Support and Community
+.. _support:
+
+Community and Support
 =====================
 
 - Get Started: https://www.graphistry.com/get-started

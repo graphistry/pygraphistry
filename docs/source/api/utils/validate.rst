@@ -1,4 +1,5 @@
-:orphan:
+.. meta::
+   :orphan:
 
 .. ^ FIXME
 

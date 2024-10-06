@@ -1,3 +1,5 @@
+.. _ring-api:
+
 Ring Layouts: Categorical, Continuous, Time
 ===========================================
 
