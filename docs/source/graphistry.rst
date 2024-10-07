@@ -1,67 +1,15 @@
-10 Minutes to PyGraphistry
-==========================
 .. toctree::
    :maxdepth: 2
-
-   about
-
-Login and Sharing
-=================
-.. toctree::
-   :maxdepth: 2
-
+   
+   10min
+   install/index
    server/index
-
-
-Visualization
-=============
-.. toctree::
-   :maxdepth: 3
-   
    visualization/index
-
-Layouts
-==================
-.. toctree::
-   :maxdepth: 3
-
-
-   graphistry.layout
-   
-GFQL Queries
-============
-.. toctree::
-   :maxdepth: 3
-   
    gfql/index
+   plugins
+   notebooks/index
+   api/index
+   community
+   support
+   ecosystem
 
-AI
-===
-.. toctree::
-   :maxdepth: 3
-
-   ai/index
-
-
-Compute 
-=======
-.. toctree::
-   :maxdepth: 3
-
-   graphistry.compute
-
-
-Plugins
-=======
-.. toctree::
-   :maxdepth: 3
-   
-   plugins/index
-
-
-Utilities
-==================
-.. toctree::
-   :maxdepth: 3
-
-   graphistry.utils

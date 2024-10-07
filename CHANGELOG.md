@@ -7,6 +7,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.8 - 2024-10-06]
+
+### Fix
+
+* Docs: PDF support
+* Docs: Links
+
+### Docs
+
+* More accessible theme
+
+## [0.34.7 - 2024-10-06]
+
+### Docs
+
+* RTD: Added notebook tutorials 
+* RTD: Added various guides
+* RTD: Added cross-references
+* RTD: Cleaner navigation
+
+### Infra
+
+* Python: Add Python 12 to CI and document support
+* Docs: Udated dependencies - Sphinx 8, Python 12, and various related
+* Docs: Added nbsphinx - hub url grounding, ...
+* Docs: Redo as a docker compose flow with incremental builds (docker, sphinx)
+* Docs: Updated instructions for new flow
+
+### Fix
+
+* Docs: 2024
+* Notebooks: Compatibility with nbsphinx - exactly one title heading, no uncommented `!`, correct references, ...
+
 ## [0.34.6 - 2024-10-04]
 
 ### Added

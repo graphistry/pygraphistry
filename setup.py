@@ -26,7 +26,17 @@ stubs = [
 test_workarounds = ['scikit-learn<=1.3.2']
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1', 'pygments>2.10'],
+    'docs': [
+      'docutils==0.21.2',
+      'ipython==8.28',
+      'Jinja2==3.1.4',
+      'nbsphinx==0.9.5',
+      'pygments>2.10',
+      'sphinx==8.0.2',
+      #'sphinx_autodoc_typehints==1.11.1',
+      'sphinx-copybutton==0.5.2',
+      'sphinx-book-theme==1.1.3',
+    ],
     'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
@@ -97,6 +107,8 @@ setup(
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Topic :: Internet :: Log Analysis',
         'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
@@ -110,5 +122,5 @@ setup(
         'Topic :: Software Development :: Widget Sets',
         'Topic :: System :: Distributed Computing'
     ],
-    keywords=['cugraph', 'cudf', 'dask', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Network', 'NetworkX',  'Notebook', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'Visualization', 'Torch', 'DGL', 'GNN']
+    keywords=['cugraph', 'cudf', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
 )
