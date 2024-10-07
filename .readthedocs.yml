@@ -14,14 +14,14 @@ build:
     - graphviz
     - imagemagick
     - make
-    - pandoc  # Needed as per earlier setup for document conversion
-    - texlive-xetex  # Better LaTeX Unicode support
+    - pandoc
+    - texlive-latex-base
+    - texlive-latex-recommended
+    - texlive-latex-extra
     - texlive-fonts-recommended
-    - texlive-fonts-extra
   commands:
 
     # setup
-    - apt-get install -y $(cat docs/requirements-system.txt)
     - pip install ".[docs]"
     - ln -s ../../demos docs/source/demos
 
