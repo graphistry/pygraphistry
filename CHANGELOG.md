@@ -21,6 +21,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Python: Add Python 12 to CI and document support
 * Docs: Udated dependencies - Sphinx 8, Python 12, and various related
 * Docs: Added nbsphinx - hub url grounding, ...
+* Docs: Redo as a docker compose flow with incremental builds (docker, sphinx)
+* Docs: Updated instructions for new flow
 
 ### Fix
 

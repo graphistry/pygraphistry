@@ -5,54 +5,62 @@ Uses Sphinx to extract .RST from parent .PY and converts into docs/build/ .HTML 
 ## Run
 
 ```bash
-docs $ sudo ./docker.sh
+docs $ ./ci.sh
 ```
 
-This is a shim to `build.sh`, which CI also uses
+It is volume-mounted to emit `docs/_build/html/index.html` , as well as epub and pdf versions
 
-It is volume-mounted to emit `docs/build/html/graphistry.html`
+## Architecture
 
-CI will reject documentation warnings and errors
+### Containerized sphinx and nbconvert
+
+ `ci.sh` runs `docker compose build` and then `docker compose run --rm sphinx` to build the docs
+
+  - It also volume mounts demos/ (.ipynb files) into docs/source/demos
+
+  - As part of the run, nbsphinx calls nbconvert and then sphinx to convert the .ipynb files into .rst files
+
+    - nbconvert rewrites relative graph.html urls to assume hub.graphistry.com
+
+    - We currently use the preexisting .ipynb output, but in the future should reexecute the notebooks to ensure they are up to date
+
+### Caching
+
+The setup aggressively caches for fast edit cycles:
+
+  - Standard docker layer caching
+
+  - Sphinx caching to avoid recompiling unchanged files on reruns
+
+    - docs/doctrees for tracking
+    - docs/_build for output
+
+### Error checking
+
+Sphinx in strict mode:
+
+  - Ex: .rst files that aren't included in any TOC
+
+  - Ex: broken links in .ipynb and .rst files
+
+  - Ex: verifies .ipynb follow .rst conventions like first element is `# a title` and only one of them
+
+### Output artifacts
+
+- The output is docs/_build
+
+  - epub, html, and latexpdf
+
+
+## CI
+
+CI runs `ci.sh` and checks for warnings and errors. If there are any, it will fail the build.
 
 ## Develop
 
-Sphinx has to install project dev deps, so to work more quickly:
+- Edit the `demo/` notebooks, `graphistry/` Python code, and `docs/source` .rst files
 
-1. Start a docker session:
+- Rerun `cd docs && ./ci.sh` to see the changes, with the benefit of docker & sphinx incremental builds
 
-Run from `docs/`: 
+- Check your results in `docs/_build/html/index.html` or the equivalent epub and pdf files
 
-```
-docker run \
-    --entrypoint=/bin/bash \
-    --rm -it \
-    -e USER_ID=$UID \
-    -e PIP_CACHE_DIR=/cache/pip \
-    -v $(pwd)/..:/doc \
-    -v ~/.cache/pip:/cache/pip \
-    -v ~/.cache/apt:/cache/apt \
-    sphinxdoc/sphinx:8.0.2
-```
-
-2. Install deps in a sandbox:
-
-```python
-cp -r /doc /pygraphistry \
-&& apt update && apt -o dir::cache=/cache/apt install -y pandoc \
-&& ( cd /pygraphistry && python -m pip install -e .[docs] ) \
-&& (test -d /doc/docs/source/demos || ln -s /doc/demos /doc/docs/source/demos) \
-&& (cd /docs/docs/source/demos && rm -f /doc/docs/source/demos/demos || echo ok)
-```
-
-This prevents your host env from getting littered
-
-3. Edit and build!
-
-```bash
-cd /doc/docs
-make clean html SPHINXOPTS="-W --keep-going -n"
-```
-
-This emits `$PWD/docs/build/html/index.html` on your host, which you can open in a browser
-
-If there are warnings or errors, it will run to completetion, emit them all, and then exit with a failure. CI will reject these bugs, so you need to make sure it works.
