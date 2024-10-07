@@ -44,16 +44,30 @@ PyGraphistry: Explore Relationships
 
 PyGraphistry is a Python visual graph AI library to extract, transform, query, analyze, model, and visualize big graphs. It includes several notable pieces:
 
-* **`Graphistry Visualization Client <10min-viz>`_**: Convenience layer for using the optional Graphistry GPU server for accelerated compute and visualization
-* **Dataframe-native graph manipulation**: Optimized dataframe-native tabular and graph methods for loading, transforming, analyzing, and visualizing data as graphs
-* **`GFQL (new!) <10min-gfql>`_ queries**: Home for the GFQL graph dataframe-native query language, and with optional GPU support
-* **Graphistry[AI]**: Optional methods and integrations for graph autoML, including automatic feature engineering, UMAP, and graph neural networks
-* **`Plugins <plugins>`_**: Optimized and streamlined integrations for enriching your workflows - query databases like Neo4j and Splunk, compute systems like Nvidia RAPIDS, and enrich data with library calls to graph engines like igraph
-* **`Louie.AI (new!) <https://www.louie.ai>`_**: Use generative AI to talk to your data, including for GFQL queries and Graphistry visualizations
+**Graphistry Visualization Client**  
+   :ref:`Graphistry Visualization Client <10min-viz>`: Convenience layer for using the optional Graphistry GPU server for accelerated compute and visualization
+
+**Dataframe-native graph manipulation**  
+   Optimized dataframe-native tabular and graph methods for loading, transforming, analyzing, and visualizing data as graphs
+
+**GFQL (new!)**  
+   :ref:`GFQL (new!) <10min-gfql>` queries: Home for the GFQL graph dataframe-native query language, with optional GPU support
+
+**Graphistry[AI]**  
+   Optional methods and integrations for graph autoML, including automatic feature engineering, UMAP, and graph neural networks
+
+**Plugins**  
+   :ref:`Plugins <plugins>`: Optimized and streamlined integrations for enriching your workflows, including querying databases like Neo4j and Splunk
+
+**Louie.AI (new!)**  
+   `Louie.AI <https://www.louie.ai>`_: Use generative AI to talk to your data, including for GFQL queries and Graphistry visualizations
 
 Combined, PyGraphistry reduces your time to graph for going from raw data to visualizations to AI insights in a few lines of code.
 
-The API reference documentation here provides useful packages, modules, and commands for PyGraphistry. In the navbar you can find an overview of all the packages and modules we provided and a few useful highlighted ones as well. You can search for them on our Search page. For a full tutorial, refer to our `PyGraphistry <https://github.com/graphistry/pygraphistry/>`_ repo.
+
+.. note::
+
+   Looking where to start? See the quickstart below or the :ref:`10 Minutes to PyGraphistry guide <10min>`.
 
 
 
@@ -69,7 +83,6 @@ The API reference documentation here provides useful packages, modules, and comm
 
 ..        <iframe width="600" height="400" src="https://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" frameborder="0" allowfullscreen></iframe>
 
-For self-hosting and access to a free API key, refer to our Graphistry `Hub <https://hub.graphistry.com/>`_.
 
 Quickstart
 ----------

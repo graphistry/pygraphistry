@@ -5,30 +5,30 @@ PyGraphistry Layout Catalog
 
 This page provides an overview of the main layouts available in PyGraphistry, including through plugins like graphviz and igraph. Each optimizes for different use cases. Click on a plugin to jump to its section.
 
-- **`PyGraphistry Plugin <#pygraphistry-plugin>`_**: GPU-accelerated layouts like ForceAtlas2, modularity-weighted, UMAP, and more.
-- **`cuGraph Plugin <#cugraph-plugin>`_**: Large-scale graph layouts with GPU-optimized ForceAtlas2.
-- **`Graphviz Plugin <#graphviz-plugin>`_**: Hierarchical, directed, and flowchart-like layouts for medium-sized graphs.
-- **`igraph Plugin <#igraph-plugin>`_**: Versatile 2D/3D layouts including Fruchterman-Reingold, Kamada-Kawai, and more.
-- **`Custom Layouts <#custom-layouts>`_**: Manually compute or post-process custom layouts.
+- :ref:`PyGraphistry Plugin <pygraphistry-plugin>`: GPU-accelerated layouts like ForceAtlas2, modularity-weighted, UMAP, and more.
+- :ref:`cuGraph Plugin <cugraph-plugin>`: Large-scale graph layouts with GPU-optimized ForceAtlas2.
+- :ref:`Graphviz Plugin <graphviz-plugin>`: Hierarchical, directed, and flowchart-like layouts for medium-sized graphs.
+- :ref:`igraph Plugin <igraph-plugin>`: Versatile 2D/3D layouts including Fruchterman-Reingold, Kamada-Kawai, and more.
+- :ref:`Custom Layouts <custom-layouts>`: Manually compute or post-process custom layouts.
 
 .. _pygraphistry-plugin:
 
 PyGraphistry Plugins
 ---------------------
 
-PyGraphistry supports GPU-accelerated layouts, including ForceAtlas2, modularity-weighted algorithms, and hierarchical ring layouts for large-scale and specialized structures. (`API reference on Graphistry layouts <pyg-layout-api>`_)
+PyGraphistry supports GPU-accelerated layouts, including ForceAtlas2, modularity-weighted algorithms, and hierarchical ring layouts for large-scale and specialized structures. (:ref:`API reference on Graphistry layouts <pyg-layout-api>`)
 
 **Supported Layouts**:
 
 - **ForceAtlas2** — Optimized for large, dense graphs. Provides smooth clustering and cluster separation using GPU acceleration. (Implicit: Dynamic load-time run of Graphistry's GPU-accelerated ForceAtlas2)
-- **Modularity-Weighted** — Lays out clusters based on modularity, optimizing for visualizing community structures. `API info on modularity-weighted layouts <mod-layout-api>`_
-- **Group-In-A-Box (GIB)** — Organizes nodes into visually distinct boxes based on their group or cluster for clear structure definition. `API info on group-in-a-box layouts <gib-api>`_
-- **UMAP** — Reduces high-dimensional data into a 2D layout based on similarity, best for complex datasets needing dimensionality reduction. `API info on UMAP <graphistry.umap_utils.UMAPMixin.umap>`_
-- **Hierarchical Ring Layouts** — Creates ring layouts that categorize nodes by time, continuous variables, or categorical properties. `API info on ring layouts <ring-api>`_
+- **Modularity-Weighted** — Lays out clusters based on modularity, optimizing for visualizing community structures. :ref:`API info on modularity-weighted layouts <mod-layout-api>`
+- **Group-In-A-Box (GIB)** — Organizes nodes into visually distinct boxes based on their group or cluster for clear structure definition. :ref:`API info on group-in-a-box layouts <gib-api>`
+- **UMAP** — Reduces high-dimensional data into a 2D layout based on similarity, best for complex datasets needing dimensionality reduction. :py:meth:`API info on UMAP <graphistry.umap_utils.UMAPMixin.umap>`
+- **Hierarchical Ring Layouts** — Creates ring layouts that categorize nodes by time, continuous variables, or categorical properties. :ref:`API info on ring layouts <ring-api>`
 
 **Example**:
 
-Visit the `PyGraphistry visualization tutorial <_10min-viz>`_.
+Visit the :ref:`PyGraphistry visualization tutorial <10min-viz>`.
 
 .. code-block:: python
     
@@ -39,7 +39,7 @@ Visit the `PyGraphistry visualization tutorial <_10min-viz>`_.
 cuGraph Plugin
 ---------------
 
-cuGraph provides one GPU-optimized graph layout for scaling large datasets, making it a candidate for massive graphs. (`API reference on cuGraph <cugraph>`_)
+cuGraph provides one GPU-optimized graph layout for scaling large datasets, making it a candidate for massive graphs. (:ref:`API reference on cuGraph <cugraph>`)
 
 **Supported Layouts**:
 
@@ -54,7 +54,7 @@ cuGraph provides one GPU-optimized graph layout for scaling large datasets, maki
 Graphviz Plugin
 ----------------
 
-Graphviz specializes in directed and hierarchical layouts, useful for flowcharts, dependency trees, and acyclic graphs (DAGs). (`API reference on graphviz layouts <graphviz>`_)
+Graphviz specializes in directed and hierarchical layouts, useful for flowcharts, dependency trees, and acyclic graphs (DAGs). (:ref:`API reference on graphviz layouts <graphviz>`)
 
 **Supported Layouts**:
 
@@ -78,7 +78,7 @@ Graphviz specializes in directed and hierarchical layouts, useful for flowcharts
 
 **Example**:
 
-Visit the `API reference on graphviz page <graphviz>`_ for more examples.
+Visit the :ref:`API reference on graphviz page <graphviz>` for more examples.
 
 .. code-block:: python
 
@@ -89,7 +89,7 @@ Visit the `API reference on graphviz page <graphviz>`_ for more examples.
 igraph Plugin
 ---------------
 
-The igraph plugin offers various layouts forvarious graph types. (`API reference on igraph <igraph>`_)
+The igraph plugin offers various layouts forvarious graph types. (:ref:`API reference on igraph <igraph>`)
 
 **Supported Layouts**:
 
@@ -116,11 +116,11 @@ The igraph plugin offers various layouts forvarious graph types. (`API reference
 - **star** — Positions nodes in a star configuration, with a central node surrounded by peripheral nodes.
 - **sugiyama** — Specialized for hierarchical structures, often used for organizational charts and trees.
 
-Full list: `More Info <igraph>`_
+Full list: :ref:`More Info <igraph>`
 
 **Example**:  
 
-Visit the `API reference on graphviz <ref/igraph>`_ for more examples.
+Visit the :ref:`API reference on graphviz <igraph>` for more examples.
 
 .. code-block:: python
 
@@ -134,16 +134,16 @@ Custom Layouts
 Users can manually compute layouts from external sources or post-process the results. This allows flexibility in integrating custom embedding algorithms or other specialized layouts into PyGraphistry. (`API reference <pyg-layout-api>`_)
 
 **Example**:  
-Manually apply a layout and visualize using `PyGraphistry's custom layout options <ref/custom-layout>`_.
+
+Manually apply a layout and visualize using :ref:`PyGraphistry's custom layout options <custom-layout>`.
 
 Further reading
 ----------------
 
-
-- **`PyGraphistry API Reference <pyg-layout-api>`_**: GPU-accelerated layouts such as ForceAtlas2, modularity-weighted, hierarchical rings, UMAP, and group-in-a-box.
-- **`cuGraph API Reference <cugraph>`_**: ForceAtlas2 optimized for large-scale graphs using GPU acceleration.
-- **`Graphviz API Reference <graphviz>`_**: Best for hierarchical and flowchart/DAG layouts, including options like dot, neato, and circo.
-- **`igraph API Reference <igraph>`_**: Versatile with 2D/3D layouts, including Fruchterman-Reingold, Kamada-Kawai, and Sugiyama.
+- :ref:`PyGraphistry API Reference <pyg-layout-api>`: GPU-accelerated layouts such as ForceAtlas2, modularity-weighted, hierarchical rings, UMAP, and group-in-a-box.
+- :ref:`cuGraph API Reference <cugraph>`: ForceAtlas2 optimized for large-scale graphs using GPU acceleration.
+- :ref:`Graphviz API Reference <graphviz>`: Best for hierarchical and flowchart/DAG layouts, including options like dot, neato, and circo.
+- :ref:`igraph API Reference <igraph>`: Versatile with 2D/3D layouts, including Fruchterman-Reingold, Kamada-Kawai, and Sugiyama.
 
 
 Visit the respective tutorial links to dive deeper into each plugin’s capabilities and usage.

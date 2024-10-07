@@ -1,13 +1,15 @@
+.. _plugins:
+
 Plugins
 =======
 
-See API references for:
+See API references and :ref:`layout-catalog` for:
 
-* `cugraph <cugraph>`_: GPU-accelerated graph analytics
-* `graphviz <graphviz>`_: CPU graph analytics and layouts
-* `igraph <igraph>`_: CPU graph analytics and layouts
+* :ref:`cugraph <cugraph>`: GPU-accelerated graph analytics
+* :ref:`graphviz <graphviz>`: CPU graph analytics and layouts
+* :ref:`igraph <igraph>`: CPU graph analytics and layouts
 
-Contact for assistance for additional plugins, including but not limited to:
+The notebook folder and visualization layout sections provide additional plugin information and examples, and our team is happy to provide additional information on the support channels:
 
 * Databases:
 

@@ -46,7 +46,7 @@ extensions = [
     'nbsphinx',
     "sphinx.ext.autodoc",
     #'sphinx.ext.autosummary',
-    #'sphinx.ext.intersphinx',
+    'sphinx.ext.intersphinx',
     "sphinx.ext.ifconfig",
     #"sphinx_autodoc_typehints",
     "sphinx_copybutton",
