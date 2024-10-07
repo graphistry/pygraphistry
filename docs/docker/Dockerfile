@@ -4,10 +4,14 @@ FROM sphinxdoc/sphinx:8.0.2
 # Set working directory for docs
 WORKDIR /docs
 
+
 # Step 1: Install necessary system dependencies including Pandoc, with caching for apt-get
+COPY docs/requirements-system.txt /requirements-system.txt
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get install -y pandoc && rm -rf /var/lib/apt/lists/*
+    apt-get update \
+    && xargs -a /requirements-system.txt apt-get install -y  \
+    && rm -rf /var/lib/apt/lists/*
 
 # Step 2: Copy project files needed for pip install (setup.py, setup.cfg, versioneer.py, README.md)
 COPY ../../setup.py ../../setup.cfg ../../versioneer.py ../../README.md ./

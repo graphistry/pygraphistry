@@ -10,28 +10,24 @@ build:
   tools:
     python: "3.12"
   apt_packages:
-    - pandoc
+    # More closely mirror https://github.com/sphinx-doc/sphinx-docker-images
+    - graphviz
+    - imagemagick
+    - make
+    - pandoc  # Needed as per earlier setup for document conversion
+    - texlive-xetex  # Better LaTeX Unicode support
+    - texlive-fonts-recommended
+    - texlive-fonts-extra
   commands:
 
     # setup
+    - apt-get update
+    - apt-get install -y $(cat docs/system-requirements.txt)
     - pip install ".[docs]"
     - ln -s ../../demos docs/source/demos
 
-    # html
-    - sphinx-build -b html docs/source $READTHEDOCS_OUTPUT/html
-    - (cd $READTHEDOCS_OUTPUT && zip -r htmlzip.zip html)
-
-    # epub
-    - sphinx-build -b epub docs/source $READTHEDOCS_OUTPUT/epub
-
-    - echo "Files in EPUB output directory before cleanup:" && find $READTHEDOCS_OUTPUT/epub
-    - find $READTHEDOCS_OUTPUT/epub -mindepth 1 -type f ! -name '*.epub' -delete
-    - find $READTHEDOCS_OUTPUT/epub -mindepth 1 -type d -exec rm -rf {} +
-    - echo "Files in EPUB output directory after cleanup:" && find $READTHEDOCS_OUTPUT/epub
-
-    # pdf
-    - sphinx-build -b latex docs/source $READTHEDOCS_OUTPUT/latex
-    - (cd $READTHEDOCS_OUTPUT/latex && pdflatex PyGraphistry.tex)
+    # build
+    - sh docs/docker/build-docs.sh
 
 #for nav links?
 formats:
