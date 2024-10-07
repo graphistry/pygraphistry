@@ -4,6 +4,5 @@ Plugins
 .. toctree::
    :maxdepth: 2
 
-   cugraph
-   graphviz
-   igraph
+   db/index
+   compute/index

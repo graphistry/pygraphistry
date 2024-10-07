@@ -1,3 +1,5 @@
+.. _nb-connectors:
+
 Plugins - Data Providers
 =============================
 
@@ -9,8 +11,8 @@ Plugins - Data Providers
    AlienVault: OTX indicators <../demos/demos_databases_apis/alienvault/OTXIndicators.ipynb>
    AlienVault: Locker Goga <../demos/demos_databases_apis/alienvault/OTXLockerGoga.ipynb>
    AlientVault: USM <../demos/demos_databases_apis/alienvault/usm.ipynb>
-   Amazon Neptune <../demos/demos_databases_apis/neptune/neptune_tutorial.ipynb>
-   Amazon Neptune <../demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.ipynb>
+   Amazon Neptune I <../demos/demos_databases_apis/neptune/neptune_tutorial.ipynb>
+   Amazon Neptune II <../demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.ipynb>
    Arango <../demos/demos_databases_apis/arango/arango_tutorial.ipynb>
    Databricks <../demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb>
    Memgraph <../demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb>
