@@ -1,7 +1,7 @@
 GFQL Operator Reference
 =======================
 
-This reference overviews the operators available in GFQL for constructing predicates in your graph queries. These operators are wrappers around Pandas/cuDF functions, allowing you to express complex filtering conditions intuitively. See the API reference documentation for more details on individual operators.
+This reference outlines the operators available in GFQL for constructing predicates in your graph queries. These operators are wrappers around Pandas/cuDF functions, allowing you to express complex filtering conditions intuitively. See the API reference documentation for more details on individual operators.
 
 Operators
 ---------
@@ -162,7 +162,7 @@ Usage Examples
 
 .. code-block:: python
 
-    from graphistry.ast import n, gt, lt
+    from graphistry import n, gt, lt
 
     # Find nodes where age is greater than 18 and less than 30
     g_filtered = g.chain([
@@ -174,7 +174,7 @@ Usage Examples
 
 .. code-block:: python
 
-    from graphistry.ast import n, is_in
+    from graphistry import n, is_in
 
     # Find nodes of type 'person' or 'company'
     g_filtered = g.chain([
@@ -185,7 +185,7 @@ Usage Examples
 
 .. code-block:: python
 
-    from graphistry.ast import e_forward, contains
+    from graphistry import e_forward, contains
 
     # Find edges where the relation contains 'friend'
     g_filtered = g.chain([
@@ -196,7 +196,7 @@ Usage Examples
 
 .. code-block:: python
 
-    from graphistry.ast import n, is_in, gt
+    from graphistry import n, eq, gt
 
     # Find 'person' nodes with age greater than 18
     g_filtered = g.chain([
@@ -219,7 +219,7 @@ Additional Notes
 
   .. code-block:: python
 
-      from graphistry.ast import n, e_forward, gt, contains
+      from graphistry import n, e_forward, gt, contains
 
 - **Combining Conditions**: Use logical operators within lambdas for complex expressions.
 

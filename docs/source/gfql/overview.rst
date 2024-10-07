@@ -71,7 +71,7 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
 
 .. code-block:: python
 
-    from graphistry import e_forward
+    from graphistry import n, e_forward
 
     g_2_hops = g.chain([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
@@ -89,7 +89,7 @@ Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
         e_undirected(name="hop1"),
         e_undirected(name="hop2")
     ])
-    first_hop_edges = g_2_hops._edges[ g_2_hops._edges.hop1 == True ]
+    first_hop_edges = g_2_hops._edges[ g_2_hops._edges["hop1"] == True ]
     print('Number of first-hop edges:', len(first_hop_edges))
 
 **Query for Transaction Nodes Between Risky Nodes**
@@ -102,12 +102,12 @@ Example: Find transaction nodes between two kinds of risky nodes.
 
     g_risky = g.chain([
         n({"risk1": True}),
-        e_forward(to_fixed=True),
+        e_forward(to_fixed_point=True),
         n({"type": "transaction"}, name="hit"),
-        e_reverse(to_fixed=True),
+        e_reverse(to_fixed_point=True),
         n({"risk2": True})
     ])
-    hits = g_risky._nodes[ g_risky._nodes.hit == True ]
+    hits = g_risky._nodes[ g_risky._nodes["hit"] == True ]
     print('Number of transaction hits:', len(hits))
 
 **Filter by Multiple Node Types Using `is_in`**
@@ -120,12 +120,12 @@ Example: Filter nodes and edges by multiple types.
 
     g_filtered = g.chain([
         n({"type": is_in(["person", "company"])}),
-        e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed=True),
+        e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
         n({"type": is_in(["transaction", "account"])}, name="hit"),
-        e_reverse(to_fixed=True),
+        e_reverse(to_fixed_point=True),
         n({"risk2": True})
     ])
-    hits = g_filtered._nodes[ g_filtered._nodes.hit == True ]
+    hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
     print('Number of filtered hits:', len(hits))
 
 Leveraging GPU Acceleration
@@ -169,6 +169,8 @@ GFQL integrates with PyGraphistry, allowing you to visualize your graphs with GP
 Example: Visualize high PageRank nodes.
 
 .. code-block:: python
+
+    from graphistry import n, e
 
     # Compute PageRank using cuGraph (GPU)
     g_enriched = g_result.compute_cugraph('pagerank')
