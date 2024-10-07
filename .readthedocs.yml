@@ -29,7 +29,7 @@ build:
     - sphinx-build -b html -d docs/doctrees docs/source docs/_build/html
     - sphinx-build -b epub -d docs/doctrees docs/source docs/_build/epub
     - sphinx-build -b latex -d docs/doctrees docs/source docs/_build/latexpdf
-    - cd docs/_build/latexpdf && pdflatex -interaction=batchmode PyGraphistry.tex && pdflatex -interaction=batchmode PyGraphistry.tex
+    - cd docs/_build/latexpdf && pdflatex -interaction=nonstopmode PyGraphistry.tex && pdflatex -interaction=nonstopmode PyGraphistry.tex
 
 #for nav links?
 formats:

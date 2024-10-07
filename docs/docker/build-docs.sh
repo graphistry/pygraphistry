@@ -1,4 +1,5 @@
 #!/bin/sh
+set -ex
 
 # Build the HTML documentation incrementally
 sphinx-build -b html -d /docs/doctrees . /docs/_build/html
@@ -10,6 +11,6 @@ sphinx-build -b epub -d /docs/doctrees . /docs/_build/epub
 sphinx-build -b latex -d /docs/doctrees . /docs/_build/latexpdf
 cd /docs/_build/latexpdf
 
-# Run pdflatex twice to resolve cross-references, and use -interaction=batchmode for non-interactive build
-pdflatex -interaction=batchmode PyGraphistry.tex
-pdflatex -interaction=batchmode PyGraphistry.tex
+# Run pdflatex twice to resolve cross-references, using batchmode for non-interactive build
+pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex

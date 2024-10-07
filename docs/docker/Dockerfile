@@ -25,7 +25,6 @@ ENV PYTHONPATH="/graphistry:${PYTHONPATH}"
 
 # Step 5: Copy the build script into the container
 COPY docs/docker/build-docs.sh /build-docs.sh
-RUN chmod +x /build-docs.sh
 
 # Step 6: Set the working directory for Sphinx to the `source/` folder
 WORKDIR /docs/source
