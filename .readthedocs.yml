@@ -25,9 +25,15 @@ build:
     - pip install ".[docs]"
     - ln -s demos docs/source/demos
 
-    # build
+    # build html
     - sphinx-build -b html -d docs/doctrees docs/source $READTHEDOCS_OUTPUT/html/
-    - sphinx-build -b epub -d docs/doctrees docs/source $READTHEDOCS_OUTPUT/epub/
+
+    # build epub
+    - sphinx-build -b epub -d docs/doctrees docs/source docs/_build/latexpdf
+    - mkdir -p $READTHEDOCS_OUTPUT/epub
+    - cp docs/_build/latexpdf/PyGraphistry.epub $READTHEDOCS_OUTPUT/epub/PyGraphistry.epub
+
+    # build pdf
     - sphinx-build -b latex -d docs/doctrees docs/source docs/_build/latexpdf
     - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex && pdflatex -file-line-error  -interaction=nonstopmode PyGraphistry.tex && echo ok || { echo fail && exit 1 ; }
     - mkdir -p $READTHEDOCS_OUTPUT/pdf 
