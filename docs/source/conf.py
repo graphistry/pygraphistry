@@ -30,6 +30,8 @@ author = "Graphistry, Inc."
 
 html_title = "PyGraphistry Documentation"
 html_short_title = "PyGraphistry"
+html_logo = 'graphistry_banner_transparent_colored.png'
+html_favicon = 'static/favicon.ico'
 
 # The full version, including alpha/beta/rc tags
 version = str(Version(graphistry.__version__))
@@ -380,7 +382,26 @@ todo_include_todos = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "sphinx_rtd_theme"
+#html_theme = "sphinx_rtd_theme"
+html_theme = "sphinx_book_theme"
+
+
+html_theme_options = {
+    "repository_url": "https://github.com/graphistry/pygraphistry",
+    "use_repository_button": True,
+
+    # Optional top horizontal navigation bar
+    #"navbar_start": ["navbar-start.html"],
+    #"navbar_center": ["navbar-center.html"],
+    #"navbar_end": ["navbar-end.html"],
+    
+    "logo": {
+        #"link": "https://www.graphistry.com/get-started",
+        #"text": "Graphistry, Inc.",
+        "alt_text": "Graphistry, Inc."
+    }
+}
+
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
