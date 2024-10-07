@@ -96,19 +96,20 @@ Quickstart
     })
     g1 = graphistry.edges(df, source="src", destination="dst")
 
-    # Use GPUs when available
+    # Server-accelerated GPU visualization
+    graphistry.register(api=3, server="hub.graphistry.com", username="A", password="B")
+    g1.plot()
+
+    # Use GPUs when available in almost all APIs
     import cudf
     g2 = g1.edges(cudf.from_pandas(g1._edges))
+    g2.plot()
 
-    # Many graph wrangling helpers + friendly dataframe-native graph manipulation
+    # Many local graph wrangling helpers and easy dataframe-native graph manipulation
     g3 = g2.materialize_nodes().get_degrees()
     print(g3._nodes[['id', 'degree']])
 
-    # Server-accelerated GPU visualization
-    graphistry.register(api=3, server="hub.graphistry.com", username="A", password="B")
-    g3.plot()
-
-    # ML & AI
+    # ML & AI methods
     umap_g = graphistry.nodes(df).umap()
     umap_g.plot()
 
