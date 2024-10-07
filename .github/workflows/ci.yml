@@ -24,7 +24,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
 
     steps:
 
@@ -93,7 +93,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .[docs,test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
+        python -m pip install -e .[test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
 
     - name: Lint
       run: |
@@ -325,7 +325,7 @@ jobs:
 
     - name: Test building docs
       run: |
-        cd docs && ./docker.sh
+        cd docs && ./ci.sh
 
   
   test-readme:
