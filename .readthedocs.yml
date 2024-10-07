@@ -21,8 +21,8 @@ build:
   commands:
 
     # setup
-    - apt-get update
-    - apt-get install -y $(cat docs/system-requirements.txt)
+    - sudo apt-get update
+    - sudo apt-get install -y $(cat docs/system-requirements.txt)
     - pip install ".[docs]"
     - ln -s ../../demos docs/source/demos
 
