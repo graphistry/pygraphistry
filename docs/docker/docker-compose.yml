@@ -1,4 +1,3 @@
-# docs/docker/docker-compose.yml
 version: '3'
 services:
   sphinx:
@@ -12,4 +11,4 @@ services:
       - ../../docs/doctrees:/docs/doctrees  # Mount doctrees to persist build state
     environment:
       - USER_ID=${UID}  # Pass user ID for permission handling
-
+      - DOCS_FORMAT=${DOCS_FORMAT:-all}  # Pass DOCS_FORMAT to enable specific format builds
