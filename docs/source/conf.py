@@ -395,15 +395,70 @@ htmlhelp_basename = "PyGraphistrydoc"
 # -- Options for LaTeX output ---------------------------------------------
 
 latex_elements = {
-    # The paper size ('letterpaper' or 'a4paper').
-    #'papersize': 'letterpaper',
-    # The font size ('10pt', '11pt' or '12pt').
-    #'pointsize': '10pt',
-    # Additional stuff for the LaTeX preamble.
-    #'preamble': '',
-    # Latex figure (float) alignment
-    #'figure_align': 'htbp',
+    'preamble': r'''
+
+        \RequirePackage{etex}         % Ensure extended TeX capacities
+        \usepackage[utf8]{inputenc}   % Enable UTF-8 support
+        \usepackage[T1]{fontenc}      % Use T1 font encoding for better character support
+        \usepackage{lmodern}          % Load Latin Modern fonts for better quality
+        \usepackage{amsmath}           % For advanced math formatting
+        \usepackage{amsfonts}          % For math fonts
+        \usepackage{amssymb}           % For additional math symbols
+        \usepackage{graphicx}          % For including images
+        \usepackage{hyperref}          % For hyperlinks
+        \usepackage{textcomp}          % For additional text symbols
+        \usepackage{breakurl}          % Allows line breaks in URLs
+        \usepackage{listings}          % For code listings
+        \usepackage{float}             % Improved control of floating objects
+        \usepackage{microtype}         % Improves text appearance with microtypography
+        \usepackage{lipsum}            % For generating dummy text (if needed)
+
+
+        % Increase capacity limits
+        \setcounter{totalnumber}{200}   % Maximum floats
+        \setcounter{dbltopnumber}{200}   % Double float maximum
+        \setcounter{secnumdepth}{3}      % Section numbering depth
+        \setcounter{tocdepth}{3}          % Table of contents depth
+        
+        % Increase dimensions and allocations
+        \usepackage{morefloats}          % Allows for more floats
+        \setlength{\emergencystretch}{3em} % Help with overfull hboxes
+        \setlength{\maxdepth}{100pt}       % Sets a high limit for max depth (if applicable)
+
+        % Allocate more memory for TeX
+        \usepackage{etex}                % Use eTeX for more memory
+        %\reserveinserts{200}             % Reserve more inserts
+        \setcounter{totalnumber}{200}    % Ensure maximum floats are increased
+
+
+        % Declare Unicode characters
+        \DeclareUnicodeCharacter{1F389}{\textbf{(party popper)}}
+        \DeclareUnicodeCharacter{1F3C6}{\textbf{(trophy)}}
+        \DeclareUnicodeCharacter{1F44D}{\textbf{(thumbs up)}}
+        \DeclareUnicodeCharacter{1F4AA}{\textbf{Strong}}  % Muscle emoji
+        \DeclareUnicodeCharacter{1F4B0}{\textbf{Money Bag}} % Money bag emoji (text representation)
+        \DeclareUnicodeCharacter{1F525}{\textbf{(fire)}}
+        \DeclareUnicodeCharacter{1F600}{\textbf{(grinning)}}
+        \DeclareUnicodeCharacter{1F609}{\textbf{(winking)}}
+        \DeclareUnicodeCharacter{1F614}{\textbf{(pensive)}}
+        \DeclareUnicodeCharacter{1F680}{\textbf{(rocket)}}
+        \DeclareUnicodeCharacter{2501}{\textbf{━}}         % Heavy horizontal line
+        \DeclareUnicodeCharacter{2588}{\textbf{█}}         % Full block character
+        \DeclareUnicodeCharacter{258A}{\textbf{▊}}         % Center right block character
+        \DeclareUnicodeCharacter{258B}{\textbf{▉}}         % Right block character
+        \DeclareUnicodeCharacter{258C}{\textbf{▌}}         % Center block character
+        \DeclareUnicodeCharacter{258D}{\textbf{▍}}         % Center left block character
+        \DeclareUnicodeCharacter{258E}{\textbf{▎}}         % Left third block character
+        \DeclareUnicodeCharacter{258F}{\textbf{▏}}         % Right block character
+        \DeclareUnicodeCharacter{2728}{\textbf{(sparkles)}}
+        \DeclareUnicodeCharacter{2764}{\textbf{(heart)}}
+        \DeclareUnicodeCharacter{2B50}{\textbf{(star)}}
+
+    ''',
 }
+
+# Use pdflatex as the LaTeX engine
+latex_engine = 'pdflatex'
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
