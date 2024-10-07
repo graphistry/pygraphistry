@@ -133,9 +133,21 @@ Custom Layouts
 
 Users can manually compute layouts from external sources or post-process the results. This allows flexibility in integrating custom embedding algorithms or other specialized layouts into PyGraphistry. (`API reference <pyg-layout-api>`_)
 
-**Example**:  
+**Example**:
 
-Manually apply a layout and visualize using :ref:`PyGraphistry's custom layout options <custom-layout>`.
+Manually apply a layout and visualize by `custom layouts (notebook) <../../demos/more_examples/graphistry_features/external_layout/simple_manual_layout.ipynb>`_ .
+
+.. code-block:: python
+
+    # Input: Precompute some x and y positions
+    nodes_df : pd.DataFrame = ...
+    assert 'x' in df.columns and 'y' in df.columns
+
+    g2 = (g1
+        .nodes(nodes_df)
+        .bind(point_x='x', point_y='y')
+        .settings(url_params={'play': 0})  # Prevent loadtime layout from running
+    )
 
 Further reading
 ----------------

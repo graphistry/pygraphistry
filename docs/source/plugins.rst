@@ -3,49 +3,60 @@
 Plugins
 =======
 
-See API references and :ref:`layout-catalog` for:
+PyGraphistry is frequently used with a variety of external tools such as data providers, compute engines, layout engines, and more.
+
+Users typically prefer to go through PyGraphistry's native dataframe support (Apache Arrow, Pandas, cuDF, ...). That is often an efficient, safe, and easy starting point.
+
+Occasionally, such as with graph databases, graph layouts, and graph analytics, native PyGraphistry plugins streamline common operations. We link to the native API integrations below as appropriate.
+
+See also the :ref:`layout-catalog` for:
 
 * :ref:`cugraph <cugraph>`: GPU-accelerated graph analytics
 * :ref:`graphviz <graphviz>`: CPU graph analytics and layouts
 * :ref:`igraph <igraph>`: CPU graph analytics and layouts
 
-The notebook folder and visualization layout sections provide additional plugin information and examples, and our team is happy to provide additional information on the support channels:
 
-* Databases:
+Databases
+---------------
 
-    * ArangoDB
-    * AWS Neptune
-    * Cassandra
-    * Cosmos
-    * Databricks
-    * DynamoDB
-    * Elasticsearch
-    * Gremlin
-    * Kusto
-    * Memgraph
-    * Neo4j
-    * OpenSearch
-    * Redis
-    * Splunk
-    * Spark
-    * SQL (ODBC): Postgres, BigQuery, Redshift, Snowflake, SQL Server, Athena, etc.
-    * Tigergraph
-    * Trovares
+See :ref:`demo notebooks <nb-connectors>` for data providers commonly used with Graphistry:
 
-* Compute engines:
+* ArangoDB
+* AWS Neptune (:ref:`API <api-neptune>`)
+* Cassandra
+* Cosmos (:ref:`API <api-cosmos>`)
+* Databricks
+* DynamoDB
+* Elasticsearch
+* Gremlin (:ref:`API <api-gremlin>`)
+* Kusto
+* Memgraph (:meth:`API <graphistry.PlotterBase.PlotterBase.cypher>`)
+* Neo4j (:meth:`API <graphistry.PlotterBase.PlotterBase.cypher>`)
+* OpenSearch
+* Redis
+* Splunk
+* Spark
+* SQL (ODBC): Postgres, BigQuery, Redshift, Snowflake, SQL Server, Athena, etc.
+* Tigergraph (:meth:`API <graphistry.PlotterBase.PlotterBase.gsql>`)
+* Trovares
 
+Compute engines
+----------------
+
+    * cuDF
     * Dask
     * Dask-cuDF
-    * cuDF
     * Pandas
-    * Dask
     * Polars
+    * Spark
 
-* Tools
+Tools
+---------
 
     * OWASP Amass
 
-* Storage engines and file formats
+Storage engines and file formats
+---------------------------------
 
     * Arrow
     * Azure blobstore

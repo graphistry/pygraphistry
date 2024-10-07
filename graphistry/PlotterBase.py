@@ -2061,7 +2061,126 @@ class PlotterBase(Plottable):
         raise ValueError('Could not find a label-like node column and no g._node id fallback set')
 
 
-    def cypher(self, query, params={}):
+    def cypher(self, query: str, params: Dict[str, Any] = {}) -> 'PlotterBase':
+        """
+        Execute a Cypher query against a Neo4j, Memgraph, or Amazon Neptune database and retrieve the results.
+
+        This method runs a Cypher query on a Neo4j, Memgraph, or Amazon Neptune graph database using a BOLT driver. 
+        The query results are transformed into DataFrames for nodes and edges, which are then bound to the current 
+        graph visualization context. You can also pass parameters to the Cypher query via the `params` argument.
+
+        :param query: The Cypher query string to execute.
+        :type query: str
+
+        :param params: Optional dictionary of parameters to pass to the Cypher query.
+        :type params: dict, optional
+
+        :returns: Plotter with updated nodes and edges based on the query result.
+        :rtype: PlotterBase
+
+        :raises ValueError: If no BOLT driver connection is available.
+
+        **Example (Simple Neo4j Query)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+            
+            # Register with Neo4j connection details
+            uri = "bolt://localhost:7687"
+            driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
+
+            graphistry.register(bolt=driver)
+
+            # Run a basic Cypher query
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Simple Amazon Neptune Query)**
+
+        ::
+
+            from neo4j import GraphDatabase
+
+            # Register with Amazon Neptune connection details
+            uri = f"bolt://{url}:8182"
+            driver = GraphDatabase.driver(uri, auth=("ignored", "ignored"), encrypted=True)
+
+            graphistry.register(bolt=driver)
+
+            # Run a simple Cypher query
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Simple Memgraph Query)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+
+            # Register with Memgraph connection details
+            MEMGRAPH = {
+                'uri': "bolt://localhost:7687", 
+                'auth': (" ", " ")
+            }
+
+            graphistry.register(api=3, username="X", password="Y", bolt=MEMGRAPH)
+
+            # Run a simple Cypher query on Memgraph
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Parameterized Query with Node and Edge Inspection)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+
+            # Register with Neo4j connection details
+            uri = "bolt://localhost:7687"
+            driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
+
+            graphistry.register(bolt=driver)
+
+            # Run a parameterized Cypher query
+            query = '''
+                MATCH (node1)-[connection]-(node2)
+                WHERE node1.name = $name
+                RETURN node1, connection, node2;
+            '''
+            params = {"name": "Alice"}
+
+            g = graphistry.cypher(query, params)
+            
+            # Inspect the resulting nodes and edges DataFrames
+            print(g._nodes)  # DataFrame with node information
+            print(g._edges)  # DataFrame with edge information
+
+            # Visualize the results
+            g.plot()
+
+        This demonstrates how to connect to Neo4j, Memgraph, or Amazon Neptune, run a simple or parameterized Cypher query, 
+        inspect query results (nodes and edges), and visualize the graph.
+        
+        """
 
         from .pygraphistry import PyGraphistry
 

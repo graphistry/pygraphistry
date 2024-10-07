@@ -836,7 +836,7 @@ class CosmosMixin(COSMOS_BASE):
            Environment variable names are the same as the constructor argument names
            If no client provided, create (connect)
 
-        **Example: Login and plot **
+        **Example: Login and plot**
                 ::
 
                     import graphistry
