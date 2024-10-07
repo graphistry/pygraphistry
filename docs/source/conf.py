@@ -285,6 +285,12 @@ root_doc = "index"
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = [
 
+    '_build',
+     '**/_build/**',
+    'doctrees',
+    '**/doctrees/**',
+    'demos/.ipynb_checkpoints',
+
     # nbsphinx stalls on these
     'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',
     'demos/ai/OSINT/jack-donations.ipynb',
@@ -363,9 +369,6 @@ exclude_patterns = [
     'demos/ai/cyber/cyber-redteam-umap-demo.ipynb',
     'demos/ai/OSINT/jack-donations.ipynb',
     'demos/ai/OSINT/Chavismo.ipynb',
-
-    # Preserve exclusion of Jupyter Notebook checkpoints
-    'demos/**/.ipynb_checkpoints/**',
 
 ]
 

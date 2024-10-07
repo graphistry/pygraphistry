@@ -1,0 +1,15 @@
+# docs/docker/docker-compose.yml
+version: '3'
+services:
+  sphinx:
+    build:
+      context: ../..  # Use project root as context
+      dockerfile: docs/docker/Dockerfile  # Specify the Dockerfile
+    volumes:
+      - ../../docs/source:/docs/source  # Mount the `docs/source` folder to allow live editing
+      - ../../demos:/docs/source/demos  # Mount the `demos` folder for live editing
+      - ../../docs/_build:/docs/_build  # Mount the Sphinx build output to a directory on the host
+      - ../../docs/doctrees:/docs/doctrees  # Mount doctrees to persist build state
+    environment:
+      - USER_ID=${UID}  # Pass user ID for permission handling
+
