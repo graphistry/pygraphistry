@@ -23,7 +23,7 @@ build:
 
     # setup
     - pip install ".[docs]"
-    - ln -s ../../demos docs/source/demos
+    - ln -s demos docs/source/demos
 
     # build
     - sh docs/docker/build-docs.sh
