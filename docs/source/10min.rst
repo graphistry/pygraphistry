@@ -291,11 +291,11 @@ Alternatively, you can generate a URL to view the visualization in a separate br
 Next Steps
 ----------
 
-- `10 Minutes to Graphistry Visualization <10min-viz>`_: Learn how to create more advanced visualizations.
-- `10 Minutes to GFQL <10min-gfql>`_: Use GFQL to query and manipulate your graph data before visualization.
-- `Layout guide <layout-guide>`_: Explore different layouts for your visualizations.
-- `Plugins <plugins>`_: Discover more ways to connect to your data and work with your favorite tools. 
-- `PyGraphistry API Reference <source/api/index.rst>`_
+- :ref:`10 Minutes to Graphistry Visualization <10min-viz>`: Learn how to create more advanced visualizations.
+- :ref:`10 Minutes to GFQL <10min-gfql>`: Use GFQL to query and manipulate your graph data before visualization.
+- :ref:`Layout guide <layout-guide>`: Explore different layouts for your visualizations.
+- :ref:`Plugins <plugins>`: Discover more ways to connect to your data and work with your favorite tools. 
+- :ref:`PyGraphistry API Reference <api>`
 
 External Resources
 ------------------
