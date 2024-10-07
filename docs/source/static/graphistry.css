@@ -1,0 +1,26 @@
+html[data-theme="light"] {
+  --pst-color-primary: #1f8e9f;
+  --pst-color-secondary: #25ba8d;
+}
+
+html[data-theme="dark"] {
+  --pst-color-primary: #32a8bb;
+  --pst-color-secondary: #48daae;
+}
+
+
+html[data-theme="dark"] .highlight .c1 {
+  color: #32a8bb !important;
+}
+
+html[data-theme="dark"] .highlight .s1,
+html[data-theme="dark"] .highlight .s2,
+html[data-theme="dark"] .highlight .o,
+html[data-theme="dark"] .highlight .sa {
+  color: #38e3b9 !important;
+}
+
+html[data-theme="dark"] .highlight .mi,
+html[data-theme="dark"] .highlight .nb {
+  color: #ff9f54 !important;
+}
