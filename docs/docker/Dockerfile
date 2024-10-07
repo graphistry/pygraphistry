@@ -10,7 +10,7 @@ COPY docs/requirements-system.txt /requirements-system.txt
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
     apt-get update \
-    && xargs -a /requirements-system.txt apt-get install -y  \
+    && apt-get install -y $(cat /requirements-system.txt) \
     && rm -rf /var/lib/apt/lists/*
 
 # Step 2: Copy project files needed for pip install (setup.py, setup.cfg, versioneer.py, README.md)
