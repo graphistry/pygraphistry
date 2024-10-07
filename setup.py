@@ -35,7 +35,7 @@ dev_extras = {
       'sphinx==8.0.2',
       #'sphinx_autodoc_typehints==1.11.1',
       'sphinx-copybutton==0.5.2',
-      'sphinx-rtd-theme==3.0.0rc4',
+      'sphinx-book-theme==1.1.3',
     ],
     'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
     'testai': [

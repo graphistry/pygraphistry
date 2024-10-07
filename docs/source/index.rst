@@ -2,15 +2,6 @@ PyGraphistry: Explore Relationships
 ========================================
 .. only:: html
 
-   .. image:: https://readthedocs.org/projects/pygraphistry/badge/?version=latest
-      :target: https://pygraphistry.readthedocs.io/en/latest/?badge=latest
-      :alt: Documentation Status
-
-
-   .. image:: https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg
-      :target: https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg
-      :alt: Build Status
-
    .. image:: https://img.shields.io/pypi/v/graphistry.svg
       :target: https://pypi.python.org/pypi/graphistry
       :alt: PyPi Status
@@ -19,24 +10,36 @@ PyGraphistry: Explore Relationships
       :target: https://img.shields.io/pypi/dm/graphistry
       :alt: PyPi Downloads
 
+   .. image:: https://img.shields.io/pypi/pyversions/graphistry.svg
+      :target: https://pypi.python.org/pypi/graphistry
+      :alt: Python Versions
+
    .. image:: https://img.shields.io/pypi/l/graphistry.svg
       :target: https://pypi.python.org/pypi/graphistry
       :alt: License
 
-   .. .. image:: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
-   ..    :target: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
-   ..    :alt: License
+   .. image:: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
+      :target: https://status.graphistry.com/
+      :alt: Uptime status
 
-   .. .. image:: https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack
-   ..       :target: https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g
-   ..       :alt: Slack
+   .. image:: https://readthedocs.org/projects/pygraphistry/badge/?version=latest
+      :target: https://pygraphistry.readthedocs.io/en/latest/?badge=latest
+      :alt: Documentation Status
+
+   .. image:: https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg
+      :target: https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg
+      :alt: Build Status
+
+   .. image:: https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack
+       :target: https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g
+       :alt: Slack
 
    .. image:: https://img.shields.io/twitter/follow/graphistry
-         :target: https://twitter.com/graphistry
-         :alt: Twitter
+       :target: https://twitter.com/graphistry
+       :alt: Twitter
 
-.. Quickstart:
-.. `Read our tutorial <https://github.com/graphistry/pygraphistry/blob/master/README.md>`_
+
+-------------------
 
 
 PyGraphistry is a Python visual graph AI library to extract, transform, query, analyze, model, and visualize big graphs. It includes several notable pieces:
@@ -134,6 +137,7 @@ Indices and tables
 .. toctree::
    :maxdepth: 3
    :hidden:
+   :caption: PyGraphistry documentation
 
    graphistry
 
