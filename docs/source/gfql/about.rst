@@ -284,10 +284,12 @@ Congratulations! You've covered the basics of GFQL in just 10 minutes. You've le
 
 **Next Steps:**
 
-- **Explore the Documentation:** Dive deeper into GFQL's capabilities by exploring the full documentation.
+
 - **Try GFQL on Your Data:** Apply what you've learned to your datasets and see the benefits firsthand.
-- **Leverage PyGraphistry:** Utilize PyGraphistry for advanced visualization and analysis.
-- **Join the Community:** Connect with other users and developers in the GFQL community Slack channel.
+- :ref:`gfql-translate`
+- :ref:`gfql-quick`
+- :ref:`10min`: Utilize PyGraphistry for advanced visualization and analysis.
+- :ref:`Join the Community <community>`: Connect with other users and developers in the GFQL community Slack channel.
 
 GFQL opens up new possibilities for graph analysis at scale, without the overhead of managing external databases or infrastructure. With its seamless integration into the Python ecosystem and support for GPU acceleration, GFQL is a powerful tool for modern data science workflows.
 

@@ -1,19 +1,13 @@
-GFQL Predicates
-===============
+.. _api-gfql-predicates:
+
+GFQL Attribute Matchers
+==========================
 
 .. automodule:: graphistry.compute.predicates
    :members:
    :undoc-members:
    :show-inheritance:
 
-ASTPredicate
-------------
-
-.. automodule:: graphistry.compute.predicates.ASTPredicate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
 
 Categorical
 -----------

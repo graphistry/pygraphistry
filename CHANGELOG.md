@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.13 - 2024-10-07]
+
+### Docs
+
+* Add more GFQL cross-references
+
 ## [0.34.12 - 2024-10-07]
 
 ### Docs
