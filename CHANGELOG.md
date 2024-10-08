@@ -7,15 +7,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.10 - 2024-10-07]
+
+### Fix
+
+* Docs: Notebook builds
+
+### Docs
+
+* More links, especially around plugins
+* Update color theme to match Graphistry branding
+
 ## [0.34.9 - 2024-10-07]
 
 ### Fix
 
 * Docs: 10 Minutes to PyGraphistry links
-
-### Docs
-
-* Update color theme to match Graphistry branding
 
 ## [0.34.8 - 2024-10-06]
 
