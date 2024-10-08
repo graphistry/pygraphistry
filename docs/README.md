@@ -5,10 +5,16 @@ Uses Sphinx to extract .RST from parent .PY and converts into docs/build/ .HTML 
 ## Run
 
 ```bash
-docs $ ./ci.sh
+docs $ ./html.sh
 ```
 
-It is volume-mounted to emit `docs/_build/html/index.html` , as well as epub and pdf versions
+It is volume-mounted to emit `docs/_build/html/index.html` 
+
+For generating all types used in production, e.g., epub and pdf as well, mimic the CI runner:
+
+```bash
+docs $ ./ci.sh
+```
 
 ## Architecture
 
@@ -54,7 +60,7 @@ Sphinx in strict mode:
 
 ## CI
 
-CI runs `ci.sh` and checks for warnings and errors. If there are any, it will fail the build.
+CI runs `html.sh` and checks for warnings and errors. If there are any, it will fail the build.
 
 ## Develop
 

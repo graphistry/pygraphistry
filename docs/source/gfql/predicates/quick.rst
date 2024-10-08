@@ -1,3 +1,5 @@
+.. _gfql-predicates-quick:
+
 GFQL Operator Reference
 =======================
 
