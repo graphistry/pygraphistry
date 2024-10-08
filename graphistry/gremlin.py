@@ -399,26 +399,38 @@ class GremlinMixin(MIXIN_BASE):
         self,
         gremlin_client: Client
     ):
-        """Pass in a generic gremlin python client
+        """
+        Set the Gremlin client to interact with the Gremlin-enabled database.
 
-            **Example: Login and plot **
+        This method allows you to pass a custom Gremlin Python client to interact with databases like CosmosDB 
+        using Gremlin queries. It stores the client for subsequent queries in the Graphistry workflow.
+
+        :param gremlin_client: Instance of the Gremlin Python client.
+        :type gremlin_client: gremlin_python.driver.client.Client
+
+        :return: The instance of Graphistry, updated with the Gremlin client.
+        :rtype: GremlinMixin
+
+        **Example: Login and plot**
             ::
 
                 import graphistry
                 from gremlin_python.driver.client import Client
 
                 my_gremlin_client = Client(
-                f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
-                'g', 
-                username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
-                password=self.COSMOS_PRIMARY_KEY,
-                message_serializer=GraphSONSerializersV2d0())
+                    f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
+                    'g', 
+                    username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
+                    password=self.COSMOS_PRIMARY_KEY,
+                    message_serializer=GraphSONSerializersV2d0())
 
-                (graphistry
+                g = (graphistry
                     .gremlin_client(my_gremlin_client)
                     .gremlin('g.E().sample(10)')
                     .fetch_nodes()  # Fetch properties for nodes
-                    .plot())
+                )
+
+                g.plot()
 
         """    
 
