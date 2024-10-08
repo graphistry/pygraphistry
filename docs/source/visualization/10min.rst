@@ -102,8 +102,8 @@ PyGraphistry offers several layout options:
       g.time_ring_layout('time_col').plot()
 
 - **Plugin Layouts**: Integrated use of external libraries for specific layouts:
-  - `GraphViz Plugin <source/plugins/graphviz.rst>`__ for hierarchical and directed layouts.
-  - `cuGraph Plugin <source/plugins/cugraph.rst>`__ for GPU-accelerated graph algorithms.
+  - `GraphViz Plugin <source/api/plugins/graphviz.rst>`__ for hierarchical and directed layouts.
+  - `cuGraph Plugin <source/api/plugins/cugraph.rst>`__ for GPU-accelerated graph algorithms.
 
 - **External Layouts**: Pass in `x`, `y` columns that you compute
 
