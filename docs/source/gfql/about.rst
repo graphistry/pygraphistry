@@ -58,7 +58,7 @@ You can filter nodes based on their properties using the `n()` function.
 
 ::
 
-    from graphistry.ast import n
+    from graphistry import n
 
     people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
     print('Number of person nodes:', len(people_nodes_df))
@@ -78,7 +78,7 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 
 ::
 
-    from graphistry.ast import e_forward
+    from graphistry import e_forward
 
     g_2_hops = g.chain([ e_forward({"interesting": True}, hops=2) ])
     print('Number of edges in 2-hop paths:', len(g_2_hops._edges))
@@ -98,7 +98,7 @@ Label hops in your traversal to analyze specific relationships.
 
 ::
 
-    from graphistry.ast import n, e_undirected
+    from graphistry import n, e_undirected
 
     g_2_hops = g.chain([
         n({g._node: "a"}), 
@@ -110,7 +110,7 @@ Label hops in your traversal to analyze specific relationships.
 
 **Explanation:**
 
-- `n({g._node: "a"})` starts the traversal from node `"a"`.
+- `n({g._node: "a"})` starts the traversal from node `"a"` where `g._node` is the identifying column name.
 - `e_undirected(name="hop1")` traverses undirected edges and labels them as `hop1`.
 - `e_undirected(name="hop2")` continues traversal and labels edges as `hop2`.
 - The labels allow you to filter and analyze edges from specific hops.
@@ -124,16 +124,16 @@ Chain multiple traversals to find patterns between nodes.
 
 ::
 
-    from graphistry.ast import n, e_forward, e_reverse
+    from graphistry import n, e_forward, e_reverse
 
     g_risky = g.chain([
         n({"risk1": True}),
-        e_forward(to_fixed=True),
+        e_forward(to_fixed_point=True),
         n({"type": "transaction"}, name="hit"),
-        e_reverse(to_fixed=True),
+        e_reverse(to_fixed_point=True),
         n({"risk2": True})
     ])
-    hits = g_risky._nodes[ g_risky._nodes.hit == True ]
+    hits = g_risky._nodes[ g_risky._nodes["hit"] == True ]
     print('Number of transaction hits:', len(hits))
 
 **Explanation:**
@@ -152,16 +152,16 @@ Use the `is_in` predicate to filter nodes or edges by multiple values.
 
 ::
 
-    from graphistry.ast import n, e_forward, e_reverse, is_in
+    from graphistry import n, e_forward, e_reverse, is_in
 
     g_filtered = g.chain([
         n({"type": is_in(["person", "company"])}),
-        e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed=True),
+        e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
         n({"type": is_in(["transaction", "account"])}, name="hit"),
-        e_reverse(to_fixed=True),
+        e_reverse(to_fixed_point=True),
         n({"risk2": True})
     ])
-    hits = g_filtered._nodes[ g_filtered._nodes.hit == True ]
+    hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
     print('Number of filtered hits:', len(hits))
 
 **Explanation:**
@@ -254,6 +254,8 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 **Example: Visualize high PageRank nodes**
 
 ::
+
+    from graphistry import n, e
 
     # Filter nodes with high PageRank
     g_high_pagerank = g_enriched.chain([
