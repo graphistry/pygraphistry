@@ -1571,6 +1571,9 @@ class PlotterBase(Plottable):
 
 
     def networkx_checkoverlap(self, g):
+        """
+        Raise an error if the node attribute already exists in the graph
+        """
 
         import networkx as nx
         [_major, _minor] = nx.__version__.split('.', 1)
@@ -1601,6 +1604,86 @@ class PlotterBase(Plottable):
         edges = pd.DataFrame(get_edgelist(g))
         return (edges, nodes)
 
+    def from_networkx(self, G) -> Plottable:
+        """
+        Convert a NetworkX graph to a PyGraphistry graph.
+
+        This method takes a NetworkX graph and converts it into a format that PyGraphistry can use for visualization. It extracts the node and edge data from the NetworkX graph and binds them to the graph object for further manipulation or visualization using PyGraphistry's API.
+
+        :param G: The NetworkX graph to convert.
+        :type G: networkx.Graph or networkx.DiGraph
+
+        :return: A PyGraphistry Plottable object with the node and edge data from the NetworkX graph.
+        :rtype: Plottable
+
+        **Example: Basic NetworkX Conversion**
+            ::
+
+                import graphistry
+                import networkx as nx
+
+                # Create a NetworkX graph
+                G = nx.Graph()
+                G.add_nodes_from([
+                    (1, {"v": "one"}), 
+                    (2, {"v": "two"}), 
+                    (3, {"v": "three"}), 
+                    (4, {"v": "four"}), 
+                    (7, {"v": "seven"}), 
+                    (8, {"v": "eight"})
+                ])
+                G.add_edges_from([
+                    [2, 3], 
+                    [3, 4], 
+                    [7, 8]
+                ])
+
+                # Convert the NetworkX graph to PyGraphistry format
+                g = from_networkx(G)
+                
+                g.plot()
+
+        This example creates a simple NetworkX graph with nodes and edges, converts it using `from_networkx()`, and then plots it with the PyGraphistry API.
+
+        **Example: Using Custom Node and Edge Bindings**
+            ::
+
+                import graphistry
+                import networkx as nx
+
+                # Create a NetworkX graph with attributes
+                G = nx.Graph()
+                G.add_nodes_from([
+                    (1, {"v": "one"}), 
+                    (2, {"v": "two"}), 
+                    (3, {"v": "three"}), 
+                    (4, {"v": "four"}), 
+                    (7, {"v": "seven"}), 
+                    (8, {"v": "eight"})
+                ])
+                G.add_edges_from([
+                    [2, 3], 
+                    [3, 4], 
+                    [7, 8]
+                ])
+
+                # Bind custom node and edge names when converting from NetworkX to PyGraphistry
+                g = graphistry.bind(source='src', destination='dst').from_networkx(G)
+                
+                g.plot()
+        """
+
+        g = (self
+            .nodes(None, 'n' if self._node is None else self._node)
+            .edges(
+                None,
+                'src' if self._source is None else self._source,
+                'dst' if self._destination is None else self._destination
+            )
+        )
+        
+        e_df, n_df = g.networkx2pandas(G)
+        return g.edges(e_df).nodes(n_df)
 
     def from_cugraph(self,
         G,
