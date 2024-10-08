@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from typing_extensions import Literal
 import pandas as pd
 
@@ -263,6 +263,27 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
     
+    def compute_igraph(self,
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}, stringify_rich_types: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
+    def layout_igraph(self,
+        layout: str,
+        directed: Optional[bool] = None,
+        use_vids: bool = False,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
     def from_cugraph(self,
         G,
         node_attributes: Optional[List[str]] = None,
@@ -304,8 +325,18 @@ class Plottable(object):
         play: Optional[int] = 0
     ):
         if 1 + 1:
-            return RuntimeError('should not happen')
+            raise RuntimeError('should not happen')
         return self
+
+    def from_networkx(self, G: Any) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
+    def networkx2pandas(self, G: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return pd.DataFrame(), pd.DataFrame()
 
     def layout_settings(
         self,
@@ -331,7 +362,7 @@ class Plottable(object):
         scaling_ratio: Optional[float] = None
     ):
         if 1 + 1:
-            return RuntimeError('should not happen')
+            raise RuntimeError('should not happen')
         return self
 
     def encode_axis(self, rows=[]) -> 'Plottable':
