@@ -24,9 +24,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13.0-rc.3]
         include:
-          - python-version: 3.13
+          - python-version: 3.13.0-rc.3
             continue-on-error: true
 
     steps:
@@ -74,9 +74,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13.0-rc.3]
         include:
-          - python-version: 3.13
+          - python-version: 3.13.0-rc.3
             continue-on-error: true
 
     steps:
@@ -123,9 +123,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13.0-rc.3]
         include:
-          - python-version: 3.13
+          - python-version: 3.13.0-rc.3
             continue-on-error: true
 
     steps:
@@ -168,9 +168,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13.0-rc.3]
         include:
-          - python-version: 3.13
+          - python-version: 3.13.0-rc.3
             continue-on-error: true
 
     steps:
@@ -217,9 +217,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, 3.13.0-rc.3]
         include:
-          - python-version: 3.13
+          - python-version: 3.13.0-rc.3
             continue-on-error: true
 
     steps:
