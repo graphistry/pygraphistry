@@ -1,3 +1,5 @@
+.. _gfql-quick:
+
 GFQL Quick Reference
 ====================
 
@@ -10,10 +12,12 @@ Basic Usage
 
 .. code-block:: python
 
-    g.chain([...], engine=EngineAbstract.AUTO)
+    g.chain(ops=[...], engine=EngineAbstract.AUTO)
 
-- **`ops`**: Sequence of graph node and edge matchers (`ASTObject` instances).
-- **`engine`**: Optional execution engine (`'cudf'` for GPU acceleration).
+:meth:`chain <graphistry.compute.chain>` sequences multiple matchers for more complex patterns of paths and subgraphs
+
+- **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
+- **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
 Node Matchers
 -------------
@@ -22,9 +26,12 @@ Node Matchers
 
   n(filter_dict=None, name=None, query=None)
 
+:meth:`n <graphistry.compute.ast.n>` matches nodes based on their attributes.
+
 - Filter nodes based on attributes.
 
 - **Parameters**:
+
   - `filter_dict`: `{attribute: value}` or `{attribute: condition_function}`
   - `name`: Optional label; adds a boolean column in the result.
   - `query`: Custom query string (e.g., `"age > 30 and country == 'USA'"`).
@@ -61,9 +68,12 @@ Edge Matchers
   # alias for e_undirected
   e(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
 
+:meth:`e <graphistry.compute.ast.e>` matches edges based on their attributes (undirected). May also include matching on edge's source and destination nodes.
+
 - Traverse edges in the forward direction.
 
 - **Parameters**:
+
   - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
   - `edge_query`: Custom query string for edge attributes.
   - `hops`: `int`, number of hops to traverse.
@@ -112,15 +122,15 @@ Edge Matchers
 
       e_forward(name="active_edges")
 
-**`e_reverse(...)` and `e_undirected(...)`**
+:class:`e_reverse <graphistry.compute.ast.e_reverse>`, :class:`e_forward <graphistry.compute.ast.e_forward>`, and :class:`e <graphistry.compute.ast.e>` are aliases.
 
-- **`e_reverse`**: Same as `e_forward`, but traverses in reverse.
-- **`e_undirected`**: Traverses edges regardless of direction.
+- :class:`e_reverse <graphistry.compute.ast.e_reverse>`: Same as :class:`e_forward <graphistry.compute.ast.e_forward>`, but traverses in reverse.
+- :class:`e <graphistry.compute.ast.e>`: Traverses edges regardless of direction.
 
 Predicates
 -----------
 
-**`predicate(values)`**
+:class:`graphistry.compute.predicates.ASTPredicate.ASTPredicate`
 
 - Matches using a predicate on entity attributes.
 
@@ -253,6 +263,7 @@ Parameter Summary
 -----------------
 
 - **Common Parameters:**
+
   - `filter_dict`: Attribute filters (e.g., `{"status": "active"}`)
   - `query`: Custom query string (e.g., `"age > 30"`)
   - `hops`: Number of steps to traverse (`int`, default `1`)

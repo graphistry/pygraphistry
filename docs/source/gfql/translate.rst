@@ -1,3 +1,5 @@
+.. _gfql-translate:
+
 Translating Between SQL, Pandas, Cypher, and GFQL
 =================================================
 
@@ -351,9 +353,9 @@ Tips for Users
 Additional Resources
 --------------------
 
-- **GFQL Documentation**: Detailed documentation for advanced usage.
-- **GFQL Predicates**: Use predicates for complex filtering conditions.
-- **PyGraphistry Integration**: Visualize GFQL queries with GPU-accelerated tools.
+- :ref:`gfql-quick`
+- :ref:`gfql-predicates-quick`: Use predicates for filtering on nodee and edge attributes.
+- :ref:`10min`: Visualize GFQL queries with GPU-accelerated tools.
 
 Conclusion
 ----------
