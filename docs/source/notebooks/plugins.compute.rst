@@ -1,3 +1,5 @@
+.. _nb-compute:
+
 Plugins - Compute & Layout
 =============================
 

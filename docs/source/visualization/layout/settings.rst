@@ -13,7 +13,7 @@ You can use the PyGraphistry API to programmatically configure visualizations. B
 Scene Settings
 ~~~~~~~~~~~~~~~
 
-Use `g.scene_settings()` to modify the appearance of the graph, including menus, node sizes, and edge opacity:
+Use :meth:`graphistry.PlotterBase.PlotterBase.scene_settings` to modify the appearance of the graph, including menus, node sizes, and edge opacity:
 
 .. code-block:: python
 
@@ -29,10 +29,11 @@ Use `g.scene_settings()` to modify the appearance of the graph, including menus,
        point_opacity=0.9
    ).plot()
 
+
 Styling the Background and Foreground
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-With `g.addStyle()`, you can configure background and foreground styles, including colors, gradients, and images:
+With :meth:`graphistry.PlotterBase.PlotterBase.addStyle`, you can configure background and foreground styles, including colors, gradients, and images:
 
 .. code-block:: python
 
@@ -59,7 +60,7 @@ With `g.addStyle()`, you can configure background and foreground styles, includi
 Page and Logo Settings
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Customize the page title, favicon, and logo using `g.addStyle()`:
+Customize the page title, favicon, and logo using :meth:`graphistry.PlotterBase.PlotterBase.addStyle`, :
 
 .. code-block:: python
 
@@ -77,14 +78,14 @@ Customize the page title, favicon, and logo using `g.addStyle()`:
        'style': {'opacity': 0.5}
    })
 
-For more advanced Python configuration options, refer to the [PyGraphistry API documentation](https://hub.graphistry.com/docs).
+For more advanced Python configuration options, refer to the PyGraphistry REST API documentation on `URL parameters <https://hub.graphistry.com/docs/api/1/rest/url/#urloptions>`_ and `Branding metadata <https://hub.graphistry.com/docs/api/2/rest/upload/metadata/>`_.
 
 HTML/URL-based Configuration
 --------------------------------
 
 For users interested in configuring Graphistry visualizations through HTML and URL parameters, please refer to the official documentation:
 
-- **[Graphistry URL Configuration Options](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)**
+- `Graphistry URL Configuration Options <https://hub.graphistry.com/docs/api/1/rest/url/#urloptions>`_
 
 This guide covers how to embed Graphistry visualizations in web pages and configure visualizations via URL parameters like background color, layout settings, and more.
 

@@ -92,20 +92,28 @@ These methods ensure you can quickly load & shape data and move into visualizing
 Layouts
 -------
 
-PyGraphistry offers several layout options:
+PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, covering:
 
-- **Native Layout**: PyGraphistry’s default is a force-directed layout. 
-  You can adjust settings, such as gravity or node influence:
+- **Live Layout**: Graphistry performs GPU-accelerated force-directed layouts at interaction time.
+  You can adjust settings, such as gravity, edge weight, and initial clustering time:
+
+  .. code-block:: python
+
+      g.settings(url_params={'play': 7000, 'info': True}).plot()
+
+- **PyGraphistry Layouts**: PyGraphistry ships with special layouts unavailable elsewhere and that work with the rendering engine's special features:
 
   .. code-block:: python
 
       g.time_ring_layout('time_col').plot()
 
 - **Plugin Layouts**: Integrated use of external libraries for specific layouts:
-  - `GraphViz Plugin <source/api/plugins/graphviz.rst>`__ for hierarchical and directed layouts.
-  - `cuGraph Plugin <source/api/plugins/cugraph.rst>`__ for GPU-accelerated graph algorithms.
 
-- **External Layouts**: Pass in `x`, `y` columns that you compute
+  - :ref:`Graphviz <graphviz>` for hierarchical and directed layouts such as the `"dot"` engine
+  - :ref:`cuGraph <cugraph>` for GPU-accelerated FA2, a weaker version of Graphistry's live layout
+  - :ref:`igraph <igraph>` for CPU-based layouts, similar to GraphViz and with layouts that focus more on medium-sized social networks
+
+- **External Layouts**: Pass in `x`, `y` columns, such as from your own edits, external data, or external ML/AI packages:
 
    .. code-block:: python
 
@@ -122,36 +130,51 @@ Node & Edge Encodings
 
 You can encode your graph attributes visually using colors, sizes, icons, and more:
 
-- **Direct Encoding**: Set attributes like color directly on nodes or edges.
+* **Direct Encoding**: Set attributes like color directly on nodes or edges.
 
   .. code-block:: python
 
       g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}).plot()
 
-- **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
+* **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
 
   .. code-block:: python
 
       g.encode_point_color('score', ['blue', 'yellow', 'red'], as_continuous=True).plot()
 
-- **Other Encodings**: You can also adjust edge thickness, node icon, and add badges using the following methods:
+* **Encodings List**: Beyond colors, you can also adjust edge thickness, node icon, and add badges using the following methods:
 
-  - `encode_point_badge()`
-  - `encode_point_color()`
-  - `encode_point_icon()`
-  - `encode_point_size()`
-  - The same applies for edges:
+  * Points:
 
-    - `encode_edge_badge()`
-    - `encode_edge_color()`
-    - `encode_edge_icon()`
-    - `encode_edge_size()`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_point_badge`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_point_color`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_point_icon`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_point_size`
 
- - **Bind**: Some settigs are more typically done through `bind()`:
+  * Edges:
 
-   - `bind(point_title=)`
-   - `bind(edge_title=)`
-   - `bind(edge_weight=)`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_edge_badge`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_edge_color`
+    - :meth:`graphistry.PlotterBase.PlotterBase.encode_edge_icon`
+
+* **Bind**: Simpler data-driven settings are done through :meth:`graphistry.PlotterBase.PlotterBase.bind`:
+
+  .. code-block:: python
+
+    g.bind(point_title='my_node_title_col')
+
+
+  Where:
+
+  .. code-block:: python
+    
+    bind(source=None, destination=None, node=None, edge=None,
+      edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
+      edge_size=None, edge_opacity=None, edge_icon=None,
+      edge_source_color=None, edge_destination_color=None,
+      point_title=None, point_label=None, point_color=None, point_weight=None,
+      point_size=None, point_opacity=None, point_icon=None, point_x=None, point_y=None
+    )
 
 .. _url-settings:
 
@@ -194,11 +217,11 @@ Once you're ready to visualize, use `.plot()` to render:
 Next Steps
 ----------
 
-- `10 Minutes to GFQL <10min-gfql>`_: Use GFQL to query and manipulate your graph data before visualization.
-- `Layout guide <layout-guide>`_: Explore different layouts for your visualizations.
-- `Plugins <plugins>`_: Discover more ways to connect to your data and work with your favorite tools. 
-- `Layout catalog <layout-catalog>`_: Dive deeper into the layout options available in PyGraphistry.
-- `PyGraphistry API Reference <source/api/index.rst>`_
+- :ref:`10 Minutes to GFQL <10min-gfql>`: Use GFQL to query and manipulate your graph data before visualization.
+- :ref:`Layout guide <layout-guide>`: Explore different layouts for your visualizations.
+- :ref:`Plugins <plugins>`: Discover more ways to connect to your data and work with your favorite tools. 
+- :ref:`Layout catalog <layout-catalog>`: Dive deeper into the layout options available in PyGraphistry.
+- :ref:`PyGraphistry API Reference <api>`
 
 External Resources
 --------------------
