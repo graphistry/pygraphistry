@@ -399,26 +399,38 @@ class GremlinMixin(MIXIN_BASE):
         self,
         gremlin_client: Client
     ):
-        """Pass in a generic gremlin python client
+        """
+        Set the Gremlin client to interact with the Gremlin-enabled database.
 
-            **Example: Login and plot **
+        This method allows you to pass a custom Gremlin Python client to interact with databases like CosmosDB 
+        using Gremlin queries. It stores the client for subsequent queries in the Graphistry workflow.
+
+        :param gremlin_client: Instance of the Gremlin Python client.
+        :type gremlin_client: gremlin_python.driver.client.Client
+
+        :return: The instance of Graphistry, updated with the Gremlin client.
+        :rtype: GremlinMixin
+
+        **Example: Login and plot**
             ::
 
                 import graphistry
                 from gremlin_python.driver.client import Client
 
                 my_gremlin_client = Client(
-                f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
-                'g', 
-                username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
-                password=self.COSMOS_PRIMARY_KEY,
-                message_serializer=GraphSONSerializersV2d0())
+                    f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
+                    'g', 
+                    username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
+                    password=self.COSMOS_PRIMARY_KEY,
+                    message_serializer=GraphSONSerializersV2d0())
 
-                (graphistry
+                g = (graphistry
                     .gremlin_client(my_gremlin_client)
                     .gremlin('g.E().sample(10)')
                     .fetch_nodes()  # Fetch properties for nodes
-                    .plot())
+                )
+
+                g.plot()
 
         """    
 
@@ -473,19 +485,59 @@ class GremlinMixin(MIXIN_BASE):
        
     def gremlin(self, queries: Union[str, Iterable[str]]) -> Plottable:
         """
-            Run one or more gremlin queries and get back the result as a graph object
-            To support cosmosdb, sends as strings
+        Run one or more Gremlin queries and return the result as a PyGraphistry graph object.
 
-            **Example: Login and plot **
+        This method allows you to execute Gremlin queries, either as a single string or an iterable of strings, 
+        and retrieve the results in a format that PyGraphistry can process and visualize. 
+        To support databases like CosmosDB, the queries are sent as strings.
+
+        :param queries: One or more Gremlin queries to execute. Can be a single query (as a string) or multiple queries (as a list of strings).
+        :type queries: Union[str, Iterable[str]]
+
+        :return: A PyGraphistry `Plottable` graph object containing the query results.
+        :rtype: Plottable
+
+        **Example: Execute a Gremlin Query and Plot**
             ::
 
                 import graphistry
-                (graphistry
-                    .gremlin_client(my_gremlin_client)
-                    .gremlin('g.E().sample(10)')
-                    .fetch_nodes()  # Fetch properties for nodes
-                    .plot())
+                from gremlin_python.driver.client import Client
+                from gremlin_python.driver.serializer import GraphSONSerializersV2d0
 
+                # Create a Gremlin client for CosmosDB
+                my_gremlin_client = Client(
+                    f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
+                    'g',
+                    username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
+                    password='MY_COSMOS_PRIMARY_KEY',
+                    message_serializer=GraphSONSerializersV2d0()
+                )
+
+                # Run a Gremlin query and visualize the result
+                graphistry \
+                    .gremlin_client(my_gremlin_client) \
+                    .gremlin('g.V().hasLabel("person").limit(5)') \
+                    .fetch_nodes() \
+                    .plot()
+
+            In this example, the Gremlin query selects the first 5 vertices with the label "person" and 
+            plots the result in PyGraphistry.
+
+        **Example: Running Multiple Gremlin Queries**
+            ::
+
+                queries = [
+                    'g.V().hasLabel("person").limit(5)',
+                    'g.E().limit(10)'
+                ]
+
+                graphistry \
+                    .gremlin_client(my_gremlin_client) \
+                    .gremlin(queries) \
+                    .fetch_nodes() \
+                    .plot()
+
+            This example demonstrates how to run multiple Gremlin queries, fetch their results, and visualize them.
         """
         ensure_imports()
         if isinstance(queries, str):
@@ -836,7 +888,7 @@ class CosmosMixin(COSMOS_BASE):
            Environment variable names are the same as the constructor argument names
            If no client provided, create (connect)
 
-        **Example: Login and plot **
+        **Example: Login and plot**
                 ::
 
                     import graphistry
