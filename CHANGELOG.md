@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.11 - 2024-10-07]
+
+### Fix
+
+* Types
+
+### Infra
+
+* Enable more Python version checks
+
 ## [0.34.10 - 2024-10-07]
 
 ### Fix
