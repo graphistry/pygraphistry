@@ -11,3 +11,4 @@ PyGraphistry supports a variety of frameworks for graph tasks like analytics and
    cugraph
    graphviz
    igraph
+   networkx
