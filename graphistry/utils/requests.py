@@ -7,7 +7,7 @@ logger = setup_logger(__name__)
 
 def log_requests_error(resp: requests.Response) -> None:
 
-    if resp.status_code != requests.codes.ok:
+    if not (200 <= resp.status_code < 300):
 
         try:
             error_content = resp.json()
