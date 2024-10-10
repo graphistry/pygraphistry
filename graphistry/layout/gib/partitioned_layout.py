@@ -16,6 +16,13 @@ def partitioned_layout(
     partition_key='partition',
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
+
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
     from timeit import default_timer as timer
     start = timer()
 
@@ -78,11 +85,14 @@ def partitioned_layout(
             ).bind(edge_weight='weight')
         )
 
+    partitions = remaining[partition_key].to_numpy()
+    progress_bar = tqdm(partitions) if has_tqdm else partitions
+
     #for partition in remaining[partition_key].to_pandas().to_numpy():
     s_keep = 0.
     s_layout = 0.
     s_layout_by_size = {}
-    for partition in remaining[partition_key].to_numpy():
+    for partition in progress_bar:
         start_i = timer()
 
         node_ids = self._nodes[
@@ -143,6 +153,9 @@ def partitioned_layout(
             s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (0, 0.)
         n, t = s_layout_by_size[ len(positioned_subgraph_g._nodes) ]
         s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (n + 1, t + (end_i - start_i_mid))
+    if has_tqdm:
+        progress_bar.close()
+
     end_communities = timer()
     logger.debug('s_keep: %s s', s_keep)
     logger.debug('s_layout: %s s', s_layout)
