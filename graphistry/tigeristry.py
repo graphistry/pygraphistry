@@ -1,6 +1,8 @@
 import requests
 import pandas as pd
 
+from graphistry.utils.requests import log_requests_error
+
 def merge_dicts(x, y):
     return dict(list(x.items()) + list(y.items()))
 
@@ -98,6 +100,7 @@ class Tigeristry(object):
             return url
 
         resp = requests.get(url)
+        log_requests_error(resp)
         self.__log(resp)
         json = resp.json()
 
@@ -155,6 +158,7 @@ class Tigeristry(object):
         if dry_run:
             return url
         response = requests.post(url, data=query)
+        log_requests_error(response)
         json = response.json()
         return self.__verify_and_unwrap_json_result(json)
 

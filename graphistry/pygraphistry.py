@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union, cast
 from typing_extensions import Literal
 from graphistry.Plottable import Plottable
 from graphistry.privacy import Mode, Privacy
+from graphistry.utils.requests import log_requests_error
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -2198,6 +2199,7 @@ class PyGraphistry(object):
             params=params,
             verify=PyGraphistry._config["certificate_validation"],
         )
+        log_requests_error(response)
         response.raise_for_status()
 
         try:
@@ -2225,6 +2227,7 @@ class PyGraphistry(object):
                 timeout=(3, 3),
                 verify=PyGraphistry._config["certificate_validation"],
             )
+            log_requests_error(response)
             response.raise_for_status()
             jres = response.json()
 
@@ -2422,6 +2425,7 @@ class PyGraphistry(object):
             headers={'Authorization': f'Bearer {PyGraphistry.api_token()}'},
             verify=PyGraphistry._config["certificate_validation"],
         )
+        log_requests_error(response)
         result = PyGraphistry._handle_api_response(response)
 
         if result is True:
