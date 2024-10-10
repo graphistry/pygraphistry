@@ -107,3 +107,74 @@ def s_cons(engine: Engine):
         import cudf
         return cudf.Series
     raise NotImplementedError("Only pandas/cudf supported")
+
+def s_sqrt(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.sqrt
+    elif engine == Engine.CUDF:
+        import cudf
+        return cudf.sqrt
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_arange(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.arange
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.arange
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_full(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.full
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.full
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_pi(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.pi
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.pi
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_concatenate(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.concatenate
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.concatenate
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_sin(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.sin
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.sin
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_cos(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.cos
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.cos
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_series(engine: Engine):
+    if engine == Engine.PANDAS:
+        return pd.Series
+    elif engine == Engine.CUDF:
+        import cudf
+        return cudf.Series
+    raise NotImplementedError("Only pandas/cudf supported")

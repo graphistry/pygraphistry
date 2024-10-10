@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
 from graphistry.Plottable import Plottable
@@ -11,8 +11,8 @@ logger = setup_logger(__name__)
 def partitioned_layout(
     self: Plottable,
     partition_offsets: Dict[str, Dict[int, float]],
-    layout_alg: Optional[str] = None,
-    layout_params: Dict = {},
+    layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
+    layout_params: Dict[str, Any] = {},
     partition_key='partition',
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
@@ -98,7 +98,10 @@ def partitioned_layout(
         #    print('SINGLETON')
         start_i_mid = timer()
         niter = min(len(subgraph_g._nodes), 300)
-        if engine == Engine.PANDAS:
+        if callable(layout_alg):
+            positioned_subgraph_g = layout_alg(subgraph_g)
+            layout_name = 'custom'
+        elif engine == Engine.PANDAS:
             layout_name = layout_alg or 'fr'
             positioned_subgraph_g = subgraph_g.layout_igraph(  # type: ignore
                 layout=layout_name,
