@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* Layout: `circle_layout()` that moves points to one or more rings based on an ordinal field such as degree
+* Layout: `fa2_layout()` that uses the ForceAtlas2 algorithm to lay out the graph, with some extensions.
+* Layout: `gib_layout()` param `layout_alg` can now be a method `Callable[[Plottable], Plottable]`
+
 ## [0.34.14 - 2024-10-09]
 
 ### Added

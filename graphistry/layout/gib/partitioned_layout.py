@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
 from graphistry.Plottable import Plottable
@@ -11,11 +11,18 @@ logger = setup_logger(__name__)
 def partitioned_layout(
     self: Plottable,
     partition_offsets: Dict[str, Dict[int, float]],
-    layout_alg: Optional[str] = None,
-    layout_params: Dict = {},
+    layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
+    layout_params: Dict[str, Any] = {},
     partition_key='partition',
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
+
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
     from timeit import default_timer as timer
     start = timer()
 
@@ -78,11 +85,14 @@ def partitioned_layout(
             ).bind(edge_weight='weight')
         )
 
+    partitions = remaining[partition_key].to_numpy()
+    progress_bar = tqdm(partitions) if has_tqdm else partitions
+
     #for partition in remaining[partition_key].to_pandas().to_numpy():
     s_keep = 0.
     s_layout = 0.
     s_layout_by_size = {}
-    for partition in remaining[partition_key].to_numpy():
+    for partition in progress_bar:
         start_i = timer()
 
         node_ids = self._nodes[
@@ -98,7 +108,10 @@ def partitioned_layout(
         #    print('SINGLETON')
         start_i_mid = timer()
         niter = min(len(subgraph_g._nodes), 300)
-        if engine == Engine.PANDAS:
+        if callable(layout_alg):
+            positioned_subgraph_g = layout_alg(subgraph_g)
+            layout_name = 'custom'
+        elif engine == Engine.PANDAS:
             layout_name = layout_alg or 'fr'
             positioned_subgraph_g = subgraph_g.layout_igraph(  # type: ignore
                 layout=layout_name,
@@ -140,6 +153,9 @@ def partitioned_layout(
             s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (0, 0.)
         n, t = s_layout_by_size[ len(positioned_subgraph_g._nodes) ]
         s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (n + 1, t + (end_i - start_i_mid))
+    if has_tqdm:
+        progress_bar.close()
+
     end_communities = timer()
     logger.debug('s_keep: %s s', s_keep)
     logger.debug('s_layout: %s s', s_layout)
