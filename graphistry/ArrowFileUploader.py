@@ -2,6 +2,8 @@ import pyarrow as pa, requests, sys
 from functools import lru_cache
 from typing import Any, Tuple, Optional
 from weakref import WeakKeyDictionary
+
+from graphistry.utils.requests import log_requests_error
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -78,6 +80,7 @@ class ArrowFileUploader():
             verify=self.uploader.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
             json=json_extended)
+        log_requests_error(res)
 
         try:
             out = res.json()
