@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.14 - 2024-10-09]
+
 ### Added
 
 * HTTP responses with error status codes log an `logging.ERROR`-level message of the status code and response body
