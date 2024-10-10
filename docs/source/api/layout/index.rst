@@ -12,6 +12,8 @@ We recommend using the various plugins for additional layouts, such as for tree 
    :maxdepth: 3
    :caption: Contents:
 
+   circle
+   fa2
    gib
    modularity_weighted
    ring
