@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 from typing_extensions import Literal
 import pandas as pd
 
@@ -26,16 +26,16 @@ def resolve_partition_key(g, partition_key=None):
 
 
 def group_in_a_box_layout(
-    self,
-    partition_alg=None,
-    partition_params=None,
-    layout_alg=None,
-    layout_params=None,
-    x=0,
-    y=0,
-    w=None,
-    h=None,
-    encode_colors=True,
+    self: Plottable,
+    partition_alg: Optional[str] = None,
+    partition_params: Optional[Dict[str, Any]] = None,
+    layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
+    layout_params: Optional[Dict[str, Any]] = None,
+    x: float = 0,
+    y: float = 0,
+    w: Optional[float] = None,
+    h: Optional[float] = None,
+    encode_colors: bool = True,
     colors: Optional[List[str]] = None,
     partition_key: Optional[str] = None,
     engine: Union[Engine, Literal["auto"]] = "auto"
@@ -43,25 +43,78 @@ def group_in_a_box_layout(
     """
     Perform a group-in-a-box layout on a graph, supporting both CPU and GPU execution modes.
 
-    The layout algorithm groups nodes into clusters and organizes them within rectangular bounding boxes, optionally applying color encoding based on a partitioning scheme.
+    This layout algorithm organizes nodes into rectangular bounding boxes based on a partitioning algorithm.
+    It supports various layout algorithms within each partition and optional color encoding based on the partition.
 
-    Args:
-        partition_alg (Optional[str]): The algorithm to use for partitioning the graph nodes.
-        partition_params (Optional[dict]): Parameters for the partition algorithm.
-        layout_alg (Optional[str]): The layout algorithm to arrange nodes within each partition.
-        layout_params (Optional[dict]): Parameters for the layout algorithm.
-        x (int, optional): The x-coordinate for the top-left corner of the layout. Default is 0.
-        y (int, optional): The y-coordinate for the top-left corner of the layout. Default is 0.
-        w (Optional[int]): The width of the layout. If None, automatically determined.
-        h (Optional[int]): The height of the layout. If None, automatically determined.
-        encode_colors (bool, optional): Whether to apply color encoding to nodes based on partitions. Default is True.
-        colors (Optional[List[str]]): List of colors to use for the partitions.
-        partition_key (Optional[str]): The key for partitioning nodes. Default is None.
-        engine (Union[Engine, Literal["auto"]], optional): Execution engine for the layout, either "auto", CPU, or GPU. Default is "auto".
+    Supports passing in a custom per-partition layout algorithm handler.
 
-    Returns:
-        Plottable: An object representing the layout that can be plotted or visualized.
+    :param partition_alg: (optional) The algorithm to use for partitioning the graph nodes. Examples include 'community' or 'louvain'.
+    :type partition_alg: Optional[str]
+    :param partition_params: (optional) Parameters for the partition algorithm, passed as a dictionary.
+    :type partition_params: Optional[Dict[str, Any]]
+    :param layout_alg: (optional) The layout algorithm to arrange nodes within each partition.
 
+        - In GPU mode, defaults to :meth:`graphistry.layout.fa2.fa2_layout` for individual partitions.
+
+        - CPU mode defaults to :meth:`graphistry.plugins.igraph.layout_igraph` with layout `"fr"`.
+
+        - Can be a string referring to an igraph algorithm (CPU), cugraph algorithm (GPU), or a callable function.
+
+    :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
+    :param layout_params: (optional) Parameters for the layout algorithm.
+    :type layout_params: Optional[Dict[str, Any]]
+    :param x: (optional) The x-coordinate for the top-left corner of the layout. Default is 0.
+    :type x: float
+    :param y: (optional) The y-coordinate for the top-left corner of the layout. Default is 0.
+    :type y: float
+    :param w: (optional) The width of the layout. If None, it will be automatically determined based on the number of partitions.
+    :type w: Optional[float]
+    :param h: (optional) The height of the layout. If None, it will be automatically determined based on the number of partitions.
+    :type h: Optional[float]
+    :param encode_colors: (optional) Whether to apply color encoding to nodes based on partitions. Default is True.
+    :type encode_colors: bool
+    :param colors: (optional) List of colors to use for the partitions. If None, default colors will be applied.
+    :type colors: Optional[List[str]]
+    :param partition_key: (optional) The key for partitioning nodes. If not provided, defaults to a relevant partitioning key for the algorithm.
+    :type partition_key: Optional[str]
+    :param engine: (optional) The execution engine for the layout, either "auto" (default), "cpu", or "gpu".
+    :type engine: Union[graphistry.Engine.EngineAbstract, Literal["auto"]]
+
+    :returns: A graph object with nodes arranged in a group-in-a-box layout.
+    :rtype: graphistry.Plottable.Plottable
+
+    **Example 1: Basic Group-in-a-Box Layout Using Community Detection**
+        ::
+        
+            g_final = group_in_a_box_layout(
+                g,
+                partition_alg='community',
+                layout_alg='force_atlas2',
+                partition_key='community_id'
+            )
+
+    **Example 2: Custom Group-in-a-Box Layout with FA2 for Layout and Color Encoding**
+        ::
+        
+            g_final = group_in_a_box_layout(
+                g,
+                partition_alg='louvain',
+                partition_params={'resolution': 1.0},
+                layout_alg=lambda g: fa2_with_circle_singletons(g),
+                encode_colors=True,
+                colors=['#ff0000', '#00ff00', '#0000ff']
+            )
+
+    **Example 3: Advanced Usage with Custom Bounding Box and GPU Execution**
+        ::
+        
+            g_final = group_in_a_box_layout(
+                g,
+                partition_alg='louvain',
+                layout_alg='force_atlas2',
+                x=100, y=100, w=500, h=500,  # Custom bounding box
+                engine='gpu'  # Use GPU for faster layout
+            )
     """
     from timeit import default_timer as timer
     start = timer()
@@ -99,7 +152,7 @@ def group_in_a_box_layout(
         g_partitioned,
         partition_offsets=partition_offsets,
         layout_alg=layout_alg,
-        layout_params=layout_params,
+        layout_params=layout_params or {},
         partition_key=resolved_partition_key,
         engine=engine
     )

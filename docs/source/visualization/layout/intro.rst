@@ -33,12 +33,12 @@ Precomputed layouts involve manually calculating node positions (`x`, `y` column
 
 This is useful such as when you need to manually control a layout, or are visualizing externally provided positions such as from embeddings.
 
-  .. code-block:: python
+.. code-block:: python
 
-    # Precomputed 'x', 'y' coordinates in a nodes DataFrame
-    g = graphistry.edges(e_df, 'src', 'dst').nodes(n_df, 'n')
-    g2 = g.settings(url_params={'play': 0})  # skip initial loadtime layout
-    g2.plot()
+  # Precomputed 'x', 'y' coordinates in a nodes DataFrame
+  g = graphistry.edges(e_df, 'src', 'dst').nodes(n_df, 'n')
+  g2 = g.settings(url_params={'play': 0})  # skip initial loadtime layout
+  g2.plot()
 
 Precomputed layouts are ideal for handling complex visualizations where precision is key.
 
@@ -57,11 +57,19 @@ These help with several scenarios, including:
 
 **Graphistry Layouts:**
 
-- **Native Force-Directed Layout:** PyGraphistry’s default layout automatically arranges the nodes based on their connectivity.
+- **Native Force-Directed Layout:** PyGraphistry’s default layout automatically arranges the nodes based on their connectivity on page load.
 
   .. code-block:: python
 
       g = graphistry.edges(e_df, 'src', 'dst').plot()
+
+  Additionally, you can compute it ahead of time. Unlike the visualization server's pageload-time version, the PyGraphistry version uses the cuGraph (GPU) version, including a subset of the performance and quality improvements.
+
+  .. code-block:: python
+
+      g.fa2_layout().plot()
+
+  For further details, refer to the :ref:`FA2 API <fa2-api>`.
   
 - **Ring Layout:** Ideal for visualizing sorted, hierarchical, or time-based data.
 
