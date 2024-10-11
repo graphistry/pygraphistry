@@ -113,7 +113,11 @@ def fa2_layout(
         g_edgeless_layout = g_edgeless  # No layout needed
 
     # 7. Combine the layouts
-    updated_nodes = concat([g_connected_layout._nodes, g_edgeless_layout._nodes], ignore_index=True)
+    try:
+        updated_nodes = concat([g_connected_layout._nodes, g_edgeless_layout._nodes], ignore_index=True)
+    except ValueError as e:
+        logger.error(f"Error combining layouts: {e}\ndtype1:\n{g_connected_layout._nodes.dtypes}\ndtype2:\n{g_edgeless_layout._nodes.dtypes}")
+        raise
     g_final = self.nodes(updated_nodes)
 
     # 8. Assert that there are no NaN values in the final layout
