@@ -113,8 +113,8 @@ def s_sqrt(engine: Engine):
         import numpy as np
         return np.sqrt
     elif engine == Engine.CUDF:
-        import cudf
-        return cudf.sqrt
+        import cupy as cp
+        return cp.sqrt
     raise NotImplementedError("Only pandas/cudf supported")
 
 def s_arange(engine: Engine):
