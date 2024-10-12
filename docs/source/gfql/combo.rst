@@ -1,7 +1,7 @@
 .. _gfql-combo:
 
-Combine GFQL with PyGraphistry Loaders, ML, & AI
-================================================
+Combine GFQL with PyGraphistry Loaders, ML, AI, & Viz
+======================================================
 
 .. contents::
    :depth: 2
