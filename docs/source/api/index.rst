@@ -11,6 +11,7 @@ See the article on :ref:`10min` for a high-level overview of binding data and pl
    plotter
    gfql/index
    compute
+   hyper
    ai
    utils/index
    layout/index
