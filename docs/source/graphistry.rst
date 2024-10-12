@@ -7,6 +7,7 @@
    visualization/index
    gfql/index
    plugins
+   CPU & GPU Acceleration <performance>
    notebooks/index
    api/index
    community

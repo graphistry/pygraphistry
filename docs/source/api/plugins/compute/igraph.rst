@@ -11,7 +11,6 @@ igraph is a popular graph library that PyGraphistry can interface with. This all
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 .. rubric:: Constants
 

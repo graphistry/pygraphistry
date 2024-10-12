@@ -366,7 +366,7 @@ exclude_patterns = [
     'demos/data/benchmarking/TestDatasets.ipynb',
     'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',
     'demos/ai/Introduction/simple-power-of-umap.ipynb',
-    'demos/ai/cyber/CyberSecurity-Slim.ipynb',
+    #'demos/ai/cyber/CyberSecurity-Slim.ipynb',
     'demos/ai/cyber/redteam-umap-gtc-gpu.ipynb',
     'demos/ai/cyber/cyber-redteam-umap-demo.ipynb',
     'demos/ai/OSINT/jack-donations.ipynb',
