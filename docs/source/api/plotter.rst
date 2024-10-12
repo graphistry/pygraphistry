@@ -10,7 +10,6 @@ The below Python API reference documentation is for three views of the core grap
 .. toctree::
    :maxdepth: 3
 
-
 Plotter Class
 ----------------------
 .. automodule:: graphistry.plotter.Plotter
