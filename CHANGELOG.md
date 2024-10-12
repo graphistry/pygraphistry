@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 
 * Update and streamline readme.md
+* Add quicksheet for overall
+* More crosslinking
+
+### Infra
+
+* Add markdown support to docsite
 
 ### Changed
 
