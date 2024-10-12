@@ -1,6 +1,6 @@
 .. _gfql-translate:
 
-Translating Between SQL, Pandas, Cypher, and GFQL
+Translate Between SQL, Pandas, Cypher, and GFQL
 =================================================
 
 This guide provides a comparison between **SQL**, **Pandas**, **Cypher**, and **GFQL**, helping you translate familiar queries into GFQL.
@@ -27,7 +27,7 @@ We'll cover a range of common graph and query tasks:
    :depth: 2
    :local:
 
-Ex: Finding Nodes with Specific Properties
+Finding Nodes with Specific Properties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find all nodes where the `type` is `"person"`.
@@ -67,7 +67,7 @@ Ex: Finding Nodes with Specific Properties
 
 ---
 
-Ex: Exploring Relationships Between Nodes
+Exploring Relationships Between Nodes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find all edges connecting nodes of type `"person"` to nodes of type `"company"`.
@@ -121,7 +121,7 @@ Ex: Exploring Relationships Between Nodes
 
 ---
 
-Ex: Performing Multi-Hop Traversals
+Performing Multi-Hop Traversals
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find nodes that are two hops away from node `"Alice"`.
@@ -175,7 +175,7 @@ Ex: Performing Multi-Hop Traversals
 
 ---
 
-Ex: Filtering Edges and Nodes with Conditions
+Filtering Edges and Nodes with Conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find all edges where the weight is greater than `0.5`.
@@ -216,7 +216,7 @@ Ex: Filtering Edges and Nodes with Conditions
 
 ---
 
-Ex: Aggregations and Grouping
+Aggregations and Grouping
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Count the number of outgoing edges for each node.
@@ -257,7 +257,7 @@ Ex: Aggregations and Grouping
 
 .. _all-paths:
 
-Ex: All Paths and Connectivity
+All Paths and Connectivity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find all paths between nodes ``"Alice"`` and ``"Bob"`` that go through friendships.
@@ -365,7 +365,7 @@ Ex: All Paths and Connectivity
 
 ---
 
-Ex: Community Detection and Clustering
+Community Detection and Clustering
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Identify communities within the graph using the Louvain algorithm.
@@ -393,7 +393,7 @@ Ex: Community Detection and Clustering
 
 ---
 
-Ex: Time-Windowed Graph Analytics
+Time-Windowed Graph Analytics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Objective**: Find all edges between nodes `"Alice"` and `"Bob"` that occurred in the last 7 days.
@@ -452,7 +452,7 @@ Ex: Time-Windowed Graph Analytics
 
 ---
 
-Ex: Parallel Pathfinding
+Parallel Pathfinding
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -503,7 +503,7 @@ Ex: Parallel Pathfinding
 
 ---
 
-Ex: GPU Execution
+GPU Execution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *Objective**: Execute pathfinding queries on the GPU, computing all paths from `"Alice"` to `"Bob"` and `"Charlie"` simultaneously across hardware resources.

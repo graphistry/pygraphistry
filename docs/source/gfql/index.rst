@@ -13,6 +13,7 @@ See also:
 
    about
    overview
+   GFQL CPU & GPU Acceleration <performance>
    translate
    combo
    quick
