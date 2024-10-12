@@ -43,6 +43,7 @@ release = version
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'myst_parser',
     'nbsphinx',
     "sphinx.ext.autodoc",
     #'sphinx.ext.autosummary',
@@ -276,6 +277,7 @@ templates_path = ["_templates"]
 # source_suffix = ['.rst', '.md']
 # source_suffix = ['.rst', '.ipynb']
 source_suffix = {
+     '.md': 'markdown',
     '.rst': 'restructuredtext',
     #'.ipynb': 'nbsphinx',
 }
