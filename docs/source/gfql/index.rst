@@ -14,5 +14,6 @@ See also:
    about
    overview
    translate
+   combo
    quick
    predicates/quick

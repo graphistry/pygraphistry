@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+
+* Improve GFQL translation doc
+* Add examples and API links: Shaping, Hypergraphs, AI & ML
+
 ## [0.34.14 - 2024-10-09]
 
 ### Added

@@ -44,3 +44,11 @@ DBSCAN
     :inherited-members:
     :show-inheritance:
     :noindex:
+
+RGCN
+----
+.. automodule:: graphistry.networks
+    :members:
+    :undoc-members:
+    :inherited-members:
+    :show-inheritance:
