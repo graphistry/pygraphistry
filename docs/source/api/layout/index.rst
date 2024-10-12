@@ -28,3 +28,13 @@ Several plugins provide a large variety of additional layouts:
 * :ref:`graphviz`: Especially strong at tree and hierarchical data diagramming such as the dot engine
 * :ref:`igraph` : A variety of layouts, including Sugiyama, Fruchterman-Reingold, and Kamada-Kawai
 * NetworkX: A variety of layouts
+
+
+LayoutsMixin
+------------
+
+.. automodule:: graphistry.layouts.LayoutsMixin
+   :members:
+   :undoc-members:
+   :inherited-members:
+   :show-inheritance:
