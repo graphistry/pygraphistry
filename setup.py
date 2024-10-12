@@ -30,6 +30,7 @@ dev_extras = {
       'docutils==0.21.2',
       'ipython==8.28',
       'Jinja2==3.1.4',
+      'myst-parser==4.0.0',
       'nbsphinx==0.9.5',
       'pygments>2.10',
       'sphinx==8.0.2',

@@ -154,7 +154,7 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 
 ## PyGraphistry documentation
 
- *  [Main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/)
+*  [Main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/)
 * Get started
   - [Installation Guides](https://pygraphistry.readthedocs.io/en/latest/install/index.html)
   - [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/10min.html)
@@ -167,8 +167,9 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
   - [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/performance.html)
 * API References
     - [PyGraphistry API Reference](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
-      - [Visualization & Compute](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html)
-      - [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html)
+      - [Visualization & Compute Guides](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html): Quick, layout catalog, embedding, and more
+      - [PyGraphistry Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/cheatsheet.html)
+      - [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html), including [GFQL Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/quick.html) and [GFQL Operator Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/predicates/quick.html)
       - [Plugins](https://pygraphistry.readthedocs.io/en/latest/plugins.html)
     - [iframe Reference API](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
     - [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs): Browser (vanilla, React), Node.js, and storybooks
@@ -176,11 +177,15 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 
 ## Graphistry ecosystem
 
-  - [Graphistry Hub and Self-Hosting](https://www.graphistry.com/get-started)
-  - [Louie.AI](https://louie.ai/) (new!): GenAI-native Python notebooks, dashboards, & pipelines with native Graphistry integration
-  - [graph-app-kit](https://github.com/graphistry/graph-app-kit): Streamlit Python dashboards with graph ecosystem integrations
-  - [cu-cat](https://chat.openai.com/chat): End-to-end GPU automated feature engineering
-  - Graphistry core API clients: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions), [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/), [Python](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
+- Graphistry server: Graphistry Hub, cloud marketplaces, docker, and kubernetes
+  - Launch - [Graphistry Hub, Graphistry cloud marketplaces, and self-hosting](https://www.graphistry.com/get-started)
+  - [Self-hosting administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
+  - [Kubernetes helm charts](https://github.com/graphistry/graphistry-helm)
+
+- [Louie.AI](https://louie.ai/) (new!): GenAI-native Python notebooks, dashboards, & pipelines with native Graphistry integration
+- [graph-app-kit](https://github.com/graphistry/graph-app-kit): Streamlit Python dashboards with graph ecosystem integrations
+- [cu-cat](https://chat.openai.com/chat): End-to-end GPU automated feature engineering
+- Graphistry core API clients: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions), [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/), [Python](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
 
 See also our partner technologies [RAPIDS](https://rapids.ai/) and [Apache Arrow](https://arrow.apache.org/), and database partners such as [Neo4j](https://neo4j.com/users/graphistry-inc/), [TigerGraph](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.html), [Amazon Neptune](https://docs.aws.amazon.com/neptune/latest/userguide/visualization-graphistry.html), [Splunk](https://www.splunk.com/en_us/blog/security/supercharge-cybersecurity-investigations-with-splunk-and-graphistry-a-powerful-combination-for-interactive-graph-exploration.html), and [Databricks](https://www.databricks.com/solutions/accelerators/incident-investigation-using-graphistry). Get started with these in the [notebook data provider demo gallery](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html).
 
