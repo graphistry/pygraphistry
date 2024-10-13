@@ -24,7 +24,7 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 * [**Python dataframe-native graph processing:**](https://pygraphistry.readthedocs.io/en/latest/10min.html) Quickly ingest & prepare data in many formats, shapes, and scales as graphs. Use tools like Pandas, Spark, [RAPIDS (GPU)](https://www.rapids.ai), and [Apache Arrow](https://arrow.apache.org/).
 
-* [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Plug into [Amazon Neptune](https://docs.aws.amazon.com/neptune/latest/userguide/visualization-graphistry.html) ([notebook](demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.ipynb)), [cuGraph](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb), [Databricks](https://www.databricks.com/solutions/accelerators/incident-investigation-using-graphistry) ([notebook](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb)), [graphviz](demos/demos_databases_apis/graphviz/graphviz.ipynb), [Neo4j](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.html), [Splunk](https://www.splunk.com/en_us/blog/security/supercharge-cybersecurity-investigations-with-splunk-and-graphistry-a-powerful-combination-for-interactive-graph-exploration.html) ([notebook](demos/demos_databases_apis/splunk/splunk_demo_public.html)), [TigerGraph](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb), and many more in the [notebook data provider demo gallery](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html).
+* [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Plug into [Amazon Neptune](https://docs.aws.amazon.com/neptune/latest/userguide/visualization-graphistry.html) ([notebook](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.html)), [cuGraph](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/gpu_rapids/cugraph.html), [Databricks](https://www.databricks.com/solutions/accelerators/incident-investigation-using-graphistry) ([notebook](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.html)), [graphviz](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/graphviz/graphviz.html), [Neo4j](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.html), [Splunk](https://www.splunk.com/en_us/blog/security/supercharge-cybersecurity-investigations-with-splunk-and-graphistry-a-powerful-combination-for-interactive-graph-exploration.html) ([notebook](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/splunk/splunk_demo_public.html)), [TigerGraph](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.html), and many more in the [notebook data provider demo gallery](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html).
 
 
 * [**Prototype locally and deploy remotely:**](https://www.graphistry.com/get-started) Prototype from notebooks like Jupyter and Databricks using local CPUs & GPUs, and then power production dashboards & pipelines with Graphistry Hub and your own self-hosted servers.
@@ -171,38 +171,28 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 ## PyGraphistry documentation
 
 * [Main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/)
-* Get started
-  - [Installation](https://pygraphistry.readthedocs.io/en/latest/install/index.html)
-  - 10 Minutes to: [PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/10min.html), [Visualization](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html), [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html)
-  - [UI Guide](https://hub.graphistry.com/docs/ui/index/)
-  - [Notebooks](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html)
-* Performance
-  - [Core - CPU & GPU](https://pygraphistry.readthedocs.io/en/latest/performance.html)
-  - [GFQL - CPU & GPU](https://pygraphistry.readthedocs.io/en/latest/gfql/performance.html)
+* 10 Minutes to: [PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/10min.html), [Visualization](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html), [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html)
+* Get started: [Install](https://pygraphistry.readthedocs.io/en/latest/install/index.html), [UI Guide](https://hub.graphistry.com/docs/ui/index/), [Notebooks](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html)
+* Performance: [PyGraphistry CPU+GPU](https://pygraphistry.readthedocs.io/en/latest/performance.html) & [GFQL CPU+GPU](https://pygraphistry.readthedocs.io/en/latest/gfql/performance.html)
 * API References
-    - [PyGraphistry API Reference](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
-      - [Visualization & Compute](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html)
-      - [PyGraphistry Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/cheatsheet.html)
-      - [GFQL Documentation](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html):  [GFQL Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/quick.html) and [GFQL Operator Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/predicates/quick.html)
-      - [Plugins](https://pygraphistry.readthedocs.io/en/latest/plugins.html): Databricks, Splunk, Neptune, Neo4j, RAPIDS, and more
-    - More languages: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions),  [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
+    - [PyGraphistry API Reference](https://pygraphistry.readthedocs.io/en/latest/api/index.html): [Visualization & Compute](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html), [PyGraphistry Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/cheatsheet.html)
+    - [GFQL Documentation](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html):  [GFQL Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/quick.html) and [GFQL Operator Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/predicates/quick.html)
+    - [Plugins](https://pygraphistry.readthedocs.io/en/latest/plugins.html): Databricks, Splunk, Neptune, Neo4j, RAPIDS, and more
+    - Web: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions),  [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
 
 ## Graphistry ecosystem
 
-- **Graphistry server:** Graphistry Hub, cloud marketplaces, docker, and kubernetes
+- **Graphistry server:**
   - Launch - [Graphistry Hub, Graphistry cloud marketplaces, and self-hosting](https://www.graphistry.com/get-started)
-  - [Self-hosting administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
-  - [Kubernetes helm charts](https://github.com/graphistry/graphistry-helm)
+  - Self-hosting: [Administration (including Docker)](https://github.com/graphistry/graphistry-cli) & [Kubernetes](https://github.com/graphistry/graphistry-helm)
 
-- **Graphistry core API clients:**
-  - [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
-  - [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs)
-  - [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
-  - [Python](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
+- **Graphistry client APIs:**
+  - Web: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions), [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
+  - [PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/index.html)
   - [Graphistry for Microsoft PowerBI](https://hub.graphistry.com/docs/powerbi/pbi/)
 
 - **Additional projects**:
-  - [Louie.ai](https://louie.ai/): GenAI notebooks & dashboards for your databases & Graphistry
+  - [Louie.ai](https://louie.ai/): GenAI-native notebooks & dashboards to talk to your databases & Graphistry
   - [graph-app-kit](https://github.com/graphistry/graph-app-kit): Streamlit Python dashboards with batteries-include graph packages
   - [cu-cat](https://chat.openai.com/chat): Automatic GPU feature engineering
 
@@ -215,13 +205,7 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 - [GitHub Issues](https://github.com/graphistry/pygraphistry/issues) open source support
 - [Graphistry ZenDesk](https://graphistry.zendesk.com/) dedicated enterprise support
 
-## License
+## Contribute
 
-PyGraphistry is open-sourced under the BSD 3-Clause License.
-
-Graphistry, GFQL, and Louie.AI are trademarks of Graphistry, Inc.
-
-## Contributing
-
-See the [CONTRIBUTE](CONTRIBUTE.md) and [DEVELOP](DEVELOP.md) pages for details on how to participate in PyGraphistry development
+See [CONTRIBUTE](https://pygraphistry.readthedocs.io/en/latest/CONTRIBUTE.html) and [DEVELOP](https://pygraphistry.readthedocs.io/en/latest/DEVELOP.html) for participating in PyGraphistry development, or reach out to our team
 
