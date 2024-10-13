@@ -704,18 +704,28 @@ def ignore_svg_images_for_latex(app, doctree, docname):
                 node.parent.remove(node)
 
 def remove_external_images_for_latex(app, doctree, fromdocname):
-    """Remove external images and handle external links in the LaTeX build."""
-    if app.builder.name == 'latex':
-        logger.info(f"Processing doctree for LaTeX output: {fromdocname}")
+    """Remove external images and handle external links in LaTeX and EPUB builds."""
+    if app.builder.name in ['latex', 'epub', 'html']:  # Extend to all builds if needed
+        logger.info(f"Processing doctree for output: {fromdocname}")
         
-        # Handle images
+        # Handle problematic external images
         for node in doctree.traverse(nodes.image):
             image_uri = node['uri']
-            # Skip external images (e.g., those with URLs like Shields.io)
-            if "://" in image_uri:
+            logger.debug(f"Processing image URI: {image_uri}")
+            if "://" in image_uri:  # Identify external images
                 logger.debug(f"Detected external image URI: {image_uri}")
-                node.parent.remove(node)  # Remove external image node
-                logger.info(f"Removed external image: {image_uri}")
+                try:
+                    if node.parent:
+                        # Preserve node attributes such as "classes"
+                        parent = node.parent
+                        classes = node.get('classes', [])
+                        logger.debug(f"Preserving classes attribute: {classes}")
+                        parent.remove(node)  # Remove external image node
+                        logger.info(f"Successfully removed external image: {image_uri}")
+                    else:
+                        logger.error(f"No parent found for image: {image_uri}")
+                except Exception as e:
+                    logger.error(f"Failed to remove external image: {image_uri} with error {str(e)}")
             else:
                 logger.debug(f"Retained local image: {image_uri}")
         
@@ -725,23 +735,25 @@ def remove_external_images_for_latex(app, doctree, fromdocname):
                 logger.debug(f"Handling external link: {node['refuri']}")
                 if node['refuri'].endswith('.com'):
                     logger.warning(f"Found problematic URL ending in .com: {node['refuri']}")
-                    # Replace the reference with LaTeX-friendly text
-                    text_node = nodes.Text(f"{node['refuri']} (external link)")
-                    node.replace_self(text_node)
+                    # Preserve "classes" attribute and replace link
+                    classes = node.get('classes', [])
+                    logger.debug(f"Preserving classes attribute: {classes}")
+                    inline_node = nodes.inline('', f"{node['refuri']} (external link)", classes=classes)
+                    node.replace_self(inline_node)
                 else:
-                    # For other URLs, handle them as simple LaTeX-friendly text
-                    text_node = nodes.Text(node['refuri'])
-                    node.replace_self(text_node)
+                    # Keep non-problematic URLs
+                    inline_node = nodes.inline('', node['refuri'], classes=node.get('classes', []))
+                    node.replace_self(inline_node)
 
-        logger.info("Finished processing images and links for LaTeX.")
-
+        logger.info("Finished processing images and links.")
 
 def assert_external_images_removed(doctree):
     """Assert that external images have been removed."""
     for node in doctree.traverse(nodes.image):
         image_uri = node['uri']
+        if "://" in image_uri:
+            logger.error(f"Assertion failed: external image was not removed: {image_uri}")
         assert "://" not in image_uri, f"Failed to remove external image: {image_uri}"
-
 
 
 def setup(app):
