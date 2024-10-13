@@ -278,6 +278,7 @@ templates_path = ["_templates"]
 # source_suffix = ['.rst', '.ipynb']
 source_suffix = {
      '.md': 'markdown',
+     '.txt': 'markdown',
     '.rst': 'restructuredtext',
     #'.ipynb': 'nbsphinx',
 }
@@ -294,6 +295,7 @@ exclude_patterns = [
     'doctrees',
     '**/doctrees/**',
     'demos/.ipynb_checkpoints',
+    '**/*.txt',
 
     # nbsphinx stalls on these
     'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',

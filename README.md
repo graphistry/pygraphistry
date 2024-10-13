@@ -1,4 +1,4 @@
-# PyGraphistry: Visualize, analyze, and scale your graphs with Graphistry & GFQL
+# PyGraphistry: Leverage the power of graphs & GPUs to visualize, analyze, and scale your data
 
 ![Build Status](https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg)
 [![CodeQL](https://github.com/graphistry/pygraphistry/workflows/CodeQL/badge.svg)](https://github.com/graphistry/pygraphistry/actions?query=workflow%3ACodeQL)
@@ -12,67 +12,83 @@
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
 
-## Happy Graphing!
+<table style="width:100%;">
+  <tr valign="top">
+    <td align="center"><a href="https://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" target="_blank"><img src="https://i.imgur.com/z8SIh2E.png" title="Click to open."></a>
+    <a href="https://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" target="_blank">Demo: Interactive visualization of 80,000+ Facebook friendships</a> (<a href="http://snap.stanford.edu" target="_blank">source data</a></em>)
+    </td>
+  </tr>
+</table>
 
-**PyGraphistry** is a leading open-source Python library that makes it easy to visualize, analyze, and scale your graph data. It unifies the Graphistry visualization engine, the GFQL dataframe-native graph query language, and the open-source PyData ecosystem. As an early core contributor to Apache Arrow and having helped start the open source GPU dataframe ecosystem, PyGraphistry makes it easy to quickly load in regular in-memory datasets of many shapes and sizes, and you can use the optional AI & RAPIDS GPU modes for billion-scale data. Combined, PyGraphistry brings seamless data handling with best-in-class performance to graph tasks. Transform any data into interactive graph visualizations and analytics that run smoothly on any system.
+PyGraphistry is an open source Python library for data scientists and developers to leverage the power of graph visualization, analytics, AI, including with native GPU acceleration:
 
-PyGraphistry runs in your Python application with just `pip install graphistry` . You can optionally connect it to remote Graphistry servers for enhanced performance and additional features.
+* [**Python dataframe-native graph processing:**](https://pygraphistry.readthedocs.io/en/latest/10min.html) Quickly ingest & prepare data in many formats, shapes, and scales as graphs. Use tools like Pandas, Spark, [RAPIDS (GPU)](https://www.rapids.ai), and [Apache Arrow](https://arrow.apache.org/).
 
-## Key features
-
-* **Interactive Visualization:** Quickly create impressive interactive visualizations with multiple layouts, data-driven styling, and built-in components like timebars, histograms, search, and filters
-
-* **Data Integration:** Quickly load and transform data of many sources, shapes, and scales through native connectors, Arrow acceleration, and dataframe support including Pandas, Spark, and cuDF
-
-* **GPU Acceleration:** Visualize large graphs using the built-in WebGL frontend and GPU-accelerated Graphistry servers. Speed up your graph data pipelines over 100× by enabling GPU engine modes and AI inferencing
+* [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Plug into [Amazon Neptune](https://docs.aws.amazon.com/neptune/latest/userguide/visualization-graphistry.html) ([notebook](demos/demos_databases_apis/neptune/neptune_cypher_viz_using_bolt.html)), [cuGraph](demos/demos_databases_apis/gpu_rapids/cugraph.html), [Databricks](https://www.databricks.com/solutions/accelerators/incident-investigation-using-graphistry) ([notebook](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb)), [graphviz](demos/demos_databases_apis/graphviz/graphviz.html), [Neo4j](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.html), [Splunk](https://www.splunk.com/en_us/blog/security/supercharge-cybersecurity-investigations-with-splunk-and-graphistry-a-powerful-combination-for-interactive-graph-exploration.html) ([notebook](demos/demos_databases_apis/splunk/splunk_demo_public.html)), [TigerGraph](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.html), and many more in the [notebook data provider demo gallery](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html).
 
 
-* **Graph Querying with GFQL:** Utilize GFQL, the dataframe-native graph query language with optional GPU acceleration, directly from Python. Fast and easy compute-tier graph querying without needing outside infrastructure.
+* [**Prototype locally and deploy remotely:**](https://www.graphistry.com/get-started) Prototype from notebooks like Jupyter and Databricks using local CPUs & GPUs, and then power production dashboards & pipelines with Graphistry Hub and your own self-hosted servers.
 
-* **Graph AI Made Easy:** Simple and automated interfaces for graph machine learning and AI tasks, including automated feature engineering, UMAP clustering, and heterogeneuos graph neural networks.
+* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Use GFQL, the first dataframe-native graph query language, to ask relationship questions that are difficult for tabular tools and without requiring a database.
 
-* **Integrate & Deploy:** Embed PyGraphistry into notebooks, dashboards, web applications, and data pipelines. Offload intensive tasks to shareable Graphistry GPU servers for enhanced performance and scalability.
+* [**graphistry[ai]:**](https://pygraphistry.readthedocs.io/en/latest/gfql/combo.html#) Call streamlined graph ML & AI methods to benefit from clustering, UMAP embeddings, graph neural networks, automatic feature engineering, and more.
+
+* [**Visualize & explore large graphs:**](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html#) In just a few minutes, create stunning interactive visualizations with millions of edges and many point-and-click built-ins like drilldowns, timebars, and filtering. When ready, customize with Python, JavaScript, and REST APIs.
+
+* [**Columnar & GPU acceleration:**](https://pygraphistry.readthedocs.io/en/latest/performance.html) CPU-mode ingestion and wrangling is fast due to native use of Apache Arrow and columnar analytics, and the optional RAPIDS-based GPU mode delivers 100X+ speedups.
+
+
+From global 10 banks, manufacturers, news agencies, and government agencies, to startups, game companies, scientists, biotechs, and NGOs, many teams are tackling their graph workloads with Graphistry.
+
 
 
 ## Gallery
 
+
+The [notebook demo gallery](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html) shares many more live visualizations, demos, and integration examples
+
 <table>
     <tr valign="top">
-        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?dataset=Twitter&splashAfter=true" target="_blank">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
-        <td width="33%" align="center">Edit Wars on Wikipedia<br><a href="http://i.imgur.com/074zFve.png" target="_blank"><img width="266" src="http://i.imgur.com/074zFve.png"></a><em>Source: <a href="http://snap.stanford.edu" target="_blank">SNAP</a></em></td>
-        <td width="33%" align="center"><a href="https://hub.graphistry.com/graph/graph.html?dataset=bitC&splashAfter=true" target="_blank">100,000 Bitcoin Transactions<br><img width="266" height="266" src="http://imgur.com/download/axIkjfd"></a></td>
+        <td width="33%" align="center"><a href="https://hub.graphistry.com/graph/graph.html?dataset=Twitter&splashAfter=true" target="_blank">Twitter Botnet<br><img width="266" src="https://i.imgur.com/qm5MCqS.jpg"></a></td>
+        <td width="33%" align="center">Edit Wars on Wikipedia<br><a href="https://i.imgur.com/074zFve.png" target="_blank"><img width="266" src="https://i.imgur.com/074zFve.png"></a><em>(<a href="https://snap.stanford.edu" target="_blank">data</a></em>)</td>
+        <td width="33%" align="center"><a href="https://hub.graphistry.com/graph/graph.html?dataset=bitC&splashAfter=true" target="_blank">100,000 Bitcoin Transactions<br><img width="266" height="266" src="https://i.imgur.com/axIkjfd.png"></a></td>
     </tr>
     <tr valign="top">
         <td width="33%" align="center">Port Scan Attack<br><a href="http://i.imgur.com/vKUDySw.png" target="_blank"><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?dataset=PyGraphistry/M9RL4PQFSF&usertag=github&info=true&static=true&contentKey=Biogrid_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-2.58e+4&right=4.35e+4&top=-1.72e+4&bottom=2.16e+4&legend={%22title%22:%22%3Ch3%3EBioGRID%20Repository%20of%20Protein%20Interactions%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3EEach%20color%20represents%20an%20organism.%20Humans%20are%20in%20light%20blue.%3C/p%3E%22,%22nodes%22:%22Proteins/Genes%22,%22edges%22:%22Interactions%20reported%20in%20scientific%20publications%22}" target="_blank">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png" target="_blank"></a><em>Source: <a href="http://thebiogrid.org" target="_blank">BioGRID</a></em></td>
-        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?&dataset=PyGraphistry/PC7D53HHS5&info=true&static=true&contentKey=SocioPlt_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-236&right=265&top=-145&bottom=134&usertag=github&legend=%7B%22nodes%22%3A%20%22%3Cspan%20style%3D%5C%22color%3A%23a6cee3%3B%5C%22%3ELanguages%3C/span%3E%20/%20%3Cspan%20style%3D%5C%22color%3Argb%28106%2C%2061%2C%20154%29%3B%5C%22%3EStatements%3C/span%3E%22%2C%20%22edges%22%3A%20%22Strong%20Correlations%22%2C%20%22subtitle%22%3A%20%22%3Cp%3EFor%20more%20information%2C%20check%20out%20the%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//lmeyerov.github.io/projects/socioplt/viz/index.html%5C%22%3ESocio-PLT%3C/a%3E%20project.%20Make%20your%20own%20visualizations%20with%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//github.com/graphistry/pygraphistry%5C%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22%2C%20%22title%22%3A%20%22%3Ch3%3ECorrelation%20Between%20Statements%20about%20Programming%20Languages%3C/h3%3E%22%7D" target="_blank">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a><em>Source: <a href="http://lmeyerov.github.io/projects/socioplt/viz/index.html" target="_blank">Socio-PLT project</a></em></td>
+        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?dataset=PyGraphistry/M9RL4PQFSF&usertag=github&info=true&static=true&contentKey=Biogrid_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-2.58e+4&right=4.35e+4&top=-1.72e+4&bottom=2.16e+4&legend={%22title%22:%22%3Ch3%3EBioGRID%20Repository%20of%20Protein%20Interactions%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3EEach%20color%20represents%20an%20organism.%20Humans%20are%20in%20light%20blue.%3C/p%3E%22,%22nodes%22:%22Proteins/Genes%22,%22edges%22:%22Interactions%20reported%20in%20scientific%20publications%22}" target="_blank">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png" target="_blank"></a><em>(<a href="http://thebiogrid.org" target="_blank">data</a>)</em></td>
+        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?&dataset=PyGraphistry/PC7D53HHS5&info=true&static=true&contentKey=SocioPlt_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-236&right=265&top=-145&bottom=134&usertag=github&legend=%7B%22nodes%22%3A%20%22%3Cspan%20style%3D%5C%22color%3A%23a6cee3%3B%5C%22%3ELanguages%3C/span%3E%20/%20%3Cspan%20style%3D%5C%22color%3Argb%28106%2C%2061%2C%20154%29%3B%5C%22%3EStatements%3C/span%3E%22%2C%20%22edges%22%3A%20%22Strong%20Correlations%22%2C%20%22subtitle%22%3A%20%22%3Cp%3EFor%20more%20information%2C%20check%20out%20the%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//lmeyerov.github.io/projects/socioplt/viz/index.html%5C%22%3ESocio-PLT%3C/a%3E%20project.%20Make%20your%20own%20visualizations%20with%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//github.com/graphistry/pygraphistry%5C%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22%2C%20%22title%22%3A%20%22%3Ch3%3ECorrelation%20Between%20Statements%20about%20Programming%20Languages%3C/h3%3E%22%7D" target="_blank">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a><em>(<a href="http://lmeyerov.github.io/projects/socioplt/viz/index.html" target="_blank">data</a>)</em></td>
     </tr>
 </table>
 
-The [notebook demo gallery](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html) shares many more live visualizations and demos
 
 
 ## Install
 
-Minimal core: Includes the GFQL dataframe-native graph query language and Graphistry visualization server client
+Common configurations:
 
-```python
-pip install graphistry
-```
+* **Minimal core**
 
-For more complicated environments:
+  Includes: The GFQL dataframe-native graph query language, built-in layouts, Graphistry visualization server client
 
-```python
-pip install --no-deps --user graphistry
-```
+  ```python
+  pip install graphistry
+  ```
 
-See the [installation guides](https://pygraphistry.readthedocs.io/en/latest/install/index.html) for more options, GPU environments, and plugins
+  Does not include `graphistry[ai]`, plugins
 
+* **No dependencies and user-level**
 
+  ```python
+  pip install --no-deps --user graphistry
+  ```
 
-## Main documentation
+* **GPU acceleration** - Optional
 
-See the [main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/) for more details on installation, usage, and examples.
+  Local GPU: Install [RAPIDS](https://www.rapids.ai) and/or deploy a GPU-ready [Graphistry server](https://www.graphistry.com/get-started)
+  
+  Remote GPU: Use the [remote endpoints](https://www.graphistry.com/blog/graphistry-2-41-3).
+
+For further options, see the [installation guides](https://pygraphistry.readthedocs.io/en/latest/install/index.html)
 
 
 ## Visualization quickstart
@@ -154,40 +170,41 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 
 ## PyGraphistry documentation
 
-*  [Main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/)
+* [Main PyGraphistry documentation](https://pygraphistry.readthedocs.io/en/latest/)
 * Get started
-  - [Installation Guides](https://pygraphistry.readthedocs.io/en/latest/install/index.html)
-  - [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/10min.html)
-  - [10 Minutes to Graphistry Visualization](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html) and [UI Guide](https://hub.graphistry.com/docs/ui/index/)
-
-  - [10 Minutes to GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html)
-  - [Notebook demos](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html)
-* Peformance - CPU & GPU
-  - [Core](https://pygraphistry.readthedocs.io/en/latest/performance.html)
-  - [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/performance.html)
+  - [Installation](https://pygraphistry.readthedocs.io/en/latest/install/index.html)
+  - 10 Minutes to: [PyGraphistry](https://pygraphistry.readthedocs.io/en/latest/10min.html), [Visualization](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html), [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html)
+  - [UI Guide](https://hub.graphistry.com/docs/ui/index/)
+  - [Notebooks](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html)
+* Performance
+  - [Core - CPU & GPU](https://pygraphistry.readthedocs.io/en/latest/performance.html)
+  - [GFQL - CPU & GPU](https://pygraphistry.readthedocs.io/en/latest/gfql/performance.html)
 * API References
     - [PyGraphistry API Reference](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
-      - [Visualization & Compute Guides](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html): Quick, layout catalog, embedding, and more
+      - [Visualization & Compute](https://pygraphistry.readthedocs.io/en/latest/visualization/index.html)
       - [PyGraphistry Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/cheatsheet.html)
-      - [GFQL](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html), including [GFQL Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/quick.html) and [GFQL Operator Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/predicates/quick.html)
-      - [Plugins](https://pygraphistry.readthedocs.io/en/latest/plugins.html)
-    - [iframe Reference API](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
-    - [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs): Browser (vanilla, React), Node.js, and storybooks
-    - [REST API](https://hub.graphistry.com/docs/api/1/rest/auth/): Language-neutral
+      - [GFQL Documentation](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html):  [GFQL Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/quick.html) and [GFQL Operator Cheatsheet](https://pygraphistry.readthedocs.io/en/latest/gfql/predicates/quick.html)
+      - [Plugins](https://pygraphistry.readthedocs.io/en/latest/plugins.html): Databricks, Splunk, Neptune, Neo4j, RAPIDS, and more
+    - More languages: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions),  [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
 
 ## Graphistry ecosystem
 
-- Graphistry server: Graphistry Hub, cloud marketplaces, docker, and kubernetes
+- **Graphistry server:** Graphistry Hub, cloud marketplaces, docker, and kubernetes
   - Launch - [Graphistry Hub, Graphistry cloud marketplaces, and self-hosting](https://www.graphistry.com/get-started)
   - [Self-hosting administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
   - [Kubernetes helm charts](https://github.com/graphistry/graphistry-helm)
 
-- [Louie.AI](https://louie.ai/) (new!): GenAI-native Python notebooks, dashboards, & pipelines with native Graphistry integration
-- [graph-app-kit](https://github.com/graphistry/graph-app-kit): Streamlit Python dashboards with graph ecosystem integrations
-- [cu-cat](https://chat.openai.com/chat): End-to-end GPU automated feature engineering
-- Graphistry core API clients: [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions), [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs), [REST](https://hub.graphistry.com/docs/api/1/rest/auth/), [Python](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
+- **Graphistry core API clients:**
+  - [iframe](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
+  - [JavaScript](https://hub.graphistry.com/static/js-docs/index.html?path=/docs/introduction--docs)
+  - [REST](https://hub.graphistry.com/docs/api/1/rest/auth/)
+  - [Python](https://pygraphistry.readthedocs.io/en/latest/api/index.html)
+  - [Graphistry for Microsoft PowerBI](https://hub.graphistry.com/docs/powerbi/pbi/)
 
-See also our partner technologies [RAPIDS](https://rapids.ai/) and [Apache Arrow](https://arrow.apache.org/), and database partners such as [Neo4j](https://neo4j.com/users/graphistry-inc/), [TigerGraph](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.html), [Amazon Neptune](https://docs.aws.amazon.com/neptune/latest/userguide/visualization-graphistry.html), [Splunk](https://www.splunk.com/en_us/blog/security/supercharge-cybersecurity-investigations-with-splunk-and-graphistry-a-powerful-combination-for-interactive-graph-exploration.html), and [Databricks](https://www.databricks.com/solutions/accelerators/incident-investigation-using-graphistry). Get started with these in the [notebook data provider demo gallery](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html).
+- **Additional projects**:
+  - [Louie.ai](https://louie.ai/): GenAI notebooks & dashboards for your databases & Graphistry
+  - [graph-app-kit](https://github.com/graphistry/graph-app-kit): Streamlit Python dashboards with batteries-include graph packages
+  - [cu-cat](https://chat.openai.com/chat): Automatic GPU feature engineering
 
 
 ## Community and support
@@ -200,7 +217,7 @@ See also our partner technologies [RAPIDS](https://rapids.ai/) and [Apache Arrow
 
 ## License
 
-PyGraphistry is open-sourced under the [BSD 3-Clause License](LICENSE.txt)
+PyGraphistry is open-sourced under the BSD 3-Clause License.
 
 Graphistry, GFQL, and Louie.AI are trademarks of Graphistry, Inc.
 

@@ -14,4 +14,7 @@
    community
    support
    ecosystem
+   ARCHITECTURE.md
+   CONTRIBUTE.md
+   DEVELOP.md
 
