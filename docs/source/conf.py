@@ -705,7 +705,7 @@ def ignore_svg_images_for_latex(app, doctree, docname):
 
 def remove_external_images_for_latex(app, doctree, fromdocname):
     """Remove external images and handle external links in LaTeX and EPUB builds."""
-    if app.builder.name in ['latex', 'epub', 'html']:  # Extend to all builds if needed
+    if app.builder.name in ['latex', 'epub']:  # Extend to all builds if needed
         logger.info(f"Processing doctree for output: {fromdocname}")
         
         # Handle problematic external images
@@ -747,8 +747,11 @@ def remove_external_images_for_latex(app, doctree, fromdocname):
 
         logger.info("Finished processing images and links.")
 
-def assert_external_images_removed(doctree):
+def assert_external_images_removed(app, doctree, fromdocname):
     """Assert that external images have been removed."""
+    if app.builder.name in ['html']:  # Extend to all builds if needed
+        return
+
     for node in doctree.traverse(nodes.image):
         image_uri = node['uri']
         if "://" in image_uri:
@@ -763,5 +766,5 @@ def setup(app):
     app.connect("doctree-resolved", ignore_svg_images_for_latex)
     app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
-    app.connect("doctree-resolved", lambda app, doctree, fromdocname: assert_external_images_removed(doctree))
+    app.connect("doctree-resolved", assert_external_images_removed)
     app.add_css_file('graphistry.css', priority=900)
