@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 
 * Add markdown support to docsite
+* ReadTheDocs homepage reuses github README.md
 
 ### Changed
 
