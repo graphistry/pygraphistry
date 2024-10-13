@@ -11,6 +11,7 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import docutils.nodes, os, logging, re, sys
+from docutils import nodes
 from packaging.version import Version
 
 
@@ -423,6 +424,8 @@ htmlhelp_basename = "PyGraphistrydoc"
 latex_elements = {
     'preamble': r'''
 
+        \usepackage{svg}   % Enables SVG handling via Inkscape
+
         \RequirePackage{etex}         % Ensure extended TeX capacities
         \usepackage[utf8]{inputenc}   % Enable UTF-8 support
         \usepackage[T1]{fontenc}      % Use T1 font encoding for better character support
@@ -693,9 +696,60 @@ def replace_iframe_src(app, doctree, docname):
         logger.debug(f"No iframe src replacements made in document: {docname}")
 
 
+def ignore_svg_images_for_latex(app, doctree, docname):
+    """Remove SVG images from the LaTeX build."""
+    if app.builder.name == 'latex':
+        for node in doctree.traverse(nodes.image):
+            if node['uri'].endswith('.svg'):
+                node.parent.remove(node)
+
+def remove_external_images_for_latex(app, doctree, fromdocname):
+    """Remove external images and handle external links in the LaTeX build."""
+    if app.builder.name == 'latex':
+        logger.info(f"Processing doctree for LaTeX output: {fromdocname}")
+        
+        # Handle images
+        for node in doctree.traverse(nodes.image):
+            image_uri = node['uri']
+            # Skip external images (e.g., those with URLs like Shields.io)
+            if "://" in image_uri:
+                logger.debug(f"Detected external image URI: {image_uri}")
+                node.parent.remove(node)  # Remove external image node
+                logger.info(f"Removed external image: {image_uri}")
+            else:
+                logger.debug(f"Retained local image: {image_uri}")
+        
+        # Handle problematic external links
+        for node in doctree.traverse(nodes.reference):
+            if node.get('refuri', '').startswith('http'):
+                logger.debug(f"Handling external link: {node['refuri']}")
+                if node['refuri'].endswith('.com'):
+                    logger.warning(f"Found problematic URL ending in .com: {node['refuri']}")
+                    # Replace the reference with LaTeX-friendly text
+                    text_node = nodes.Text(f"{node['refuri']} (external link)")
+                    node.replace_self(text_node)
+                else:
+                    # For other URLs, handle them as simple LaTeX-friendly text
+                    text_node = nodes.Text(node['refuri'])
+                    node.replace_self(text_node)
+
+        logger.info("Finished processing images and links for LaTeX.")
+
+
+def assert_external_images_removed(doctree):
+    """Assert that external images have been removed."""
+    for node in doctree.traverse(nodes.image):
+        image_uri = node['uri']
+        assert "://" not in image_uri, f"Failed to remove external image: {image_uri}"
+
+
+
 def setup(app):
     """
     Connect the replace_iframe_src function to the doctree-resolved event.
-    """
+    """    
+    app.connect("doctree-resolved", ignore_svg_images_for_latex)
+    app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
+    app.connect("doctree-resolved", lambda app, doctree, fromdocname: assert_external_images_removed(doctree))
     app.add_css_file('graphistry.css', priority=900)
