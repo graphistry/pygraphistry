@@ -17,7 +17,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
 COPY ../../setup.py ../../setup.cfg ../../versioneer.py ../../README.md ./
 
 # Step 3: Install the project dependencies with pip, including docs extras
-RUN python3 -m pip install --no-cache-dir -e .[docs]
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install -e .[docs]
 
 # Step 4: Copy the graphistry source files into the container
 COPY ../../graphistry /graphistry
