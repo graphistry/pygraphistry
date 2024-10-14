@@ -11,6 +11,7 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import docutils.nodes, os, logging, re, sys
+from docutils import nodes
 from packaging.version import Version
 
 
@@ -43,6 +44,7 @@ release = version
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'myst_parser',
     'nbsphinx',
     "sphinx.ext.autodoc",
     #'sphinx.ext.autosummary',
@@ -276,6 +278,8 @@ templates_path = ["_templates"]
 # source_suffix = ['.rst', '.md']
 # source_suffix = ['.rst', '.ipynb']
 source_suffix = {
+     '.md': 'markdown',
+     '.txt': 'markdown',
     '.rst': 'restructuredtext',
     #'.ipynb': 'nbsphinx',
 }
@@ -292,6 +296,7 @@ exclude_patterns = [
     'doctrees',
     '**/doctrees/**',
     'demos/.ipynb_checkpoints',
+    '**/*.txt',
 
     # nbsphinx stalls on these
     'demos/ai/Introduction/Ask-HackerNews-Demo.ipynb',
@@ -418,6 +423,8 @@ htmlhelp_basename = "PyGraphistrydoc"
 
 latex_elements = {
     'preamble': r'''
+
+        \usepackage{svg}   % Enables SVG handling via Inkscape
 
         \RequirePackage{etex}         % Ensure extended TeX capacities
         \usepackage[utf8]{inputenc}   % Enable UTF-8 support
@@ -689,9 +696,75 @@ def replace_iframe_src(app, doctree, docname):
         logger.debug(f"No iframe src replacements made in document: {docname}")
 
 
+def ignore_svg_images_for_latex(app, doctree, docname):
+    """Remove SVG images from the LaTeX build."""
+    if app.builder.name == 'latex':
+        for node in doctree.traverse(nodes.image):
+            if node['uri'].endswith('.svg'):
+                node.parent.remove(node)
+
+def remove_external_images_for_latex(app, doctree, fromdocname):
+    """Remove external images and handle external links in LaTeX and EPUB builds."""
+    if app.builder.name in ['latex', 'epub']:  # Extend to all builds if needed
+        logger.info(f"Processing doctree for output: {fromdocname}")
+        
+        # Handle problematic external images
+        for node in doctree.traverse(nodes.image):
+            image_uri = node['uri']
+            logger.debug(f"Processing image URI: {image_uri}")
+            if "://" in image_uri:  # Identify external images
+                logger.debug(f"Detected external image URI: {image_uri}")
+                try:
+                    if node.parent:
+                        # Preserve node attributes such as "classes"
+                        parent = node.parent
+                        classes = node.get('classes', [])
+                        logger.debug(f"Preserving classes attribute: {classes}")
+                        parent.remove(node)  # Remove external image node
+                        logger.info(f"Successfully removed external image: {image_uri}")
+                    else:
+                        logger.error(f"No parent found for image: {image_uri}")
+                except Exception as e:
+                    logger.error(f"Failed to remove external image: {image_uri} with error {str(e)}")
+            else:
+                logger.debug(f"Retained local image: {image_uri}")
+        
+        # Handle problematic external links
+        for node in doctree.traverse(nodes.reference):
+            if node.get('refuri', '').startswith('http'):
+                logger.debug(f"Handling external link: {node['refuri']}")
+                if node['refuri'].endswith('.com'):
+                    logger.warning(f"Found problematic URL ending in .com: {node['refuri']}")
+                    # Preserve "classes" attribute and replace link
+                    classes = node.get('classes', [])
+                    logger.debug(f"Preserving classes attribute: {classes}")
+                    inline_node = nodes.inline('', f"{node['refuri']} (external link)", classes=classes)
+                    node.replace_self(inline_node)
+                else:
+                    # Keep non-problematic URLs
+                    inline_node = nodes.inline('', node['refuri'], classes=node.get('classes', []))
+                    node.replace_self(inline_node)
+
+        logger.info("Finished processing images and links.")
+
+def assert_external_images_removed(app, doctree, fromdocname):
+    """Assert that external images have been removed."""
+    if app.builder.name in ['html']:  # Extend to all builds if needed
+        return
+
+    for node in doctree.traverse(nodes.image):
+        image_uri = node['uri']
+        if "://" in image_uri:
+            logger.error(f"Assertion failed: external image was not removed: {image_uri}")
+        assert "://" not in image_uri, f"Failed to remove external image: {image_uri}"
+
+
 def setup(app):
     """
     Connect the replace_iframe_src function to the doctree-resolved event.
-    """
+    """    
+    app.connect("doctree-resolved", ignore_svg_images_for_latex)
+    app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
+    app.connect("doctree-resolved", assert_external_images_removed)
     app.add_css_file('graphistry.css', priority=900)

@@ -1,4 +1,4 @@
-import math, squarify
+import math
 from typing import Dict, List, Optional
 
 from graphistry.Engine import Engine
@@ -20,6 +20,7 @@ def treemap(
     Group nodes by partition key and compute treemap cell positions
     Output dictionary format is prop_name -> partition id -> prop_value
     """
+    import squarify
     from timeit import default_timer as timer
     start = timer()
     
