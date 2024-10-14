@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.16 - 2024-10-13]
+
 ### Docs
 
 * Update and streamline readme.md
