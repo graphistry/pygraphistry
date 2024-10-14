@@ -1,3 +1,4 @@
+inkscape
 pandoc
 texlive-latex-base
 texlive-latex-recommended

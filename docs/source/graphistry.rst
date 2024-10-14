@@ -9,8 +9,12 @@
    plugins
    CPU & GPU Acceleration <performance>
    notebooks/index
+   cheatsheet
    api/index
    community
    support
    ecosystem
+   ARCHITECTURE.md
+   CONTRIBUTE.md
+   DEVELOP.md
 
