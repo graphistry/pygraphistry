@@ -117,4 +117,6 @@ def fa2_layout(
     assert not g_final._nodes['x'].isna().any(), "NaN values detected in x positions."
     assert not g_final._nodes['y'].isna().any(), "NaN values detected in y positions."
 
+    g_final = g_final.layout_settings(play=0)
+
     return g_final
