@@ -1,9 +1,15 @@
+from typing import Callable, Dict, Optional, Union
 import numpy as np, pandas as pd
-from typing import Any, Callable, Dict, List, Optional, Union
+from timeit import default_timer as timer
 
 from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
+
+from .layout_bulk import layout_bulk_mode
+from .layout_non_block import layout_non_bulk_mode
+
+
 logger = setup_logger(__name__)
 
 
@@ -12,21 +18,31 @@ def partitioned_layout(
     self: Plottable,
     partition_offsets: Dict[str, Dict[int, float]],
     layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
-    layout_params: Dict[str, Any] = {},
+    layout_params: Dict = {},
     partition_key='partition',
-    engine: Engine = Engine.PANDAS
-) -> 'Plottable':
+    bulk_mode: bool = True,
+    engine: Engine = Engine.PANDAS,
+) -> Plottable:
+    """    
+    :param partition_offsets: {'dx', 'dy', 'x', 'y'} => <partition> => float
+    :type partition_offsets: Dict[str, Dict[int, float]]
+    :param layout_alg: Layout algorithm to be applied if partition_key column does not already exist; GPU defaults to fa2_layout, CPU defaults to igraph fr
+    :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
+    :param layout_params: Parameters for the layout algorithm
+    :type layout_params: Dict[str, Any]
+    :param partition_key: The partition key; defaults to the layout_alg
+    :type partition_key: str
+    :param bulk_mode: Whether to apply layout in bulk mode
+    :type bulk_mode: bool
+    :param engine: The engine being used (Pandas or CUDF)
+    :type engine: Engine
 
-    try:
-        from tqdm import tqdm
-        has_tqdm = True
-    except ImportError:
-        has_tqdm = False
-
-    from timeit import default_timer as timer
+    :return: The resulting Plottable object with positioned nodes
+    """
     start = timer()
 
     node_partitions = []
+    #print('partitioned_layout input nodes cols', self._nodes.columns)
     # edgeless_partitions = None
 
     g_degrees = self.get_degrees()
