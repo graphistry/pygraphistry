@@ -87,15 +87,8 @@ def fa2_layout(
         w, h = right - left, bottom - top
         cx, cy = (right + left) / 2, (top + bottom) / 2
     else:
-        if len(g_connected._nodes) == 1:
-            # Handle single-node case
+        if len(g_connected._nodes) < 2:
             g_connected_layout = g_connected.nodes(g_connected._nodes.assign(x=0.0, y=0.0))
-            # Default bounding box for one node
-            cx, cy, w, h = 0.0, 0.0, 1.0, 1.0
-        elif len(g_connected._nodes) == 0:
-            # Handle no-node case
-            g_connected_layout = g_connected  # No layout needed
-            # Default bounding box when no nodes exist
             cx, cy, w, h = 0.0, 0.0, 1.0, 1.0
         else:
             raise ValueError("Unexpected number of connected nodes with no edges")
