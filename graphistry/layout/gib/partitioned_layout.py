@@ -85,82 +85,18 @@ def partitioned_layout(
             ).bind(edge_weight='weight')
         )
 
-    partitions = remaining[partition_key].to_numpy()
-    progress_bar = tqdm(partitions) if has_tqdm else partitions
-
-    #for partition in remaining[partition_key].to_pandas().to_numpy():
-    s_keep = 0.
-    s_layout = 0.
-    s_layout_by_size = {}
-    for partition in progress_bar:
-        start_i = timer()
-
-        node_ids = self._nodes[
-            self._nodes[partition_key] == partition
-        ][self._node]
-        subgraph_g = self_selfless.nodes(nodes).keep_nodes({self._node: node_ids})
-        start_i_mid = timer()
-        s_keep += start_i_mid - start_i
-        #print('node shape', subgraph_g._nodes.shape, 'edge shape', subgraph_g._edges.shape)
-        #if len(subgraph_g._edges) == 0:
-        #    print('EDGELESS!')
-        #elif len(subgraph_g._nodes) == 1:
-        #    print('SINGLETON')
-        start_i_mid = timer()
-        niter = min(len(subgraph_g._nodes), 300)
-        if callable(layout_alg):
-            positioned_subgraph_g = layout_alg(subgraph_g)
-            layout_name = 'custom'
-        elif engine == Engine.PANDAS:
-            layout_name = layout_alg or 'fr'
-            positioned_subgraph_g = subgraph_g.layout_igraph(  # type: ignore
-                layout=layout_name,
-                params={
-                    **({'niter': niter} if layout_name == 'fr' else {}),
-                    **(layout_params or {})
-                }
-            )
-        elif engine == Engine.CUDF:
-            layout_name = layout_alg or 'force_atlas2'
-            positioned_subgraph_g = subgraph_g.layout_cugraph(
-                layout=layout_name,
-                params={
-                    **({'max_iter': niter} if layout_name == 'force_atlas2' else {}),
-                    **(layout_params or {})
-                }
-            )
-        positioned_subgraph_g = positioned_subgraph_g.nodes(
-            positioned_subgraph_g._nodes.assign(
-                type=layout_name,
-                #max_iter=min(len(subgraph_g._nodes), 500),
-                #subg_n=len(subgraph_g._nodes),
-                #subg_e=len(subgraph_g._edges)
-            )
+    if bulk_mode:
+        print('bulk_mode layout')
+        combined_nodes = layout_bulk_mode(self, nodes, partition_key, layout_alg, layout_params, engine)
+        node_partitions.append(combined_nodes)
+    else:
+        print('non-bulk_mode layout')
+        node_partitions, s_layout, s_keep, s_layout_by_size = layout_non_bulk_mode(
+            self, node_partitions, remaining, partition_key, layout_alg, layout_params, engine, self_selfless
         )
-        #if positioned_subgraph_g._nodes.x.isna().any():
-        #    # logger.debug('NA vals: cugraph fa2 is nan for unconnected nodes')
-        #    #print(positioned_subgraph_g._edges[[
-        #    #    positioned_subgraph_g._source,
-        #    #    positioned_subgraph_g._destination,
-        #    #    positioned_subgraph_g._edge_weight
-        #    #]])
-        #    #na_fa_graphs.append(positioned_subgraph_g)
-        node_partitions.append(positioned_subgraph_g._nodes)
-        end_i = timer()
-        #print('start_i layout', end_i - start_i_mid, 's')
-        s_layout += end_i - start_i_mid
-        if len(positioned_subgraph_g._nodes) not in s_layout_by_size:
-            s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (0, 0.)
-        n, t = s_layout_by_size[ len(positioned_subgraph_g._nodes) ]
-        s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (n + 1, t + (end_i - start_i_mid))
-    if has_tqdm:
-        progress_bar.close()
 
-    end_communities = timer()
-    logger.debug('s_keep: %s s', s_keep)
-    logger.debug('s_layout: %s s', s_layout)
-    logger.debug('s_layout_by_size: %s s', s_layout_by_size)
-    #print('all sub communities', len(subgraph_g._nodes), ':', end_communities - end_stats, 's')
+    end_communities = timer()  # Define end_communities here to track layout time
+    logger.debug('part_layout time: %s s', end_communities - start)
 
     if len(singleton_nodes) > 0:
         logger.debug('# SINGLETONS: %s', len(singleton_nodes))
