@@ -114,7 +114,7 @@ def partitioned_layout(
     end_communities = timer()  # Define end_communities here to track layout time
     logger.debug('part_layout time: %s s', end_communities - start)
 
-    if len(singleton_nodes) > 0:
+    if False and len(singleton_nodes) > 0:
         logger.debug('# SINGLETONS: %s', len(singleton_nodes))
         start_sing = timer()
         singletons = singleton_nodes.assign(
@@ -126,7 +126,7 @@ def partitioned_layout(
         end_sing = timer()
         logger.debug('singleton groups (%s): %s s', len(singletons), end_sing - start_sing)
 
-    if len(pair_nodes) > 0:
+    if False and len(pair_nodes) > 0:
         logger.debug('# PAIRS: %s', len(pair_nodes))
         start_pair = timer()
         pairs_indexed = pair_nodes.reset_index()
@@ -139,7 +139,7 @@ def partitioned_layout(
         logger.debug('pairs groups (%s): %s s', len(pairs), end_pair - start_pair)
 
     #FIXME: how to make safe?
-    if len(edgeless_nodes) > 0:
+    if False and len(edgeless_nodes) > 0:
         logger.debug('# EDGELESS: %s', len(edgeless_nodes))
         start_e = timer()
         edgeless = edgeless_nodes
@@ -149,8 +149,8 @@ def partitioned_layout(
             edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
         elif engine == Engine.CUDF:
             import cudf, cupy as cp
-            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
-            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
+            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), dtype=cp.float32))
+            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), dtype=cp.float32))
         else:
             raise ValueError('Unknown engine, expected Pandas or CuDF')
         edgeless['type'] = 'singleton'
@@ -204,30 +204,30 @@ def partitioned_layout(
     normalized_nodes = combined_nodes.copy()
     normalized_nodes['x'] = (
         combined_nodes['x']
-        - combined_nodes[partition_key].map(partition_stats['x_min'])  # noqa: W503
-    ) / combined_nodes[partition_key].map(partition_stats['dx'])
+        #- combined_nodes[partition_key].map(partition_stats['x_min'])  # noqa: W503
+    ) #/ combined_nodes[partition_key].map(partition_stats['dx'])
     normalized_nodes['y'] = (
         combined_nodes['y']
-        - combined_nodes[partition_key].map(partition_stats['y_min'])  # noqa: W503
-    ) / combined_nodes[partition_key].map(partition_stats['dy'])
+        #- combined_nodes[partition_key].map(partition_stats['y_min'])  # noqa: W503
+    ) #/ combined_nodes[partition_key].map(partition_stats['dy'])
     g_locally_positioned = self.nodes(normalized_nodes)
 
     global_nodes = g_locally_positioned._nodes.copy()
     global_nodes['x'] = (
         (
             g_locally_positioned._nodes['x']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])  # noqa: W503
+            #* g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])  # noqa: W503
         )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])  # noqa: W503
+        #+ g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])  # noqa: W503
     )
     global_nodes['y'] = (
         (
             g_locally_positioned._nodes['y']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])  # noqa: W503
+            #* g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])  # noqa: W503
         )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])  # noqa: W503
+        #+ g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])  # noqa: W503
     )
-    global_nodes['y'] = -global_nodes['y']
+    #global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)
     g_globally_positioned._edge_weight = self._edge_weight
     end = timer()
