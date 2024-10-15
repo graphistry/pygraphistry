@@ -133,7 +133,7 @@ def group_in_a_box_layout(
                     engine = Engine.CUDF
                 else:
                     raise ValueError('Could not infer engine, please specify')
-            except:
+            except Exception:
                 raise ValueError('Could not infer engine, please specify')
 
     g_partitioned = partition(
