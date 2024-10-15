@@ -207,18 +207,26 @@ def partitioned_layout(
         logger.debug('edgeless-community (%s): %s s', len(edgeless), end_e - start_e)
 
     combined_nodes = df_concat(engine)(node_partitions, ignore_index=True, sort=False)
-    # FA unnconnected nodes
+    # FA unnconnected nodes, though circle would autoplace
     updates = {}
     if engine == Engine.PANDAS:
         if combined_nodes.x.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
+            assert combined_nodes.x.isna().sum() == 0
             updates['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
         if combined_nodes.y.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
+            assert combined_nodes.y.isna().sum() == 0
             updates['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
     elif engine == Engine.CUDF:
         import cudf, cupy as cp
         if combined_nodes.x.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
+            assert combined_nodes.x.isna().sum() == 0
             updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
         if combined_nodes.y.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
+            assert combined_nodes.y.isna().sum() == 0
             updates['y'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
     else:
         raise ValueError('Unknown engine, expected Pandas or CuDF')
