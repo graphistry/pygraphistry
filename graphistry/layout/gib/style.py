@@ -19,6 +19,7 @@ def categorical_color_by_col(
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
     g = self
+    g._nodes = g._nodes.astype({col: str})
     colors = colors or lazy_paired_12().hex_colors
     palette = g._nodes[[col]].drop_duplicates().reset_index(drop=True).reset_index()
     palette['color'] = (
