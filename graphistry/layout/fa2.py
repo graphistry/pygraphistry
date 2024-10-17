@@ -67,7 +67,7 @@ def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) 
 
 def fa2_layout(
     g: Plottable, 
-    fa2_params: Optional[Dict[str, Any]] = GRAPHISTRY_FA2_PARAMS,
+    fa2_params: Optional[Dict[str, Any]] = None,
     circle_layout_params: Optional[Dict[str, Any]] = None,
     singleton_layout: Optional[Callable[[Plottable, Union[Tuple[float, float, float, float], Any]], Plottable]] = None,
     partition_key: Optional[str] = None,
