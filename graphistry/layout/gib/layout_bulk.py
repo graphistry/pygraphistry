@@ -37,10 +37,7 @@ def layout_bulk_mode(
         if layout_alg is None:
             layout_name = 'force_atlas2'
             positioned_graph = self.fa2_layout(  # type: ignore
-                fa2_params={**(
-                    {'max_iter': min(len(nodes), 300)}
-                    if layout_name == 'force_atlas2' else {}
-                ), **layout_params},
+                fa2_params={**layout_params},
                 circle_layout_params={'partition_by': partition_key},
                 partition_key=partition_key
             )
