@@ -281,13 +281,13 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat._super_vectorizer.SuperVectorizer,
-            f"Data Encoder is not a dirty_cat._super_vectorizer.SuperVectorizer instance for {name} {value}",
+            dirty_cat._table_vectorizer.TableVectorizer,
+            f"Data Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat._super_vectorizer.SuperVectorizer,
-            f"Data Target Encoder is not a dirty_cat._super_vectorizer.SuperVectorizer instance for {name} {value}",
+            dirty_cat._table_vectorizer.TableVectorizer,
+            f"Data Target Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
