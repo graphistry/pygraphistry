@@ -15,6 +15,10 @@ from .util import check_set_memoize
 from .utils.dep_manager import deps
 import logging
 
+from graphistry.utils.lazy_import import (
+    make_safe_gpu_dataframes
+)
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -76,34 +80,6 @@ def resolve_umap_engine(
         '"umap_learn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
-
-
-def make_safe_gpu_dataframes(X, y, engine, has_cuml):
-
-    def safe_cudf(X, y):
-        cudf = deps.cudf
-        # remove duplicate columns
-        if len(X.columns) != len(set(X.columns)):
-            X = X.loc[:, ~X.columns.duplicated()]
-        try:
-            y = y.loc[:, ~y.columns.duplicated()]
-        except:
-            pass
-        new_kwargs = {}
-        kwargs = {'X': X, 'y': y}
-        for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
-                new_kwargs[key] = cudf.from_pandas(value)
-        return new_kwargs['X'], new_kwargs['y']
-    
-    if has_cuml:
-
-        return safe_cudf(X, y)
-    else:
-        return X, y
-
 ###############################################################################
 
 # #############################################################################
@@ -300,7 +276,7 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
-        df, y = make_safe_gpu_dataframes(df, y, engine, deps.cuml)
+        df, y = make_safe_gpu_dataframes(df, y, engine)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
             emb = self._umap.transform(X)  # type: ignore
@@ -308,7 +284,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = self._umap.fit_transform(X)  # type: ignore  
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', deps.cuml)  # for now so we don't have to touch infer_edges, force to pandas
+            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas')  # for now so we don't have to touch infer_edges, force to pandas
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
@@ -590,7 +566,7 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, deps.cuml)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, verbose, **umap_kwargs
@@ -620,7 +596,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, deps.cuml)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs

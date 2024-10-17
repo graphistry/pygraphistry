@@ -10,6 +10,8 @@ from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
+from graphistry.utils.lazy_import import lazy_dbscan_import, make_safe_gpu_dataframes
+from graphistry.utils.dep_manager import deps
 
 logger = logging.getLogger("compute.cluster")
 
@@ -44,28 +46,6 @@ def resolve_cpu_gpu_engine(
         '"umap_learn", "pandas", "sklearn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
-
-def make_safe_gpu_dataframes(X, y, engine):
-    """helper method to coerce a dataframe to the correct type (pd vs cudf)"""
-    def safe_cudf(X, y):
-        new_kwargs = {}
-        kwargs = {'X': X, 'y': y}
-        for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", 'sklearn', 'umap_learn']:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine == "cuml":
-                new_kwargs[key] = cudf.from_pandas(value)
-            else:
-                new_kwargs[key] = value
-        return new_kwargs['X'], new_kwargs['y']
-
-    cudf = deps.cudf
-    if cudf is not None:
-        # print('DBSCAN CUML Matrices')
-        return safe_cudf(X, y)
-    else:
-        return X, y
-
 
 def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, target):
     """

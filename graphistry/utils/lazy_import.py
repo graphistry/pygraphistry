@@ -2,6 +2,7 @@ from typing import Any
 import warnings
 from graphistry .util import setup_logger, check_set_memoize
 logger = setup_logger(__name__)
+from .dep_manager import deps
 
 
 #TODO use new importer when it lands (this is copied from umap_utils)
@@ -165,3 +166,29 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         raise import_min_exn
+
+
+def make_safe_gpu_dataframes(X, y, engine):
+
+    def safe_cudf(X, y):
+        cudf = deps.cudf
+        # remove duplicate columns
+        if len(X.columns) != len(set(X.columns)):
+            X = X.loc[:, ~X.columns.duplicated()]
+        try:
+            y = y.loc[:, ~y.columns.duplicated()]
+        except:
+            pass
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+                new_kwargs[key] = cudf.from_pandas(value)
+        return new_kwargs['X'], new_kwargs['y']
+    
+    if deps.cuml:
+        return safe_cudf(X, y)
+    else:
+        return X, y

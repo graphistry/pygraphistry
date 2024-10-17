@@ -22,7 +22,8 @@ from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
 
 from graphistry.utils.lazy_import import (
-    assert_imported
+    assert_imported,
+    make_safe_gpu_dataframes
 )
 from . import constants as config
 from .constants import DIRTY_CAT
@@ -86,27 +87,6 @@ def assert_imported_engine(feature_engine):
                 "dirty_cat not found for featurizing"  # noqa
             )
         
-
-def make_safe_gpu_dataframes(X, y, engine):
-    cudf = deps.cudf
-    if cudf:
-        assert cudf is not None
-        new_kwargs = {}
-        kwargs = {'X': X, 'y': y}
-        for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cuda", "gpu"]:
-                try:
-                    new_kwargs[key] = cudf.from_pandas(value.astype(np.float64))
-                except:
-                    new_kwargs[key] = cudf.from_pandas(value)
-            else:
-                new_kwargs[key] = value
-        return new_kwargs['X'], new_kwargs['y']
-    else:
-        return X, y
-
 
 # ############################################################################
 #
