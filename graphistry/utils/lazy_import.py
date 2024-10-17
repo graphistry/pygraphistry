@@ -5,18 +5,6 @@ logger = setup_logger(__name__)
 
 
 #TODO use new importer when it lands (this is copied from umap_utils)
-def lazy_cudf_import():
-    try:
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
-    except Exception as e:
-        logger.warn("Unexpected exn during lazy import", exc_info=e)
-        return False, e, None
-
 def lazy_cuml_import():
     try:
         warnings.filterwarnings("ignore")

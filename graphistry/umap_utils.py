@@ -13,9 +13,6 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize
 from .utils.dep_manager import deps
-from graphistry.utils.lazy_import import (
-    lazy_cudf_import
-)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -529,10 +526,9 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
         # temporary until we have full cudf support in feature_utils.py
-        self.has_cudf, _, _ = lazy_cudf_import()
         cudf = deps.cudf
 
-        if self.has_cudf:
+        if cudf is not None:
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
             flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
 

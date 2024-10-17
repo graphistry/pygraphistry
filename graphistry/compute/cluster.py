@@ -10,7 +10,6 @@ from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
-from graphistry.utils.lazy_import import lazy_cudf_import, lazy_dbscan_import
 
 logger = logging.getLogger("compute.cluster")
 
@@ -60,8 +59,8 @@ def make_safe_gpu_dataframes(X, y, engine):
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
 
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
-    if has_cudf_dependancy_:
+    cudf = deps.cudf
+    if cudf is not None:
         # print('DBSCAN CUML Matrices')
         return safe_cudf(X, y)
     else:

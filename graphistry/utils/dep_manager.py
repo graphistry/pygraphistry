@@ -31,6 +31,11 @@ class DepManager:
 
     def _add_deps(self, pkg:str):
         try:
+            # If cudf is being imported, also import cupy since colab installed cudf on CPUs
+            if pkg == 'cudf':
+                cupy_val = import_module('cupy')
+                self.pkgs['cupy'] = cupy_val
+                setattr(self, 'cupy', cupy_val)
             pkg_val = import_module(pkg)
             self.pkgs[pkg] = pkg_val  # store in cache dict
             setattr(self, pkg, pkg_val)  # add pkg to deps instance
