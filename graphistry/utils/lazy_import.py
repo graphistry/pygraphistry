@@ -3,8 +3,6 @@ import warnings
 from graphistry .util import setup_logger, check_set_memoize
 logger = setup_logger(__name__)
 
-from .dep_manager import deps
-
 
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cuml_import():
@@ -170,8 +168,9 @@ def assert_imported():
 
 
 def make_safe_gpu_dataframes(X, y, engine):
-
+    from .dep_manager import deps
     def safe_cudf(X, y):
+        
         cudf = deps.cudf
         pd = deps.pandas
         # remove duplicate columns
