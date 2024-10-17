@@ -172,6 +172,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 
     def safe_cudf(X, y):
         cudf = deps.cudf
+        pd = deps.pandas
         # remove duplicate columns
         if len(X.columns) != len(set(X.columns)):
             X = X.loc[:, ~X.columns.duplicated()]
