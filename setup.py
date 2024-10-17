@@ -122,5 +122,5 @@ setup(
         'Topic :: Software Development :: Widget Sets',
         'Topic :: System :: Distributed Computing'
     ],
-    keywords=['cugraph', 'cudf', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
+    keywords=['cugraph', 'cudf', 'cuml', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'graphviz', 'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'RAPIDS', 'RDF', 'Splunk', 'Spark', 'SQL', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
 )
