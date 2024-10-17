@@ -169,6 +169,7 @@ def assert_imported():
 
 def make_safe_gpu_dataframes(X, y, engine):
     from .dep_manager import deps
+    
     def safe_cudf(X, y):
         
         cudf = deps.cudf
