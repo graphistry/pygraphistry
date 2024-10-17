@@ -42,7 +42,7 @@ class DepManager:
         except ModuleNotFoundError:
             logger.debug(f"{pkg} not installed")
         except ImportError:
-            logger.error(f"{pkg} installed but misconfigured")
+            logger.debug(f"{pkg} installed but misconfigured")
 
     def import_from(self, pkg:str, name:str):
         try:
