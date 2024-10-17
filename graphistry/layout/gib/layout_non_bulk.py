@@ -75,4 +75,3 @@ def layout_non_bulk_mode(
         s_layout_by_size[len(positioned_subgraph_g._nodes)] = (n + 1, t + (end_i - start_i_mid))
 
     return node_partitions, s_layout, s_keep, s_layout_by_size
-

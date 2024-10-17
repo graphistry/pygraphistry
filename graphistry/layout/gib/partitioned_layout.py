@@ -7,7 +7,7 @@ from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 
 from .layout_bulk import layout_bulk_mode
-from .layout_non_block import layout_non_bulk_mode
+from .layout_non_bulk import layout_non_bulk_mode
 
 
 logger = setup_logger(__name__)
@@ -114,7 +114,7 @@ def partitioned_layout(
     end_communities = timer()  # Define end_communities here to track layout time
     logger.debug('part_layout time: %s s', end_communities - start)
 
-    if False and len(singleton_nodes) > 0:
+    if True and len(singleton_nodes) > 0:
         logger.debug('# SINGLETONS: %s', len(singleton_nodes))
         start_sing = timer()
         singletons = singleton_nodes.assign(
@@ -126,7 +126,7 @@ def partitioned_layout(
         end_sing = timer()
         logger.debug('singleton groups (%s): %s s', len(singletons), end_sing - start_sing)
 
-    if False and len(pair_nodes) > 0:
+    if True and len(pair_nodes) > 0:
         logger.debug('# PAIRS: %s', len(pair_nodes))
         start_pair = timer()
         pairs_indexed = pair_nodes.reset_index()
@@ -139,7 +139,7 @@ def partitioned_layout(
         logger.debug('pairs groups (%s): %s s', len(pairs), end_pair - start_pair)
 
     #FIXME: how to make safe?
-    if False and len(edgeless_nodes) > 0:
+    if True and len(edgeless_nodes) > 0:
         logger.debug('# EDGELESS: %s', len(edgeless_nodes))
         start_e = timer()
         edgeless = edgeless_nodes
@@ -189,7 +189,7 @@ def partitioned_layout(
         'x': ['max', 'min'],
         'y': ['max', 'min']
     })
-    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']
+    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']  # type: ignore
     node_stats['dx'] = df_cons(engine)({
         'dx': node_stats['x_max'] - node_stats['x_min'],
         'min': 1
@@ -204,30 +204,30 @@ def partitioned_layout(
     normalized_nodes = combined_nodes.copy()
     normalized_nodes['x'] = (
         combined_nodes['x']
-        #- combined_nodes[partition_key].map(partition_stats['x_min'])  # noqa: W503
-    ) #/ combined_nodes[partition_key].map(partition_stats['dx'])
+        - combined_nodes[partition_key].map(partition_stats['x_min'])  # noqa: W503
+    ) / combined_nodes[partition_key].map(partition_stats['dx'])
     normalized_nodes['y'] = (
         combined_nodes['y']
-        #- combined_nodes[partition_key].map(partition_stats['y_min'])  # noqa: W503
-    ) #/ combined_nodes[partition_key].map(partition_stats['dy'])
+        - combined_nodes[partition_key].map(partition_stats['y_min'])  # noqa: W503
+    ) / combined_nodes[partition_key].map(partition_stats['dy'])
     g_locally_positioned = self.nodes(normalized_nodes)
 
     global_nodes = g_locally_positioned._nodes.copy()
     global_nodes['x'] = (
         (
             g_locally_positioned._nodes['x']
-            #* g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])  # noqa: W503
+            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])  # noqa: W503
         )
-        #+ g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])  # noqa: W503
+        + g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])  # noqa: W503
     )
     global_nodes['y'] = (
         (
             g_locally_positioned._nodes['y']
-            #* g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])  # noqa: W503
+            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])  # noqa: W503
         )
-        #+ g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])  # noqa: W503
+        + g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])  # noqa: W503
     )
-    #global_nodes['y'] = -global_nodes['y']
+    global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)
     g_globally_positioned._edge_weight = self._edge_weight
     end = timer()

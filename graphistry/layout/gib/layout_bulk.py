@@ -36,7 +36,7 @@ def layout_bulk_mode(
 
         if layout_alg is None:
             layout_name = 'force_atlas2'
-            positioned_graph = self.fa2_layout(
+            positioned_graph = self.fa2_layout(  # type: ignore
                 fa2_params={**(
                     {'max_iter': min(len(nodes), 300)}
                     if layout_name == 'force_atlas2' else {}
@@ -54,7 +54,7 @@ def layout_bulk_mode(
 
         if layout_alg is None:
             layout_name = 'force_atlas2'
-            positioned_graph = self.fa2_layout(
+            positioned_graph = self.fa2_layout(  # type: ignore
                 fa2_params={**(
                     {'max_iter': min(len(nodes), 300)}
                     if layout_name == 'force_atlas2' else {}
@@ -74,7 +74,5 @@ def layout_bulk_mode(
     positioned_graph = positioned_graph.nodes(
         positioned_graph._nodes.assign(type=layout_name)
     )
-
-    print('BULK generated node columns', positioned_graph._nodes.columns)
 
     return positioned_graph._nodes
