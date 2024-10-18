@@ -23,7 +23,6 @@ from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
 
 from graphistry.utils.dep_manager import deps
-from parameterized import parameterized_class
 
 np.random.seed(137)
 

@@ -31,7 +31,6 @@ from graphistry.tests.test_feature_utils import (
 )
 
 from graphistry.utils.dep_manager import deps
-from parameterized import parameterized_class
 
 has_cuml = deps.cuml
 cuml = deps.cuml
