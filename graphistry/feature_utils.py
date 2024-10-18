@@ -1982,6 +1982,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # resolve everything before setting dict so that
         # `X = ndf[cols]` and `X = cols` resolve to same thing
+        X_resolved = resolve_X(ndf, X)
+        y_resolved = resolve_y(ndf, y)
+        
         assert_imported_engine(feature_engine)
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
     

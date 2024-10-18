@@ -353,7 +353,7 @@ class UMAPMixin(MIXIN_BASE):
         """
 
         df, y = make_safe_gpu_dataframes(df, y, self.engine)
-        X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
+        X, y_ = self.transform(df, y, kind=kind, return_graph=False)
         try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
             emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
         except:
