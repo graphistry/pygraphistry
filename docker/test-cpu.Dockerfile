@@ -3,6 +3,7 @@
 ARG PYTHON_VERSION=3.6
 FROM python:${PYTHON_VERSION}-slim
 ARG PIP_DEPS="-e .[dev]"
+ARG APTGET_INSTALL=""
 SHELL ["/bin/bash", "-c"]
 
 RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
@@ -11,6 +12,12 @@ RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/
         unzip \
         wget \
         zip
+
+RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
+    if [ -n "$APTGET_INSTALL" ]; then \
+        echo "APTGET_INSTALL: $APTGET_INSTALL" \
+        && apt-get install -y $APTGET_INSTALL; \
+    fi
 
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry

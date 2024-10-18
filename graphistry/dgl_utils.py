@@ -337,7 +337,7 @@ class DGLGraphMixin(MIXIN_BASE):
         logger.info("Running Node Featurization for DGL Graph")
         # logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
 
-        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+        X_enc, y_enc, res = res.featurize_or_get_nodes_dataframe_if_X_is_None(
             feature_engine=resolve_feature_engine(feature_engine),
             *args,
             **kwargs
@@ -364,7 +364,7 @@ class DGLGraphMixin(MIXIN_BASE):
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
+        X_enc, y_enc, res = res.featurize_or_get_edges_dataframe_if_X_is_None(
             feature_engine=resolve_feature_engine(feature_engine),
             *args,
             **kwargs

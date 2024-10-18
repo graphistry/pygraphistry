@@ -7,6 +7,155 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.16 - 2024-10-13]
+
+### Docs
+
+* Update and streamline readme.md
+* Add quicksheet for overall
+* More crosslinking
+
+### Infra
+
+* Add markdown support to docsite
+* ReadTheDocs homepage reuses github README.md
+* Docs pip install caches
+* Drop SVGs and external images during latexpdf generation
+
+### Changed
+
+* Treemap import `squarify` deferred to use to allow core import without squarify installed, such as in `--no-deps`
+
+## [0.34.15 - 2024-10-11]
+
+### Docs
+
+* Improve GFQL translation doc
+* Add examples and API links: Shaping, Hypergraphs, AI & ML
+* Add performance docs
+* Add AI examples
+
+## [0.34.14 - 2024-10-09]
+
+### Added
+
+* HTTP responses with error status codes log an `logging.ERROR`-level message of the status code and response body
+
+## [0.34.13 - 2024-10-07]
+
+### Docs
+
+* Add more GFQL cross-references
+
+## [0.34.12 - 2024-10-07]
+
+### Docs
+
+* Fix ipynb examples in ReadTheDocs distribution
+
+## [0.34.11 - 2024-10-07]
+
+### Fix
+
+* Types
+
+### Infra
+
+* Enable more Python version checks
+
+## [0.34.10 - 2024-10-07]
+
+### Fix
+
+* Docs: Notebook builds
+
+### Docs
+
+* More links, especially around plugins
+* Update color theme to match Graphistry branding
+
+## [0.34.9 - 2024-10-07]
+
+### Fix
+
+* Docs: 10 Minutes to PyGraphistry links
+
+## [0.34.8 - 2024-10-06]
+
+### Fix
+
+* Docs: PDF support
+* Docs: Links
+
+### Docs
+
+* More accessible theme
+
+## [0.34.7 - 2024-10-06]
+
+### Docs
+
+* RTD: Added notebook tutorials 
+* RTD: Added various guides
+* RTD: Added cross-references
+* RTD: Cleaner navigation
+
+### Infra
+
+* Python: Add Python 12 to CI and document support
+* Docs: Udated dependencies - Sphinx 8, Python 12, and various related
+* Docs: Added nbsphinx - hub url grounding, ...
+* Docs: Redo as a docker compose flow with incremental builds (docker, sphinx)
+* Docs: Updated instructions for new flow
+
+### Fix
+
+* Docs: 2024
+* Notebooks: Compatibility with nbsphinx - exactly one title heading, no uncommented `!`, correct references, ...
+
+## [0.34.6 - 2024-10-04]
+
+### Added
+
+* Plugins: graphviz bindings, such as `g.layout_graphviz("dot")`
+
+### Docs
+
+* Reorganized readthedocs
+* Added intro tutorials: `10 Minutes to PyGraphistry`, `10 Minutes to GFQL`, `Login and Sharing`
+
+## [0.34.5 - 2024-09-23]
+
+### Fixed
+
+* GFQL: Fix `chain()` regression around an incorrectly disabled check manifesting as https://github.com/graphistry/pygraphistry/issues/583
+* GFQL: Fix `chain()`, `hop()` traverse filtering logic for a multi-hop edge scenarios
+* GFQL: Fix `hop()` predicate handling in multihop scenarios
+
+### Infra
+
+* GFQL: Expand test suite around multihop edge predicates in `hop()` and `chain()`
+
+## [0.34.4 - 2024-09-20]
+
+### Added
+
+* UMAP: Optional kwargs passthrough to umap library constructor, fit, and transform methods: `g.umap(..., umap_kwargs={...}, umap_fit_kwargs={...}, umap_transform_kwargs={...})`
+* Additional GPU support in featurize paths
+
+### Changed
+
+* Replace `verbose` with `logging`
+
+### Refactor
+
+* Narrow `use_scaler` and `use_scaler_target` typing to `ScalerType` (`Literal[...]`) vs `str`
+* Rename `featurize_or_get_nodes_dataframe_if_X_is_None` (and edges variant) as non-private due to being shared
+
+### Fixed
+
+* get_indegrees: Fix warning https://github.com/graphistry/pygraphistry/issues/587
+
 ## [0.34.3 - 2024-08-03]
 
 ### Added

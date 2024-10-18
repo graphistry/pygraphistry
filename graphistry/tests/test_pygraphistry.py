@@ -58,8 +58,9 @@ def test_register_with_only_personal_key_secret(capfd):
 
 
 class FakeRequestResponse(object):
-    def __init__(self, response):
+    def __init__(self, response, status_code: int):
         self.response = response
+        self.status_code = status_code
     def raise_for_status(self):
         pass
 
@@ -87,14 +88,14 @@ org_not_permitted_response = {
 }
 
 # Print has been switch to logger.info
-@patch("requests.post", return_value=FakeRequestResponse(switch_org_success_response))
+@patch("requests.post", return_value=FakeRequestResponse(switch_org_success_response, status_code=200))
 def test_switch_organization_success(mock_response, capfd):
     PyGraphistry.org_name("success-org")
     out, err = capfd.readouterr()
     assert out == ''
 
 
-@patch("requests.post", return_value=FakeRequestResponse(org_not_exist_response))
+@patch("requests.post", return_value=FakeRequestResponse(org_not_exist_response, status_code=404))
 def test_switch_organization_not_exist(mock_response, capfd):
     org_name = "not-exist-org"
     with pytest.raises(Exception) as exc_info:
@@ -107,7 +108,7 @@ def test_switch_organization_not_exist(mock_response, capfd):
     # assert "Failed to switch organization" in out
 
 
-@patch("requests.post", return_value=FakeRequestResponse(org_not_permitted_response))
+@patch("requests.post", return_value=FakeRequestResponse(org_not_permitted_response, status_code=403))
 def test_switch_organization_not_permitted(mock_response, capfd):
     org_name = "not-permitted-org"
     with pytest.raises(Exception) as exc_info:

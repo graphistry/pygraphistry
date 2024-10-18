@@ -41,7 +41,26 @@ def group_in_a_box_layout(
     engine: Union[Engine, Literal["auto"]] = "auto"
 ) -> 'Plottable':
     """
-    Group nodes in a box layout, including node colors, and both CPU and GPU modes
+    Perform a group-in-a-box layout on a graph, supporting both CPU and GPU execution modes.
+
+    The layout algorithm groups nodes into clusters and organizes them within rectangular bounding boxes, optionally applying color encoding based on a partitioning scheme.
+
+    Args:
+        partition_alg (Optional[str]): The algorithm to use for partitioning the graph nodes.
+        partition_params (Optional[dict]): Parameters for the partition algorithm.
+        layout_alg (Optional[str]): The layout algorithm to arrange nodes within each partition.
+        layout_params (Optional[dict]): Parameters for the layout algorithm.
+        x (int, optional): The x-coordinate for the top-left corner of the layout. Default is 0.
+        y (int, optional): The y-coordinate for the top-left corner of the layout. Default is 0.
+        w (Optional[int]): The width of the layout. If None, automatically determined.
+        h (Optional[int]): The height of the layout. If None, automatically determined.
+        encode_colors (bool, optional): Whether to apply color encoding to nodes based on partitions. Default is True.
+        colors (Optional[List[str]]): List of colors to use for the partitions.
+        partition_key (Optional[str]): The key for partitioning nodes. Default is None.
+        engine (Union[Engine, Literal["auto"]], optional): Execution engine for the layout, either "auto", CPU, or GPU. Default is "auto".
+
+    Returns:
+        Plottable: An object representing the layout that can be plotted or visualized.
 
     """
     from timeit import default_timer as timer

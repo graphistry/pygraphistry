@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union
 from graphistry.constants import NODE
 from graphistry.Engine import EngineAbstract
 from graphistry.Plottable import Plottable
-from graphistry.plugins_types import CuGraphKind
+from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
@@ -188,7 +188,7 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
 }
 
 #'src'/'dst' or 'source'/'destination' +
-edge_compute_algs_to_attr = {
+edge_compute_algs_to_attr: Dict[str, str] = {
     'batched_ego_graphs': 'unknown',
     'edge_betweenness_centrality': 'edge_betweenness_centrality',
     'jaccard': 'jaccard_coeff',
@@ -210,7 +210,7 @@ graph_compute_algs = [
     'minimum_spanning_tree'
 ]
 
-compute_algs = list(node_compute_algs_to_attr.keys()) + list(edge_compute_algs_to_attr.keys()) + graph_compute_algs
+compute_algs: List[str] = list(node_compute_algs_to_attr.keys()) + list(edge_compute_algs_to_attr.keys()) + graph_compute_algs
 
 def compute_cugraph(
     self: Plottable,
@@ -332,7 +332,7 @@ def compute_cugraph(
 
 
 
-layout_algs = [
+layout_algs: List[str] = [
     'force_atlas2'
 ]
 

@@ -51,8 +51,8 @@ def hop(self: Plottable,
     source_node_query: dataframe query to match nodes before hopping (including intermediate)
     destination_node_query: dataframe query to match nodes after hopping (including intermediate)
     edge_query: dataframe query to match edges before hopping (including intermediate)
-    return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
-    target_wave_front: Only consider these nodes for reachability, and for intermediate hops, also consider nodes (primarily for internal use by reverse pass)
+    return_as_wave_front: Exclude starting node(s) in return, returning only encountered nodes
+    target_wave_front: Only consider these nodes + self._nodes for reachability
     engine: 'auto', 'pandas', 'cudf' (GPU)
     """
 
@@ -141,7 +141,11 @@ def hop(self: Plottable,
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
     #richly-attributed subset for dest matching & return-enriching
-    base_target_nodes = target_wave_front if target_wave_front is not None else g2._nodes
+    if target_wave_front is None:
+        base_target_nodes = g2._nodes
+    else:
+        base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+    #TODO precompute src/dst match subset if multihop?
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ LOOP PRE ~~~~~~~~~~~')
@@ -162,6 +166,15 @@ def hop(self: Plottable,
             logger.debug('matches_nodes:\n%s', matches_nodes)
             logger.debug('matches_edges:\n%s', matches_edges)
             logger.debug('first_iter: %s', first_iter)
+            logger.debug('source_node_match: %s', source_node_match)
+            logger.debug('starting_nodes:\n%s', starting_nodes)
+            logger.debug('self._nodes:\n%s', self._nodes)
+            logger.debug('wave_front:\n%s', wave_front)
+            logger.debug('wave_front_base:\n%s',
+                starting_nodes
+                if first_iter else
+                wave_front.merge(self._nodes, on=g2._node, how='left'),
+            )
 
         if not to_fixed_point and hops_remaining is not None:
             if hops_remaining < 1:
@@ -171,12 +184,12 @@ def hop(self: Plottable,
         assert len(wave_front.columns) == 1, "just indexes"
         wave_front_iter : DataFrameT = query_if_not_none(
             source_node_query,
-                filter_by_dict(
-                    starting_nodes
-                    if first_iter else
-                    wave_front.merge(self._nodes, on=g2._node, how='left'),
-                    source_node_match
-                )
+            filter_by_dict(
+                starting_nodes
+                if first_iter else
+                wave_front.merge(self._nodes, on=g2._node, how='left'),
+                source_node_match
+            )
         )[[ g2._node ]]
         first_iter = False
 
@@ -195,11 +208,12 @@ def hop(self: Plottable,
                 [[g2._source, g2._destination, EDGE_ID]]
             )
             if target_wave_front is not None:
-                assert nodes is not None, "target_wave_front indicates nodes"
+                # target prev internal transitions (g._nodes) + starting point (target)
+                # final hop can only be to target
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
-                        nodes[[g2._node]]
+                        self._nodes[[g2._node]]
                         ], sort=False, ignore_index=True
                     ).drop_duplicates()
                 else:
@@ -243,13 +257,11 @@ def hop(self: Plottable,
                 logger.debug('--- direction in [reverse, undirected] ---')
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
-            #FIXME: What test case does this enable? Disabled to pass shortest path backwards pass steps
-            if False and target_wave_front is not None:
-                assert nodes is not None, "target_wave_front indicates nodes"
+            if target_wave_front is not None:
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
-                        nodes[[g2._node]]
+                        self._nodes[[g2._node]]
                         ], sort=False, ignore_index=True
                     ).drop_duplicates()
                 else:
@@ -265,6 +277,13 @@ def hop(self: Plottable,
             new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
 
             if destination_node_query is not None or destination_node_match is not None:
+                if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('--- destination predicate filtering ---')
+                    logger.debug('destination_node_query: %s', destination_node_query)
+                    logger.debug('destination_node_match: %s', destination_node_match)
+                    logger.debug('base_target_nodes:\n%s', base_target_nodes)
+                    logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
+                    logger.debug('enriched nodes for filtering:\n%s', base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'))
                 new_node_ids_reverse = query_if_not_none(
                     destination_node_query,
                     filter_by_dict(
@@ -277,6 +296,7 @@ def hop(self: Plottable,
                     on=g2._source
                 )
                 if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
                     logger.debug('hop_edges_reverse filtered by destination predicates:\n%s', hop_edges_reverse)
             
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -305,10 +325,10 @@ def hop(self: Plottable,
             logger.debug('hop_edges_forward:\n%s', hop_edges_forward)
             logger.debug('hop_edges_reverse:\n%s', hop_edges_reverse)
 
-        # Finally include all initial root nodes matched against, now that edge triples satisfy all source/dest/edge predicates
-        # Only run first iteration b/c root nodes already accounted for in subsequent
-        # In wavefront mode, skip, as we only want to return reached nodes
-        if matches_nodes is None:
+        # When !return_as_wave_front, include starting nodes in returned matching node set
+        # (When return_as_wave_front, skip starting nodes, just include newly reached)
+        # Only need to do this in the first loop step
+        if matches_nodes is None:  # first iteration
             if return_as_wave_front:
                 matches_nodes = new_node_ids[:0]
             else:
@@ -326,7 +346,10 @@ def hop(self: Plottable,
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
                 logger.debug('matches_edges:\n%s', matches_edges)
 
-        combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        if len(matches_nodes) > 0:
+            combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        else:
+            combined_node_ids = new_node_ids
 
         if len(combined_node_ids) == len(matches_nodes):
             #fixedpoint, exit early: future will come to same spot!
@@ -369,6 +392,10 @@ def hop(self: Plottable,
         if target_wave_front is not None:
             rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
         logger.debug('rich_nodes available for inner merge:\n%s', rich_nodes[[self._node]])
+        logger.debug('target_wave_front:\n%s', target_wave_front)
+        logger.debug('matches_nodes:\n%s', matches_nodes)
+        logger.debug('wave_front:\n%s', wave_front)
+        logger.debug('self._nodes:\n%s', self._nodes)
         final_nodes = rich_nodes.merge(
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,

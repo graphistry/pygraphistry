@@ -199,7 +199,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%"
+                    f"epoch: {epoch + 1}, loss: {loss.item():.4f}, score: {100 * score:.4f}%"
                 )
 
             model.eval()
@@ -208,7 +208,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             if res._eval_flag and res._train_idx is not None:
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
+                    f"epoch: {epoch + 1}, loss: {loss.item():.4f}, score: {100 * score:.2f}%"
                 )
 
         return res

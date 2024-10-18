@@ -104,6 +104,7 @@ class Fake_Response(object):
     def json(self):
         return {"success": True, "dataset": "fakedatasetname", "viztoken": "faketoken"}
 
+    status_code = 200
 
 def assertFrameEqual(df1, df2, **kwds):
     """Assert that two dataframes are equal, ignoring ordering of columns"""

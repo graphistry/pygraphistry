@@ -14,6 +14,8 @@ from .plugins.igraph import (
     compute_igraph as compute_igraph_base,
     layout_igraph as layout_igraph_base
 )
+from .plugins.graphviz import layout_graphviz as layout_graphviz_base
+from .plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 from .plugins.cugraph import (
     to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
     compute_cugraph as compute_cugraph_base,
@@ -191,6 +193,9 @@ class PlotterBase(Plottable):
 
         # the fit umap instance
         self._umap = None
+        self._umap_params : Optional[Dict[str, Any]] = None
+        self._umap_fit_kwargs : Optional[Dict[str, Any]] = None
+        self._umap_transform_kwargs : Optional[Dict[str, Any]] = None
 
         self._adjacency = None
         self._entity_to_index = None
@@ -1566,6 +1571,9 @@ class PlotterBase(Plottable):
 
 
     def networkx_checkoverlap(self, g):
+        """
+        Raise an error if the node attribute already exists in the graph
+        """
 
         import networkx as nx
         [_major, _minor] = nx.__version__.split('.', 1)
@@ -1596,6 +1604,86 @@ class PlotterBase(Plottable):
         edges = pd.DataFrame(get_edgelist(g))
         return (edges, nodes)
 
+    def from_networkx(self, G) -> Plottable:
+        """
+        Convert a NetworkX graph to a PyGraphistry graph.
+
+        This method takes a NetworkX graph and converts it into a format that PyGraphistry can use for visualization. It extracts the node and edge data from the NetworkX graph and binds them to the graph object for further manipulation or visualization using PyGraphistry's API.
+
+        :param G: The NetworkX graph to convert.
+        :type G: networkx.Graph or networkx.DiGraph
+
+        :return: A PyGraphistry Plottable object with the node and edge data from the NetworkX graph.
+        :rtype: Plottable
+
+        **Example: Basic NetworkX Conversion**
+            ::
+
+                import graphistry
+                import networkx as nx
+
+                # Create a NetworkX graph
+                G = nx.Graph()
+                G.add_nodes_from([
+                    (1, {"v": "one"}), 
+                    (2, {"v": "two"}), 
+                    (3, {"v": "three"}), 
+                    (4, {"v": "four"}), 
+                    (7, {"v": "seven"}), 
+                    (8, {"v": "eight"})
+                ])
+                G.add_edges_from([
+                    [2, 3], 
+                    [3, 4], 
+                    [7, 8]
+                ])
+
+                # Convert the NetworkX graph to PyGraphistry format
+                g = from_networkx(G)
+                
+                g.plot()
+
+        This example creates a simple NetworkX graph with nodes and edges, converts it using `from_networkx()`, and then plots it with the PyGraphistry API.
+
+        **Example: Using Custom Node and Edge Bindings**
+            ::
+
+                import graphistry
+                import networkx as nx
+
+                # Create a NetworkX graph with attributes
+                G = nx.Graph()
+                G.add_nodes_from([
+                    (1, {"v": "one"}), 
+                    (2, {"v": "two"}), 
+                    (3, {"v": "three"}), 
+                    (4, {"v": "four"}), 
+                    (7, {"v": "seven"}), 
+                    (8, {"v": "eight"})
+                ])
+                G.add_edges_from([
+                    [2, 3], 
+                    [3, 4], 
+                    [7, 8]
+                ])
+
+                # Bind custom node and edge names when converting from NetworkX to PyGraphistry
+                g = graphistry.bind(source='src', destination='dst').from_networkx(G)
+                
+                g.plot()
+        """
+
+        g = (self
+            .nodes(None, 'n' if self._node is None else self._node)
+            .edges(
+                None,
+                'src' if self._source is None else self._source,
+                'dst' if self._destination is None else self._destination
+            )
+        )
+        
+        e_df, n_df = g.networkx2pandas(G)
+        return g.edges(e_df).nodes(n_df)
 
     def from_cugraph(self,
         G,
@@ -1646,6 +1734,23 @@ class PlotterBase(Plottable):
         )
     layout_cugraph.__doc__ = layout_cugraph_base.__doc__
     
+    def layout_graphviz(self,
+        prog: Prog = 'dot',
+        args: Optional[str] = None,
+        directed: bool = True,
+        strict: bool = False,
+        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+        node_attr: Optional[Dict[NodeAttr, Any]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+        skip_styling: bool = False,
+        render_to_disk: bool = False,  # unsafe in server settings
+        path: Optional[str] = None,
+        format: Optional[Format] = None
+    ) -> Plottable:
+        return layout_graphviz_base(
+            self, prog, args, directed, strict, graph_attr, node_attr, edge_attr, skip_styling, render_to_disk, path, format
+        )
+    layout_graphviz.__doc__ = layout_graphviz_base.__doc__
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
@@ -2039,7 +2144,126 @@ class PlotterBase(Plottable):
         raise ValueError('Could not find a label-like node column and no g._node id fallback set')
 
 
-    def cypher(self, query, params={}):
+    def cypher(self, query: str, params: Dict[str, Any] = {}) -> 'PlotterBase':
+        """
+        Execute a Cypher query against a Neo4j, Memgraph, or Amazon Neptune database and retrieve the results.
+
+        This method runs a Cypher query on a Neo4j, Memgraph, or Amazon Neptune graph database using a BOLT driver. 
+        The query results are transformed into DataFrames for nodes and edges, which are then bound to the current 
+        graph visualization context. You can also pass parameters to the Cypher query via the `params` argument.
+
+        :param query: The Cypher query string to execute.
+        :type query: str
+
+        :param params: Optional dictionary of parameters to pass to the Cypher query.
+        :type params: dict, optional
+
+        :returns: Plotter with updated nodes and edges based on the query result.
+        :rtype: PlotterBase
+
+        :raises ValueError: If no BOLT driver connection is available.
+
+        **Example (Simple Neo4j Query)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+            
+            # Register with Neo4j connection details
+            uri = "bolt://localhost:7687"
+            driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
+
+            graphistry.register(bolt=driver)
+
+            # Run a basic Cypher query
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Simple Amazon Neptune Query)**
+
+        ::
+
+            from neo4j import GraphDatabase
+
+            # Register with Amazon Neptune connection details
+            uri = f"bolt://{url}:8182"
+            driver = GraphDatabase.driver(uri, auth=("ignored", "ignored"), encrypted=True)
+
+            graphistry.register(bolt=driver)
+
+            # Run a simple Cypher query
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Simple Memgraph Query)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+
+            # Register with Memgraph connection details
+            MEMGRAPH = {
+                'uri': "bolt://localhost:7687", 
+                'auth': (" ", " ")
+            }
+
+            graphistry.register(api=3, username="X", password="Y", bolt=MEMGRAPH)
+
+            # Run a simple Cypher query on Memgraph
+            g = graphistry.cypher('''
+                MATCH (node1)-[connection]-(node2)
+                RETURN node1, connection, node2;
+            ''')
+
+            # Visualize the results
+            g.plot()
+
+        **Example (Parameterized Query with Node and Edge Inspection)**
+
+        ::
+
+            import graphistry
+            from neo4j import GraphDatabase
+
+            # Register with Neo4j connection details
+            uri = "bolt://localhost:7687"
+            driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
+
+            graphistry.register(bolt=driver)
+
+            # Run a parameterized Cypher query
+            query = '''
+                MATCH (node1)-[connection]-(node2)
+                WHERE node1.name = $name
+                RETURN node1, connection, node2;
+            '''
+            params = {"name": "Alice"}
+
+            g = graphistry.cypher(query, params)
+            
+            # Inspect the resulting nodes and edges DataFrames
+            print(g._nodes)  # DataFrame with node information
+            print(g._edges)  # DataFrame with edge information
+
+            # Visualize the results
+            g.plot()
+
+        This demonstrates how to connect to Neo4j, Memgraph, or Amazon Neptune, run a simple or parameterized Cypher query, 
+        inspect query results (nodes and edges), and visualize the graph.
+        
+        """
 
         from .pygraphistry import PyGraphistry
 

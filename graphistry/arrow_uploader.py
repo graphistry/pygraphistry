@@ -1,3 +1,4 @@
+import json
 from typing import List, Optional
 
 import io, pyarrow as pa, requests, sys
@@ -8,6 +9,7 @@ from .ArrowFileUploader import ArrowFileUploader
 
 from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
+from .utils.requests import log_requests_error
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -205,6 +207,7 @@ class ArrowUploader:
             f'{self.server_base_path}/api-token-auth/',
             verify=self.certificate_validation,
             json=json_data)
+        log_requests_error(out)
 
         return self._handle_login_response(out, org_name)
 
@@ -222,6 +225,7 @@ class ArrowUploader:
             url,
             verify=self.certificate_validation,
             json=json_data, headers=headers)
+        log_requests_error(out)
         return self._handle_login_response(out, org_name)
 
     def _handle_login_response(self, out, org_name):
@@ -290,6 +294,7 @@ class ArrowUploader:
             url, data={'client-type': 'pygraphistry'},
             verify=self.certificate_validation
         )
+        log_requests_error(out)
 
         json_response = None
         try:
@@ -329,6 +334,7 @@ class ArrowUploader:
             f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/',
             verify=self.certificate_validation
         )
+        log_requests_error(out)
         json_response = None
         try:
             json_response = out.json()
@@ -360,6 +366,7 @@ class ArrowUploader:
             f'{base_path}/api/v2/auth/token/refresh',
             verify=self.certificate_validation,
             json={'token': token})
+        log_requests_error(out)
         json_response = None
         try:
             json_response = out.json()
@@ -385,6 +392,7 @@ class ArrowUploader:
             f'{base_path}/api-token-verify/',
             verify=self.certificate_validation,
             json={'token': token})
+        log_requests_error(out)
         return out.status_code == requests.codes.ok
 
     def create_dataset(self, json, validate: bool = True):  # noqa: F811
@@ -403,7 +411,7 @@ class ArrowUploader:
             verify=self.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
             json=json)
-             
+        log_requests_error(res)
         try: 
             out = res.json()
             if not out['success']:
@@ -622,6 +630,7 @@ class ArrowUploader:
                 'mode_action': mode_action,
                 'message': message
             })
+        log_requests_error(res)
 
         if res.status_code != requests.codes.ok:
             logger.error('Failed setting sharing status (code %s): %s', res.status_code, res.text, exc_info=True)
@@ -692,8 +701,11 @@ class ArrowUploader:
             verify=self.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
             data=buf)
-                    
+        log_requests_error(resp)
+
         if resp.status_code != requests.codes.ok:
+
+            log_requests_error(resp)
             resp.raise_for_status()
 
         return resp
@@ -754,6 +766,7 @@ class ArrowUploader:
                 verify=self.certificate_validation,
                 headers={'Authorization': f'Bearer {tok}'},
                 data=file.read()).json()
+            log_requests_error(out)
             if not out['success']:
                 raise Exception(out)
             

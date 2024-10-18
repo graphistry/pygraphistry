@@ -91,24 +91,22 @@ def ring_continuous(
       - v_start: corresponds to the first axis at min_r, defaulting to g._nodes[ring_col].min() 
       - v_end: corresponds to the last axis at max_r, defaulting to g._nodes[ring_col].max() 
 
-    Parameters
-    ----------
-        :g: Plottable
-        :ring_col: Optional[str] Column name of nodes numerica-typed column; defaults to first numeric node column
-        :v_start: Optional[float] Value at innermost axis (at min_r), defaults to g._nodes[ring_col].min()
-        :v_end: Optional[float] Value at outermost axis (at max_r), defaults to g._nodes[ring_col].max()
-        :v_step: Optional[float] Distance between rings in terms of ring column value domain
-        :min_r: float Minimum radius, default 100
-        :max_r: float Maximum radius, default 1000
-        :normalize_ring_col: bool, default True, Whether to recale to min/max r, or pass through existing values
-        :num_rings: Optional[int] Number of rings
-        :ring_step: Optional[float] Distance between rings in terms of pixels
-        :axis: Optional[Union[Dict[float,str],List[str]]], Set to provide labels for each ring, and in dict mode, also specify radius for each
-        :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
-        :format_label: Optional[Callable[[float, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring width
-        :reverse: bool Reverse the direction of the rings
-        :play_ms: int initial layout time in milliseconds, default 2000
-        :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :g: Plottable
+    :ring_col: Optional[str] Column name of nodes numerica-typed column; defaults to first numeric node column
+    :v_start: Optional[float] Value at innermost axis (at min_r), defaults to g._nodes[ring_col].min()
+    :v_end: Optional[float] Value at outermost axis (at max_r), defaults to g._nodes[ring_col].max()
+    :v_step: Optional[float] Distance between rings in terms of ring column value domain
+    :min_r: float Minimum radius, default 100
+    :max_r: float Maximum radius, default 1000
+    :normalize_ring_col: bool, default True, Whether to recale to min/max r, or pass through existing values
+    :num_rings: Optional[int] Number of rings
+    :ring_step: Optional[float] Distance between rings in terms of pixels
+    :axis: Optional[Union[Dict[float,str],List[str]]], Set to provide labels for each ring, and in dict mode, also specify radius for each
+    :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
+    :format_label: Optional[Callable[[float, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring width
+    :reverse: bool Reverse the direction of the rings
+    :play_ms: int initial layout time in milliseconds, default 2000
+    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter
