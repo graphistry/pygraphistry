@@ -60,13 +60,13 @@ def layout_non_bulk_mode(
             layout_name = layout_alg or 'fr'
             positioned_subgraph_g = subgraph_g.layout_igraph(
                 layout=layout_name,
-                params={**({'niter': niter} if layout_name == 'fr' else {}), **layout_params}
+                params={**({'niter': niter} if layout_name == 'fr' else {}), **(layout_params or {})}
             )
         elif engine == Engine.CUDF:
             layout_name = layout_alg or 'force_atlas2'
             positioned_subgraph_g = subgraph_g.layout_cugraph(
                 layout=layout_name,
-                params={**({'max_iter': niter} if layout_name == 'force_atlas2' else {}), **layout_params}
+                params={**({'max_iter': niter} if layout_name == 'force_atlas2' else {}), **(layout_params or {})}
             )
         else:
             raise ValueError(f"Unsupported engine: {engine}")
