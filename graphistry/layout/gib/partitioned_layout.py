@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 import numpy as np, pandas as pd
 from timeit import default_timer as timer
 
@@ -18,7 +18,7 @@ def partitioned_layout(
     self: Plottable,
     partition_offsets: Dict[str, Dict[int, float]],
     layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
-    layout_params: Dict = {},
+    layout_params: Optional[Dict[str, Any]] = None,
     partition_key='partition',
     bulk_mode: bool = True,
     engine: Engine = Engine.PANDAS,
@@ -29,7 +29,7 @@ def partitioned_layout(
     :param layout_alg: Layout algorithm to be applied if partition_key column does not already exist; GPU defaults to fa2_layout, CPU defaults to igraph fr
     :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
     :param layout_params: Parameters for the layout algorithm
-    :type layout_params: Dict[str, Any]
+    :type layout_params: Optional[Dict[str, Any]]
     :param partition_key: The partition key; defaults to the layout_alg
     :type partition_key: str
     :param bulk_mode: Whether to apply layout in bulk mode
