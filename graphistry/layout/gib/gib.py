@@ -12,9 +12,11 @@ from .treemap import treemap
 logger = setup_logger(__name__)
 
 
-def resolve_partition_key(g, partition_key=None):
+def resolve_partition_key(g, partition_key=None, partition_alg: Optional[str] = None):
     if partition_key is not None:
         return partition_key
+    elif partition_alg is not None:
+        return partition_alg
     elif g._nodes is not None and 'partition' in g._nodes:
         return 'partition'
     elif g._nodes is not None and 'community' in g._nodes:
@@ -119,7 +121,7 @@ def group_in_a_box_layout(
     from timeit import default_timer as timer
     start = timer()
 
-    resolved_partition_key = resolve_partition_key(self, partition_key)
+    resolved_partition_key = resolve_partition_key(self, partition_key, partition_alg)
     #print('resolved_partition_key', resolved_partition_key)
     #print('engine', engine)
 
@@ -133,7 +135,7 @@ def group_in_a_box_layout(
                     engine = Engine.CUDF
                 else:
                     raise ValueError('Could not infer engine, please specify')
-            except:
+            except Exception:
                 raise ValueError('Could not infer engine, please specify')
 
     g_partitioned = partition(
@@ -152,7 +154,7 @@ def group_in_a_box_layout(
         g_partitioned,
         partition_offsets=partition_offsets,
         layout_alg=layout_alg,
-        layout_params=layout_params or {},
+        layout_params=layout_params,
         partition_key=resolved_partition_key,
         engine=engine
     )
