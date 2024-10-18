@@ -248,7 +248,6 @@ def features_without_target(
                 remove_cols.append(c)
                 
     elif is_cudf_df(y):
-        import cudf
         assert isinstance(y, cudf.DataFrame)
         yc = y.columns
         xc = df.columns
@@ -259,7 +258,6 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif is_cudf_s(y):
-        import cudf
         assert isinstance(y, cudf.Series)
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]

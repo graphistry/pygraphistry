@@ -352,7 +352,7 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
         """
 
-        df, y = make_safe_gpu_dataframes(df, y, self.engine)
+        df, y = make_safe_gpu_dataframes(df, y, engine)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False)
         try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
             emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
