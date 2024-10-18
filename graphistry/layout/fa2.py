@@ -10,13 +10,13 @@ logger = setup_logger(__name__)
 
 
 # Approximate Graphistry server settings
-GRAPHISTRY_FA2_PARAMS = {
+GRAPHISTRY_FA2_PARAMS: Dict[str, Any] = {
     'max_iter': 1000,
     'outbound_attraction_distribution': False,
     'scaling_ratio': 1
 }
 
-GRAPHISTRY_FR_PARAMS = {
+GRAPHISTRY_FR_PARAMS: Dict[str, Any] = {
     #'max_iter': 1000,
     #'outbound_attraction_distribution': False,
     #'scaling_ratio': 1
@@ -54,12 +54,6 @@ def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) 
     # Prepare the bounding box per partition
     keys = groupby_partition.size().index.to_series()
 
-    print('size - keys', len(keys))
-    print('size - center_x_per_partition', len(center_x_per_partition))
-    print('size - center_y_per_partition', len(center_y_per_partition))
-    print('size - width_per_partition', len(width_per_partition))
-    print('size - height_per_partition', len(height_per_partition))
-
     bounding_boxes = cons({
         'partition_key': keys.reset_index(drop=True),
         'cx': center_x_per_partition.reset_index(drop=True),
@@ -75,7 +69,7 @@ def fa2_layout(
     g: Plottable, 
     fa2_params: Optional[Dict[str, Any]] = None,
     circle_layout_params: Optional[Dict[str, Any]] = None,
-    singleton_layout: Optional[Callable[[Plottable, Tuple[float, float, float, float] | Any], Plottable]] = None,
+    singleton_layout: Optional[Callable[[Plottable, Union[Tuple[float, float, float, float], Any]], Plottable]] = None,
     partition_key: Optional[str] = None,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
@@ -140,13 +134,15 @@ def fa2_layout(
                 directed=False,
                 params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
             )
-        else:
+        elif engine_concrete == Engine.CUDF:
             g_connected_layout = g_connected.layout_cugraph(
                 'force_atlas2',
                 kind='Graph',
                 directed=False,
                 params=fa2_params if fa2_params is not None else GRAPHISTRY_FA2_PARAMS
             )
+        else:
+            raise ValueError(f"Unsupported engine: {engine_concrete}")
         # Calculate the bounding box from the FA2 layout
         right, left = g_connected_layout._nodes.x.max(), g_connected_layout._nodes.x.min()
         top, bottom = g_connected_layout._nodes.y.min(), g_connected_layout._nodes.y.max()
@@ -169,7 +165,7 @@ def fa2_layout(
             bounding_box = (cx, cy, w, h)
         g_edgeless_layout = layout(
             g_edgeless,
-            bounding_box=bounding_box,
+            bounding_box,
             **(circle_layout_params or {})  # Pass circle layout parameters, e.g., sort keys, spacing
         )
     else:

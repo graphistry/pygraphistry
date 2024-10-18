@@ -74,6 +74,4 @@ def layout_bulk_mode(
         positioned_graph._nodes.assign(type=layout_name)
     )
 
-    print('BULK generated node columns', positioned_graph._nodes.columns)
-
     return positioned_graph._nodes
