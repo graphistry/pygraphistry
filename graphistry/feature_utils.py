@@ -279,7 +279,6 @@ def features_without_target(
 
 
 def remove_node_column_from_symbolic(X_symbolic, node):
-    cudf = deps.cudf
     if isinstance(X_symbolic, list):
         if node in X_symbolic:
             logger.info(f"Removing `{node}` from input X_symbolic list")
