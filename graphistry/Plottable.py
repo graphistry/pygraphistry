@@ -337,6 +337,18 @@ class Plottable(object):
         if 1 + 1:
             raise RuntimeError('should not happen')
         return pd.DataFrame(), pd.DataFrame()
+    
+    def fa2_layout(
+        self,
+        fa2_params: Optional[Dict[str, Any]] = None,
+        circle_layout_params: Optional[Dict[str, Any]] = None,
+        singleton_layout: Optional[Callable[['Plottable', Union[Tuple[float, float, float, float], Any]], 'Plottable']] = None,
+        partition_key: Optional[str] = None,
+        engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
 
     def layout_settings(
         self,
