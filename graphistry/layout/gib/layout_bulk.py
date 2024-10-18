@@ -50,7 +50,7 @@ def layout_bulk_mode(
             layout_name = layout_alg or 'fr'
             positioned_graph = self.layout_igraph(
                 layout=layout_name,
-                params={**({'niter': min(len(nodes), 300)} if layout_name == 'fr' else {}), **layout_params}
+                params=layout_params if layout_params is not None else {}
             )
     elif engine == Engine.CUDF:
 
@@ -65,7 +65,7 @@ def layout_bulk_mode(
             layout_name = layout_alg
             positioned_graph = self.layout_cugraph(
                 layout=layout_name,
-                params={**({'max_iter': min(len(nodes), 300)} if layout_name == 'force_atlas2' else {}), **layout_params}
+                params=layout_params if layout_params is not None else {}
             )
     else:
         raise ValueError(f"Unsupported engine: {engine}")

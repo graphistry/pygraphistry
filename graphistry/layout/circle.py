@@ -1,9 +1,9 @@
 from typing import Any, Optional, Tuple, List, Union
-import logging
 
 import numpy as np
 
 from graphistry.Engine import (
+    Engine,
     EngineAbstract,
     resolve_engine,
     df_cons,
@@ -244,7 +244,13 @@ def circle_layout(
             node_centers_y = nodes_with_partitions['cy']  # (num_nodes,)
             node_widths = nodes_with_partitions['w']  # (num_nodes,)
             node_heights = nodes_with_partitions['h']  # (num_nodes,)
-            node_partition_sizes = groupby_partition.transform('size')[g._node]  # (num_nodes,)
+            if engine_concrete == Engine.CUDF:
+                node_partition_sizes = groupby_partition.transform('size')[g._node]  # (num_nodes,)
+            else:
+                node_partition_sizes = groupby_partition.transform('size')  # (num_nodes,)
+                #node_partition_sizes = groupby_partition.transform('size')  # (num_nodes,)
+                assert len(node_partition_sizes) == num_nodes
+                assert isinstance(node_partition_sizes, Series)
 
             #singleton nodes will not be placed yet, so place now
             node_centers_x = node_centers_x.fillna(0.)  # (num_nodes,)
