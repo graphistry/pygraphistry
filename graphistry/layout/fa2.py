@@ -128,7 +128,7 @@ def fa2_layout(
         #g_connected = g_connected.edges(g_connected._edges.reset_index(drop=True))
 
         if engine_concrete == Engine.PANDAS:
-            logger.warning("Pandas engine detected. FA2 not falling back to igraph fr")
+            logger.warning("Pandas engine detected. FA2 falling back to igraph fr")
             g_connected_layout = g_connected.layout_igraph(
                 'fr',
                 directed=False,
