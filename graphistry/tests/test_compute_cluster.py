@@ -4,13 +4,12 @@ import pytest
 import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
-from graphistry.utils.lazy_import import (
-    lazy_dbscan_import,
-    lazy_umap_import
-)
+
+from graphistry.utils.lazy_import import lazy_dbscan_import
+from graphistry.utils.dep_manager import deps
 
 has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import()
-has_umap, _, _ = lazy_umap_import()
+has_umap = deps.umap
 
 
 ndf = edf = pd.DataFrame({'src': [1, 2, 1, 4], 'dst': [4, 5, 6, 1], 'label': ['a', 'b', 'b', 'c']})

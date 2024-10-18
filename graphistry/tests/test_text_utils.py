@@ -6,18 +6,15 @@ import graphistry
 import logging
 import numpy as np
 import pandas as pd
-from graphistry.feature_utils import remove_internal_namespace_if_present
+from graphistry.feature_utils import remove_internal_namespace_if_present, assert_imported_engine as assert_imported_feature_utils
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
     edge_df,
 )
-from graphistry.utils.lazy_import import (
-    lazy_umap_import,
-    lazy_import_has_min_dependancy
-)
 
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _, _ = lazy_umap_import()
+from graphistry.utils.dep_manager import DepManager
+deps = DepManager()
+has_umap = deps.umap
 
 logger = logging.getLogger(__name__)
 

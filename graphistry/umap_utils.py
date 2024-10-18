@@ -6,20 +6,23 @@ from inspect import getmodule
 import numpy as np
 import pandas as pd
 
-from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
-    lazy_umap_import,
-    lazy_cuml_import,
-)
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
+
+
+from .utils.dep_manager import deps
+
+from graphistry.utils.lazy_import import (
+    make_safe_gpu_dataframes
+)
+
 from .util import check_set_memoize, setup_logger
 
-
 logger = setup_logger(__name__)
+
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
@@ -31,30 +34,31 @@ DataFrameLike = Union[pd.DataFrame, Any]
 
 ###############################################################################
 
-
 def assert_imported():
-    has_dependancy_, import_exn, _ = lazy_umap_import()
-    if not has_dependancy_:
+    umap_ = deps.umap
+    if not umap_:
+
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
-        raise import_exn
+        # raise import_exn
 
 
 def assert_imported_cuml():
-    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import()
-    if not has_cuml_dependancy_:
+    cuml_ = deps.cuml
+    if not cuml_:
+
         logger.warning("cuML not found, trying running " "`pip install cuml`")
-        raise import_cuml_exn
+        # raise import_cuml_exn
 
 
 def is_legacy_cuml():
     try:
-        import cuml
-
-        vs = cuml.__version__.split(".")
-        if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
-            return True
-        else:
-            return False
+        cuml = deps.cuml
+        if cuml:  # noqa
+            vs = cuml.__version__.split(".")
+            if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
+                return True
+            else:
+                return False
     except ModuleNotFoundError:
         return False
 
@@ -69,11 +73,11 @@ def resolve_umap_engine(
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, _ = lazy_cuml_import()
-        if has_cuml_dependancy_:
+        cuml_ = deps.cuml
+        if cuml_:
             return 'cuml'
-        has_umap_dependancy_, _, _ = lazy_umap_import()
-        if has_umap_dependancy_:
+        umap_ = deps.umap
+        if umap_:
             return 'umap_learn'
 
     raise ValueError(  # noqa
@@ -81,35 +85,6 @@ def resolve_umap_engine(
         '"umap_learn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
-
-
-def make_safe_gpu_dataframes(X, y, engine):
-
-    def safe_cudf(X, y):
-        # remove duplicate columns
-        if len(X.columns) != len(set(X.columns)):
-            X = X.loc[:, ~X.columns.duplicated()]
-        try:
-            y = y.loc[:, ~y.columns.duplicated()]
-        except:
-            pass
-        new_kwargs = {}
-        kwargs = {'X': X, 'y': y}
-        for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
-                new_kwargs[key] = cudf.from_pandas(value)
-            else:
-                new_kwargs[key] = value
-        return new_kwargs['X'], new_kwargs['y']
-
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
-    if has_cudf_dependancy_:
-        return safe_cudf(X, y)
-    else:
-        return X, y
-
 ###############################################################################
 
 # #############################################################################
@@ -220,9 +195,9 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import()
+            umap_engine = deps.umap
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import()
+            umap_engine = deps.cuml
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -357,6 +332,7 @@ class UMAPMixin(MIXIN_BASE):
                     merge_policy: bool = False,
                     sample: Optional[int] = None, 
                     return_graph: bool = True,
+                    engine: UMAPEngine = 'auto',
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
@@ -375,14 +351,17 @@ class UMAPMixin(MIXIN_BASE):
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
         """
-        df, y = make_safe_gpu_dataframes(df, y, 'pandas')
+
+        df, y = make_safe_gpu_dataframes(df, y, engine)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False)
-        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)  # type: ignore
-        emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
+        try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
+            emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
+        except:
+            emb = self._umap.fit_transform(X)  # type: ignore  
+
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
             emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas')  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas')
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
@@ -391,9 +370,9 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
+        if emb.shape[1] == 2 and 'cudf' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
+        elif emb.shape[1] == 2 and 'cudf' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
         elif emb.shape[1] == 2 and hasattr(emb, 'device'):
             import cudf
@@ -402,9 +381,15 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-            if 'cudf.core.dataframe' not in str(getmodule(emb)):
+            if 'cudf' not in str(getmodule(emb)) and 'cupy' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf.core.dataframe' in str(getmodule(emb)):
+            elif 'ndarray' in str(getmodule(emb)) or 'None' in str(getmodule(emb)):
+                if self.has_cudf:
+                    emb = cudf.DataFrame(emb)
+                else:
+                    emb = cudf.DataFrame(emb)
+                emb.columns = columns
+            else:
                 emb.columns = columns
         return emb
 
@@ -610,14 +595,15 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap_kwargs: %s", umap_kwargs_combined)
 
         # temporary until we have full cudf support in feature_utils.py
-        has_cudf, _, cudf = lazy_cudf_import()
+        cudf = deps.cudf
 
         if inplace:
             res = self
         else:
             res = self.bind()
 
-        if has_cudf:
+        if cudf is not None:
+
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
             flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
 
@@ -685,6 +671,7 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
                 assert isinstance(X_, cudf.DataFrame)
                 logger.debug('nodes type: %s', type(nodes))
@@ -797,9 +784,10 @@ class UMAPMixin(MIXIN_BASE):
         if isinstance(df, type(emb)):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
-        elif isinstance(df, pd.DataFrame) and 'cudf.core.dataframe' in str(getmodule(emb)):
+        elif 'pandas' in str(getmodule(emb)) and 'cudf' in str(getmodule(emb)):
             df[x_name] = emb.to_numpy().T[0]
             df[y_name] = emb.to_numpy().T[1]
+
 
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 

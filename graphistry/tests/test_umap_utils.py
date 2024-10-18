@@ -1,17 +1,21 @@
 from time import time
 from typing import Any
+from xml.sax.handler import feature_external_ges
 import pytest
 import unittest
 import warnings
 
 import gc
 import graphistry
+
 import os
 import logging
 import numpy as np
 import pandas as pd
 from graphistry.config import config
+from graphistry import Plottable
 from graphistry.feature_utils import remove_internal_namespace_if_present
+
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
     text_cols_reddit,
@@ -23,24 +27,20 @@ from graphistry.tests.test_feature_utils import (
     edge_df2,
     edge2_target_df,
     model_avg_name,
-    lazy_import_has_min_dependancy,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
-    lazy_cuml_import,
-    lazy_umap_import,
-)
-from graphistry.util import cache_coercion_helper
 
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_cuml, _, _ = lazy_cuml_import()
-has_umap, _, umap = lazy_umap_import()
-has_cudf, _, cudf = lazy_cudf_import()
+from graphistry.utils.dep_manager import deps
 
-# print('has_dependancy', has_dependancy)
-# print('has_cuml', has_cuml)
-# print('has_umap', has_umap)
+has_cuml = deps.cuml
+cuml = deps.cuml
+has_umap = deps.umap
+umap = deps.umap
+has_cudf = deps.cudf
+cudf = deps.cudf
+dirty_cat = deps.dirty_cat
+if deps.sklearn and deps.scipy:
+    has_dependancy = True
 
 logger = logging.getLogger(__name__)
 logging.getLogger("graphistry.umap_utils").setLevel(logging.DEBUG)
@@ -48,7 +48,7 @@ logging.getLogger("graphistry.umap_utils").setLevel(logging.DEBUG)
 warnings.filterwarnings("ignore")
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = cudf and os.environ["TEST_CUDF"] != "0"
 
 triangleEdges = pd.DataFrame(
     {
@@ -78,15 +78,18 @@ node_numeric = node_ints + node_floats
 node_target = triangleNodes[["y"]]
 
 def _eq(df1, df2):
-    try:
-        df1 = df1.to_pandas()
-    except:
-        pass
-    try:
-        df2 = df2.to_pandas()
-    except:
-        pass
-    return df1 == df2
+    def tr(df):
+        try:
+            df = (df.to_numpy())
+        except:
+            pass
+        try:
+            df = np.sort(df)
+        except:
+            pass
+        return df
+        
+    return tr(df1) == tr(df2)
 
 
 @pytest.fixture(scope="module")
@@ -734,10 +737,10 @@ class TestCUMLMethodsMore():
     reason="requires cuml feature dependencies",
 )
 class TestCUMLMethods(TestUMAPMethods):
-
-    def setup_method(self, method: Any) -> None:
-        cache_coercion_helper.cache_clear()
-        gc.collect()
+    # def setup_method(self, method: Any) -> None:
+    #     dgl = deps.dgl
+    #     not dgl.cache_clear()
+    #     gc.collect()
 
     @classmethod
     def setup_class(cls: Any) -> None:

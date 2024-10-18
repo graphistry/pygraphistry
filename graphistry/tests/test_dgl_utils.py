@@ -3,10 +3,11 @@ import pytest
 import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
-from graphistry.utils.lazy_import import lazy_dgl_import
 
+from graphistry.utils.dep_manager import DepManager
 
-has_dgl, _, dgl = lazy_dgl_import()
+deps = DepManager()
+has_dgl = deps.dgl
 
 if has_dgl:
     import torch

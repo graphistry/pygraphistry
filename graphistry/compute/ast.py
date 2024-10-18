@@ -299,7 +299,7 @@ class ASTEdge(ASTObject):
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
-            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else None,
+            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else None,  # type: ignore
             source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
             destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
             source_node_query=d['source_node_query'] if 'source_node_query' in d else None,

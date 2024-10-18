@@ -22,16 +22,15 @@ from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
 from graphistry.features import ScalerType
 from graphistry.utils.lazy_import import (
-    lazy_sentence_transformers_import,
-    lazy_import_has_min_dependancy,
-    lazy_dirty_cat_import,
-    assert_imported_text,
-    assert_imported
+    assert_imported,
+    make_safe_gpu_dataframes
 )
 from . import constants as config
+from .constants import DIRTY_CAT
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
+from .utils.dep_manager import deps
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(__name__)
@@ -48,14 +47,12 @@ if TYPE_CHECKING:
         SentenceTransformer = Any  # type:ignore
     try:
         from dirty_cat import (
-            SuperVectorizer,
+            TableVectorizer,
             GapEncoder,
-            SimilarityEncoder,
-        )
+        )  # type: ignore
     except:
-        SuperVectorizer = Any
+        TableVectorizer = Any
         GapEncoder = Any
-        SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
@@ -63,17 +60,19 @@ if TYPE_CHECKING:
         FunctionTransformer = Any
         BaseEstimator = object
         TransformerMixin = object
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        FunctionTransformer = Any
 else:
     MIXIN_BASE = object
     Pipeline = Any
     SentenceTransformer = Any
-    SuperVectorizer = Any
+    TableVectorizer = Any
     GapEncoder = Any
-    SimilarityEncoder = Any
     FunctionTransformer = Any
     BaseEstimator = Any
     TransformerMixin = Any
-
 
 def is_cudf_df(df: Any) -> bool:
     mod_str = str(getmodule(df))
@@ -83,6 +82,16 @@ def is_cudf_s(s: Any) -> bool:
     mod_str = str(getmodule(s))
     return 'cudf' in mod_str and 'series' in mod_str
 
+def assert_imported_engine(feature_engine):
+    if None not in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
+        logger.debug(f"SCIPY VERSION: {deps.scipy.__version__}")
+        logger.debug(f"SKLEARN VERSION: {deps.sklearn.__version__}")
+        logger.debug(f"DIRTY_CAT VERSION: {deps.dirty_cat.__version__}")
+    elif None in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
+            logger.error(  # noqa
+                "dirty_cat not found for featurizing"  # noqa
+            )
+        
 
 # ############################################################################
 #
@@ -115,17 +124,15 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
+    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch"]:
         return feature_engine  # type: ignore
-
     if feature_engine == "auto":
-        has_dependancy_text_, _, _ = lazy_sentence_transformers_import()
-        if has_dependancy_text_:
-            return "torch"
-        has_min_dependancy_, _ = lazy_import_has_min_dependancy()
-        if has_min_dependancy_:
+        if deps.dirty_cat and deps.scipy and deps.sklearn:
             return "dirty_cat"
-        return "pandas"
+        elif deps.sentence_transformers:
+            return "torch"
+        else:
+            return "pandas"
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
@@ -227,19 +234,20 @@ def features_without_target(
     :param y: target DataFrame
     :return: DataFrames of model and target
     """
+    cudf = deps.cudf
     if y is None:
         return df
     remove_cols = []
     if y is None:
         pass
-    elif isinstance(y, pd.DataFrame):
+    elif isinstance(y, pd.DataFrame) or (cudf is not None and isinstance(y, cudf.DataFrame)):
         yc = y.columns
         xc = df.columns
         for c in yc:
             if c in xc:
                 remove_cols.append(c)
+                
     elif is_cudf_df(y):
-        import cudf
         assert isinstance(y, cudf.DataFrame)
         yc = y.columns
         xc = df.columns
@@ -250,7 +258,6 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif is_cudf_s(y):
-        import cudf
         assert isinstance(y, cudf.Series)
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
@@ -302,12 +309,11 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-
     if (len(df.columns) <= 2):
         df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
         # if (isinstance(df.columns.to_list()[0],int)):
-        #     int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
-        #     df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
+        # int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
+        # df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
     else:
         df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     return df
@@ -358,7 +364,19 @@ def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
 
 def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     # eg df["Start_Date"] = pd.to_datetime(df[['Month', 'Day', 'Year']])
-    df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
+    X_type = str(getmodule(df))
+    if 'cudf' not in X_type:
+        df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
+    else:
+        cudf = deps.cudf
+        assert cudf is not None
+        for col in df.columns:
+            try:
+                df[col] = cudf.to_datetime(
+                    df[col], errors="raise", infer_datetime_format=True
+                )
+            except:
+                pass
 
 
 def set_to_bool(df: pd.DataFrame, col: str, value: Any):
@@ -533,13 +551,18 @@ class Embedding:
         mask = self.index.isin(ids)
         index = self.index[mask]  # type: ignore
         res = self.vectors[mask]
-        res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+        try:
+            res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+        except TypeError:
+            cudf = deps.cudf
+            res = cudf.DataFrame(res)  # type: ignore
+            res.set_index(index,inplace=True)  # type: ignore
+            res.columns = self.columns  # type: ignore
         return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
         self.fit(n_dim)
         return self.transform(self.index)
-
 
 def identity(x):
     return x
@@ -722,7 +745,8 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    _, _, SentenceTransformer = lazy_sentence_transformers_import()
+  
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     t = time()
     text_cols = get_textual_columns(
@@ -879,8 +903,8 @@ def process_dirty_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
-    Union[SuperVectorizer, FunctionTransformer],
-    Union[SuperVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -895,11 +919,11 @@ def process_dirty_dataframes(
     :param n_topics: number of topics for GapEncoder, default 42
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
-            to use. If None or False, uses a SuperVectorizer
+            to use. If None or False, uses a TableVectorizer
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    has_dirty_cat, _, dirty_cat = lazy_dirty_cat_import()
+    has_dirty_cat = deps.dirty_cat
     if has_dirty_cat:
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
@@ -937,7 +961,8 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+
+        logger.info(f"-Shape of [[featurize fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -968,7 +993,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_dirty_cat  # noqa: E126,W503
+        and deps.dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -991,7 +1016,7 @@ def process_dirty_dataframes(
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            if isinstance(label_encoder, SuperVectorizer) or isinstance(
+            if 'vectorizer' in str(getmodule(label_encoder)) or isinstance(
                 label_encoder, FunctionTransformer
             ):
                 labels_transformed = label_encoder.get_feature_names_out()
@@ -1009,14 +1034,14 @@ def process_dirty_dataframes(
         # logger.debug(f"-Target Transformers used:
         # {label_encoder.transformers}\n")
         logger.debug(
-            "--Fitting SuperVectorizer on TARGET took"
+            "--Fitting TableVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
     elif (
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_dirty_cat  # noqa: E126,W503
+        and not deps.dirty_cat  # noqa: E126,W503
     ):
         logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
@@ -1061,8 +1086,8 @@ def process_nodes_dataframes(
     Any,
     pd.DataFrame,
     Any,
-    SuperVectorizer,
-    SuperVectorizer,
+    TableVectorizer,
+    TableVectorizer,
     Optional[Pipeline],
     Optional[Pipeline],
     Any,
@@ -1139,8 +1164,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    has_deps_text, import_text_exn, _ = lazy_sentence_transformers_import()
-    if has_deps_text and (feature_engine in ["torch", "auto"]):
+    if deps.sentence_transformers and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             min_words=min_words,
@@ -1152,8 +1176,8 @@ def process_nodes_dataframes(
         )
     else:
         logger.debug(
-            "! Skipping encoding any textual features"
-            f"since dependency {import_text_exn} is not met"
+            "! Skipping encoding any textual features,"
+            "since dependency sentence_transformer is not met"
         )
 
     other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
@@ -1361,7 +1385,7 @@ def process_edge_dataframes(
 
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
-    lazy_import_has_min_dependancy()
+    # scipy = deps.scipy
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
@@ -1372,6 +1396,7 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
+
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
@@ -1514,7 +1539,8 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    _, _, SentenceTransformer = lazy_sentence_transformers_import()
+
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
@@ -1545,7 +1571,7 @@ def transform_text(
 
 def transform_dirty(
     df: pd.DataFrame,
-    data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
+    data_encoder: Union[TableVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
     # from sklearn.preprocessing import MultiLabelBinarizer
@@ -1788,7 +1814,7 @@ class FastEncoder:
         **Example:**
             ::
 
-                from graphisty.features import SCALERS, SCALER_OPTIONS
+                from graphistry.features import SCALERS, SCALER_OPTIONS
                 print(SCALERS)
                 g = graphistry.nodes(df)
                 # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
@@ -1956,6 +1982,9 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
         
+        assert_imported_engine(feature_engine)
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+    
         from .features import ModelDict
 
         fkwargs = ModelDict("Featurize Params",
@@ -2076,6 +2105,7 @@ class FeatureMixin(MIXIN_BASE):
             X_resolved = X_resolved.assign(
                 **{res._destination: res._edges[res._destination]}
             )
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
 
         # now that everything is set
         fkwargs = dict(
@@ -2203,9 +2233,9 @@ class FeatureMixin(MIXIN_BASE):
         """
 
         # This is temporary until cucat release 
-        if 'cudf' in str(getmodule(df)):
+        if 'cudf.core.dataframe' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf' in str(getmodule(y))):
+        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
@@ -2487,7 +2517,10 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
-        assert_imported()
+        feature_engine = resolve_feature_engine(feature_engine)
+
+        assert_imported_engine(feature_engine)
+
         if inplace:
             res = self
         else:

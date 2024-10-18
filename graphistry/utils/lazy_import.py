@@ -5,18 +5,6 @@ logger = setup_logger(__name__)
 
 
 #TODO use new importer when it lands (this is copied from umap_utils)
-def lazy_cudf_import():
-    try:
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
-    except Exception as e:
-        logger.warn("Unexpected exn during lazy import", exc_info=e)
-        return False, e, None
-
 def lazy_cuml_import():
     try:
         warnings.filterwarnings("ignore")
@@ -177,3 +165,32 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         raise import_min_exn
+
+
+def make_safe_gpu_dataframes(X, y, engine):
+    from .dep_manager import deps
+    
+    def safe_cudf(X, y):
+        
+        cudf = deps.cudf
+        pd = deps.pandas
+        # remove duplicate columns
+        if len(X.columns) != len(set(X.columns)):
+            X = X.loc[:, ~X.columns.duplicated()]
+        try:
+            y = y.loc[:, ~y.columns.duplicated()]
+        except:
+            pass
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+                new_kwargs[key] = cudf.from_pandas(value)
+        return new_kwargs['X'], new_kwargs['y']
+    
+    if deps.cuml:
+        return safe_cudf(X, y)
+    else:
+        return X, y
