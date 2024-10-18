@@ -152,7 +152,7 @@ def group_in_a_box_layout(
         g_partitioned,
         partition_offsets=partition_offsets,
         layout_alg=layout_alg,
-        layout_params=layout_params or {},
+        layout_params=layout_params,
         partition_key=resolved_partition_key,
         engine=engine
     )

@@ -73,7 +73,7 @@ def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) 
 
 def fa2_layout(
     g: Plottable, 
-    fa2_params: Optional[Dict[str, Any]] = GRAPHISTRY_FA2_PARAMS,
+    fa2_params: Optional[Dict[str, Any]] = None,
     circle_layout_params: Optional[Dict[str, Any]] = None,
     singleton_layout: Optional[Callable[[Plottable, Tuple[float, float, float, float] | Any], Plottable]] = None,
     partition_key: Optional[str] = None,
@@ -133,25 +133,19 @@ def fa2_layout(
     if len(g_connected._edges) > 0:
         #g_connected = g_connected.edges(g_connected._edges.reset_index(drop=True))
 
-        if engine_concrete == EngineAbstract.PANDAS:
+        if engine_concrete == Engine.PANDAS:
             logger.warning("Pandas engine detected. FA2 not falling back to igraph fr")
             g_connected_layout = g_connected.layout_igraph(
                 'fr',
                 directed=False,
-                params={
-                    **(fa2_params or {}),
-                    **GRAPHISTRY_FR_PARAMS
-                }
+                params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
             )
         else:
             g_connected_layout = g_connected.layout_cugraph(
                 'force_atlas2',
                 kind='Graph',
                 directed=False,
-                params={
-                    **(fa2_params or {}),
-                    **GRAPHISTRY_FA2_PARAMS
-                }
+                params=fa2_params if fa2_params is not None else GRAPHISTRY_FA2_PARAMS
             )
         # Calculate the bounding box from the FA2 layout
         right, left = g_connected_layout._nodes.x.max(), g_connected_layout._nodes.x.min()

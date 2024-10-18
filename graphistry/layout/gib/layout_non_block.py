@@ -14,7 +14,7 @@ def layout_non_bulk_mode(
     remaining: pd.DataFrame,  # or cudf.DataFrame
     partition_key: str,
     layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]],
-    layout_params: Dict[str, Any],
+    layout_params: Optional[Dict[str, Any]],
     engine: Engine,
     self_selfless: Plottable
 ) -> Tuple[List[pd.DataFrame], float, float, Dict[int, Tuple[int, float]]]:
@@ -22,12 +22,21 @@ def layout_non_bulk_mode(
     Handles the layout in non-bulk mode by applying the layout separately for each partition.
 
     :param node_partitions: List of DataFrames for node partitions.
+    :type node_partitions: List[pd.DataFrame]
     :param remaining: DataFrame of remaining nodes after filtering.
+    :type remaining: DataFrame
     :param partition_key: The partition key.
+    :type partition_key: str
     :param layout_alg: Layout algorithm to be applied.
+    :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
+    :param layout_alg: Layout algorithm to be applied.
+    :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
     :param layout_params: Parameters for the layout algorithm.
+    :type layout_params: Optional[Dict[str, Any]]
     :param engine: The engine being used (Pandas or CUDF).
+    :type engine: Engine
     :param self_selfless: Graph excluding self-edges.
+    :type self_selfless: Plottable
     :return: Tuple containing node partitions, layout time, keep time, and layout by size.
     """
 
