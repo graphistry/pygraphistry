@@ -212,7 +212,7 @@ graph_compute_algs = [
 
 compute_algs: List[str] = list(node_compute_algs_to_attr.keys()) + list(edge_compute_algs_to_attr.keys()) + graph_compute_algs
 
-def compute_cugraph(
+def compute_cugraph_core(
     self: Plottable,
     alg: str, out_col: Optional[str] = None, params: dict = {},
     kind : CuGraphKind = 'Graph', directed = True,
@@ -331,12 +331,75 @@ def compute_cugraph(
     raise ValueError('Unsupported algorithm: %s', alg)
 
 
+def _is_retryable_cugraph_call(self: Plottable) -> bool:
+    """
+    Whether can retry with Plottable cudf numeric graph indexes coerced to strings
+    """
+    if self._edges is not None:
+        import cudf
+        from cudf.api.types import is_numeric_dtype
+        return (
+            isinstance(self._edges, cudf.DataFrame)
+            and (self._source is not None)
+            and (self._source in self._edges.columns)
+            and is_numeric_dtype(self._edges[self._source])
+        )
+    return False
+
+def _coerce_and_retry_cugraph(self: Plottable, core_fn, *args, **kwargs):
+    """
+    Attempts to run the core function and retries with coerced edge/node types if the first attempt fails
+    """
+
+    assert _is_retryable_cugraph_call(self), "Check _is_retryable_cugraph_call before calling this function"
+
+    logger.warning('Failed to run cugraph algorithm and src/dst columns are numeric, coercing to strings and retrying')
+    g2 = self.edges(self._edges.assign(
+        **{self._source: self._edges[self._source].astype(str),
+            self._destination: self._edges[self._destination].astype(str)}))
+    if g2._nodes is not None and g2._node is not None and g2._node in g2._nodes.columns:
+        g2 = g2.nodes(g2._nodes.assign(
+            **{self._node: g2._nodes[g2._node].astype(str)}))
+    g_computed = core_fn(g2, *args, **kwargs)
+    # revert to original dtype
+    dtype = self._edges[self._source].dtype
+    g_out = g2.edges(g_computed._edges.assign(
+        **{g_computed._source: g_computed._edges[g_computed._source].astype(dtype),
+            g_computed._destination: g_computed._edges[g_computed._destination].astype(dtype)}
+    ))
+    if g_computed._nodes is not None:
+        g_out = g_out.nodes(g_computed._nodes.assign(
+            **{g_computed._node: g_computed._nodes[g_out._node].astype(dtype)}
+        ))
+    return g_out
+
+
+def compute_cugraph(
+    self: Plottable,
+    alg: str, out_col: Optional[str] = None, params: dict = {},
+    kind : CuGraphKind = 'Graph', directed = True,
+    G: Optional[Any] = None
+) -> Plottable:
+    try:
+        return compute_cugraph_core(self, alg, out_col, params, kind, directed, G)
+    except ValueError as e:
+        if _is_retryable_cugraph_call(self):
+            try:
+                return _coerce_and_retry_cugraph(self, compute_cugraph_core, alg, out_col, params, kind, directed, G)
+            except ValueError as e2:
+                logger.error('Failed to run cugraph algorithm even with numeric->string coercion: %s', e2, exc_info=True)
+                raise e
+        raise e
+
+
+compute_cugraph.__doc__ = compute_cugraph_core.__doc__
+
 
 layout_algs: List[str] = [
     'force_atlas2'
 ]
 
-def layout_cugraph(
+def layout_cugraph_core(
     self: Plottable,
     layout: str = 'force_atlas2', params: dict = {},
     kind : CuGraphKind = 'Graph', directed = True,
@@ -435,3 +498,28 @@ def layout_cugraph(
     if play is not None:
         g2 = g2.layout_settings(play=play)
     return g2
+
+
+def layout_cugraph(
+    self: Plottable,
+    layout: str = 'force_atlas2', params: dict = {},
+    kind : CuGraphKind = 'Graph', directed = True,
+    G: Optional[Any] = None,
+    bind_position: bool = True,
+    x_out_col: str = 'x',
+    y_out_col: str = 'y',
+    play: Optional[int] = 0,
+) -> Plottable:
+    try:
+        return layout_cugraph_core(self, layout, params, kind, directed, G, bind_position, x_out_col, y_out_col, play)
+    except ValueError as e:
+        if _is_retryable_cugraph_call(self):
+            try:
+                return _coerce_and_retry_cugraph(self, layout_cugraph_core, layout, params, kind, directed, G, bind_position, x_out_col, y_out_col, play)
+            except ValueError as e2:
+                logger.error('Failed to run cugraph layout even with numeric->string coercion: %s', e2, exc_info=True)
+                raise e
+        raise e
+
+
+layout_cugraph.__doc__ = layout_cugraph_core.__doc__
