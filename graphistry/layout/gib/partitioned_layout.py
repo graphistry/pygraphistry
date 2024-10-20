@@ -42,7 +42,6 @@ def partitioned_layout(
     start = timer()
 
     node_partitions = []
-    #print('partitioned_layout input nodes cols', self._nodes.columns)
     # edgeless_partitions = None
 
     g_degrees = self.get_degrees()
@@ -102,11 +101,9 @@ def partitioned_layout(
         )
 
     if bulk_mode:
-        print('bulk_mode layout')
         combined_nodes = layout_bulk_mode(self, nodes, partition_key, layout_alg, layout_params, engine)
         node_partitions.append(combined_nodes)
     else:
-        print('non-bulk_mode layout')
         node_partitions, s_layout, s_keep, s_layout_by_size = layout_non_bulk_mode(
             self, node_partitions, remaining, partition_key, layout_alg, layout_params, engine, self_selfless
         )
