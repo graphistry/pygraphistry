@@ -22,10 +22,10 @@ PyGraphistry supports GPU-accelerated layouts, including ForceAtlas2, modularity
 
 - **Circle** — Positions nodes in a circular layout, useful for ordinal data, or separately laying out singleton nodes. :ref:`API info on circle layouts <circle-api>`
 - **ForceAtlas2** — Optimized for large, dense graphs. Provides smooth clustering and cluster separation using GPU acceleration. PyGraphistry version gives visual and performance improvements upon other systems, and Graphistry server load-time version provides a different set of features focused on interactivity and additional options. :ref:`API info on FA2 layouts <fa2-api>`
-- **Modularity-Weighted** — Lays out clusters based on modularity, optimizing for visualizing community structures. :ref:`API info on modularity-weighted layouts <mod-layout-api>`
-- **Group-In-A-Box (GIB)** — Organizes nodes into visually distinct boxes based on their group or cluster for clear structure definition. :ref:`API info on group-in-a-box layouts <gib-api>`
+- **Modularity-Weighted** — Lays out clusters based on modularity, optimizing for visualizing community structures. :ref:`API info on modularity-weighted layouts <mod-layout-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb>`__)
+- **Group-In-A-Box (GIB)** — Organizes nodes into visually distinct boxes based on their group or cluster for clear structure definition. :ref:`API info on group-in-a-box layouts <gib-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_group_in_a_box.ipynb>`__)
 - **UMAP** — Reduces high-dimensional data into a 2D layout based on similarity, best for complex datasets needing dimensionality reduction. :py:meth:`API info on UMAP <graphistry.umap_utils.UMAPMixin.umap>`
-- **Hierarchical Ring Layouts** — Creates ring layouts that categorize nodes by time, continuous variables, or categorical properties. :ref:`API info on ring layouts <ring-api>`
+- **Hierarchical Ring Layouts** — Creates ring layouts that categorize nodes by time, continuous variables, or categorical properties. :ref:`API info on ring layouts <ring-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_time_ring.ipynb>`__)
 
 **Example**:
 

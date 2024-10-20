@@ -79,7 +79,7 @@ These help with several scenarios, including:
       g.categorical_ring_layout('my_type').plot()
       g.continuous_ring_layout('my_score').plot()
 
-  For further details, refer to the :ref:`Ring Layout API <ring-api>`.
+  For further details, refer to the :ref:`Ring Layout API <ring-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_categorical_ring.ipynb>`__).
 
 - **Modularity Weighted Layout:** Weights edges based on modularity.
 
@@ -92,7 +92,7 @@ These help with several scenarios, including:
     # Separate by automatically computed modules
     g.modularity_weighted_layout(community_alg='louvain', engine='cudf').plot()
 
-  Read more in the :ref:`Modularity Layout API <mod-layout-api>`.
+  Read more in the :ref:`Modularity Layout API <mod-layout-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb>`__).
 
 - **Group-in-a-Box Layout:** Groups nodes into a grid of clusters.
 
@@ -102,7 +102,7 @@ These help with several scenarios, including:
 
     g.gib_layout().plot()
 
-  Learn more in the :ref:`Group-in-a-Box Layout API <gib-api>`.
+  Learn more in the :ref:`Group-in-a-Box Layout API <gib-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_group_in_a_box.ipynb>`__).
 
 **Plugin Layouts:**
 
