@@ -89,7 +89,10 @@ class Plottable(object):
     _use_feat: bool
     _triplets: Optional[List]  # actually torch.Tensor too
     _kg_embed_dim: int
-    
+
+    # layout
+    _partition_offsets: Optional[Dict[str, Dict[int, float]]]  # from gib
+
 
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')
@@ -377,6 +380,20 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
+    def scene_settings(
+        self,
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None,
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
     def encode_axis(self, rows=[]) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
@@ -403,3 +420,13 @@ class Plottable(object):
         res._url_params = dict(self._url_params, **url_params)
         res._render = self._render if render is None else render
         return res
+    
+    def to_cudf(self) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
+    def to_pandas(self) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
