@@ -8,7 +8,6 @@ ComputeMixin module
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 Collapse
 ---------------
@@ -17,7 +16,6 @@ Collapse
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 Conditional
 ---------------
@@ -26,7 +24,6 @@ Conditional
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 Filter by Dictionary
 --------------------
@@ -35,4 +32,3 @@ Filter by Dictionary
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:

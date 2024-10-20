@@ -28,6 +28,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Expose `scene_settings` in `Plottable`
 
+## [0.34.16 - 2024-10-13]
+
+### Docs
+
+* Update and streamline readme.md
+* Add quicksheet for overall
+* More crosslinking
+
+### Infra
+
+* Add markdown support to docsite
+* ReadTheDocs homepage reuses github README.md
+* Docs pip install caches
+* Drop SVGs and external images during latexpdf generation
+
+### Changed
+
+* Treemap import `squarify` deferred to use to allow core import without squarify installed, such as in `--no-deps`
+
+## [0.34.15 - 2024-10-11]
+
+### Docs
+
+* Improve GFQL translation doc
+* Add examples and API links: Shaping, Hypergraphs, AI & ML
+* Add performance docs
+* Add AI examples
+
 ## [0.34.14 - 2024-10-09]
 
 ### Added
