@@ -1,9 +1,15 @@
+from typing import Any, Callable, Dict, Optional, Union
 import numpy as np, pandas as pd
-from typing import Any, Callable, Dict, List, Optional, Union
+from timeit import default_timer as timer
 
 from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
+
+from .layout_bulk import layout_bulk_mode
+from .layout_non_bulk import layout_non_bulk_mode
+
+
 logger = setup_logger(__name__)
 
 
@@ -12,18 +18,27 @@ def partitioned_layout(
     self: Plottable,
     partition_offsets: Dict[str, Dict[int, float]],
     layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]] = None,
-    layout_params: Dict[str, Any] = {},
+    layout_params: Optional[Dict[str, Any]] = None,
     partition_key='partition',
-    engine: Engine = Engine.PANDAS
-) -> 'Plottable':
+    bulk_mode: bool = True,
+    engine: Engine = Engine.PANDAS,
+) -> Plottable:
+    """    
+    :param partition_offsets: {'dx', 'dy', 'x', 'y'} => <partition> => float
+    :type partition_offsets: Dict[str, Dict[int, float]]
+    :param layout_alg: Layout algorithm to be applied if partition_key column does not already exist; GPU defaults to fa2_layout, CPU defaults to igraph fr
+    :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
+    :param layout_params: Parameters for the layout algorithm
+    :type layout_params: Optional[Dict[str, Any]]
+    :param partition_key: The partition key; defaults to the layout_alg
+    :type partition_key: str
+    :param bulk_mode: Whether to apply layout in bulk mode
+    :type bulk_mode: bool
+    :param engine: The engine being used (Pandas or CUDF)
+    :type engine: Engine
 
-    try:
-        from tqdm import tqdm
-        has_tqdm = True
-    except ImportError:
-        has_tqdm = False
-
-    from timeit import default_timer as timer
+    :return: The resulting Plottable object with positioned nodes
+    """
     start = timer()
 
     node_partitions = []
@@ -85,84 +100,18 @@ def partitioned_layout(
             ).bind(edge_weight='weight')
         )
 
-    partitions = remaining[partition_key].to_numpy()
-    progress_bar = tqdm(partitions) if has_tqdm else partitions
-
-    #for partition in remaining[partition_key].to_pandas().to_numpy():
-    s_keep = 0.
-    s_layout = 0.
-    s_layout_by_size = {}
-    for partition in progress_bar:
-        start_i = timer()
-
-        node_ids = self._nodes[
-            self._nodes[partition_key] == partition
-        ][self._node]
-        subgraph_g = self_selfless.nodes(nodes).keep_nodes({self._node: node_ids})
-        start_i_mid = timer()
-        s_keep += start_i_mid - start_i
-        #print('node shape', subgraph_g._nodes.shape, 'edge shape', subgraph_g._edges.shape)
-        #if len(subgraph_g._edges) == 0:
-        #    print('EDGELESS!')
-        #elif len(subgraph_g._nodes) == 1:
-        #    print('SINGLETON')
-        start_i_mid = timer()
-        niter = min(len(subgraph_g._nodes), 300)
-        if callable(layout_alg):
-            positioned_subgraph_g = layout_alg(subgraph_g)
-            layout_name = 'custom'
-        elif engine == Engine.PANDAS:
-            layout_name = layout_alg or 'fr'
-            positioned_subgraph_g = subgraph_g.layout_igraph(  # type: ignore
-                layout=layout_name,
-                params={
-                    **({'niter': niter} if layout_name == 'fr' else {}),
-                    **(layout_params or {})
-                }
-            )
-        elif engine == Engine.CUDF:
-            layout_name = layout_alg or 'force_atlas2'
-            positioned_subgraph_g = subgraph_g.layout_cugraph(
-                layout=layout_name,
-                params={
-                    **({'max_iter': niter} if layout_name == 'force_atlas2' else {}),
-                    **(layout_params or {})
-                }
-            )
-        positioned_subgraph_g = positioned_subgraph_g.nodes(
-            positioned_subgraph_g._nodes.assign(
-                type=layout_name,
-                #max_iter=min(len(subgraph_g._nodes), 500),
-                #subg_n=len(subgraph_g._nodes),
-                #subg_e=len(subgraph_g._edges)
-            )
+    if bulk_mode:
+        combined_nodes = layout_bulk_mode(self, nodes, partition_key, layout_alg, layout_params, engine)
+        node_partitions.append(combined_nodes)
+    else:
+        node_partitions, s_layout, s_keep, s_layout_by_size = layout_non_bulk_mode(
+            self, node_partitions, remaining, partition_key, layout_alg, layout_params, engine, self_selfless
         )
-        #if positioned_subgraph_g._nodes.x.isna().any():
-        #    # logger.debug('NA vals: cugraph fa2 is nan for unconnected nodes')
-        #    #print(positioned_subgraph_g._edges[[
-        #    #    positioned_subgraph_g._source,
-        #    #    positioned_subgraph_g._destination,
-        #    #    positioned_subgraph_g._edge_weight
-        #    #]])
-        #    #na_fa_graphs.append(positioned_subgraph_g)
-        node_partitions.append(positioned_subgraph_g._nodes)
-        end_i = timer()
-        #print('start_i layout', end_i - start_i_mid, 's')
-        s_layout += end_i - start_i_mid
-        if len(positioned_subgraph_g._nodes) not in s_layout_by_size:
-            s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (0, 0.)
-        n, t = s_layout_by_size[ len(positioned_subgraph_g._nodes) ]
-        s_layout_by_size[ len(positioned_subgraph_g._nodes) ] = (n + 1, t + (end_i - start_i_mid))
-    if has_tqdm:
-        progress_bar.close()
 
-    end_communities = timer()
-    logger.debug('s_keep: %s s', s_keep)
-    logger.debug('s_layout: %s s', s_layout)
-    logger.debug('s_layout_by_size: %s s', s_layout_by_size)
-    #print('all sub communities', len(subgraph_g._nodes), ':', end_communities - end_stats, 's')
+    end_communities = timer()  # Define end_communities here to track layout time
+    logger.debug('part_layout time: %s s', end_communities - start)
 
-    if len(singleton_nodes) > 0:
+    if True and len(singleton_nodes) > 0:
         logger.debug('# SINGLETONS: %s', len(singleton_nodes))
         start_sing = timer()
         singletons = singleton_nodes.assign(
@@ -174,7 +123,7 @@ def partitioned_layout(
         end_sing = timer()
         logger.debug('singleton groups (%s): %s s', len(singletons), end_sing - start_sing)
 
-    if len(pair_nodes) > 0:
+    if True and len(pair_nodes) > 0:
         logger.debug('# PAIRS: %s', len(pair_nodes))
         start_pair = timer()
         pairs_indexed = pair_nodes.reset_index()
@@ -187,7 +136,7 @@ def partitioned_layout(
         logger.debug('pairs groups (%s): %s s', len(pairs), end_pair - start_pair)
 
     #FIXME: how to make safe?
-    if len(edgeless_nodes) > 0:
+    if True and len(edgeless_nodes) > 0:
         logger.debug('# EDGELESS: %s', len(edgeless_nodes))
         start_e = timer()
         edgeless = edgeless_nodes
@@ -197,8 +146,8 @@ def partitioned_layout(
             edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
         elif engine == Engine.CUDF:
             import cudf, cupy as cp
-            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
-            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), 1, dtype=cp.float32))
+            edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), dtype=cp.float32))
+            edgeless['y'] = cudf.Series(cp.random.rand(len(edgeless), dtype=cp.float32))
         else:
             raise ValueError('Unknown engine, expected Pandas or CuDF')
         edgeless['type'] = 'singleton'
@@ -207,18 +156,26 @@ def partitioned_layout(
         logger.debug('edgeless-community (%s): %s s', len(edgeless), end_e - start_e)
 
     combined_nodes = df_concat(engine)(node_partitions, ignore_index=True, sort=False)
-    # FA unnconnected nodes
+    # FA unnconnected nodes, though circle would autoplace
     updates = {}
     if engine == Engine.PANDAS:
         if combined_nodes.x.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
+            assert combined_nodes.x.isna().sum() == 0
             updates['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
         if combined_nodes.y.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
+            assert combined_nodes.y.isna().sum() == 0
             updates['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
     elif engine == Engine.CUDF:
         import cudf, cupy as cp
         if combined_nodes.x.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
+            assert combined_nodes.x.isna().sum() == 0
             updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
         if combined_nodes.y.isna().any():
+            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
+            assert combined_nodes.y.isna().sum() == 0
             updates['y'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
     else:
         raise ValueError('Unknown engine, expected Pandas or CuDF')
@@ -229,7 +186,7 @@ def partitioned_layout(
         'x': ['max', 'min'],
         'y': ['max', 'min']
     })
-    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']
+    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']  # type: ignore
     node_stats['dx'] = df_cons(engine)({
         'dx': node_stats['x_max'] - node_stats['x_min'],
         'min': 1

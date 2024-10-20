@@ -11,7 +11,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Layout: `circle_layout()` that moves points to one or more rings based on an ordinal field such as degree
 * Layout: `fa2_layout()` that uses the ForceAtlas2 algorithm to lay out the graph, with some extensions.
-* Layout: `gib_layout()` param `layout_alg` can now be a method `Callable[[Plottable], Plottable]`
+* Layout: `group_in_a_box_layout()` is significantly faster in CPU and GPU mode
+* Layout: `group_in_a_box_layout()` exposes attribute `_partition_offsets`
+* Compute methods `g.to_pandas()` and `g.to_cudf()`
+
+### Fix
+
+* cugraph methods now handle numerically-typed node/edge index columns
+* repeat calls to `fa2_layout` and `group_in_a_box_layout` now work as expected
+
+### Docs
+
+* Add group-in-a-box layout tutorial
+
+### Infra
+
+* Expose `scene_settings` in `Plottable`
 
 ## [0.34.14 - 2024-10-09]
 

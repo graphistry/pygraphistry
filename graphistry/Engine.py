@@ -1,4 +1,5 @@
 from inspect import getmodule
+import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
@@ -61,6 +62,17 @@ def resolve_engine(
         return Engine.CUDF
     return Engine.PANDAS
 
+def s_to_arr(engine: Engine):
+    """
+    cudf.Series -> to_cupy()
+    pandas.Series -> to_numpy()
+    """
+    if engine == Engine.PANDAS:
+        return lambda x: x.to_numpy()
+    elif engine == Engine.CUDF:
+        return lambda x: x.to_cupy()
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
 def df_to_pdf(df, engine: Engine):
     if engine == Engine.PANDAS:
         return df
@@ -82,7 +94,7 @@ def df_to_engine(df, engine: Engine):
             return df
         else:
             return cudf.DataFrame.from_pandas(df)
-    raise ValueError('Only engines pandas/cudf supported')
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -90,7 +102,7 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def df_cons(engine: Engine):
     if engine == Engine.PANDAS:
@@ -98,7 +110,7 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
@@ -106,7 +118,7 @@ def s_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_sqrt(engine: Engine):
     if engine == Engine.PANDAS:
@@ -115,7 +127,7 @@ def s_sqrt(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.sqrt
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_arange(engine: Engine):
     if engine == Engine.PANDAS:
@@ -124,7 +136,7 @@ def s_arange(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.arange
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_full(engine: Engine):
     if engine == Engine.PANDAS:
@@ -133,7 +145,7 @@ def s_full(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.full
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_pi(engine: Engine):
     if engine == Engine.PANDAS:
@@ -142,7 +154,7 @@ def s_pi(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.pi
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_concatenate(engine: Engine):
     if engine == Engine.PANDAS:
@@ -151,7 +163,7 @@ def s_concatenate(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.concatenate
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_sin(engine: Engine):
     if engine == Engine.PANDAS:
@@ -160,7 +172,7 @@ def s_sin(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.sin
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_cos(engine: Engine):
     if engine == Engine.PANDAS:
@@ -169,7 +181,7 @@ def s_cos(engine: Engine):
     elif engine == Engine.CUDF:
         import cupy as cp
         return cp.cos
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_series(engine: Engine):
     if engine == Engine.PANDAS:
@@ -177,4 +189,47 @@ def s_series(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
-    raise NotImplementedError("Only pandas/cudf supported")
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+def s_minimum(engine: Engine):
+    if engine == Engine.PANDAS:
+        return np.minimum
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.minimum
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+def s_floor(engine: Engine):
+    if engine == Engine.PANDAS:
+        import numpy as np
+        return np.floor
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.floor
+    else:
+        raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+def s_cumsum(engine: Engine):
+    if engine == Engine.PANDAS:
+        return lambda x: x.cumsum()
+    elif engine == Engine.CUDF:
+        return lambda x: x.cumsum()
+    else:
+        raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+def s_isna(engine: Engine):
+    if engine == Engine.PANDAS:
+        return pd.isna
+    elif engine == Engine.CUDF:
+        import cudf
+        return lambda x: x.isnull()
+    else:
+        raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+def s_maximum(engine: Engine):
+    if engine == Engine.PANDAS:
+        return np.maximum
+    elif engine == Engine.CUDF:
+        import cupy as cp
+        return cp.maximum
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')

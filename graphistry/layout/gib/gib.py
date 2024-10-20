@@ -12,9 +12,11 @@ from .treemap import treemap
 logger = setup_logger(__name__)
 
 
-def resolve_partition_key(g, partition_key=None):
+def resolve_partition_key(g, partition_key=None, partition_alg: Optional[str] = None):
     if partition_key is not None:
         return partition_key
+    elif partition_alg is not None:
+        return partition_alg
     elif g._nodes is not None and 'partition' in g._nodes:
         return 'partition'
     elif g._nodes is not None and 'community' in g._nodes:
@@ -83,21 +85,21 @@ def group_in_a_box_layout(
     :returns: A graph object with nodes arranged in a group-in-a-box layout.
     :rtype: graphistry.Plottable.Plottable
 
-    **Example 1: Basic Group-in-a-Box Layout Using Community Detection**
+    **Example 1: Basic GPU Group-in-a-Box Layout Using ECG Community Detection**
         ::
         
-            g_final = group_in_a_box_layout(
-                g,
-                partition_alg='community',
-                layout_alg='force_atlas2',
-                partition_key='community_id'
-            )
+            g_final = g.group_in_a_box_layout(partition_alg='ecg')
 
-    **Example 2: Custom Group-in-a-Box Layout with FA2 for Layout and Color Encoding**
+    **Example 2: Group-in-a-Box on a precomputed partition key**
+        ::
+
+            g_partitioned = g.compute_cugraph('ecg')
+            g_final = g_partitioned.group_in_a_box_layout(partition_key='ecg')
+
+    **Example 3: Custom Group-in-a-Box Layout with FA2 for Layout and Color Encoding**
         ::
         
-            g_final = group_in_a_box_layout(
-                g,
+            g_final = g.group_in_a_box_layout(
                 partition_alg='louvain',
                 partition_params={'resolution': 1.0},
                 layout_alg=lambda g: fa2_with_circle_singletons(g),
@@ -105,11 +107,10 @@ def group_in_a_box_layout(
                 colors=['#ff0000', '#00ff00', '#0000ff']
             )
 
-    **Example 3: Advanced Usage with Custom Bounding Box and GPU Execution**
+    **Example 4: Advanced Usage with Custom Bounding Box and GPU Execution**
         ::
         
-            g_final = group_in_a_box_layout(
-                g,
+            g_final = g.group_in_a_box_layout(
                 partition_alg='louvain',
                 layout_alg='force_atlas2',
                 x=100, y=100, w=500, h=500,  # Custom bounding box
@@ -119,7 +120,7 @@ def group_in_a_box_layout(
     from timeit import default_timer as timer
     start = timer()
 
-    resolved_partition_key = resolve_partition_key(self, partition_key)
+    resolved_partition_key = resolve_partition_key(self, partition_key, partition_alg)
     #print('resolved_partition_key', resolved_partition_key)
     #print('engine', engine)
 
@@ -133,7 +134,7 @@ def group_in_a_box_layout(
                     engine = Engine.CUDF
                 else:
                     raise ValueError('Could not infer engine, please specify')
-            except:
+            except Exception:
                 raise ValueError('Could not infer engine, please specify')
 
     g_partitioned = partition(
@@ -152,7 +153,7 @@ def group_in_a_box_layout(
         g_partitioned,
         partition_offsets=partition_offsets,
         layout_alg=layout_alg,
-        layout_params=layout_params or {},
+        layout_params=layout_params,
         partition_key=resolved_partition_key,
         engine=engine
     )
@@ -163,6 +164,9 @@ def group_in_a_box_layout(
         partition_key=resolved_partition_key,
         engine=engine
     )
+
+    # Dict[str, Dict[int, float]]
+    out._partition_offsets = partition_offsets
 
     end = timer()
     logger.debug('GROUP IN THE BOX: %s s', end - start)
