@@ -33,12 +33,12 @@ Precomputed layouts involve manually calculating node positions (`x`, `y` column
 
 This is useful such as when you need to manually control a layout, or are visualizing externally provided positions such as from embeddings.
 
-  .. code-block:: python
+.. code-block:: python
 
-    # Precomputed 'x', 'y' coordinates in a nodes DataFrame
-    g = graphistry.edges(e_df, 'src', 'dst').nodes(n_df, 'n')
-    g2 = g.settings(url_params={'play': 0})  # skip initial loadtime layout
-    g2.plot()
+  # Precomputed 'x', 'y' coordinates in a nodes DataFrame
+  g = graphistry.edges(e_df, 'src', 'dst').nodes(n_df, 'n')
+  g2 = g.settings(url_params={'play': 0})  # skip initial loadtime layout
+  g2.plot()
 
 Precomputed layouts are ideal for handling complex visualizations where precision is key.
 
@@ -57,11 +57,19 @@ These help with several scenarios, including:
 
 **Graphistry Layouts:**
 
-- **Native Force-Directed Layout:** PyGraphistry’s default layout automatically arranges the nodes based on their connectivity.
+- **Native Force-Directed Layout:** PyGraphistry’s default layout automatically arranges the nodes based on their connectivity on page load.
 
   .. code-block:: python
 
       g = graphistry.edges(e_df, 'src', 'dst').plot()
+
+  Additionally, you can compute it ahead of time. Unlike the visualization server's pageload-time version, the PyGraphistry version uses the cuGraph (GPU) version, including a subset of the performance and quality improvements.
+
+  .. code-block:: python
+
+      g.fa2_layout().plot()
+
+  For further details, refer to the :ref:`FA2 API <fa2-api>`.
   
 - **Ring Layout:** Ideal for visualizing sorted, hierarchical, or time-based data.
 
@@ -71,7 +79,7 @@ These help with several scenarios, including:
       g.categorical_ring_layout('my_type').plot()
       g.continuous_ring_layout('my_score').plot()
 
-  For further details, refer to the :ref:`Ring Layout API <ring-api>`.
+  For further details, refer to the :ref:`Ring Layout API <ring-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_categorical_ring.ipynb>`__).
 
 - **Modularity Weighted Layout:** Weights edges based on modularity.
 
@@ -84,7 +92,7 @@ These help with several scenarios, including:
     # Separate by automatically computed modules
     g.modularity_weighted_layout(community_alg='louvain', engine='cudf').plot()
 
-  Read more in the :ref:`Modularity Layout API <mod-layout-api>`.
+  Read more in the :ref:`Modularity Layout API <mod-layout-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb>`__).
 
 - **Group-in-a-Box Layout:** Groups nodes into a grid of clusters.
 
@@ -94,7 +102,7 @@ These help with several scenarios, including:
 
     g.gib_layout().plot()
 
-  Learn more in the :ref:`Group-in-a-Box Layout API <gib-api>`.
+  Learn more in the :ref:`Group-in-a-Box Layout API <gib-api>` (`notebook <../../demos/more_examples/graphistry_features/layout_group_in_a_box.ipynb>`__).
 
 **Plugin Layouts:**
 
