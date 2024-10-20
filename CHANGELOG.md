@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.34.17 - 2024-10-20]
+
 ### Added
 
 * Layout: `circle_layout()` that moves points to one or more rings based on an ordinal field such as degree
