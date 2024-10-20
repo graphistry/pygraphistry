@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.Plottable import Plottable
@@ -107,6 +107,14 @@ def fa2_layout(
     concat = df_concat(engine_concrete)
 
     g = g.materialize_nodes()
+
+    drop: List[str] = []
+    if 'x' in g._nodes:
+        drop.append('x')
+    if 'y' in g._nodes:
+        drop.append('y')
+    if len(drop) > 0:
+        g = g.nodes(g._nodes.drop(columns=drop))
 
     # 1. Drop all self-edges (source == destination)
     edges_without_self_loops = g._edges[g._edges[g._source] != g._edges[g._destination]]
