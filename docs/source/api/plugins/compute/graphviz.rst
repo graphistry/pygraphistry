@@ -11,7 +11,6 @@ graphviz is a popular graph visualization library that PyGraphistry can interfac
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 .. rubric:: Constants
 

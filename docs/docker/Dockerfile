@@ -17,7 +17,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
 COPY ../../setup.py ../../setup.cfg ../../versioneer.py ../../README.md ./
 
 # Step 3: Install the project dependencies with pip, including docs extras
-RUN python3 -m pip install --no-cache-dir -e .[docs]
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install -e .[docs]
 
 # Step 4: Copy the graphistry source files into the container
 COPY ../../graphistry /graphistry
@@ -25,6 +26,12 @@ ENV PYTHONPATH="/graphistry:${PYTHONPATH}"
 
 # Step 5: Copy the build script into the container
 COPY docs/docker/build-docs.sh /build-docs.sh
+COPY docs/source /docs/source
+COPY demos /docs/source/demos
+COPY README.md /docs/source/README.md
+COPY ARCHITECTURE.md /docs/source/ARCHITECTURE.md
+COPY CONTRIBUTE.md /docs/source/CONTRIBUTE.md
+COPY DEVELOP.md /docs/source/DEVELOP.md
 
 # Step 6: Set the working directory for Sphinx to the `source/` folder
 WORKDIR /docs/source

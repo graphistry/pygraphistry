@@ -16,7 +16,10 @@ Featurize
     :undoc-members:
     :inherited-members:
     :show-inheritance:
-    :noindex:
+
+.. autodata:: graphistry.feature_utils.FeatureEngine
+
+.. autodata:: graphistry.feature_utils.FeatureEngineConcrete
 
 UMAP 
 ----
@@ -25,7 +28,6 @@ UMAP
     :undoc-members:
     :inherited-members:
     :show-inheritance:
-    :noindex:
 
 Semantic Search 
 ---------------
@@ -34,7 +36,6 @@ Semantic Search
     :undoc-members:
     :inherited-members:
     :show-inheritance:
-    :noindex:
 
 DBSCAN
 ------
@@ -43,4 +44,19 @@ DBSCAN
     :undoc-members:
     :inherited-members:
     :show-inheritance:
-    :noindex:
+
+RGCN
+----
+.. automodule:: graphistry.networks
+    :members:
+    :undoc-members:
+    :inherited-members:
+    :show-inheritance:
+
+HeterographEmbedModuleMixin
+---------------------------
+.. automodule:: graphistry.embed_utils
+    :members:
+    :undoc-members:
+    :inherited-members:
+    :show-inheritance:

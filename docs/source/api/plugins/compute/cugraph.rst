@@ -11,7 +11,6 @@ cuGraph is a GPU-accelerated graph library that leverages the Nvidia RAPIDS ecos
    :undoc-members:
    :inherited-members:
    :show-inheritance:
-   :noindex:
 
 .. rubric:: Constants
 

@@ -24,6 +24,10 @@ build:
     # setup
     - pip install ".[docs]"
     - cp -r demos docs/source/demos
+    - cp README.md docs/source/README.md
+    - cp ARCHITECTURE.md docs/source/ARCHITECTURE.md
+    - cp CONTRIBUTE.md docs/source/CONTRIBUTE.md
+    - cp DEVELOP.md docs/source/DEVELOP.md
 
     # build html
     - sphinx-build -b html -d docs/doctrees docs/source $READTHEDOCS_OUTPUT/html/
