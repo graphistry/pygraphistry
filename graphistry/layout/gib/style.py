@@ -49,4 +49,7 @@ def style_layout(
     if not encode_color:
         return g
     
-    return categorical_color_by_col(g, partition_key, colors, engine)
+    g2 = categorical_color_by_col(g, partition_key, colors, engine)
+    return g2.scene_settings(
+        edge_opacity=0.25
+    )
