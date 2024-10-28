@@ -406,6 +406,8 @@ class PyGraphistry(object):
                 logger.debug("2. @PyGraphistry refresh :relogin")
                 if isinstance(e, TokenExpireException):
                     print("Token is expired, you need to relogin")                    
+                    PyGraphistry._config['api_token'] = None
+                    PyGraphistry._is_authenticated = False 
                 return PyGraphistry.relogin()
 
             if not fail_silent:
@@ -2475,7 +2477,7 @@ class PyGraphistry(object):
                 msg_html = f'{msg_html}<br /><strong>Got token</strong>'
                 display(HTML(msg_html))
             else:
-                display(HTML(f'<br /><strong>Token is valid, no waiting required.</strong>'))
+                display(HTML('<br /><strong>Token is valid, no waiting required.</strong>'))
 
         @staticmethod
         def databricks_sso_login_init(wait=20):
@@ -2487,7 +2489,7 @@ class PyGraphistry(object):
                     is_valid = PyGraphistry.verify_token()
                     if not is_valid:
                         print("***********token not valid, refresh token*****************")
-                        display(HTML(f'<br /><strong>Refresh token ....</strong>'))
+                        display(HTML('<br /><strong>Refresh token ....</strong>'))
                         try:
                             PyGraphistry.refresh()
                         except Exception:
@@ -2495,7 +2497,7 @@ class PyGraphistry(object):
 
                     else:
                         print("Token is still valid")
-                        display(HTML(f'<br /><strong>Token is still valid ....</strong>'))
+                        display(HTML('<br /><strong>Token is still valid ....</strong>'))
 
                 else:
                     print("***********Prepare to sign in*****************")            
@@ -2512,9 +2514,6 @@ class PyGraphistry(object):
             clear_output()
             if not PyGraphistry.api_token():
                 PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
-
-
-
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
@@ -2569,7 +2568,7 @@ personal_key_id = PyGraphistry.personal_key_id
 personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
-
+# databricks dashboard helper functions
 databricks_sso_wait_for_token = PyGraphistry.DatabricksHelper.databricks_sso_wait_for_token
 databricks_sso_login_init = PyGraphistry.DatabricksHelper.databricks_sso_login_init
 databricks_sso_login = PyGraphistry.DatabricksHelper.databricks_sso_login
