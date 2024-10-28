@@ -28,6 +28,7 @@ Layout
    Ring - categorical <../demos/more_examples/graphistry_features/layout_categorical_ring.ipynb>
    Ring - continuous <../demos/more_examples/graphistry_features/layout_continuous_ring.ipynb>
    Ring - time <../demos/more_examples/graphistry_features/layout_time_ring.ipynb>
+   Group in a box <../demos/more_examples/graphistry_features/layout_group_in_a_box.ipynb>
    Modularity weighted <../demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb>
    Tree <../demos/more_examples/graphistry_features/layout_tree.ipynb>
    External - networkx <../demos/more_examples/graphistry_features/external_layout/networkx_layout.ipynb>

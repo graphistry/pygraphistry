@@ -25,6 +25,64 @@ class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
+
+    def to_cudf(self) -> 'Plottable':
+        """
+        Convert to GPU mode by converting any defined nodes and edges to cudf dataframes
+
+        When nodes or edges are already cudf dataframes, they are left as is
+
+        :param g: Graphistry object
+        :type g: Plottable
+
+        :return: Graphistry object
+
+        """
+
+        import cudf
+
+        g = self.bind()
+        if g._edges is not None:
+            if not isinstance(g._edges, cudf.DataFrame):
+                if isinstance(g._edges, pd.DataFrame):
+                    g = g.edges(cudf.from_pandas(g._edges))
+                else:
+                    raise ValueError('Expected edges to be pandas, got: {}'.format(type(g._edges)))
+                
+        if g._nodes is not None:
+            if not isinstance(g._nodes, cudf.DataFrame):
+                if isinstance(g._nodes, pd.DataFrame):
+                    g = g.nodes(cudf.from_pandas(g._nodes))
+                else:
+                    raise ValueError('Expected nodes to be pandas, got: {}'.format(type(g._nodes)))
+        
+        return g
+                
+    def to_pandas(self) -> 'Plottable':
+        """
+        Convert to CPU mode by converting any defined nodes and edges to pandas dataframes
+
+        When nodes or edges are already pandas dataframes, they are left as is"""
+
+        g = self.bind()
+        if g._edges is not None:
+            if not isinstance(g._edges, pd.DataFrame):
+                import cudf
+                if isinstance(g._edges, cudf.DataFrame):
+                    g = g.edges(g._edges.to_pandas())
+                else:
+                    raise ValueError('Expected edges to be cudf, got: {}'.format(type(g._edges)))
+                
+        if g._nodes is not None:
+            if not isinstance(g._nodes, pd.DataFrame):
+                import cudf
+                if isinstance(g._nodes, cudf.DataFrame):
+                    g = g.nodes(g._nodes.to_pandas())
+                else:
+                    raise ValueError('Expected nodes to be cudf, got: {}'.format(type(g._nodes)))
+        
+        return g
+
     def materialize_nodes(
         self,
         reuse: bool = True,
