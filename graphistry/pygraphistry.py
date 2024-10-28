@@ -2448,6 +2448,74 @@ class PyGraphistry(object):
 
 
 
+    # Databricks Dashboard SSO helper functions
+
+    class DatabricksHelper():
+        
+        @staticmethod
+        def sso_repeat_get_token(repeat, wait):
+            time.sleep(wait)
+            
+            for i in range(repeat):
+                token = PyGraphistry.sso_get_token()
+                if token:
+                    return token
+                time.sleep(2)
+
+            return
+           
+        @staticmethod
+        def databricks_sso_wait_for_token(repeat=5, wait=20):
+            from IPython.display import display, HTML
+            if not PyGraphistry.api_token():
+                msg_html = '<br /><strong> .... </strong>'
+                if not PyGraphistry.sso_repeat_get_token(repeat, wait):
+                    msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat} .... </strong>'
+                    raise Exception(f"Failed to get token after {repeat} retries")
+                msg_html = f'{msg_html}<br /><strong>Got token</strong>'
+                display(HTML(msg_html))
+            else:
+                display(HTML(f'<br /><strong>Token is valid, no waiting required.</strong>'))
+
+        @staticmethod
+        def databricks_sso_login_init(wait=20):
+            from IPython.display import display, HTML, clear_output
+            def init_login(wait):
+                clear_output()
+                token = PyGraphistry.api_token()
+                if token:
+                    is_valid = PyGraphistry.verify_token()
+                    if not is_valid:
+                        print("***********token not valid, refresh token*****************")
+                        display(HTML(f'<br /><strong>Refresh token ....</strong>'))
+                        try:
+                            PyGraphistry.refresh()
+                        except Exception:
+                            pass
+
+                    else:
+                        print("Token is still valid")
+                        display(HTML(f'<br /><strong>Token is still valid ....</strong>'))
+
+                else:
+                    print("***********Prepare to sign in*****************")            
+                    
+                    msg_html = f'<br /><strong>Prepare to sign in ....</strong><br><strong>Please Login with the link appear later. Waiting for success login for {wait} seconds, please login within {wait} seconds....</strong><br /><strong>Please close the browser tab and come back to dashboard....</strong>'
+
+                    display(HTML(msg_html))
+            init_login(wait)
+            
+
+        @staticmethod
+        def databricks_sso_login(server="hub.graphistry.com", org_name=None, idp_name=None, retry=5, wait=20):
+            from IPython.display import clear_output
+            clear_output()
+            if not PyGraphistry.api_token():
+                PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
+
+
+
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -2501,6 +2569,10 @@ personal_key_id = PyGraphistry.personal_key_id
 personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
+
+databricks_sso_wait_for_token = PyGraphistry.DatabricksHelper.databricks_sso_wait_for_token
+databricks_sso_login_init = PyGraphistry.DatabricksHelper.databricks_sso_login_init
+databricks_sso_login = PyGraphistry.DatabricksHelper.databricks_sso_login
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
