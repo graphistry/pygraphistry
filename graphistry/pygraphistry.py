@@ -2482,6 +2482,7 @@ class PyGraphistry(object):
         @staticmethod
         def databricks_sso_login_init(wait=20):
             from IPython.display import display, HTML, clear_output
+
             def init_login(wait):
                 clear_output()
                 token = PyGraphistry.api_token()
