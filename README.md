@@ -110,7 +110,7 @@ df = pd.DataFrame({
 g1 = graphistry.edges(df, 'src', 'dst')
 
 # Override styling defaults
-g1_styled = g1.encode_edge_color('friendship', as_continuous=True, ['blue', 'red'])
+g1_styled = g1.encode_edge_color('friendship', ['blue', 'red'], as_continuous=True)
 
 # Connect: Free GPU accounts and self-hosting @ graphistry.com/get-started
 graphistry.register(api=3, username='your_username', password='your_password')
