@@ -2471,7 +2471,7 @@ class PyGraphistry(object):
             from IPython.display import display, HTML
             if not PyGraphistry.api_token():
                 msg_html = '<br /><strong> .... </strong>'
-                if not PyGraphistry.sso_repeat_get_token(repeat, wait):
+                if not PyGraphistry.DatabricksHelper.sso_repeat_get_token(repeat, wait):
                     msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat} .... </strong>'
                     raise Exception(f"Failed to get token after {repeat} retries")
                 msg_html = f'{msg_html}<br /><strong>Got token</strong>'
