@@ -47,9 +47,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     PyGraphistry,
     from_igraph,
     from_cugraph,
-    databricks_sso_wait_for_token,
-    databricks_sso_login_init,
-    databricks_sso_login
+    sso_wait_for_token_html_display,
+    register_databricks_sso,
 )
 
 from graphistry.compute import (
