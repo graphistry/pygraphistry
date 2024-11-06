@@ -2486,7 +2486,7 @@ class PyGraphistry(object):
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
                 msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat*wait} seconds .... </strong>'
                 if not fail_silently:
-                    raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the process") 
+                    raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the login process") 
                 else:
                     msg_html = f'{msg_html}<br /><strong>Got token</strong>'
                     display(HTML(msg_html))
