@@ -422,7 +422,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def verify_token(token=None, fail_silent=False) -> bool:
-        """Return True iff current or provided token is still valid"""
+        """Return True if current or provided token is still valid"""
         using_self_token = token is None
         try:
             logger.debug("JWT refresh")
@@ -2476,7 +2476,7 @@ class PyGraphistry(object):
         return
     
     @staticmethod
-    def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silently: bool = False):
+    def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
         """Get the JWT token for SSO login and display corresponding message in HTML
         Get the JWT token for SSO login and display corresponding message in HTML
         """
@@ -2485,7 +2485,7 @@ class PyGraphistry(object):
             msg_html = '<br /><strong> .... </strong>'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
                 msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat*wait} seconds .... </strong>'
-                if not fail_silently:
+                if not fail_silent:
                     raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the login process") 
                 else:
                     msg_html = f'{msg_html}<br /><strong>Got token</strong>'
@@ -2506,6 +2506,7 @@ class PyGraphistry(object):
         from IPython.display import display, HTML, clear_output
 
         clear_output()
+        required_login = False
         token = PyGraphistry.api_token()
         if token:
             is_valid = PyGraphistry.verify_token()
@@ -2515,20 +2516,22 @@ class PyGraphistry(object):
                 try:
                     PyGraphistry.refresh()
                 except Exception:
-                    pass
+                    required_login = True
 
             else:
                 print("Token is still valid")
                 display(HTML('<br /><strong>Token is still valid ....</strong>'))
 
         else:
+            required_login = True
+
+        if required_login:
             print("***********Prepare to sign in*****************")            
             msg_html = f'<br /><strong>Prepare to sign in ....</strong><br><strong>Please Login with the link appear later. Waiting for success login for {repeat*wait} seconds, please login within {wait} seconds....</strong><br /><strong>Please close the browser tab and come back to dashboard....</strong>'
             display(HTML(msg_html))
 
-            return False
 
-        return True
+        return not required_login
 
 
     # Databricks Dashboard SSO helper functions
