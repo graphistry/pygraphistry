@@ -2476,7 +2476,7 @@ class PyGraphistry(object):
         return
     
     @staticmethod
-    def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5):
+    def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silently: bool = True):
         """Get the JWT token for SSO login and display corresponding message in HTML
         Get the JWT token for SSO login and display corresponding message in HTML
         """
@@ -2485,7 +2485,8 @@ class PyGraphistry(object):
             msg_html = '<br /><strong> .... </strong>'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
                 msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat*wait} seconds .... </strong>'
-                raise Exception(f"Failed to get token after {repeat*wait} seconds ....")
+                if not fail_silently:
+                    raise Exception(f"Failed to get token after {repeat*wait} seconds ....")
             msg_html = f'{msg_html}<br /><strong>Got token</strong>'
             display(HTML(msg_html))
         else:
