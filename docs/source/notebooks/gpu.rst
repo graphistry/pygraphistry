@@ -10,3 +10,4 @@ GPU
    GPU II: cuDF <../demos/demos_databases_apis/gpu_rapids/part_ii_gpu_cudf.ipynb>
    GPU IV: cuML UMAP <../demos/demos_databases_apis/gpu_rapids/part_iv_gpu_cuml.ipynb>
    GPU V: cuGraph <../demos/demos_databases_apis/gpu_rapids/cugraph.ipynb>
+   GPU Memory Planning <../demos/gfql/GPU_memory_consumption_tutorial.ipynb>
