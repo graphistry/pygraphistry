@@ -277,7 +277,7 @@ class PyGraphistry(object):
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
+            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a><br /><span>Please click the above URL to open browser to login</span>'))
             print("Please click the above URL to open browser to login")
             print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
@@ -2474,7 +2474,36 @@ class PyGraphistry(object):
             time.sleep(wait)
 
         return
-    
+
+    @staticmethod
+    def sso_wait_for_token_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False, display_mode: str = 'text'):
+        if display_mode == 'html':
+            PyGraphistry.sso_wait_for_token_html_display(repeat, wait, fail_silent)
+        else:
+            PyGraphistry.sso_wait_for_token_text_display(repeat, wait, fail_silent)
+
+    @staticmethod
+    def sso_wait_for_token_text_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
+        """Get the JWT token for SSO login and display corresponding message in text
+        Get the JWT token for SSO login and display corresponding message in text
+        """
+        if not PyGraphistry.api_token():
+            msg_text = '....'
+            if not PyGraphistry.sso_repeat_get_token(repeat, wait):
+                msg_text = f'{msg_text}\nFailed to get token after {repeat*wait} seconds ....'
+                if not fail_silent:
+                    raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the login process") 
+                else:
+                    msg_text = f'{msg_text}\nGot token'
+                    print(msg_text)
+                    return
+
+            msg_text = f'{msg_text}\nGot token'
+            print(msg_text)
+        else:
+            print('Token is valid, no waiting required.')
+
+
     @staticmethod
     def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
         """Get the JWT token for SSO login and display corresponding message in HTML
@@ -2499,20 +2528,23 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def sso_verify_token_html(
+    def sso_verify_token_display(
         repeat: int = 20,
         wait: int = 5,
+        display_mode: str = 'text'
     ) -> bool:
-        from IPython.display import display, HTML, clear_output
+        if display_mode == 'html':
+            from IPython.display import display, HTML, clear_output
+            clear_output()
 
-        clear_output()
         required_login = False
         token = PyGraphistry.api_token()
         if token:
             is_valid = PyGraphistry.verify_token()
             if not is_valid:
                 print("***********token not valid, refresh token*****************")
-                display(HTML('<br /><strong>Refresh token ....</strong>'))
+                if display_mode == 'html':
+                    display(HTML('<br /><strong>Refresh token ....</strong>'))
                 try:
                     PyGraphistry.refresh()
                 except Exception:
@@ -2520,7 +2552,8 @@ class PyGraphistry(object):
 
             else:
                 print("Token is still valid")
-                display(HTML('<br /><strong>Token is still valid ....</strong>'))
+                if display_mode == 'html':
+                    display(HTML('<br /><strong>Token is still valid ....</strong>'))
 
         else:
             required_login = True

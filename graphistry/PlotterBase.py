@@ -1406,9 +1406,9 @@ class PlotterBase(Plottable):
             
             if not PyGraphistry.api_token() and PyGraphistry.sso_state():  # if it is sso login
                 if in_ipython() or in_databricks() or PyGraphistry._config["sso_opt_into_type"] == 'display':
-                    PyGraphistry.sso_wait_for_token_html_display()
+                    PyGraphistry.sso_wait_for_token_text_display()
                     if not PyGraphistry.sso_verify_token_html():
-                        PyGraphistry.sso_wait_for_token_html_display()
+                        PyGraphistry.sso_wait_for_token_text_display()
                         PyGraphistry.refresh()
                 else:
                     PyGraphistry.sso_repeat_get_token()
