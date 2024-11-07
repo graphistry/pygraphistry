@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+
+* New tutorial on GPU memory management and capacity planning in the GPU section
+
 ## [0.34.17 - 2024-10-20]
 
 ### Added
