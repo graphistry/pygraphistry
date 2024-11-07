@@ -2646,8 +2646,8 @@ personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
 # databricks dashboard helper functions
-sso_wait_for_token_html_display = PyGraphistry.sso_wait_for_token_html_display
-sso_verify_token_html = PyGraphistry.sso_verify_token_html
+sso_wait_for_token_display = PyGraphistry.sso_wait_for_token_display
+sso_verify_token_display = PyGraphistry.sso_verify_token_display
 sso_repeat_get_token = PyGraphistry.sso_repeat_get_token
 register_databricks_sso = PyGraphistry.DatabricksHelper.register_databricks_sso
 
