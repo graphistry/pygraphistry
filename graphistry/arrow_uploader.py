@@ -393,6 +393,7 @@ class ArrowUploader:
             verify=self.certificate_validation,
             json={'token': token})
         log_requests_error(out)
+        return out.text
         return out.status_code == requests.codes.ok
 
     def create_dataset(self, json, validate: bool = True):  # noqa: F811
