@@ -1409,7 +1409,8 @@ class PlotterBase(Plottable):
                     PyGraphistry.sso_wait_for_token_text_display()
                     if not PyGraphistry.sso_verify_token_display():
                         msg_html = "<strong>Invalid token due to login timeout</strong>"
-                        extra_html = f"{extra_html} {make_iframe_srcdoc(msg_html)}"
+                        # extra_html = f"{extra_html} {make_iframe_srcdoc(msg_html)}"
+                        return HTML(msg_html)
                 else:
                     PyGraphistry.sso_repeat_get_token()
                 
