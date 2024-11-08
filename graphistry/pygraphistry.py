@@ -2542,7 +2542,7 @@ class PyGraphistry(object):
         token = PyGraphistry.api_token()
         if token:
             is_valid = PyGraphistry.verify_token()
-            print(f"is_valid : {is_valid")
+            print(f"is_valid : {is_valid}")
             if not is_valid:
                 print("***********token not valid, refresh token*****************")
                 if display_mode == 'html':
