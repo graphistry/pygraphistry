@@ -438,6 +438,7 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = ok
             return ok
         except Exception as e:
+            raise e
             if not fail_silent:
                 util.error("Failed to verify token: %s" % str(e))
             return False
