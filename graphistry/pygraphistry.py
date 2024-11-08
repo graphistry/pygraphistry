@@ -424,6 +424,7 @@ class PyGraphistry(object):
     def verify_token(token=None, fail_silent=False) -> bool:
         """Return True if current or provided token is still valid"""
         using_self_token = token is None
+        print(f"token to verify: {PyGraphistry.api_token() if using_self_token else token}")
         try:
             logger.debug("JWT refresh")
             if using_self_token:
