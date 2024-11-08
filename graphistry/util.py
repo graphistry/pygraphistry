@@ -172,6 +172,14 @@ def check_set_memoize(
         weakref[hashed] = w
     return False
 
+def display_message_html(message: str, cleared: Optional[bool] = False):
+    from IPython.display import display, HTML, clear_output
+
+    if cleared:
+        clear_output()
+
+    display(HTML(message))
+
 def make_iframe_srcdoc(srcdoc: str):
     srcdoc = 'srcdoc="{srcdoc}" onload="this.removeAttribute(\'srcdoc\')"'
     return srcdoc

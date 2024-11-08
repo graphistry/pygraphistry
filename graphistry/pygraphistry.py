@@ -15,7 +15,7 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
-from .util import in_databricks, setup_logger, in_ipython, make_iframe
+from .util import in_databricks, setup_logger, in_ipython, make_iframe, display_message_html
 from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException
 
 from .messages import (
@@ -2494,7 +2494,10 @@ class PyGraphistry(object):
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
                 msg_text = f'{msg_text}\nFailed to get token after {repeat*wait} seconds ....'
                 if not fail_silent:
-                    raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the login process") 
+                    msg = f"Failed to get token after {repeat*wait} seconds. Please re-run the login process"
+                    if in_ipython() or in_databricks or PyGraphistry.set_sso_opt_into_type == "display":
+                        display_message_html("<strong>{msg}</strong>")
+                    raise Exception(msg) 
                 else:
                     msg_text = f'{msg_text}\nGot token'
                     print(msg_text)
