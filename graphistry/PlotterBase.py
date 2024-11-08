@@ -23,7 +23,7 @@ from .plugins.cugraph import (
 )
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
-    cache_coercion, cache_coercion_helper, WeakValueWrapper
+    cache_coercion, cache_coercion_helper, WeakValueWrapper, make_iframe_srcdoc
 )
 
 from .bolt_util import (
@@ -1408,8 +1408,8 @@ class PlotterBase(Plottable):
                 if in_ipython() or in_databricks() or PyGraphistry._config["sso_opt_into_type"] == 'display':
                     PyGraphistry.sso_wait_for_token_text_display()
                     if not PyGraphistry.sso_verify_token_display():
-                        PyGraphistry.sso_wait_for_token_display()
-                        PyGraphistry.refresh()
+                        msg_html = "<strong>Invalid token due to login timeout</strong>"
+                        extra_html = f"{extra_html} {make_iframe_srcdoc(msg_html)}"
                 else:
                     PyGraphistry.sso_repeat_get_token()
                 
