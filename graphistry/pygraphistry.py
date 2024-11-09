@@ -2495,7 +2495,7 @@ class PyGraphistry(object):
                 msg_text = f'{msg_text}\nFailed to get token after {repeat*wait} seconds ....'
                 if not fail_silent:
                     msg = f"Failed to get token after {repeat*wait} seconds. Please re-run the login process"
-                    if in_ipython() or in_databricks or PyGraphistry.set_sso_opt_into_type == "display":
+                    if in_ipython() or in_databricks() or PyGraphistry.set_sso_opt_into_type == "display":
                         display_message_html(f"<strong>{msg}</strong>")
                     raise Exception(msg) 
                 else:

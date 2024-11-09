@@ -1408,6 +1408,7 @@ class PlotterBase(Plottable):
                 if in_ipython() or in_databricks() or PyGraphistry._config["sso_opt_into_type"] == 'display':
                     PyGraphistry.sso_wait_for_token_text_display()
                     if not PyGraphistry.sso_verify_token_display():
+                        from IPython.core.display import HTML
                         msg_html = "<strong>Invalid token due to login timeout</strong>"
                         # extra_html = f"{extra_html} {make_iframe_srcdoc(msg_html)}"
                         return HTML(msg_html)
