@@ -180,10 +180,6 @@ def display_message_html(message: str, cleared: Optional[bool] = False):
 
     display(HTML(message))
 
-def make_iframe_srcdoc(srcdoc: str):
-    srcdoc = 'srcdoc="{srcdoc}" onload="this.removeAttribute(\'srcdoc\')"'
-    return srcdoc
-
 
 def make_iframe(url, height, extra_html="", override_html_style=None, srcdoc: Optional[str] = None):
     id = uuid.uuid4()

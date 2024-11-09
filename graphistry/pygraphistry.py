@@ -424,7 +424,6 @@ class PyGraphistry(object):
     def verify_token(token=None, fail_silent=False) -> bool:
         """Return True if current or provided token is still valid"""
         using_self_token = token is None
-        print(f"token to verify: {PyGraphistry.api_token() if using_self_token else token}")
         try:
             logger.debug("JWT refresh")
             if using_self_token:
@@ -439,7 +438,6 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = ok
             return ok
         except Exception as e:
-            raise e
             if not fail_silent:
                 util.error("Failed to verify token: %s" % str(e))
             return False
@@ -722,7 +720,7 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
-        # Reset sso_state in memory
+        # Reset sso related variables in memory
         PyGraphistry.__reset_sso_variables_in_memory()
 
         if not (username is None) and not (password is None):
