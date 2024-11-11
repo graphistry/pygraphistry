@@ -2336,7 +2336,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def org_name(value=None):
-        """Set or get the org_name when register/login.
+        """Set or get the organization name during registration or login.
+
+        :param value: The organization name to set. If None, the current organization name is returned.
+        :type value: Optional[str]
+        :return: The current organization name if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the organization name**
+            ::
+                import graphistry
+                graphistry.org_name("my_org_name")
+
+        **Example: Getting the organization name**
+            ::
+                import graphistry
+                org_name = graphistry.org_name()
         """
 
         if value is None:
@@ -2354,7 +2369,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def idp_name(value=None):
-        """Set or get the idp_name when register/login.
+        """Set or get the IDP (Identity Provider) name during registration or login.
+
+        :param value: The IDP name to set. If None, the current IDP name is returned.
+        :type value: Optional[str]
+        :return: The current IDP name if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the IDP name**
+            ::
+                import graphistry
+                graphistry.idp_name("my_idp_name")
+
+        **Example: Getting the IDP name**
+            ::
+                import graphistry
+                idp_name = graphistry.idp_name()
         """
 
         if value is None:
@@ -2369,7 +2399,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_state(value=None):
-        """Set or get the sso_state when register/sso login.
+        """Set or get the SSO state during registration or SSO login.
+
+        :param value: The SSO state to set. If None, the current SSO state is returned.
+        :type value: Optional[str]
+        :return: The current SSO state if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the SSO state**
+            ::
+                import graphistry
+                graphistry.sso_state("my_sso_state")
+
+        **Example: Getting the SSO state**
+            ::
+                import graphistry
+                sso_state = graphistry.sso_state()
         """
 
         if value is None:
@@ -2405,7 +2450,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def personal_key_id(value: Optional[str] = None):
-        """Set or get the personal_key_id when register.
+        """Set or get the personal_key_id during registration.
+
+        :param value: The personal key ID to set. If None, the current personal key ID is returned.
+        :type value: Optional[str]
+        :return: The current personal key ID if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the personal key ID**
+            ::
+                import graphistry
+                graphistry.personal_key_id("my_personal_key_id")
+
+        **Example: Getting the personal key ID**
+            ::
+                import graphistry
+                key_id = graphistry.personal_key_id()
         """
 
         if value is None:
@@ -2419,7 +2479,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def personal_key_secret(value: Optional[str] = None):
-        """Set or get the personal_key_secret when register.
+        """Set or get the personal_key_secret during registration.
+
+        :param value: The personal key secret to set. If None, the current personal key secret is returned.
+        :type value: Optional[str]
+        :return: The current personal key secret if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the personal key secret**
+            ::
+                import graphistry
+                graphistry.personal_key_secret("my_personal_key_secret")
+
+        **Example: Getting the personal key secret**
+            ::
+                import graphistry
+                secret = graphistry.personal_key_secret()
         """
 
         if value is None:
@@ -2463,8 +2538,24 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_repeat_get_token(repeat: int = 20, wait: int = 5):
-        """ Function to repeatly call to obtain the jwt token after sso login
-        Function to obtain the JWT token after SSO login
+        """Repeatedly call to obtain the JWT token after SSO login.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :return: The obtained JWT token or None if unsuccessful
+        :rtype: Optional[str]
+
+        **Example:**
+
+        ::
+
+            token = PyGraphistry.sso_repeat_get_token(repeat=10, wait=2)
+            if token:
+                print("Token obtained:", token)
+            else:
+                print("Failed to obtain token")
         """
         
         for _ in range(repeat):
@@ -2484,8 +2575,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_wait_for_token_text_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
-        """Get the JWT token for SSO login and display corresponding message in text
-        Get the JWT token for SSO login and display corresponding message in text
+        """Get the JWT token for SSO login and display the corresponding message in text.
+
+        This method attempts to obtain the JWT token for SSO login and displays the result as a text message.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param fail_silent: Whether to suppress exceptions on failure, defaults to False
+        :type fail_silent: bool, optional
+
+        **Example:**
+
+        ::
+
+            PyGraphistry.sso_wait_for_token_text_display(repeat=10, wait=2, fail_silent=True)
         """
         if not PyGraphistry.api_token():
             msg_text = '....'
@@ -2509,8 +2614,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
-        """Get the JWT token for SSO login and display corresponding message in HTML
-        Get the JWT token for SSO login and display corresponding message in HTML
+        """Get the JWT token for SSO login and display the corresponding message in HTML.
+
+        This method attempts to obtain the JWT token for SSO login and displays the result as an HTML message.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param fail_silent: Whether to suppress exceptions on failure, defaults to False
+        :type fail_silent: bool, optional
+
+        **Example:**
+
+        ::
+
+            PyGraphistry.sso_wait_for_token_html_display(repeat=10, wait=2, fail_silent=True)
         """
         from IPython.display import display, HTML
         if not PyGraphistry.api_token():
