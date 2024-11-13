@@ -2595,9 +2595,9 @@ class PyGraphistry(object):
         if not PyGraphistry.api_token():
             msg_text = '....'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
-                msg_text = f'{msg_text}\nFailed to get token after {repeat*wait} seconds ....'
+                msg_text = f'{msg_text}\nFailed to get token after {repeat * wait} seconds ....'
                 if not fail_silent:
-                    msg = f"Failed to get token after {repeat*wait} seconds. Please re-run the login process"
+                    msg = f"Failed to get token after {repeat * wait} seconds. Please re-run the login process"
                     if in_ipython() or in_databricks() or PyGraphistry.set_sso_opt_into_type == "display":
                         display_message_html(f"<strong>{msg}</strong>")
                     raise Exception(msg) 
@@ -2635,9 +2635,9 @@ class PyGraphistry(object):
         if not PyGraphistry.api_token():
             msg_html = '<br /><strong> .... </strong>'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
-                msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat*wait} seconds .... </strong>'
+                msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat * wait} seconds .... </strong>'
                 if not fail_silent:
-                    raise Exception(f"Failed to get token after {repeat*wait} seconds. Please re-run the login process") 
+                    raise Exception(f"Failed to get token after {repeat * wait} seconds. Please re-run the login process") 
                 else:
                     msg_html = f'{msg_html}<br /><strong>Got token</strong>'
                     display(HTML(msg_html))
@@ -2683,7 +2683,7 @@ class PyGraphistry(object):
 
         if required_login:
             print("***********Prepare to sign in*****************")            
-            msg_html = f'<br /><strong>Prepare to sign in ....</strong><br><strong>Please Login with the link appear later. Waiting for success login for {repeat*wait} seconds, please login within {wait} seconds....</strong><br /><strong>Please close the browser tab and come back to dashboard....</strong>'
+            msg_html = f'<br /><strong>Prepare to sign in ....</strong><br><strong>Please Login with the link appear later. Waiting for success login for {repeat * wait} seconds, please login within {wait} seconds....</strong><br /><strong>Please close the browser tab and come back to dashboard....</strong>'
             display(HTML(msg_html))
 
 
