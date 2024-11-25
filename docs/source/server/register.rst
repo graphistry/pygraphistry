@@ -219,6 +219,20 @@ Register with Custom Browser Routing
         client_protocol_hostname="https://my_ui_server.com"
     )
 
+Register with SSO using helper function(only for databricks, organization with Specific IdP)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    import graphistry
+
+    graphistry.databricks_register_sso(
+        api=3,
+        org_name="my_org_name",
+        idp_name="my_idp_name",
+        sso_opt_into_type="browser"
+    )
+
 ---
 
 Best Practices

@@ -580,6 +580,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def set_sso_opt_into_type(value: Optional[str]):
+        """Set sso_opt_into_type to memory"""
         PyGraphistry._config["sso_opt_into_type"] = value
 
 
@@ -2655,6 +2656,19 @@ class PyGraphistry(object):
         wait: int = 5,
         display_mode: str = 'text'
     ) -> bool:
+        """Verify the JWT token display the corresponding message either in text or HTML.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param display_mode: Whether to display message in text or HTML, default is 'text'
+        :type display_mode: str, optional
+        :return: Whether token is still valid
+        :rtype: bool
+
+
+        """        
         if display_mode == 'html':
             from IPython.display import display, HTML, clear_output
             clear_output()
@@ -2663,7 +2677,6 @@ class PyGraphistry(object):
         token = PyGraphistry.api_token()
         if token:
             is_valid = PyGraphistry.verify_token()
-            print(f"is_valid : {is_valid}")
             if not is_valid:
                 print("***********token not valid, refresh token*****************")
                 if display_mode == 'html':
@@ -2692,11 +2705,7 @@ class PyGraphistry(object):
 
     # Databricks Dashboard SSO helper functions
     class DatabricksHelper():
-        """Helper class for databricks.
-
-        **Helper class to improve the sso login flow**
-
-        """
+        """Helper class to improve the sso login flow"""
         @staticmethod
         def register_databricks_sso(
             server: Optional[str] = None,
@@ -2704,16 +2713,9 @@ class PyGraphistry(object):
             idp_name: Optional[str] = None,
             **kwargs
         ):
+            """Wrapper function special for databrick run register function"""
             if not PyGraphistry.api_token():
                 PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
-            
-
-        # @staticmethod
-        # def databricks_sso_login(server="hub.graphistry.com", org_name=None, idp_name=None, retry=5, wait=20):
-        #     from IPython.display import clear_output
-        #     clear_output()
-        #     if not PyGraphistry.api_token():
-        #         PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
