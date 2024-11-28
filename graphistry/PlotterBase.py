@@ -1379,6 +1379,41 @@ class PlotterBase(Plottable):
         return res
 
 
+    def upload(
+        self,
+        memoize: bool = True,
+        validate: bool = True
+    ) -> Plottable:
+        """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
+
+        Uses the currently bound schema structure and visual encodings.
+        Optional parameters override the current bindings.
+
+        :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default true.
+        :type memoize: bool
+
+        :param validate: Controls validations, including those for encodings. Default true.
+        :type validate: bool
+
+        **Example: Simple**
+            ::
+
+                import graphistry
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g1 = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+                g2 = g1.upload()
+                print(f'dataset id: {g2._dataset_id}, url: {g2._url}')
+        """
+        return self.plot(
+            self,
+            render = 'g',
+            as_files=True,
+            memoize=memoize,
+            validate=validate
+        )
+
     def plot(
         self,
         graph=None,

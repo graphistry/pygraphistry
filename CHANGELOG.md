@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * `plot(render=)` supports literal-typed mode values: `"auto"`, `"g"`, `"url"`, `"ipython"`, `"databricks"`, where `"g"` is a new Plottable
 * Expose and track `._dataset_id`, `._url`, `._nodes_file_id`, and `._edges_file_id`
+* Upload: Factor out explicit upload method `g2 = g1.upload(); assert g2._dataset_id` from plot interface
 
 ### Changed
 
