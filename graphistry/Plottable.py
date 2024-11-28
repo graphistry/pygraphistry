@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from typing_extensions import Literal
 import pandas as pd
 
@@ -441,6 +441,29 @@ class Plottable(object):
         return self
     
     def to_pandas(self) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def upload(
+        self,
+        memoize: bool = True,
+        validate: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def plot(
+        self,
+        graph=None,
+        nodes=None,
+        name=None,
+        description=None,
+        render: Optional[Union[bool, RenderModes]] = "auto",
+        skip_upload=False, as_files=False, memoize=True,
+        extra_html="", override_html_style=None, validate: bool = True
+    ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
