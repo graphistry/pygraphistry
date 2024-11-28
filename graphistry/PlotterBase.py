@@ -166,6 +166,13 @@ class PlotterBase(Plottable):
             'node_encodings': {'current': {}, 'default': {} },
             'edge_encodings': {'current': {}, 'default': {} }
         }
+
+        # Upload
+        self._dataset_id : Optional[str] = None
+        self._url : Optional[str] = None
+        self._nodes_file_id : Optional[str] = None
+        self._edges_file_id : Optional[str] = None
+
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
@@ -825,60 +832,95 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, node=None, edge=None,
-             edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
-             edge_source_color=None, edge_destination_color=None,
-             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
-             point_x=None, point_y=None):
+    def bind(self,
+            source: Optional[str] = None,
+            destination: Optional[str] = None,
+            node: Optional[str] = None,
+            edge: Optional[str] = None,
+            edge_title: Optional[str] = None,
+            edge_label: Optional[str] = None,
+            edge_color: Optional[str] = None,
+            edge_weight: Optional[str] = None,
+            edge_size: Optional[str] = None,
+            edge_opacity: Optional[str] = None,
+            edge_icon: Optional[str] = None,
+            edge_source_color: Optional[str] = None,
+            edge_destination_color: Optional[str] = None,
+            point_title: Optional[str] = None,
+            point_label: Optional[str] = None,
+            point_color: Optional[str] = None,
+            point_weight: Optional[str] = None,
+            point_size: Optional[str] = None,
+            point_opacity: Optional[str] = None,
+            point_icon: Optional[str] = None,
+            point_x: Optional[str] = None,
+            point_y: Optional[str] = None,
+            dataset_id: Optional[str] = None,
+            url: Optional[str] = None,
+            nodes_file_id: Optional[str] = None,
+            edges_file_id: Optional[str] = None,
+        ) -> Plottable:
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
         :param source: Attribute containing an edge's source ID
-        :type source: str
+        :type source: Optional[str]
 
         :param destination: Attribute containing an edge's destination ID
-        :type destination: str
+        :type destination: Optional[str]
 
         :param node: Attribute containing a node's ID
-        :type node: str
+        :type node: Optional[str]
 
         :param edge: Attribute containing an edge's ID
-        :type edge: str
+        :type edge: Optional[str]
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
-        :type edge_title: str
+        :type edge_title: Optional[str]
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type edge_label: str
+        :type edge_label: Optional[str]
 
         :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type edge_color: str
+        :type edge_color: Optional[str]
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
-        :type edge_source_color: str
+        :type edge_source_color: Optional[str]
 
         :param edge_destination_color: Attribute overriding edge's destination color if no edge_color, as an rgba int64 value.
-        :type edge_destination_color: str
+        :type edge_destination_color: Optional[str]
 
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
-        :type edge_weight: str
+        :type edge_weight: Optional[str]
 
         :param point_title: Attribute overriding node's minimized label text. By default, the node ID is used.
-        :type point_title: str
+        :type point_title: Optional[str]
 
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type point_label: str
+        :type point_label: Optional[str]
 
         :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type point_color: str
+        :type point_color: Optional[str]
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
-        :type point_size: str
+        :type point_size: Optional[str]
 
         :param point_x: Attribute overriding node's initial x position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_x: str
+        :type point_x: Optional[str]
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_y: str
+        :type point_y: Optional[str]
+
+        :param dataset_id: Remote dataset id
+        :type dataset_id: Optional[str]
+
+        :param url: Remote dataset URL
+        :type url: Optional[str]
+
+        :param nodes_file_id: Remote nodes file id
+        :type nodes_file_id: Optional[str]
+
+        :param edges_file_id: Remote edges file id
+        :type edges_file_id: Optional[str]
 
         :returns: Plotter
         :rtype: Plotter
@@ -953,6 +995,10 @@ class PlotterBase(Plottable):
         res._point_icon = point_icon or self._point_icon
         res._point_x = point_x or self._point_x
         res._point_y = point_y or self._point_y
+        res._dataset_id = dataset_id or self._dataset_id
+        res._url = url or self._url
+        res._nodes_file_id = nodes_file_id or self._nodes_file_id
+        res._edges_file_id = edges_file_id or self._edges_file_id
         
         return res
 
@@ -1029,7 +1075,13 @@ class PlotterBase(Plottable):
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
-            
+
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
+
         return res
 
     def name(self, name):
@@ -1134,6 +1186,13 @@ class PlotterBase(Plottable):
         else:
             res = copy.copy(base)
             res._edges = edges
+
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
+
         return res
 
     def pipe(self, graph_transform: Callable, *args, **kwargs) -> Plottable:
@@ -1179,6 +1238,11 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
         return res
 
 
@@ -1440,6 +1504,12 @@ class PlotterBase(Plottable):
             g = self.bind()
             g._name = name
             g._description = description
+            if dataset is not None:
+                g._dataset_id = dataset.dataset_id
+                if as_files:
+                    g._nodes_file_id = dataset.nodes_file_id
+                    g._edges_file_id = dataset.edges_file_id
+                g._url = full_url
             return g
         else:
             raise ValueError(f"Unexpected render mode resolution: {render_mode}")
