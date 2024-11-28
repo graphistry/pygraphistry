@@ -70,13 +70,13 @@ def chain_remote_generic(
     }
 
     if node_col_subset is not None:
-        request_body["node_col_subset"] = node_col_subset
+        request_body["node_col_subset"] = node_col_subset  # type: ignore
     if edge_col_subset is not None:
-        request_body["edge_col_subset"] = edge_col_subset
+        request_body["edge_col_subset"] = edge_col_subset  # type: ignore
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
     if engine is not None:
-        request_body["engine"] = engine
+        request_body["engine"] = engine  # type: ignore
 
     base_url = ""
     url = f"{base_url}/api/v2/etl/datasets/{dataset_id}/gfql/"
@@ -107,7 +107,7 @@ def chain_remote_generic(
 
     if output_type == "shape":
         if format == "json":
-            return pd.DataFrame(response.json)
+            return pd.DataFrame(response.json())
         elif format == "csv":
             return read_csv(BytesIO(response.content))
         elif format == "parquet":
@@ -184,7 +184,7 @@ def chain_remote_shape(
             print(shape_df)
     """
 
-    return chain_remote_generic(
+    out_df = chain_remote_generic(
         self,
         chain,
         api_token,
@@ -197,6 +197,8 @@ def chain_remote_shape(
         engine,
         validate
     )
+    assert isinstance(out_df, pd.DataFrame)
+    return out_df
 
 def chain_remote(
     self: Plottable,
@@ -281,7 +283,7 @@ def chain_remote(
 
     assert output_type != "shape", 'Method chain_remote() does not support output_type="shape", call instead chain_remote_shape()'
     
-    return chain_remote_generic(
+    g = chain_remote_generic(
         self,
         chain,
         api_token,
@@ -294,3 +296,5 @@ def chain_remote(
         engine,
         validate
     )
+    assert isinstance(g, Plottable)
+    return g
