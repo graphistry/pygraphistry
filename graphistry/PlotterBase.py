@@ -1504,7 +1504,7 @@ class PlotterBase(Plottable):
         logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
         dataset: Optional[ArrowUploader] = None
         if api_version == 1:
-            dataset = self.mode='json', (g, n, name, description, 'json', self._style, memoize)
+            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
