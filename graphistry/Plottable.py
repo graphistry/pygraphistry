@@ -60,6 +60,11 @@ class Plottable(object):
     _bolt_driver : Any
     _tigergraph : Any
 
+    _dataset_id: Optional[str]
+    _url: Optional[str]
+    _nodes_file_id: Optional[str]
+    _edges_file_id: Optional[str]
+
     _node_embedding : Optional[pd.DataFrame]
     _node_encoder : Optional[Any]
     _node_features : Optional[pd.DataFrame]
