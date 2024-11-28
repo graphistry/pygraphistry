@@ -1105,7 +1105,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
+    def edges(self: Plottable, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -1514,6 +1514,7 @@ class PlotterBase(Plottable):
             logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
             dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
+            assert dataset is not None
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
@@ -2269,7 +2270,7 @@ class PlotterBase(Plottable):
         raise ValueError('Could not find a label-like node column and no g._node id fallback set')
 
 
-    def cypher(self, query: str, params: Dict[str, Any] = {}) -> 'PlotterBase':
+    def cypher(self, query: str, params: Dict[str, Any] = {}) -> Plottable:
         """
         Execute a Cypher query against a Neo4j, Memgraph, or Amazon Neptune database and retrieve the results.
 

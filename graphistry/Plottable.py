@@ -23,6 +23,7 @@ else:
 
 
 RenderModesConcrete = Literal["g", "url", "ipython", "databricks", "browser"]
+RENDER_MODE_CONCRETE_VALUES: Set[RenderModesConcrete] = set(["g", "url", "ipython", "databricks", "browser"])
 RenderModes = Union[Literal["auto"], RenderModesConcrete]
 RENDER_MODE_VALUES: Set[RenderModes] = set(["auto", "g", "url", "ipython", "databricks", "browser"])
 

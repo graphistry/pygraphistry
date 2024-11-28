@@ -1,6 +1,6 @@
 from typing import Optional, Union
 
-from graphistry.Plottable import RENDER_MODE_VALUES, Plottable, RenderModes, RenderModesConcrete
+from graphistry.Plottable import RENDER_MODE_CONCRETE_VALUES, Plottable, RenderModes, RenderModesConcrete
 from graphistry.util import in_databricks, in_ipython
 
 
@@ -15,14 +15,12 @@ def resolve_render_mode(
 
     # => RenderMode
     if isinstance(render, bool):
-        render = "auto" if render else "url"    
-
-    if render not in RENDER_MODE_VALUES:
-        raise ValueError(f'Invalid render mode: {render}, expected one of {RENDER_MODE_VALUES}')
+        render = "auto" if render else "url"
 
     # => RenderModeConcrete
     if render != "auto":
-        return render
+        assert render in RENDER_MODE_CONCRETE_VALUES
+        return render  # type: ignore
 
     if in_ipython():
         return "ipython"
