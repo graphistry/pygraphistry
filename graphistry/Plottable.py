@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal
 import pandas as pd
 
+from graphistry.compute.chain_remote import FormatType, OutputType
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine, EngineAbstract
+from graphistry.utils.json import JSONVal
 
 
 if TYPE_CHECKING:
@@ -246,13 +248,65 @@ class Plottable(object):
         return self
 
     # FIXME python recursive typing issues
-    def chain(self, ops: List[Any]) -> 'Plottable':
+    def chain(self, ops: Union[Any, List[Any]]) -> 'Plottable':
         """
-        ops is List[ASTObject]
+        ops is Union[List[ASTObject], Chain]
         """
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
+    
+    def chain_remote(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        output_type: OutputType = "all",
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None
+    ) -> 'Plottable':
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def chain_remote_shape(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None
+    ) -> pd.DataFrame:
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return pd.DataFrame({})
+
+    def python_remote(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        engine: Literal["pandas", "cudf"] = "cudf",
+        validate: bool = True
+    ) -> Any:
+        """
+        Return JSON literal
+        """
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return {}
 
     def to_igraph(self, 
         directed: bool = True,
