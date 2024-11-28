@@ -1,5 +1,6 @@
 from graphistry.Plottable import Plottable
 from typing import Any, Callable, Dict, List, Optional, Union
+from graphistry.render import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -1200,7 +1201,7 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render is None else render
+        res._render = self._render if render is None else resolve_render_mode(self, render)
         return res
 
 
@@ -1337,8 +1338,8 @@ class PlotterBase(Plottable):
         :param description: Upload description.
         :type description: str
 
-        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: bool
+        :param render: Whether to render the visualization using the native environment (default "auto", True), a URL ("url", False, None), a PyGraphistry Plottable ("g"), thon object ("ipython"), interactive Databricks object ("databricks"), or open a local web browser ("browser"). If _render is set via .settings(), and set to None, use _render.
+        :type render: Optional[Union[bool, RenderModes]] = "auto"
 
         :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
         :type skip_upload: bool
@@ -1396,8 +1397,9 @@ class PlotterBase(Plottable):
         # from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
         logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+        dataset: Optional[ArrowUploader] = None
         if api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
+            dataset = self.mode='json', (g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
@@ -1406,7 +1408,7 @@ class PlotterBase(Plottable):
             PyGraphistry.refresh()
             logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
-            dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
+            dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
@@ -1422,17 +1424,25 @@ class PlotterBase(Plottable):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if (render is False) or ((render is None) and not self._render):
+        render_mode = resolve_render_mode(self, render)
+        if render_mode == "url":
             return full_url
-        elif (render is True) or in_ipython():
+        elif render_mode == "ipython":
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style))
-        elif in_databricks():
+        elif render_mode == "databricks":
             return make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style)
-        else:
+        elif render_mode == "browser":
             import webbrowser
             webbrowser.open(full_url)
             return full_url
+        elif render_mode == "g":
+            g = self.bind()
+            g._name = name
+            g._description = description
+            return g
+        else:
+            raise ValueError(f"Unexpected render mode resolution: {render_mode}")
 
     def from_igraph(self,
         ig,
@@ -1766,6 +1776,10 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True):
+        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize)
+        assert isinstance(out, ArrowUploader)
+        return out
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
