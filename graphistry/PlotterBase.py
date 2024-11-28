@@ -1,4 +1,4 @@
-from graphistry.Plottable import Plottable
+from graphistry.Plottable import Plottable, RenderModes
 from typing import Any, Callable, Dict, List, Optional, Union
 from graphistry.render import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
@@ -1380,7 +1380,13 @@ class PlotterBase(Plottable):
 
 
     def plot(
-        self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True,
+        self,
+        graph=None,
+        nodes=None,
+        name=None,
+        description=None,
+        render: Optional[Union[bool, RenderModes]] = "auto",
+        skip_upload=False, as_files=False, memoize=True,
         extra_html="", override_html_style=None, validate: bool = True
     ):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
