@@ -19,6 +19,11 @@ else:
     UMAP = Any
     Pipeline = Any
 
+
+RenderModesConcrete = Literal["g", "url", "ipython", "databricks", "browser"]
+RenderModes = Union[Literal["auto"], RenderModesConcrete]
+RENDER_MODE_VALUES: Set[RenderModes] = set(["auto", "g", "url", "ipython", "databricks", "browser"])
+
 class Plottable(object):
 
     _edges : Any
@@ -399,7 +404,11 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def settings(self, height: Optional[float] = None, url_params: Dict[str, Any] = {}, render: Optional[bool] = None) -> 'Plottable':
+    def settings(self,
+        height: Optional[float] = None,
+        url_params: Dict[str, Any] = {},
+        render: Optional[Union[bool, RenderModes]] = None
+    ) -> 'Plottable':
         """Specify iframe height and add URL parameter dictionary.
 
         The library takes care of URI component encoding for the dictionary.
@@ -410,8 +419,8 @@ class Plottable(object):
         :param url_params: Dictionary of querystring parameters to append to the URL.
         :type url_params: dict
 
-        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: bool
+        :param render: Set default render mode from RenderModes types, where True/None is "auto" and False is "url"
+        :type render: Optional[Union[bool, RenderModes]]
 
         """
 

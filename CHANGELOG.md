@@ -11,6 +11,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * New tutorial on GPU memory management and capacity planning in the GPU section
 
+### Feat
+
+* `plot(render=)` supports literal-typed mode values: `"auto"`, `"g"`, `"url"`, `"ipython"`, `"databricks"`, where `"g"` is a new Plottable
+
+### Changed
+
+* `plot(render=)` now `Union[bool, RenderMode]`, not just `bool` 
+
 ## [0.34.17 - 2024-10-20]
 
 ### Added
