@@ -272,6 +272,30 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 - Filters nodes where `pagerank > 0.1`.
 - Visualizes the subgraph consisting of high PageRank nodes.
 
+10. Run remotely
+
+You may want to run GFQL remotely because the data is remote or a GPU is available remotely:
+
+**Example: Run GFQL remotely**
+
+::
+
+    from graphistry import n, e
+    g2 = g1.chain_remote([n(), e(), n()])
+
+**Example: Run GFQL remotely, and decouple the upload step**
+
+::
+
+    from graphistry import n, e
+    g2 = g1.upload()
+    assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
+    g3 = g2.chain_remote([n(), e(), n()])
+
+
+Additional parameters enable controlling options such as the execution engine and what is returned 
+
+
 Conclusion and Next Steps
 -------------------------
 
