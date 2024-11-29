@@ -1,10 +1,14 @@
-import logging, os, pandas as pd, pytest, warnings
-from graphistry.compute import ComputeMixin
-from graphistry.layouts import LayoutsMixin
-from graphistry.plotter import PlotterBase
-from graphistry.render import resolve_render_mode
+import importlib
+import logging, pandas as pd, pytest
+import sys
+from mock import patch
+from unittest.mock import Mock
+
+import graphistry.render
+from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_compute import CGFull
+from graphistry.tests.test_plotter import Fake_Response
 logger = logging.getLogger(__name__)
 
 
@@ -40,3 +44,59 @@ def test_resolve_cascade(abc_g):
     assert resolve_render_mode(abc_g.settings(render='g'), 'url') == 'url'
     assert resolve_render_mode(abc_g.settings(render='g'), True) in ['url', 'ipython', 'databricks', 'browser']
     assert resolve_render_mode(abc_g.settings(render='g'), False) == 'url'
+
+
+@patch("graphistry.render.resolve_render_mode.in_ipython")
+class TestIPython(NoAuthTestCase):
+
+    def test_no_ipython(self, mock_in_ipython):
+        mock_in_ipython.return_value = False
+
+        mode_render_true = resolve_render_mode(abc_g, True)
+        self.assertNotEqual(mode_render_true, 'ipython')
+
+        mode_render_false = resolve_render_mode(abc_g, False)
+        self.assertEqual(mode_render_false, 'url')
+
+        mode_render_ipython = resolve_render_mode(abc_g, 'ipython')
+        self.assertEqual(mode_render_ipython, 'ipython')
+
+    def test_ipython(self, mock_in_ipython):
+        mock_in_ipython.return_value = True
+
+        mode_render_true = resolve_render_mode(abc_g, True)
+        self.assertEqual(mode_render_true, 'ipython')
+
+        mode_render_false = resolve_render_mode(abc_g, False)
+        self.assertEqual(mode_render_false, 'url')
+
+        mode_render_ipython = resolve_render_mode(abc_g, 'ipython')
+        self.assertEqual(mode_render_ipython, 'ipython')
+
+
+@patch("graphistry.render.resolve_render_mode.in_databricks")
+class TestDatabricks(NoAuthTestCase):
+
+    def test_no_databricks(self, mock_in_databricks):
+        mock_in_databricks.return_value = False
+
+        mode_render_true = resolve_render_mode(abc_g, True)
+        self.assertNotEqual(mode_render_true, 'databricks')
+
+        mode_render_false = resolve_render_mode(abc_g, False)
+        self.assertEqual(mode_render_false, 'url')
+
+        mode_render_ipython = resolve_render_mode(abc_g, 'databricks')
+        self.assertEqual(mode_render_ipython, 'databricks')
+
+    def test_ipython(self, mock_in_databricks):
+        mock_in_databricks.return_value = True
+
+        mode_render_true = resolve_render_mode(abc_g, True)
+        self.assertEqual(mode_render_true, 'databricks')
+
+        mode_render_false = resolve_render_mode(abc_g, False)
+        self.assertEqual(mode_render_false, 'url')
+
+        mode_render_ipython = resolve_render_mode(abc_g, 'databricks')
+        self.assertEqual(mode_render_ipython, 'databricks')
