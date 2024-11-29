@@ -1389,6 +1389,8 @@ class PlotterBase(Plottable):
         Uses the currently bound schema structure and visual encodings.
         Optional parameters override the current bindings.
 
+        Upon successful upload, returned `Plottable` will have set the fields `dataset_id`, `url`, `edges_file_id`, and if applicable, `nodes_file_id`.
+
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default true.
         :type memoize: bool
 
