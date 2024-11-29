@@ -46,14 +46,14 @@ def python_remote(
             assert g1._dataset_id is not None, "Successfully uploaded"
             out_json = g1.python_remote(
                 code='''
-from typing import Any, Dict
-from graphistry import Plottable
+                    from typing import Any, Dict
+                    from graphistry import Plottable
 
-def task(g: Plottable) -> Dict[str, Any]:
-    return {
-        'num_edges': len(g._edges)
-    }
-''',
+                    def task(g: Plottable) -> Dict[str, Any]:
+                        return {
+                            'num_edges': len(g._edges)
+                        }
+                ''',
                 engine='cudf')
             num_edges = out_json['num_edges']
             print(f'num_edges: {num_edges}')
