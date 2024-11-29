@@ -25,7 +25,7 @@ def python_remote(
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]
 
-    :param dataset_id: Optional dataset_id. If not provided, will uplaod current data, store that dataset_id, and run GFQL against that.
+    :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
     :param engine: Override which run mode GFQL uses. Defaults to "cudf".
