@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable, RenderModes
 from typing import Any, Callable, Dict, List, Optional, Union
-from graphistry.render import resolve_render_mode
+from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
