@@ -99,6 +99,8 @@ You may not need to download all -- or any -- of your results, which can also sp
 
 **Only return edges**
 
+.. code-block:: python
+
   g2a = g1.chain_remote([n(), e(), n()], output_type="edges")
         
   cols = [g1._source, g1._destination, 'time']
