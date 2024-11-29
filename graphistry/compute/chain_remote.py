@@ -9,11 +9,8 @@ import zipfile
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.models.compute.chain_remote import OutputType, FormatType
 from graphistry.utils.json import JSONVal
-
-
-OutputType = Literal["all", "nodes", "edges", "shape"]
-FormatType = Literal["json", "csv", "parquet"]
 
 
 def chain_remote_generic(

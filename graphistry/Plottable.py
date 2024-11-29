@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal
 import pandas as pd
 
-from graphistry.compute.chain_remote import FormatType, OutputType
+from graphistry.models.compute.chain_remote import FormatType, OutputType
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.utils.json import JSONVal
