@@ -220,7 +220,7 @@ def chain_remote(
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]
 
-    :param dataset_id: Optional dataset_id. If not provided, will uplaod current data, store that dataset_id, and run GFQL against that.
+    :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not provided, will upload current data, store that dataset_id, and run GFQL against that.
     :type dataset_id: Optional[str]
 
     :param output_type: Whether to return nodes and edges ("all", default), Plottable with just nodes ("nodes"), or Plottable with just edges ("edges"). For just a dataframe of the resultant graph shape (output_type="shape"), use instead chain_remote_shape().
