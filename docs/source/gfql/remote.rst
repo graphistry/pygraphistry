@@ -17,10 +17,10 @@ Run chain remotely and fetch results
     g2 = g1.chain_remote([n(), e(), n()])
     assert len(g2._nodes) <= len(g1._nodes)
 
-:meth:`chain_remote <graphistry.compute.chain_remote>` runs chain remotely and fetched the computed graph
+Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
 
 - **chain**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
-- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`chain_remote <graphistry.compute.chain_remote_shape>` to return only metadata.
+- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`chain_remote_shape <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote_shape>` to return only metadata.
 - **node_col_subset**: Optionally limit which node attributes are returned to an allowlist.
 - **edge_col_subset**: Optionally limit which edge attributes are returned to an allowlist.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
