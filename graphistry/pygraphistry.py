@@ -2666,8 +2666,6 @@ class PyGraphistry(object):
         :type display_mode: str, optional
         :return: Whether token is still valid
         :rtype: bool
-
-
         """        
         if display_mode == 'html':
             from IPython.display import display, HTML, clear_output
@@ -2713,7 +2711,49 @@ class PyGraphistry(object):
             idp_name: Optional[str] = None,
             **kwargs
         ):
-            """Wrapper function special for databrick run register function"""
+            """Wrapper function for :func:`graphistry.PyGraphistry.register`, specially for databrick SSO
+        :param server: URL of the visualization server.
+        :type server: Optional[str]
+        :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
+        :type certificate_validation: Optional[bool]
+        :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
+        :type bolt: Union[dict, Any]
+        :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
+        :type token_refresh_ms: int
+        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes (Token-originated have a hard limit, so always-on requires creds somewhere)
+        :type store_token_creds_in_memory: Optional[bool]
+        :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        :type client_protocol_hostname: Optional[str]
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
+        :param idp_name: Set sso login idp name. Default as None (for site-wide SSO / for the only idp record).
+        :type idp_name: Optional[str]
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :returns: None.
+        :rtype: None
+
+        **Example: Standard (2.0 api by org_name via SSO configured for site or for organization with only 1 IdP)**
+        ::
+
+            import graphistry
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name")
+
+        **Example: Standard (2.0 api by org_name via SSO with a specific IdP configured for an organization)**
+        ::
+
+            import graphistry
+            graphistry.register_databricks_sso(server='200.1.1.1', org_name="org-name", idp_name="idp-name")
+
+        **Example: Override SSO url display method to use `display()`, `webbrowser.open()`, or just `print()`**
+        ::
+
+            import graphistry
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="display")
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="browser")
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type=None)
+
+        """
             if not PyGraphistry.api_token():
                 PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
 
