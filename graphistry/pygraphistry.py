@@ -277,8 +277,8 @@ class PyGraphistry(object):
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a><br /><span>Please click the above URL to open browser to login</span>'))
-            print("Please click the above URL to open browser to login")
+            display(HTML(f'<a href="{auth_url}" target="_blank" style="display: inline-block; margin-top: 10px; padding: 10px 20px; font-size: 16px; font-weight: bold; color: #fff; background-color: #007bff; text-decoration: none; border-radius: 5px;">Login with SSO</a>'))
+            print('<p style="margin-top: 5px; color: #555;">Please click the button above to open the browser and log in.</p>')
             print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
@@ -2596,21 +2596,21 @@ class PyGraphistry(object):
         if not PyGraphistry.api_token():
             msg_text = '....'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
-                msg_text = f'{msg_text}\nFailed to get token after {repeat * wait} seconds ....'
+                msg_text = f'{msg_text}\nUnable to retrieve token after {repeat * wait} seconds ....'
                 if not fail_silent:
-                    msg = f"Failed to get token after {repeat * wait} seconds. Please re-run the login process"
+                    msg = f"Unable to retrieve token after {repeat * wait} seconds. Please re-run the login process"
                     if in_ipython() or in_databricks() or PyGraphistry.set_sso_opt_into_type == "display":
                         display_message_html(f"<strong>{msg}</strong>")
                     raise Exception(msg) 
                 else:
-                    msg_text = f'{msg_text}\nGot token'
+                    msg_text = f'{msg_text}\nToken retrieved successfully'
                     print(msg_text)
                     return
 
-            msg_text = f'{msg_text}\nGot token'
+            msg_text = f'{msg_text}\nToken retrieved successfully'
             print(msg_text)
         else:
-            print('Token is valid, no waiting required.')
+            print('Token is valid; no further action needed.')
 
 
     @staticmethod
@@ -2636,18 +2636,18 @@ class PyGraphistry(object):
         if not PyGraphistry.api_token():
             msg_html = '<br /><strong> .... </strong>'
             if not PyGraphistry.sso_repeat_get_token(repeat, wait):
-                msg_html = f'{msg_html}<br /><strong>Failed to get token after {repeat * wait} seconds .... </strong>'
+                msg_html = f'{msg_html}<br /><strong>Unable to retrieve token after {repeat * wait} seconds. Please try logging in again.</strong>'
                 if not fail_silent:
-                    raise Exception(f"Failed to get token after {repeat * wait} seconds. Please re-run the login process") 
+                    raise Exception(f"Unable to retrieve token after {repeat * wait} seconds. Please try logging in again.") 
                 else:
-                    msg_html = f'{msg_html}<br /><strong>Got token</strong>'
+                    msg_html = f'{msg_html}<br /><strong>Token retrieved successfully</strong>'
                     display(HTML(msg_html))
                     return
 
-            msg_html = f'{msg_html}<br /><strong>Got token</strong>'
+            msg_html = f'{msg_html}<br /><strong>Token retrieved successfully</strong>'
             display(HTML(msg_html))
         else:
-            display(HTML('<br /><strong>Token is valid, no waiting required.</strong>'))
+            display(HTML('<br /><strong>Token is valid; no further action needed.</strong>'))
 
 
     @staticmethod
