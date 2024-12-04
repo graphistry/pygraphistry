@@ -6,10 +6,17 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+### Added
+* Added new wrapper function for register to Databricks via SSO, to simplify code to display on dashboard
+
+### Fixes
+* Fix refresh function does not reset some variable in memory that cause weird behavior
 
 ### Docs
 
 * New tutorial on GPU memory management and capacity planning in the GPU section
+
+* Documentation changed for databricks related docs
 
 ## [0.34.17 - 2024-10-20]
 

@@ -10,7 +10,7 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
@@ -172,8 +172,16 @@ def check_set_memoize(
         weakref[hashed] = w
     return False
 
+def display_message_html(message: str, cleared: Optional[bool] = False):
+    from IPython.display import display, HTML, clear_output
 
-def make_iframe(url, height, extra_html="", override_html_style=None):
+    if cleared:
+        clear_output()
+
+    display(HTML(message))
+
+
+def make_iframe(url, height, extra_html="", override_html_style=None, srcdoc: Optional[str] = None):
     id = uuid.uuid4()
 
     height_str = (
@@ -203,7 +211,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None):
         )
 
     iframe = """
-            <iframe id="%s" src="%s"
+            <iframe id="%s" src="%s" {srcdoc}
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
                     style="%s"
