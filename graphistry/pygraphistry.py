@@ -2678,7 +2678,7 @@ class PyGraphistry(object):
             if not is_valid:
                 print("***********token not valid, refresh token*****************")
                 if display_mode == 'html':
-                    display(HTML('<br /><strong>Refresh token ....</strong>'))
+                    display(HTML('<br /><strong>Refreshing token ....</strong>'))
                 try:
                     PyGraphistry.refresh()
                 except Exception:
