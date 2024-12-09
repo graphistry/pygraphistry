@@ -90,7 +90,7 @@ def chain_remote_generic(
 
     # deserialize based on output_type & format
 
-    if isinstance(self._edges, pd.DataFrame):
+    if self._edges is None or isinstance(self._edges, pd.DataFrame):
         df_cons = pd.DataFrame
         read_csv = pd.read_csv
         read_parquet = pd.read_parquet
