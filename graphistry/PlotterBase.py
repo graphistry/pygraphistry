@@ -1409,8 +1409,7 @@ class PlotterBase(Plottable):
                 print(f'dataset id: {g2._dataset_id}, url: {g2._url}')
         """
         return self.plot(
-            self,
-            render = 'g',
+            render='g',
             as_files=True,
             memoize=memoize,
             validate=validate
