@@ -9,7 +9,7 @@ import zipfile
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
-from graphistry.models.compute.chain_remote import OutputType, FormatType
+from graphistry.models.compute.chain_remote import OutputType, FormatType, output_type_values
 from graphistry.utils.json import JSONVal
 
 
@@ -38,6 +38,9 @@ def chain_remote_generic(
     if not dataset_id:
         self = self.upload(validate=validate)
         dataset_id = self._dataset_id
+
+    if output_type not in output_type_values:
+        raise ValueError(f"Unknown output_type, expected one of {output_type_values}, got: {output_type}")
     
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
@@ -75,8 +78,7 @@ def chain_remote_generic(
     if engine is not None:
         request_body["engine"] = engine  # type: ignore
 
-    base_url = ""
-    url = f"{base_url}/api/v2/etl/datasets/{dataset_id}/gfql/"
+    url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
     # Prepare headers
     headers = {
