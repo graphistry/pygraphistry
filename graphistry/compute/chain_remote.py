@@ -127,7 +127,14 @@ def chain_remote_generic(
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         df = read_parquet(data) if format == "parquet" else read_csv(data)
-        return self.nodes(df) if output_type == "nodes" else self.edges(df)
+        if output_type == "nodes":
+            out = self.nodes(df)
+            out._edges = None
+            return out
+        else:
+            out = self.edges(df)
+            out._nodes = None
+            return out
     elif format == "json":
         o = response.json()
         if output_type == "all":
