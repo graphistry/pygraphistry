@@ -62,7 +62,7 @@ def chain_remote_generic(
         Chain.from_json(chain_json)
 
     request_body = {
-        "gfql_operations": chain_json,
+        "gfql_operations": chain_json['chain'],  # unwrap
         "format": format
     }
 
