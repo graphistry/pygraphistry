@@ -1378,6 +1378,48 @@ class PlotterBase(Plottable):
             res._privacy['message'] = message
         return res
 
+    def server(v: Optional[str] = None) -> str:
+        """
+        Get or set the server basename, e.g., "hub.graphistry.com"
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['server'] = v
+        return PyGraphistry._config['server']
+    
+    def protocol(v: Optional[str] = None) -> str:
+        """
+        Get or set the server protocol, e.g., "https"
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['protocol'] = v
+        return PyGraphistry._config['protocol']
+    
+    def client_protocol_hostname(v: Optional[str] = None) -> str:
+        """
+        Get or set the client protocol and hostname, e.g., "https://hub.graphistry.com" .
+
+        By default, uses {protocol()}://{server()}. Typically used when public browser routes are different from backend server routes, e.g., enterprise WAF routes for browser use and internal firewalls routes for server use.
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.        
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['client_protocol_hostname'] = v
+        return PyGraphistry._config['client_protocol_hostname']
+    
+    def base_url_server(v: Optional[str] = None) -> str:
+        from .pygraphistry import PyGraphistry
+        return "%s://%s" % (PyGraphistry.protocol(), PyGraphistry.server())
+    
+    def base_url_client(v: Optional[str] = None) -> str:
+        from .pygraphistry import PyGraphistry
+        return PyGraphistry.client_protocol_hostname()
 
     def upload(
         self,
@@ -1550,7 +1592,10 @@ class PlotterBase(Plottable):
             if dataset is not None:
                 g._dataset_id = dataset.dataset_id
                 if as_files:
-                    g._nodes_file_id = dataset.nodes_file_id
+                    if dataset._ArrowUploader__nodes_file_id is not None:
+                        g._nodes_file_id = dataset.nodes_file_id
+                    else:
+                        g._nodes_file_id = None
                     g._edges_file_id = dataset.edges_file_id
                 g._url = full_url
             return g
