@@ -87,8 +87,7 @@ def python_remote(
         "engine": engine
     }
 
-    base_url = ""
-    url = f"{base_url}/api/v2/etl/datasets/{dataset_id}/python"
+    url = f"{self.base_url_server()}/api/v2/datasets/{dataset_id}/python"
 
     # Prepare headers
     headers = {
