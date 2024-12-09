@@ -500,6 +500,31 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
+    def protocol(v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def server(v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def client_protocol_hostname(v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def base_url_server(v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def base_url_client(v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+
     def upload(
         self,
         memoize: bool = True,
