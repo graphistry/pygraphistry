@@ -228,6 +228,8 @@ def python_remote_generic(
     else:
         raise ValueError(f"Unsupported format {format}, output_type {output_type}")
 
+    raise ValueError("Unexpected code path")
+
 
 def python_remote_g(
     self: Plottable,
@@ -293,7 +295,7 @@ def python_remote_g(
 
     assert output_type in ["all", "nodes", "edges"], f"output_type should be 'all', 'nodes', or 'edges', got: {output_type}"
 
-    return python_remote_generic(
+    out = python_remote_generic(
         self=self,
         code=code,
         api_token=api_token,
@@ -304,6 +306,11 @@ def python_remote_g(
         run_label=run_label,
         validate=validate
     )
+
+    assert isinstance(out, Plottable), f"Expected Plottable, got: {type(out)}"
+
+    return out
+
 
 def python_remote_table(
     self: Plottable,
@@ -369,7 +376,7 @@ def python_remote_table(
 
     assert output_type in ["all", "nodes", "edges", "table"], f"output_type should be 'all', 'nodes', or 'edges', got: {output_type}"
 
-    return python_remote_generic(
+    out = python_remote_generic(
         self=self,
         code=code,
         api_token=api_token,
@@ -380,6 +387,10 @@ def python_remote_table(
         run_label=run_label,
         validate=validate
     )
+
+    assert isinstance(out, pd.DataFrame), f"Expected pd.DataFrame, got: {type(out)}"
+
+    return out
 
 def python_remote_json(
     self: Plottable,
