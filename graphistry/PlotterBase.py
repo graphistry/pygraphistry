@@ -1378,7 +1378,7 @@ class PlotterBase(Plottable):
             res._privacy['message'] = message
         return res
 
-    def server(v: Optional[str] = None) -> str:
+    def server(self, v: Optional[str] = None) -> str:
         """
         Get or set the server basename, e.g., "hub.graphistry.com"
 
@@ -1389,7 +1389,7 @@ class PlotterBase(Plottable):
             PyGraphistry._config['server'] = v
         return PyGraphistry._config['server']
     
-    def protocol(v: Optional[str] = None) -> str:
+    def protocol(self, v: Optional[str] = None) -> str:
         """
         Get or set the server protocol, e.g., "https"
 
@@ -1400,7 +1400,7 @@ class PlotterBase(Plottable):
             PyGraphistry._config['protocol'] = v
         return PyGraphistry._config['protocol']
     
-    def client_protocol_hostname(v: Optional[str] = None) -> str:
+    def client_protocol_hostname(self, v: Optional[str] = None) -> str:
         """
         Get or set the client protocol and hostname, e.g., "https://hub.graphistry.com" .
 
@@ -1413,11 +1413,11 @@ class PlotterBase(Plottable):
             PyGraphistry._config['client_protocol_hostname'] = v
         return PyGraphistry._config['client_protocol_hostname']
     
-    def base_url_server(v: Optional[str] = None) -> str:
+    def base_url_server(self, v: Optional[str] = None) -> str:
         from .pygraphistry import PyGraphistry
         return "%s://%s" % (PyGraphistry.protocol(), PyGraphistry.server())
     
-    def base_url_client(v: Optional[str] = None) -> str:
+    def base_url_client(self, v: Optional[str] = None) -> str:
         from .pygraphistry import PyGraphistry
         return PyGraphistry.client_protocol_hostname()
 
@@ -1592,9 +1592,11 @@ class PlotterBase(Plottable):
             if dataset is not None:
                 g._dataset_id = dataset.dataset_id
                 if as_files:
-                    if dataset._ArrowUploader__nodes_file_id is not None:
+                    assert isinstance(dataset, ArrowUploader)
+                    try:
                         g._nodes_file_id = dataset.nodes_file_id
-                    else:
+                    except:
+                        # tolerate undefined
                         g._nodes_file_id = None
                     g._edges_file_id = dataset.edges_file_id
                 g._url = full_url

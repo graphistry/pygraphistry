@@ -307,7 +307,7 @@ class Plottable(object):
     ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
-        return {}
+        return self
 
     def python_remote_table(
         self: 'Plottable',
@@ -315,14 +315,14 @@ class Plottable(object):
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
-        output_type: Optional[OutputTypeDf] = 'all',
+        output_type: Optional[OutputTypeDf] = 'table',
         engine: Literal["pandas", "cudf"] = "cudf",
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> pd.DataFrame:
         if 1 + 1:
             raise RuntimeError('should not happen')
-        return {}
+        return pd.DataFrame({})
 
     def python_remote_json(
         self: 'Plottable',
@@ -528,27 +528,27 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def protocol(v: Optional[str] = None) -> str:
+    def protocol(self, v: Optional[str] = None) -> str:
         if 1 + 1:
             raise RuntimeError('should not happen')
         return ''
     
-    def server(v: Optional[str] = None) -> str:
+    def server(self, v: Optional[str] = None) -> str:
         if 1 + 1:
             raise RuntimeError('should not happen')
         return ''
     
-    def client_protocol_hostname(v: Optional[str] = None) -> str:
+    def client_protocol_hostname(self, v: Optional[str] = None) -> str:
         if 1 + 1:
             raise RuntimeError('should not happen')
         return ''
     
-    def base_url_server(v: Optional[str] = None) -> str:
+    def base_url_server(self, v: Optional[str] = None) -> str:
         if 1 + 1:
             raise RuntimeError('should not happen')
         return ''
     
-    def base_url_client(v: Optional[str] = None) -> str:
+    def base_url_client(self, v: Optional[str] = None) -> str:
         if 1 + 1:
             raise RuntimeError('should not happen')
         return ''
