@@ -294,17 +294,45 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return pd.DataFrame({})
 
-    def python_remote(
+    def python_remote_g(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = 'parquet',
+        output_type: Optional[OutputTypeAll] = 'all',
+        engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
+        validate: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return {}
+
+    def python_remote_table(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = 'parquet',
+        output_type: Optional[OutputTypeDf] = 'all',
+        engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
+        validate: bool = True
+    ) -> pd.DataFrame:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return {}
+
+    def python_remote_json(
         self: 'Plottable',
         code: str,
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
         validate: bool = True
     ) -> Any:
-        """
-        Return JSON literal
-        """
         if 1 + 1:
             raise RuntimeError('should not happen')
         return {}
