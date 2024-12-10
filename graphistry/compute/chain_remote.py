@@ -9,7 +9,7 @@ import zipfile
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
-from graphistry.models.compute.chain_remote import OutputType, FormatType, output_type_values
+from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 
 
@@ -18,7 +18,7 @@ def chain_remote_generic(
     chain: Union[Chain, Dict[str, JSONVal], List[Any]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
-    output_type: OutputType = "all",
+    output_type: OutputTypeGraph = "all",
     format: Optional[FormatType] = None,
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
@@ -39,8 +39,8 @@ def chain_remote_generic(
         self = self.upload(validate=validate)
         dataset_id = self._dataset_id
 
-    if output_type not in output_type_values:
-        raise ValueError(f"Unknown output_type, expected one of {output_type_values}, got: {output_type}")
+    if output_type not in output_types_graph:
+        raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
     
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
@@ -211,7 +211,7 @@ def chain_remote(
     chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
-    output_type: OutputType = "all",
+    output_type: OutputTypeGraph = "all",
     format: Optional[FormatType] = None,
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
