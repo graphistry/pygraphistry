@@ -99,7 +99,7 @@ def python_remote_generic(
         if code.__name__ != "task":
             code_str = inspect.getsource(code)
             old_name = code.__name__
-            code = code_str.replace(f"def {old_name}", f"def task", 1)
+            code = code_str.replace(f"def {old_name}", "def task", 1)
 
     assert code is not None and isinstance(code, str), f"Expected code to be a string, received type: {type(code)}"
 
