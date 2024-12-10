@@ -1,9 +1,11 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from typing_extensions import Literal
 import pandas as pd
 
+from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine, EngineAbstract
+from graphistry.utils.json import JSONVal
 
 
 if TYPE_CHECKING:
@@ -18,6 +20,12 @@ if TYPE_CHECKING:
 else:
     UMAP = Any
     Pipeline = Any
+
+
+RenderModesConcrete = Literal["g", "url", "ipython", "databricks", "browser"]
+RENDER_MODE_CONCRETE_VALUES: Set[RenderModesConcrete] = set(["g", "url", "ipython", "databricks", "browser"])
+RenderModes = Union[Literal["auto"], RenderModesConcrete]
+RENDER_MODE_VALUES: Set[RenderModes] = set(["auto", "g", "url", "ipython", "databricks", "browser"])
 
 class Plottable(object):
 
@@ -54,6 +62,11 @@ class Plottable(object):
     _complex_encodings : dict
     _bolt_driver : Any
     _tigergraph : Any
+
+    _dataset_id: Optional[str]
+    _url: Optional[str]
+    _nodes_file_id: Optional[str]
+    _edges_file_id: Optional[str]
 
     _node_embedding : Optional[pd.DataFrame]
     _node_encoder : Optional[Any]
@@ -236,13 +249,93 @@ class Plottable(object):
         return self
 
     # FIXME python recursive typing issues
-    def chain(self, ops: List[Any]) -> 'Plottable':
+    def chain(self, ops: Union[Any, List[Any]]) -> 'Plottable':
         """
-        ops is List[ASTObject]
+        ops is Union[List[ASTObject], Chain]
         """
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
+    
+    def chain_remote(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        output_type: OutputTypeGraph = "all",
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None
+    ) -> 'Plottable':
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def chain_remote_shape(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None
+    ) -> pd.DataFrame:
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return pd.DataFrame({})
+
+    def python_remote_g(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = 'parquet',
+        output_type: Optional[OutputTypeAll] = 'all',
+        engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
+        validate: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def python_remote_table(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = 'parquet',
+        output_type: Optional[OutputTypeDf] = 'table',
+        engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
+        validate: bool = True
+    ) -> pd.DataFrame:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return pd.DataFrame({})
+
+    def python_remote_json(
+        self: 'Plottable',
+        code: str,
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        engine: Literal["pandas", "cudf"] = "cudf",
+        run_label: Optional[str] = None,
+        validate: bool = True
+    ) -> Any:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return {}
 
     def to_igraph(self, 
         directed: bool = True,
@@ -399,7 +492,11 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def settings(self, height: Optional[float] = None, url_params: Dict[str, Any] = {}, render: Optional[bool] = None) -> 'Plottable':
+    def settings(self,
+        height: Optional[float] = None,
+        url_params: Dict[str, Any] = {},
+        render: Optional[Union[bool, RenderModes]] = None
+    ) -> 'Plottable':
         """Specify iframe height and add URL parameter dictionary.
 
         The library takes care of URI component encoding for the dictionary.
@@ -410,8 +507,8 @@ class Plottable(object):
         :param url_params: Dictionary of querystring parameters to append to the URL.
         :type url_params: dict
 
-        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: bool
+        :param render: Set default render mode from RenderModes types, where True/None is "auto" and False is "url"
+        :type render: Optional[Union[bool, RenderModes]]
 
         """
 
@@ -427,6 +524,54 @@ class Plottable(object):
         return self
     
     def to_pandas(self) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def protocol(self, v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def server(self, v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def client_protocol_hostname(self, v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def base_url_server(self, v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+    
+    def base_url_client(self, v: Optional[str] = None) -> str:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return ''
+
+    def upload(
+        self,
+        memoize: bool = True,
+        validate: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def plot(
+        self,
+        graph=None,
+        nodes=None,
+        name=None,
+        description=None,
+        render: Optional[Union[bool, RenderModes]] = "auto",
+        skip_upload=False, as_files=False, memoize=True,
+        extra_html="", override_html_style=None, validate: bool = True
+    ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
