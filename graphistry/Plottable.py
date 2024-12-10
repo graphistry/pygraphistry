@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal
 import pandas as pd
 
-from graphistry.models.compute.chain_remote import FormatType, OutputType
+from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.utils.json import JSONVal
@@ -262,7 +262,7 @@ class Plottable(object):
         chain: Union[Any, Dict[str, JSONVal]],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
-        output_type: OutputType = "all",
+        output_type: OutputTypeGraph = "all",
         format: Optional[FormatType] = None,
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
