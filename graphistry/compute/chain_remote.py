@@ -122,13 +122,23 @@ def chain_remote_generic(
             nodes_data = zip_ref.read(nodes_file)
             edges_data = zip_ref.read(edges_file)
 
-            nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-            edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+            if len(nodes_data) > 0:
+                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+            else:
+                nodes_df = df_cons()
+            
+            if len(edges_data) > 0:
+                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+            else:
+                edges_df = df_cons()
 
             return self.edges(edges_df).nodes(nodes_df)
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
-        df = read_parquet(data) if format == "parquet" else read_csv(data)
+        if len(response.content) > 0:
+            df = read_parquet(data) if format == "parquet" else read_csv(data)
+        else:
+            df = df_cons()
         if output_type == "nodes":
             out = self.nodes(df)
             out._edges = None
@@ -142,9 +152,13 @@ def chain_remote_generic(
         if output_type == "all":
             return self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
-            return self.nodes(df_cons(o))
+            out = self.nodes(df_cons(o))
+            out._edges = None
+            return out
         elif output_type == "edges":
-            return self.edges(df_cons(o))
+            out = self.edges(df_cons(o))
+            out._nodes = None
+            return out
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
     else:
