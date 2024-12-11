@@ -7,9 +7,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.0 - 2024-12-10]
+
 ### Docs
 
 * New tutorial on GPU memory management and capacity planning in the GPU section
+* New tutorial on remote-mode GFQL
+* New tutorial on remote-mode Python
+
+### Feat
+
+* `plot(render=)` supports literal-typed mode values: `"auto"`, `"g"`, `"url"`, `"ipython"`, `"databricks"`, where `"g"` is a new Plottable
+* Remote metadata: Expose and track uploaded `._dataset_id`, `._url`, `._nodes_file_id`, and `._edges_file_id`
+* Remote upload: Factor out explicit upload method `g2 = g1.upload(); assert all([g2._dataset_id, g2._nodes_file_id, g2._edges_file_id])` from plot interface
+* Remote dataset: Remote dataset binding via `g1 = graphistry.bind(dataset_id='abc123')`
+* Remote GFQL: Remote GFQL calls via `g2 = g1.chain_remote([...])` and `meta_df = g1.chain_remote_shape([...])`
+* Remote GPU Python: Remote Python calls via `g2 = g1.python_remote_g(...)`, `python_remote_table()`, and `python_remote_json()` for different return types
+
+### Changed
+
+* `plot(render=)` now `Union[bool, RenderMode]`, not just `bool` 
 
 ## [0.34.17 - 2024-10-20]
 

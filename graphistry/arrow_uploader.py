@@ -1,4 +1,3 @@
-import json
 from typing import List, Optional
 
 import io, pyarrow as pa, requests, sys
@@ -42,6 +41,26 @@ class ArrowUploader:
     @dataset_id.setter
     def dataset_id(self, dataset_id: str):
         self.__dataset_id = dataset_id
+
+    @property
+    def nodes_file_id(self) -> str:
+        if self.__nodes_file_id is None:
+            raise Exception("Must first create a node file")
+        return self.__nodes_file_id
+
+    @nodes_file_id.setter
+    def nodes_file_id(self, nodes_file_id: str):
+        self.__nodes_file_id = nodes_file_id
+
+    @property
+    def edges_file_id(self) -> str:
+        if self.__edges_file_id is None:
+            raise Exception("Must first create an edges file")
+        return self.__edges_file_id
+
+    @edges_file_id.setter
+    def edges_file_id(self, edges_file_id: str):
+        self.__edges_file_id = edges_file_id
 
     @property
     def server_base_path(self) -> str:
@@ -163,7 +182,7 @@ class ArrowUploader:
             description = None,
             edges: Optional[pa.Table] = None, nodes: Optional[pa.Table] = None,
             node_encodings = None, edge_encodings = None,
-            token = None, dataset_id = None,
+            token = None, dataset_id = None, nodes_file_id = None, edges_file_id = None,
             metadata = None,
             certificate_validation = True, 
             org_name: Optional[str] = None):
@@ -174,6 +193,8 @@ class ArrowUploader:
         self.__view_base_path = view_base_path
         self.__token = token
         self.__dataset_id = dataset_id
+        self.__nodes_file_id = nodes_file_id
+        self.__edges_file_id = edges_file_id
         self.__edges = edges
         self.__nodes = nodes
         self.__node_encodings = node_encodings
@@ -509,7 +530,12 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self, as_files: bool = True, memoize: bool = True, validate: bool = True):
+    def post(
+        self,
+        as_files: bool = True,
+        memoize: bool = True,
+        validate: bool = True
+    ) -> 'ArrowUploader':
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
@@ -522,9 +548,11 @@ class ArrowUploader:
                 file_opts['org_name'] = self.org_name
 
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
+            self.edges_file_id = e_file_id
 
             if not (self.nodes is None):
                 n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts)
+                self.nodes_file_id = n_file_id
 
             self.create_dataset({
                 "node_encodings": self.node_encodings,

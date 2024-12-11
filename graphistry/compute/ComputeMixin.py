@@ -6,6 +6,12 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
+from .chain_remote import chain_remote as chain_remote_base, chain_remote_shape as chain_remote_shape_base
+from .python_remote import (
+    python_remote_g as python_remote_g_base,
+    python_remote_table as python_remote_table_base,
+    python_remote_json as python_remote_json_base
+)
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -461,3 +467,23 @@ class ComputeMixin(MIXIN_BASE):
     def chain(self, *args, **kwargs):
         return chain_base(self, *args, **kwargs)
     chain.__doc__ = chain_base.__doc__
+
+    def chain_remote(self, *args, **kwargs) -> Plottable:
+        return chain_remote_base(self, *args, **kwargs)
+    chain_remote.__doc__ = chain_remote_base.__doc__
+
+    def chain_remote_shape(self, *args, **kwargs) -> pd.DataFrame:
+        return chain_remote_shape_base(self, *args, **kwargs)
+    chain_remote_shape.__doc__ = chain_remote_shape_base.__doc__
+
+    def python_remote_g(self, *args, **kwargs) -> Any:
+        return python_remote_g_base(self, *args, **kwargs)
+    python_remote_g.__doc__ = python_remote_g_base.__doc__
+
+    def python_remote_table(self, *args, **kwargs) -> Any:
+        return python_remote_table_base(self, *args, **kwargs)
+    python_remote_table.__doc__ = python_remote_table_base.__doc__
+
+    def python_remote_json(self, *args, **kwargs) -> Any:
+        return python_remote_json_base(self, *args, **kwargs)
+    python_remote_json.__doc__ = python_remote_json_base.__doc__
