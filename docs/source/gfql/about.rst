@@ -11,6 +11,7 @@ In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn
 - Chain multiple hops and apply predicates.
 - Leverage automatic GPU acceleration.
 - Integrate GFQL into your existing Python workflows.
+- Run GFQL and Python on remote GPUs and remote data.
 
 Let's dive in!
 
@@ -271,6 +272,68 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 
 - Filters nodes where `pagerank > 0.1`.
 - Visualizes the subgraph consisting of high PageRank nodes.
+
+10. Run remotely
+
+You may want to run GFQL remotely because the data is remote or a GPU is available remotely:
+
+**Example: Run GFQL remotely**
+
+::
+
+    from graphistry import n, e
+
+    g2 = g1.chain_remote([n(), e(), n()])
+
+**Example: Run GFQL remotely, and decouple the upload step**
+
+::
+
+    from graphistry import n, e
+
+    g2 = g1.upload()
+    assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
+    g3 = g2.chain_remote([n(), e(), n()])
+
+Additional parameters enable controlling options such as the execution `engine` and what is returned 
+
+**Example: Bind to existing remote data and fetch it**
+
+::
+
+    import graphistry
+    from graphistry import n
+
+    g2 = graphistry.bind(dataset_id='my-dataset-id')
+
+    nodes_df = g2.chain_remote([n()])._nodes
+    edges_df = g2.chain_remote([e()])._edges
+
+**Example: Run Python on remote GPUs over remote data**
+
+::
+
+    def compute_shape(g):
+        g2 = g.materialize_nodes()
+        return {
+            'nodes': g2._nodes.shape,
+            'edges': g2._edges.shape
+        }
+
+    g = graphistry.bind(dataset_id='my-dataset-id')
+    print(g.python_remote_json(compute_shape))
+
+**Example: Run Python on remote GPUs and return a graph**
+
+::
+
+        def compute_shape(g):
+            g2 = g.materialize_nodes()
+            return g2
+    
+        g = graphistry.bind(dataset_id='my-dataset-id')
+        g2 = g.python_remote_g(compute_shape)
+        print(g2._nodes)
 
 Conclusion and Next Steps
 -------------------------
