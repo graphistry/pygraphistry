@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.1 - 2024-12-11]
+
+### Fixes
+
+* Fix broken imports in new GFQL remote mode
+
 ## [0.35.0 - 2024-12-10]
 
 ### Docs
