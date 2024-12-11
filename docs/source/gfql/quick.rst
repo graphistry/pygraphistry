@@ -222,6 +222,106 @@ GPU Acceleration
       g = graphistry.nodes(n_gdf, 'node_id').edges(e_gdf, 'src', 'dst')
       g.chain([...], engine='cudf')
 
+Remote Mode
+-----------
+
+- **Query existing remote data**
+
+  .. code-block:: python
+
+      g = graphistry.bind(dataset_id='ds-abc-123')
+
+      nodes_df = g.chain_remote([n()])._nodes
+
+- **Upload graph and run GFQL**
+
+  .. code-block:: python
+
+      g2 = g1.upload()
+
+      g3 = g2.chain_remote([n(), e(), n()])
+
+- **Enforce CPU and GPU mode on remote GFQL**
+
+  .. code-block:: python
+
+      g3a = g2.chain_remote([n(), e(), n()], engine='pandas') 
+      g3b = g2.chain_remote([n(), e(), n()], engine='cudf')
+
+- **Return only nodes and certain columns**
+
+  .. code-block:: python
+
+      cols = ['id', 'name']
+      g2b = g1.chain_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
+
+- **Return only edges and certain columns**
+
+  .. code-block:: python
+
+      cols = ['src', 'dst']
+      g2b = g1.chain_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
+
+- **Return only shape metadata**
+
+  .. code-block:: python
+
+      shape_df = g1.chain_remote_shape([n(), e(), n()])
+
+- **Run remote Python and get back a graph**
+
+  .. code-block:: python
+
+      def my_remote_trim_graph_task(g):
+          return (g
+              .nodes(g._nodes[:10])
+              .edges(g._edges[:10])
+          )
+
+      g2 = g1.upload()
+      g3 = g2.python_remote_g(my_remote_trim_graph_task)
+
+- **Run remote Python and get back a table**
+
+  .. code-block:: python
+
+      def first_n_edges(g):
+          return g._edges[:10]
+
+      some_edges_df = g.python_remote_table(first_n_edges)
+
+- **Run remote Python and get back JSON**
+
+  .. code-block:: python
+
+      def first_n_edges(g):
+          return g._edges[:10].to_json()
+
+      some_edges_json = g.python_remote_json(first_n_edges)
+
+- **Run remote Python and ensure runs on CPU or GPU**
+
+  .. code-block:: python
+
+      g3a = g2.python_remote_g(my_remote_trim_graph_task, engine='pandas')
+      g3b = g2.python_remote_g(my_remote_trim_graph_task, engine='cudf')
+
+- **Run remote Python, passing as a string**
+
+  .. code-block:: python
+
+      g2 = g1.upload()
+
+      # ensure method is called "task" and takes a single argument "g"
+      g3 = g2.chain_remote_python("""
+          def task(g):
+              return (g
+                  .nodes(g._nodes[:10])
+                  .edges(g._edges[:10])
+              )
+          my_remote_trim_graph_task(g)
+      """)
+
 Advanced Usage
 --------------
 
