@@ -3,7 +3,7 @@
 GFQL Remote Mode
 ====================
 
-You can run GFQL queries remotely, such as when data is already remote, gets big, or you would like to use a remote GPU
+You can run GFQL queries and GPU Python remotely, such as when data is already remote, gets big, or you would like to use a remote GPU
 
 Basic Usage
 -----------
@@ -86,8 +86,9 @@ If data is already uploaded and your user has access to it, such as from a previ
     g1 = graphistry.bind(dataset_id='abc123')
     assert g1._nodes is None, "Binding does not fetch data"
 
-    g2 = g1.chain_remote([n(), e(), n()])
-    print(g2._nodes.shape)
+    connected_graph_g = g1.chain_remote([n(), e()])
+    connected_nodes_df = connected_graph_g._nodes
+    print(connected_nodes_df.shape)
 
 
 Download less
@@ -143,4 +144,51 @@ Return metadata but not the actual graph
     shape_df = g1.chain_remote_shape([n(), e(), n()])
     assert len(shape_df) == 2
     print(shape_df)
+
+Remote Python
+--------------
+
+You can also run full GPU Python tasks remotely, such as for more complicated code, or if you want the server itself to perform fetching such as from a database.
+
+Run remote python on the current graph
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    import graphistry
+    from graphistry import n, e
+
+    # Fully self-contained so can be transferred
+    def my_remote_trim_graph_task(g):
+
+        # Trick: You can also put database fetch calls here instead of using 'g'!
+        return (g
+            .nodes(g._nodes[:10])
+            .edges(g._edges[:10])
+        )
+
+    # Upload any local graph data to the remote server
+    g2 = g1.upload()
+
+    g3 = g2.chain_remote_python(my_remote_trim_graph_task)
+
+    assert len(g3._nodes) == 10
+    assert len(g3._edges) == 10
+
+
+Run Python on an existing graph, return a table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+  import graphistry
+
+  g = graphistry.bind(dataset_id='ds-abc-123')
+
+  def first_n_edges(g):
+      return g._edges[:10]
+
+  some_edges_df = g.remote_python_table(first_n_edges)
+
+  assert len(some_edges_df) == 10
 
