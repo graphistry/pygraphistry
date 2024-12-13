@@ -192,3 +192,19 @@ Run Python on an existing graph, return a table
 
   assert len(some_edges_df) == 10
 
+
+Run Python on an existing graph, return JSON
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+  import graphistry
+
+  g = graphistry.bind(dataset_id='ds-abc-123')
+
+  def first_n_edges_shape(g):
+      return {'num_edges': len(g._edges[:10])}
+
+  obj = g.remote_python_json(first_n_edges_shape)
+
+  assert obj['num_edges'] == 10
