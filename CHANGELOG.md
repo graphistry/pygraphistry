@@ -6,6 +6,9 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+### Docs
+
+* Update Python remote mode notebook: Fixed engine results
 
 ## [0.35.1 - 2024-12-11]
 
