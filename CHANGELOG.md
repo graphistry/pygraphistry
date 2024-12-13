@@ -6,6 +6,13 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+
+### Docs
+
+* Rename CONTRIBUTE.md to CONTRIBUTING.md to match OSS standards (snyk)
+
+## [0.35.2 - 2024-12-13]
+
 ### Docs
 
 * Python remote mode notebook: Fixed engine results
