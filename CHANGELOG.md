@@ -8,7 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 ### Docs
 
-* Update Python remote mode notebook: Fixed engine results
+* Python remote mode notebook: Fixed engine results
+* Python remote mode: Add JSON example
 
 ## [0.35.1 - 2024-12-11]
 
