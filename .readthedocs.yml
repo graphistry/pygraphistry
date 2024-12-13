@@ -26,7 +26,7 @@ build:
     - cp -r demos docs/source/demos
     - cp README.md docs/source/README.md
     - cp ARCHITECTURE.md docs/source/ARCHITECTURE.md
-    - cp CONTRIBUTE.md docs/source/CONTRIBUTE.md
+    - cp CONTRIBUTING.md docs/source/CONTRIBUTING.md
     - cp DEVELOP.md docs/source/DEVELOP.md
 
     # build html

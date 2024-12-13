@@ -15,6 +15,6 @@
    support
    ecosystem
    ARCHITECTURE.md
-   CONTRIBUTE.md
+   CONTRIBUTING.md
    DEVELOP.md
 
