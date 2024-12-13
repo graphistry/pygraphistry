@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.3 - 2024-12-13]
+
 ### Docs
 
 * Rename CONTRIBUTE.md to CONTRIBUTING.md to match OSS standards (snyk)
