@@ -12,6 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Rename CONTRIBUTE.md to CONTRIBUTING.md to match OSS standards (snyk)
 * setup.py: add project_urls
 * Add FUNDING.md
+* Add CODE_OF_CONDUCT.md
 
 ## [0.35.2 - 2024-12-13]
 
