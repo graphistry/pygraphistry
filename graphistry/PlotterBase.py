@@ -38,6 +38,7 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
+from .database_clients.spannergraph import spannergraph
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -176,6 +177,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
+        self._spannergraph : Any = None
 
         # feature engineering
         self._node_embedding = None
