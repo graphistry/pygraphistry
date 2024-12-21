@@ -1824,6 +1824,23 @@ class PyGraphistry(object):
             protocol, server, web_port, api_port, db, user, pwd, verbose
         )
 
+
+    @staticmethod
+    def spannergraph(project_id, instance_id, database_id):
+        """
+        Create a new PlotterBase instance with SpannerGraph configured.
+
+        Args:
+            project_id (str): Google Cloud project ID.
+            instance_id (str): Spanner instance ID.
+            database_id (str): Spanner database ID.
+
+        Returns:
+            PlotterBase: A PlotterBase instance configured with SpannerGraph.
+        """
+        return Plotter().spannergraph(project_id, instance_id, database_id)
+
+
     @staticmethod
     def gsql_endpoint(
         self, method_name, args={}, bindings=None, db=None, dry_run=False
@@ -2485,6 +2502,7 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
+spannergraph = PyGraphistry.spannergraph
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin
