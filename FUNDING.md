@@ -8,6 +8,7 @@ If your organization uses PyGraphistry or benefits from GPU-accelerated analytic
 
 - Email: [oss@graphistry.com](mailto:oss@graphistry.com)
 - Website: [Graphistry Sponsorship](https://www.graphistry.com)
+- Social: Say hello and stay connected via the [community Slack](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g), [Twitter](https://twitter.com/graphistry) account, & [LinkedIn](https://www.linkedin.com/company/graphistry)
 
 ## Why Support PyGraphistry?
 
