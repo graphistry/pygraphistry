@@ -435,3 +435,26 @@ def test_preds_more_pd_2():
     )
     assert len(g2._nodes) == 2
     assert set(g2._nodes[g._node].tolist()) == set(['b2', 'c2'])
+
+
+def test_chain_binding_reuse():
+    edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+    nodes1_df = pd.DataFrame({'v': ['a', 'b', 'c']})
+    nodes2_df = pd.DataFrame({'s': ['a', 'b', 'c']})
+    nodes3_df = pd.DataFrame({'d': ['a', 'b', 'c']})
+    
+    g1 = CGFull().nodes(nodes1_df, 'v').edges(edges_df, 's', 'd')
+    g2 = CGFull().nodes(nodes2_df, 's').edges(edges_df, 's', 'd')
+    g3 = CGFull().nodes(nodes3_df, 'd').edges(edges_df, 's', 'd')
+
+    try:
+        g1_hop = g1.chain([n(), e(), n()])
+        g2_hop = g2.chain([n(), e(), n()])
+        g3_hop = g3.chain([n(), e(), n()])
+    except NotImplementedError:
+        return
+
+    assert g1_hop._nodes.shape == g2_hop._nodes.shape
+    assert g1_hop._edges.shape == g2_hop._edges.shape
+    assert g1_hop._nodes.shape == g3_hop._nodes.shape
+    assert g1_hop._edges.shape == g3_hop._edges.shape
