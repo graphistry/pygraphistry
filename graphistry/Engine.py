@@ -7,10 +7,10 @@ from graphistry.utils.lazy_import import lazy_cudf_import
 
 
 class Engine(Enum):
-    PANDAS : str = 'pandas'
-    CUDF : str = 'cudf'
-    DASK : str = 'dask'
-    DASK_CUDF : str = 'dask_cudf'
+    PANDAS = 'pandas'
+    CUDF = 'cudf'
+    DASK = 'dask'
+    DASK_CUDF = 'dask_cudf'
 
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
