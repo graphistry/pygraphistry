@@ -6,6 +6,11 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+
+### Fixes
+
+* Hop: Detect #614 of node id column name colliding with edge src/dst id column name and raise `NotImplementedError`
+
 ### Docs
 
 * Python remote mode notebook: Fixed engine results

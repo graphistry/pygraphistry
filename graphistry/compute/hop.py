@@ -116,6 +116,11 @@ def hop(self: Plottable,
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
     logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
+    if g2._node == g2._source:
+        raise NotImplementedError(f'Not supported: Node id column cannot currently have the same name as edge src column: {g2._node}')
+    if g2._node == g2._destination:
+        raise NotImplementedError(f'Not supported: Node id column cannot currently have the same name as edge dst column: {g2._node}')
+
     starting_nodes = nodes if nodes is not None else g2._nodes
 
     if g2._edge is None:
