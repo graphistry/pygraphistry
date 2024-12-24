@@ -1,11 +1,11 @@
 import os
 import pandas as pd
-from graphistry.compute.predicates.is_in import is_in
-from graphistry.compute.predicates.numeric import gt
 import pytest
 
-from graphistry.compute.ast import ASTNode, ASTEdge, n, e, e_undirected, e_forward
+from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward
 from graphistry.compute.chain import Chain
+from graphistry.compute.predicates.is_in import IsIn, is_in
+from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
 
 
@@ -297,6 +297,25 @@ def test_chain_serialization_pred():
     assert d.chain[1]._name == 'abc'
     o2 = d.to_json()
     assert o == o2
+
+def test_chain_serialize_pred_is_in():
+
+    #from graphistry.compute.chain import Chain
+    #from graphistry import e_undirected, is_in
+    o = Chain([
+        e_undirected(
+            hops=1,
+            edge_match={"source": is_in(options=[
+                "Oakville Square",
+                "Maplewood Square"
+            ])})
+    ]).to_json()
+    d = Chain.from_json(o)
+    assert isinstance(d.chain[0], ASTEdgeUndirected), f'got: {type(d.chain[0])}'
+    assert d.chain[0].direction == 'undirected'
+    assert d.chain[0].hops == 1
+    assert isinstance(d.chain[0].edge_match['source'], IsIn)
+    assert d.chain[0].edge_match['source'].options == ['Oakville Square', 'Maplewood Square']
 
 def test_chain_simple_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
