@@ -16,6 +16,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Add FUNDING.md
 * Add CODE_OF_CONDUCT.md
 
+### Feat
+
+* GFQL serialization: Edge AST node deserializes as more precise `ASTEdge` subclasses
+
+### Fixes
+
+* GFQL Hop: Detect #614 of node id column name colliding with edge src/dst id column name and raise `NotImplementedError`
+* MyPy: Remove explicit type annotation from Engine
+
 ## [0.35.2 - 2024-12-13]
 
 ### Docs

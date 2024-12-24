@@ -415,6 +415,28 @@ class TestMultiHopForward():
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == []
 
 
+def test_hop_binding_reuse():
+    edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+    nodes1_df = pd.DataFrame({'v': ['a', 'b', 'c']})
+    nodes2_df = pd.DataFrame({'s': ['a', 'b', 'c']})
+    nodes3_df = pd.DataFrame({'d': ['a', 'b', 'c']})
+    
+    g1 = CGFull().nodes(nodes1_df, 'v').edges(edges_df, 's', 'd')
+    g2 = CGFull().nodes(nodes2_df, 's').edges(edges_df, 's', 'd')
+    g3 = CGFull().nodes(nodes3_df, 'd').edges(edges_df, 's', 'd')
+
+    try:
+        g1_hop = g1.hop()
+        g2_hop = g2.hop()
+        g3_hop = g3.hop()
+    except NotImplementedError:
+        return
+
+    assert g1_hop._nodes.shape == g2_hop._nodes.shape
+    assert g1_hop._edges.shape == g2_hop._edges.shape    
+    assert g1_hop._nodes.shape == g3_hop._nodes.shape
+    assert g1_hop._edges.shape == g3_hop._edges.shape    
+
 def test_hop_simple_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
