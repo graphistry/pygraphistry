@@ -7,9 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Feat
+
+* GFQL chain edge AST node deserialization as more precise `ASTEdge` subclasses
+
 ### Fixes
 
 * Hop: Detect #614 of node id column name colliding with edge src/dst id column name and raise `NotImplementedError`
+* MyPy: Remove explicit type annotation from Engine
 
 ### Docs
 
