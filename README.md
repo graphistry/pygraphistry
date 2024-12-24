@@ -207,5 +207,5 @@ Explore [10 Minutes to PyGraphistry](https://pygraphistry.readthedocs.io/en/late
 
 ## Contribute
 
-See [CONTRIBUTE](https://pygraphistry.readthedocs.io/en/latest/CONTRIBUTE.html) and [DEVELOP](https://pygraphistry.readthedocs.io/en/latest/DEVELOP.html) for participating in PyGraphistry development, or reach out to our team
+See [CONTRIBUTING](https://pygraphistry.readthedocs.io/en/latest/CONTRIBUTING.html) and [DEVELOP](https://pygraphistry.readthedocs.io/en/latest/DEVELOP.html) for participating in PyGraphistry development, or reach out to our team
 
