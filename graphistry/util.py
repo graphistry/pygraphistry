@@ -10,7 +10,7 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
