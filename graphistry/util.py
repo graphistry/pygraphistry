@@ -211,7 +211,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None):
         )
 
     iframe = """
-            <iframe id="%s"
+            <iframe id="%s" src="%s"
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
                     style="%s"
