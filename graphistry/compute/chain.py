@@ -1,6 +1,5 @@
 import logging
-from typing import Any, Dict, Union, cast, List, Tuple, TYPE_CHECKING
-import pandas as pd
+from typing import Dict, Union, cast, List, Tuple
 from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 
 from graphistry.Plottable import Plottable

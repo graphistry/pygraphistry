@@ -2,10 +2,10 @@
 
 import copy, datetime as dt, graphistry, os, pandas as pd, pyarrow as pa, pytest
 
-from common import NoAuthTestCase
 from mock import patch
+from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import NODE
-from graphistry.tests.test_hyper_dask import assertFrameEqualDask
+
 
 maybe_cudf = None
 if "TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1":

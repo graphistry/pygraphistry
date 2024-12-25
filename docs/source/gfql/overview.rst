@@ -24,6 +24,7 @@ Key Features
 - **Ease of Use**: Install via `pip` and start querying without the need for external databases.
 - **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
 - **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
+- **Architectural Freedom**: Use GFQL with your dataframes on your local CPU/GPU, or offload to a remote GPU cluster.
 
 Installation Guide
 ~~~~~~~~~~~~~~~~~~~
@@ -50,6 +51,7 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 - **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
+- **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
 
 Quick Examples
 ~~~~~~~~~~~~~~~
@@ -160,6 +162,52 @@ Example: Explicitly set the engine to ensure GPU execution.
 .. code-block:: python
 
     g_result = g_gpu.chain([ ... ], engine='cudf')
+
+Run Remotely
+~~~~~~~~~~~~~
+
+You may want to run GFQL remotely such as if the data is remote, e.g., in Hub or cloud storage, and you have faster remote GPU servers for acting on it.
+
+**Bind to Remote Data and Query**
+
+Example: Bind to remote data and run queries on remote GPU resources.
+
+.. code-block:: python
+
+    import graphistry
+    from graphistry import n, e
+
+    g = graphistry.bind(dataset_id='my-dataset-id')
+
+    nodes_df = g.chain_remote([ n() ])._nodes
+
+**Upload Data and Run GPU Python Remotely**
+
+Example: Upload local data to a remote GPU server and run full GPU Python tasks on it.
+
+.. code-block:: python
+
+    import graphistry
+    from graphistry import n, e
+
+    # Fully self-contained so can be transferred
+    def my_remote_trim_graph_task(g):
+        # Trick: You can also put database fetch calls here!
+        return (g
+            .nodes(g._nodes[:10])
+            .edges(g._edges[:10])
+        )
+
+    # Upload any local graph data to the remote server
+    g2 = g1.upload()
+    print(g2._dataset_id, g2._nodes_file_id, g2._edges_file_id)
+
+    # Compute on it locally
+    g_result = g2.python_remote_g(my_remote_trim_graph_task)
+    print('Number of resulting edges:', len(g_result._edges))
+
+See also `python_remote_table()` and `python_remote_json()` for returning other types of data.
+
 
 Visualizing GFQL Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~

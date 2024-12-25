@@ -1,5 +1,6 @@
-from graphistry.Plottable import Plottable
+from graphistry.Plottable import Plottable, RenderModes
 from typing import Any, Callable, Dict, List, Optional, Union
+from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -165,6 +166,13 @@ class PlotterBase(Plottable):
             'node_encodings': {'current': {}, 'default': {} },
             'edge_encodings': {'current': {}, 'default': {} }
         }
+
+        # Upload
+        self._dataset_id : Optional[str] = None
+        self._url : Optional[str] = None
+        self._nodes_file_id : Optional[str] = None
+        self._edges_file_id : Optional[str] = None
+
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
@@ -824,60 +832,95 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, node=None, edge=None,
-             edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
-             edge_source_color=None, edge_destination_color=None,
-             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
-             point_x=None, point_y=None):
+    def bind(self,
+            source: Optional[str] = None,
+            destination: Optional[str] = None,
+            node: Optional[str] = None,
+            edge: Optional[str] = None,
+            edge_title: Optional[str] = None,
+            edge_label: Optional[str] = None,
+            edge_color: Optional[str] = None,
+            edge_weight: Optional[str] = None,
+            edge_size: Optional[str] = None,
+            edge_opacity: Optional[str] = None,
+            edge_icon: Optional[str] = None,
+            edge_source_color: Optional[str] = None,
+            edge_destination_color: Optional[str] = None,
+            point_title: Optional[str] = None,
+            point_label: Optional[str] = None,
+            point_color: Optional[str] = None,
+            point_weight: Optional[str] = None,
+            point_size: Optional[str] = None,
+            point_opacity: Optional[str] = None,
+            point_icon: Optional[str] = None,
+            point_x: Optional[str] = None,
+            point_y: Optional[str] = None,
+            dataset_id: Optional[str] = None,
+            url: Optional[str] = None,
+            nodes_file_id: Optional[str] = None,
+            edges_file_id: Optional[str] = None,
+        ) -> Plottable:
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
         :param source: Attribute containing an edge's source ID
-        :type source: str
+        :type source: Optional[str]
 
         :param destination: Attribute containing an edge's destination ID
-        :type destination: str
+        :type destination: Optional[str]
 
         :param node: Attribute containing a node's ID
-        :type node: str
+        :type node: Optional[str]
 
         :param edge: Attribute containing an edge's ID
-        :type edge: str
+        :type edge: Optional[str]
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
-        :type edge_title: str
+        :type edge_title: Optional[str]
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type edge_label: str
+        :type edge_label: Optional[str]
 
         :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type edge_color: str
+        :type edge_color: Optional[str]
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
-        :type edge_source_color: str
+        :type edge_source_color: Optional[str]
 
         :param edge_destination_color: Attribute overriding edge's destination color if no edge_color, as an rgba int64 value.
-        :type edge_destination_color: str
+        :type edge_destination_color: Optional[str]
 
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
-        :type edge_weight: str
+        :type edge_weight: Optional[str]
 
         :param point_title: Attribute overriding node's minimized label text. By default, the node ID is used.
-        :type point_title: str
+        :type point_title: Optional[str]
 
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type point_label: str
+        :type point_label: Optional[str]
 
         :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type point_color: str
+        :type point_color: Optional[str]
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
-        :type point_size: str
+        :type point_size: Optional[str]
 
         :param point_x: Attribute overriding node's initial x position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_x: str
+        :type point_x: Optional[str]
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_y: str
+        :type point_y: Optional[str]
+
+        :param dataset_id: Remote dataset id
+        :type dataset_id: Optional[str]
+
+        :param url: Remote dataset URL
+        :type url: Optional[str]
+
+        :param nodes_file_id: Remote nodes file id
+        :type nodes_file_id: Optional[str]
+
+        :param edges_file_id: Remote edges file id
+        :type edges_file_id: Optional[str]
 
         :returns: Plotter
         :rtype: Plotter
@@ -952,6 +995,10 @@ class PlotterBase(Plottable):
         res._point_icon = point_icon or self._point_icon
         res._point_x = point_x or self._point_x
         res._point_y = point_y or self._point_y
+        res._dataset_id = dataset_id or self._dataset_id
+        res._url = url or self._url
+        res._nodes_file_id = nodes_file_id or self._nodes_file_id
+        res._edges_file_id = edges_file_id or self._edges_file_id
         
         return res
 
@@ -1028,7 +1075,13 @@ class PlotterBase(Plottable):
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
-            
+
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
+
         return res
 
     def name(self, name):
@@ -1052,7 +1105,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
+    def edges(self: Plottable, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -1133,6 +1186,13 @@ class PlotterBase(Plottable):
         else:
             res = copy.copy(base)
             res._edges = edges
+
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
+
         return res
 
     def pipe(self, graph_transform: Callable, *args, **kwargs) -> Plottable:
@@ -1178,6 +1238,11 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
+        if res._dataset_id is not None:
+            res._dataset_id = None
+            res._url = None
+            res._nodes_file_id = None
+            res._edges_file_id = None
         return res
 
 
@@ -1200,7 +1265,7 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render is None else render
+        res._render = self._render if render is None else resolve_render_mode(self, render)
         return res
 
 
@@ -1313,9 +1378,93 @@ class PlotterBase(Plottable):
             res._privacy['message'] = message
         return res
 
+    def server(self, v: Optional[str] = None) -> str:
+        """
+        Get or set the server basename, e.g., "hub.graphistry.com"
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['server'] = v
+        return PyGraphistry._config['server']
+    
+    def protocol(self, v: Optional[str] = None) -> str:
+        """
+        Get or set the server protocol, e.g., "https"
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['protocol'] = v
+        return PyGraphistry._config['protocol']
+    
+    def client_protocol_hostname(self, v: Optional[str] = None) -> str:
+        """
+        Get or set the client protocol and hostname, e.g., "https://hub.graphistry.com" .
+
+        By default, uses {protocol()}://{server()}. Typically used when public browser routes are different from backend server routes, e.g., enterprise WAF routes for browser use and internal firewalls routes for server use.
+
+        Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.        
+        """
+        from .pygraphistry import PyGraphistry
+        if v is not None:
+            PyGraphistry._config['client_protocol_hostname'] = v
+        return PyGraphistry._config['client_protocol_hostname']
+    
+    def base_url_server(self, v: Optional[str] = None) -> str:
+        from .pygraphistry import PyGraphistry
+        return "%s://%s" % (PyGraphistry.protocol(), PyGraphistry.server())
+    
+    def base_url_client(self, v: Optional[str] = None) -> str:
+        from .pygraphistry import PyGraphistry
+        return PyGraphistry.client_protocol_hostname()
+
+    def upload(
+        self,
+        memoize: bool = True,
+        validate: bool = True
+    ) -> Plottable:
+        """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
+
+        Uses the currently bound schema structure and visual encodings.
+        Optional parameters override the current bindings.
+
+        Upon successful upload, returned `Plottable` will have set the fields `dataset_id`, `url`, `edges_file_id`, and if applicable, `nodes_file_id`.
+
+        :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default true.
+        :type memoize: bool
+
+        :param validate: Controls validations, including those for encodings. Default true.
+        :type validate: bool
+
+        **Example: Simple**
+            ::
+
+                import graphistry
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g1 = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+                g2 = g1.upload()
+                print(f'dataset id: {g2._dataset_id}, url: {g2._url}')
+        """
+        return self.plot(
+            render='g',
+            as_files=True,
+            memoize=memoize,
+            validate=validate
+        )
 
     def plot(
-        self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True,
+        self,
+        graph=None,
+        nodes=None,
+        name=None,
+        description=None,
+        render: Optional[Union[bool, RenderModes]] = "auto",
+        skip_upload=False, as_files=False, memoize=True,
         extra_html="", override_html_style=None, validate: bool = True
     ):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
@@ -1337,8 +1486,8 @@ class PlotterBase(Plottable):
         :param description: Upload description.
         :type description: str
 
-        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: bool
+        :param render: Whether to render the visualization using the native environment (default "auto", True), a URL ("url", False, None), a PyGraphistry Plottable ("g"), thon object ("ipython"), interactive Databricks object ("databricks"), or open a local web browser ("browser"). If _render is set via .settings(), and set to None, use _render.
+        :type render: Optional[Union[bool, RenderModes]] = "auto"
 
         :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
         :type skip_upload: bool
@@ -1396,6 +1545,7 @@ class PlotterBase(Plottable):
         # from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
         logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+        dataset: Optional[ArrowUploader] = None
         if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
@@ -1419,7 +1569,8 @@ class PlotterBase(Plottable):
                 PyGraphistry.refresh()
             logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
-            dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
+            dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
+            assert dataset is not None
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
@@ -1435,17 +1586,36 @@ class PlotterBase(Plottable):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if (render is False) or ((render is None) and not self._render):
+        render_mode = resolve_render_mode(self, render)
+        if render_mode == "url":
             return full_url
-        elif (render is True) or in_ipython():
+        elif render_mode == "ipython":
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style))
-        elif in_databricks():
+        elif render_mode == "databricks":
             return make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style)
-        else:
+        elif render_mode == "browser":
             import webbrowser
             webbrowser.open(full_url)
             return full_url
+        elif render_mode == "g":
+            g = self.bind()
+            g._name = name
+            g._description = description
+            if dataset is not None:
+                g._dataset_id = dataset.dataset_id
+                if as_files:
+                    assert isinstance(dataset, ArrowUploader)
+                    try:
+                        g._nodes_file_id = dataset.nodes_file_id
+                    except:
+                        # tolerate undefined
+                        g._nodes_file_id = None
+                    g._edges_file_id = dataset.edges_file_id
+                g._url = full_url
+            return g
+        else:
+            raise ValueError(f"Unexpected render mode resolution: {render_mode}")
 
     def from_igraph(self,
         ig,
@@ -1779,6 +1949,10 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True):
+        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize)
+        assert isinstance(out, ArrowUploader)
+        return out
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
@@ -2157,7 +2331,7 @@ class PlotterBase(Plottable):
         raise ValueError('Could not find a label-like node column and no g._node id fallback set')
 
 
-    def cypher(self, query: str, params: Dict[str, Any] = {}) -> 'PlotterBase':
+    def cypher(self, query: str, params: Dict[str, Any] = {}) -> Plottable:
         """
         Execute a Cypher query against a Neo4j, Memgraph, or Amazon Neptune database and retrieve the results.
 

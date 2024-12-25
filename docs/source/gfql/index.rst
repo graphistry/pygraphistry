@@ -13,6 +13,7 @@ See also:
 
    about
    overview
+   remote
    GFQL CPU & GPU Acceleration <performance>
    translate
    combo

@@ -12,9 +12,57 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixes
 * Fix refresh function does not reset some variable in memory that cause weird behavior
 
+## [0.35.3 - 2024-12-24]
+
+### Docs
+
+* Rename CONTRIBUTE.md to CONTRIBUTING.md to match OSS standards (snyk)
+* setup.py: add project_urls
+* Add FUNDING.md
+* Add CODE_OF_CONDUCT.md
+
+### Feat
+
+* GFQL serialization: Edge AST node deserializes as more precise `ASTEdge` subclasses
+
+### Fixes
+
+* GFQL Hop: Detect #614 of node id column name colliding with edge src/dst id column name and raise `NotImplementedError`
+* MyPy: Remove explicit type annotation from Engine
+
+## [0.35.2 - 2024-12-13]
+
+### Docs
+
+* Python remote mode notebook: Fixed engine results
+* Python remote mode: Add JSON example
+
+## [0.35.1 - 2024-12-11]
+
+### Fixes
+
+* Fix broken imports in new GFQL remote mode
+
+## [0.35.0 - 2024-12-10]
+
 ### Docs
 
 * New tutorial on GPU memory management and capacity planning in the GPU section
+* New tutorial on remote-mode GFQL
+* New tutorial on remote-mode Python
+
+### Feat
+
+* `plot(render=)` supports literal-typed mode values: `"auto"`, `"g"`, `"url"`, `"ipython"`, `"databricks"`, where `"g"` is a new Plottable
+* Remote metadata: Expose and track uploaded `._dataset_id`, `._url`, `._nodes_file_id`, and `._edges_file_id`
+* Remote upload: Factor out explicit upload method `g2 = g1.upload(); assert all([g2._dataset_id, g2._nodes_file_id, g2._edges_file_id])` from plot interface
+* Remote dataset: Remote dataset binding via `g1 = graphistry.bind(dataset_id='abc123')`
+* Remote GFQL: Remote GFQL calls via `g2 = g1.chain_remote([...])` and `meta_df = g1.chain_remote_shape([...])`
+* Remote GPU Python: Remote Python calls via `g2 = g1.python_remote_g(...)`, `python_remote_table()`, and `python_remote_json()` for different return types
+
+### Changed
+
+* `plot(render=)` now `Union[bool, RenderMode]`, not just `bool` 
 
 * Documentation changed for databricks related docs
 

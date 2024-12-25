@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt, logging, numpy as np, os, pandas as pd, pyarrow as pa, pytest
-from common import NoAuthTestCase
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.Engine import Engine, DataframeLike
 from graphistry.hyper_dask import HyperBindings, hypergraph
+from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_hypergraph import (
     triangleNodes,
     assertFrameEqual,

@@ -1752,6 +1752,7 @@ class PyGraphistry(object):
         point_opacity=None,
         point_x=None,
         point_y=None,
+        dataset_id=None
     ):
         """Create a base plotter.
 
@@ -1791,6 +1792,7 @@ class PyGraphistry(object):
             point_opacity=point_opacity,
             point_x=point_x,
             point_y=point_y,
+            dataset_id=dataset_id
         )
 
     @staticmethod
