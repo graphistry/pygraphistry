@@ -10,7 +10,7 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
@@ -181,7 +181,7 @@ def display_message_html(message: str, cleared: Optional[bool] = False):
     display(HTML(message))
 
 
-def make_iframe(url, height, extra_html="", override_html_style=None, srcdoc: Optional[str] = None):
+def make_iframe(url, height, extra_html="", override_html_style=None):
     id = uuid.uuid4()
 
     height_str = (
@@ -211,7 +211,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None, srcdoc: Op
         )
 
     iframe = """
-            <iframe id="%s" src="%s" {srcdoc}
+            <iframe id="%s"
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
                     style="%s"
