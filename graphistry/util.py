@@ -10,7 +10,7 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
@@ -171,6 +171,14 @@ def check_set_memoize(
         cache_coercion(hashed, w)
         weakref[hashed] = w
     return False
+
+def display_message_html(message: str, cleared: Optional[bool] = False):
+    from IPython.display import display, HTML, clear_output
+
+    if cleared:
+        clear_output()
+
+    display(HTML(message))
 
 
 def make_iframe(url, height, extra_html="", override_html_style=None):
