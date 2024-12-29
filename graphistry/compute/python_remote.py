@@ -135,7 +135,7 @@ def python_remote_generic(
         "engine": engine,
         **({"run_label": run_label} if run_label else {}),
         **({'format': format} if format != 'json' else {}),
-        **({'output_type': output_type} if output_type != 'json' else {})
+        **({'output_type': output_type} if output_type is not None and output_type != 'json' else {})
     }
 
     url = f"{self.base_url_server()}/api/v2/datasets/{dataset_id}/python"
