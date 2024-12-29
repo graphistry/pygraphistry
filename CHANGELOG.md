@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.4 - 2024-12-28]
+
+### Fixes
+
+* `Plottable._render` now typed as `RenderModesConcrete`
+* Remote GFQL - Handle `output_type is None` 
+
 ## [0.35.3 - 2024-12-24]
 
 ### Docs

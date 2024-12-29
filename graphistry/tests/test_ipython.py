@@ -1,6 +1,7 @@
 import graphistry, IPython
 from common import NoAuthTestCase
 from mock import patch
+from graphistry.render.resolve_render_mode import resolve_cascaded
 from graphistry.tests.test_plotter import Fake_Response, triangleEdges
 
 
@@ -10,6 +11,7 @@ class TestPlotterReturnValue(NoAuthTestCase):
 
     @patch("graphistry.render.resolve_render_mode.in_ipython")
     def test_no_ipython(self, mock_in_ipython, mock_post, mock_open):
+        resolve_cascaded.cache_clear()
         mock_in_ipython.return_value = False
         url = graphistry.bind(source="src", destination="dst").plot(triangleEdges, render="browser")
         self.assertIn("fakedatasetname", url)
@@ -19,6 +21,7 @@ class TestPlotterReturnValue(NoAuthTestCase):
 
     @patch("graphistry.render.resolve_render_mode.in_ipython")
     def test_ipython(self, mock_in_ipython, mock_post, mock_open):
+        resolve_cascaded.cache_clear()
         mock_in_ipython.return_value = True
 
         # The setUpClass in NoAuthTestCase only run once, so, reset the _is_authenticated to True here
