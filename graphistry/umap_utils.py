@@ -93,6 +93,8 @@ def make_safe_gpu_dataframes(X, y, engine):
             y = y.loc[:, ~y.columns.duplicated()]
         except:
             pass
+        if y is not None:
+            X = X.loc[:, ~X.columns.isin(y.columns)]
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():

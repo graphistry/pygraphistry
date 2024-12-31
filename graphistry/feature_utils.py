@@ -2165,6 +2165,8 @@ class FeatureMixin(MIXIN_BASE):
         return g
 
     def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame], scaled):
+        if ydf is not None:
+            df = df.drop(columns=ydf.columns.intersection(df.columns))
         if getattr(self, encoder) is not None:
             if scaled:
                 return getattr(self, encoder).transform_scaled(df, ydf)
@@ -2211,6 +2213,9 @@ class FeatureMixin(MIXIN_BASE):
             df = df.to_pandas()  # type: ignore
         if (y is not None) and ('cudf' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
+
+        if y is not None:
+            df = df.drop(columns=y.columns.intersection(df.columns))
 
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
