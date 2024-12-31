@@ -85,7 +85,7 @@ def resolve_umap_engine(
 
 def make_safe_gpu_dataframes(X, y, engine):
 
-    def safe_cudf(X, y):
+    def safe_cudf(X, y, cudf):
         # remove duplicate columns
         if len(X.columns) != len(set(X.columns)):
             X = X.loc[:, ~X.columns.duplicated()]
@@ -96,7 +96,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "skrub"]:
                 new_kwargs[key] = value.to_pandas()
             elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
                 new_kwargs[key] = cudf.from_pandas(value)
@@ -106,7 +106,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 
     has_cudf_dependancy_, _, cudf = lazy_cudf_import()
     if has_cudf_dependancy_:
-        return safe_cudf(X, y)
+        return safe_cudf(X, y, cudf)
     else:
         return X, y
 
@@ -575,7 +575,7 @@ class UMAPMixin(MIXIN_BASE):
             :engine: selects which engine to use to calculate UMAP:
                     default "auto" will use cuML if available, otherwise UMAP-LEARN.
             :feature_engine: How to encode data
-                    ("none", "auto", "pandas", "dirty_cat", "torch")
+                    ("none", "auto", "pandas", "skrub", "torch")
             :inplace: bool = False, whether to modify the current object, default False.
                     when False, returns a new object, useful for chaining in a functional paradigm.
             :memoize: whether to memoize the results of this method,
