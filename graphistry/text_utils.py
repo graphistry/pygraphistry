@@ -76,7 +76,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             for col in cols_text[1:]:
                 qdf[col] = [""]
 
-        # this is hookey and needs to be fixed on dirty_cat side (with errors='ignore')
+        # this is hookey and needs to be fixed on skrub side (with errors='ignore')
         # if however min_words = 0, all columns will be textual,
         # and no other data_encoder will be generated
         if hasattr(self._node_encoder.data_encoder, "columns_"):  # type: ignore
