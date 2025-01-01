@@ -288,7 +288,7 @@ def remove_node_column_from_symbolic(X_symbolic, node):
         return X_symbolic.drop(columns=[node], errors="ignore")
 
 
-def remove_internal_namespace_if_present(df: pd.DataFrame):
+def remove_internal_namespace_if_present(df: pd.DataFrame) -> pd.DataFrame:
     """
         Some tranformations below add columns to the DataFrame,
         this method removes them before featurization
@@ -298,7 +298,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     :return: DataFrame with dropped columns in reserved namespace
     """
     if df is None:
-        return None
+        raise ValueError("DataFrame is None")
     # here we drop all _namespace like _x, _y, etc, so that
     # featurization doesn't include them idempotent-ly
     reserved_namespace : List[str] = [
