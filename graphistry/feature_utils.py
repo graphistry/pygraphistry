@@ -1590,7 +1590,7 @@ def transform_dirty(
 
 
 def transform(
-    df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst
+    df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst, trained_X: pd.DataFrame, trained_y: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # here res is the featurization result,
     # this function aligns with what is computed during
@@ -1608,8 +1608,26 @@ def transform(
         text_cols,
     ) = res
 
-    logger.info("-" * 90)
+    #if not hasattr(self, '_feature_params'):
+    #    raise ValueError('Must first run `g.umap()` or `g.featurize()` before transforming data')
+    #if kind not in self._feature_params:
+    #    raise ValueError(f'Must first run `g.umap(kind="{kind}")` or `g.featurize(kind="{kind}")` before transforming data')
+    #trained_params = self._feature_params[kind]
+
+    assert df is not None, 'df must be provided to transform data'
+    X_df_intersection = df.columns.intersection(trained_X.columns)
+    missing_cols = trained_X.columns.difference(X_df_intersection)
+    assert len(X_df_intersection) == len(trained_X.columns), f'All trained X df columns must appear in new transformed df columns, missing {missing_cols}, received {df.columns}'
+    logger.debug(f"Transforming {kind} cols {df.columns} with trained X columns: {trained_X.columns}")
+    df = df[trained_X.columns]
     
+    assert ydf is not None, 'ydf must be provided to transform data'
+    y_df_intersection = ydf.columns.intersection(trained_y.columns)
+    missing_cols = trained_y.columns.difference(y_df_intersection)
+    assert len(y_df_intersection) == len(trained_y.columns), f'All trained y df columns must appear in new transformed y df columns, missing {missing_cols}, received {ydf.columns}'
+    logger.debug(f"Transforming {kind} cols {y.columns} with trained y columns: {trained_y.columns}")
+    ydf = ydf[trained_y.columns]
+
     # index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
@@ -1763,12 +1781,12 @@ class FastEncoder:
 
     def transform(self, df, ydf=None):
         "Raw transform, no scaling."
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
         return X, y
     
     def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
         if scaling_pipeline is not None and not X.empty:
             X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
         if scaling_pipeline_target is not None and y is not None and not y.empty:
