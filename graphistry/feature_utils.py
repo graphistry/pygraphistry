@@ -1679,10 +1679,10 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind="nodes"):
+    def __init__(self, df: pd.DataFrame, y: pd.DataFrame, kind="nodes"):
         self._df = df
         self.feature_names_in = df.columns  
-        self._y = pd.DataFrame([], index=df.index) if y is None else y
+        self._y = y
         self.target_names_in = self._y.columns
         self.kind = kind
         self._assertions()
