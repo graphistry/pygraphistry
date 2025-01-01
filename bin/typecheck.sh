@@ -6,5 +6,9 @@ set -ex
 
 mypy --version
 
-# Check core
-mypy --config-file mypy.ini graphistry
+if [ -n "$PYTHON_VERSION" ]; then
+  SHORT_VERSION=$(echo "$PYTHON_VERSION" | cut -d. -f1,2)
+  mypy --python-version "$SHORT_VERSION" --config-file mypy.ini graphistry
+else
+  mypy --config-file mypy.ini graphistry
+fi

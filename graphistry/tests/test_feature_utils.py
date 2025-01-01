@@ -237,10 +237,13 @@ class TestFastEncoder(unittest.TestCase):
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-    def test_allclose_fit_transform_on_same_data(self):
+    def test_allclose_fit_transform_on_same_data_nodes(self):
         check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_allclose_fit_transform_on_same_data_edges(self):
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
-        
+
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
@@ -251,7 +254,7 @@ class TestFastEncoder(unittest.TestCase):
         
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import dirty_cat
+        import skrub
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -272,13 +275,13 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            skrub.TableVectorizer,
+            f"Data Encoder is not a skrub.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            skrub.TableVectorizer,
+            f"Data Target Encoder is not a skrub.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
@@ -289,7 +292,7 @@ class TestFeatureProcessors(unittest.TestCase):
             for min_words in [
                 2,
                 4000,
-            ]:  # last one should skip encoding, and throw all to dirty_cat
+            ]:  # last one should skip encoding, and throw all to skrub
 
                 X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,

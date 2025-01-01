@@ -148,27 +148,27 @@ class TestUMAPFitTransform(unittest.TestCase):
         
         self.test = ndf_reddit.sample(5)
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(
-                y=['label', 'type'],
-                use_ngrams=True,
-                ngram_range=(1, 2),
-                use_scaler="robust",
-                cardinality_threshold=2
-            )
+        #with warnings.catch_warnings():
+        #    warnings.filterwarnings("ignore", category=UserWarning)
+        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
+        #    warnings.filterwarnings("ignore", category=FutureWarning)
+        g2 = g.umap(
+            y=['label', 'type'],
+            use_ngrams=True,
+            ngram_range=(1, 2),
+            use_scaler="robust",
+            cardinality_threshold=2
+        )
 
         self.g2 = g2
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
         self.emb, self.x, self.y = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False
+            ndf_reddit, ndf_reddit[['label', 'type']], kind="nodes", return_graph=False
         )
         self.g3 = g2.transform_umap(
-            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True
+            ndf_reddit, ndf_reddit[['label', 'type']], kind="nodes", return_graph=True
         )
 
         # do the same for edges

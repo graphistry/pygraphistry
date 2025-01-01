@@ -24,8 +24,7 @@ from graphistry.features import ScalerType
 from graphistry.utils.lazy_import import (
     lazy_sentence_transformers_import,
     lazy_import_has_min_dependancy,
-    lazy_dirty_cat_import,
-    assert_imported_text,
+    lazy_skrub_import,
     assert_imported
 )
 from . import constants as config
@@ -47,13 +46,13 @@ if TYPE_CHECKING:
     except ImportError:
         SentenceTransformer = Any  # type:ignore
     try:
-        from dirty_cat import (
-            SuperVectorizer,
+        from skrub import (
+            TableVectorizer,
             GapEncoder,
             SimilarityEncoder,
         )
     except:
-        SuperVectorizer = Any
+        TableVectorizer = Any
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
@@ -67,7 +66,7 @@ else:
     MIXIN_BASE = object
     Pipeline = Any
     SentenceTransformer = Any
-    SuperVectorizer = Any
+    TableVectorizer = Any
     GapEncoder = Any
     SimilarityEncoder = Any
     FunctionTransformer = Any
@@ -107,15 +106,24 @@ def is_cudf_s(s: Any) -> bool:
 #
 #      featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
-FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
+FeatureEngineConcrete = Literal["none", "pandas", "skrub", "torch"]
+FeatureEngine = Literal[FeatureEngineConcrete, "dirty_cat", "auto"]
 
 
 def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
+    if feature_engine == "dirty_cat":
+        # deprecation warning
+        warnings.warn(
+            "dirty_cat is deprecated, please use skrub instead; attempting automatic conversion",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return "skrub"
+
+    if feature_engine in ["none", "pandas", "skrub", "torch"]:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
@@ -124,12 +132,12 @@ def resolve_feature_engine(
             return "torch"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
         if has_min_dependancy_:
-            return "dirty_cat"
+            return "skrub"
         return "pandas"
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
-        '"pandas", "dirty_cat", "torch", or "auto"'
+        '"pandas", "skrub", "torch", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
     )
 
@@ -280,7 +288,7 @@ def remove_node_column_from_symbolic(X_symbolic, node):
         return X_symbolic.drop(columns=[node], errors="ignore")
 
 
-def remove_internal_namespace_if_present(df: pd.DataFrame):
+def remove_internal_namespace_if_present(df: pd.DataFrame) -> pd.DataFrame:
     """
         Some tranformations below add columns to the DataFrame,
         this method removes them before featurization
@@ -290,7 +298,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     :return: DataFrame with dropped columns in reserved namespace
     """
     if df is None:
-        return None
+        raise ValueError("DataFrame is None")
     # here we drop all _namespace like _x, _y, etc, so that
     # featurization doesn't include them idempotent-ly
     reserved_namespace : List[str] = [
@@ -879,11 +887,11 @@ def process_dirty_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
-    Union[SuperVectorizer, FunctionTransformer],
-    Union[SuperVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
 ]:
     """
-        Dirty_Cat encoder for record level data. Will automatically turn
+        skrub encoder for record level data. Will automatically turn
         inhomogeneous dataframe into matrix using smart conversion tricks.
    
     :param ndf: node DataFrame
@@ -895,22 +903,21 @@ def process_dirty_dataframes(
     :param n_topics: number of topics for GapEncoder, default 42
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
-            to use. If None or False, uses a SuperVectorizer
+            to use. If None or False, uses a TableVectorizer
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    has_dirty_cat, _, dirty_cat = lazy_dirty_cat_import()
-    if has_dirty_cat:
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    has_skrub, _, skrub = lazy_skrub_import()
+    if has_skrub:
+        from skrub import TableVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
     all_numeric = is_dataframe_all_numeric(ndf)
-    if not all_numeric and has_dirty_cat and (feature_engine in ["dirty_cat", "torch"]):
-        data_encoder = SuperVectorizer(
-            auto_cast=True,
+    if not all_numeric and has_skrub and (feature_engine in ["skrub", "torch"]):
+        data_encoder = TableVectorizer(
             cardinality_threshold=cardinality_threshold,
-            high_card_cat_transformer=GapEncoder(n_topics),
+            high_cardinality=GapEncoder(n_topics),
             #  numerical_transformer=StandardScaler(), This breaks
             #  since -- AttributeError: Transformer numeric
             #  (type StandardScaler)
@@ -929,15 +936,14 @@ def process_dirty_dataframes(
             logger.info("obj columns: %s are being converted to str", object_columns)
         X_enc = make_array(X_enc)
 
-        import warnings
+        #import warnings
+        #with warnings.catch_warnings():
+        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
+        #    warnings.filterwarnings("ignore", category=FutureWarning)
+        features_transformed = data_encoder.get_feature_names_out()
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            features_transformed = data_encoder.get_feature_names_out()
-
-        all_transformers = data_encoder.transformers
-        logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        all_transformers = data_encoder.transformers_
+        logger.debug(f"-Shape of [[skrub fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -953,9 +959,9 @@ def process_dirty_dataframes(
             X_enc, columns=features_transformed, index=ndf.index
         )
         X_enc = X_enc.fillna(0.0)
-    elif not all_numeric and (not has_dirty_cat or feature_engine in ["pandas", "none"]):
+    elif not all_numeric and (not has_skrub or feature_engine in ["pandas", "none"]):
         numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
-        logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
+        logger.warning("-*-*- DataFrame is not numeric and no skrub, dropping non-numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
     else:
         logger.debug("-*-*- DataFrame is completely numeric")
@@ -968,15 +974,14 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_dirty_cat  # noqa: E126,W503
+        and has_skrub  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
-        label_encoder = SuperVectorizer(
-            auto_cast=True,
+        label_encoder = TableVectorizer(
             cardinality_threshold=cardinality_threshold_target,
-            high_card_cat_transformer=GapEncoder(n_topics_target)
+            high_cardinality=GapEncoder(n_topics_target)
             if not similarity
             else SimilarityEncoder(
                 similarity=similarity, categories=categories, n_prototypes=2
@@ -986,17 +991,16 @@ def process_dirty_dataframes(
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_array(y_enc)
 
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            if isinstance(label_encoder, SuperVectorizer) or isinstance(
-                label_encoder, FunctionTransformer
-            ):
-                labels_transformed = label_encoder.get_feature_names_out()
-            else:  # Similarity Encoding uses categories_
-                labels_transformed = label_encoder.categories_
+        #import warnings
+        #with warnings.catch_warnings():
+        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
+        #    warnings.filterwarnings("ignore", category=FutureWarning)
+        if isinstance(label_encoder, TableVectorizer) or isinstance(
+            label_encoder, FunctionTransformer
+        ):
+            labels_transformed = label_encoder.get_feature_names_out()
+        else:  # Similarity Encoding uses categories_
+            labels_transformed = label_encoder.categories_
 
         y_enc = pd.DataFrame(y_enc,
                              columns=labels_transformed,
@@ -1009,16 +1013,16 @@ def process_dirty_dataframes(
         # logger.debug(f"-Target Transformers used:
         # {label_encoder.transformers}\n")
         logger.debug(
-            "--Fitting SuperVectorizer on TARGET took"
+            "--Fitting TableVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
     elif (
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_dirty_cat  # noqa: E126,W503
+        and not has_skrub  # noqa: E126,W503
     ):
-        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        logger.warning("-*-*- y is not numeric and no skrub, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
         y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
@@ -1061,14 +1065,14 @@ def process_nodes_dataframes(
     Any,
     pd.DataFrame,
     Any,
-    SuperVectorizer,
-    SuperVectorizer,
+    TableVectorizer,
+    TableVectorizer,
     Optional[Pipeline],
     Optional[Pipeline],
     Any,
     List[str],
 ]:
-    """Automatic Deep Learning Embedding/ngrams of Textual Features, with the rest of the columns taken care of by dirty_cat
+    """Automatic Deep Learning Embedding/ngrams of Textual Features, with the rest of the columns taken care of by skrub
 
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
@@ -1177,7 +1181,7 @@ def process_nodes_dataframes(
 
     if not text_enc.empty and not X_enc.empty:
         logger.info("-" * 60)
-        logger.info("<= Found both a textual embedding + dirty_cat =>")
+        logger.info("<= Found both a textual embedding + skrub =>")
         X_enc = pd.concat(
             [text_enc, X_enc], axis=1
         )  # np.c_[embeddings, X_enc.values]
@@ -1459,7 +1463,7 @@ def process_edge_dataframes(
 
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
-        logger.debug("<= Found Edges and Dirty_cat encoding =>")
+        logger.debug("<= Found Edges and skrub encoding =>")
         X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
@@ -1545,7 +1549,7 @@ def transform_text(
 
 def transform_dirty(
     df: pd.DataFrame,
-    data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
+    data_encoder: Union[TableVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
     # from sklearn.preprocessing import MultiLabelBinarizer
@@ -1573,20 +1577,20 @@ def transform_dirty(
 
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=FutureWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        X = pd.DataFrame(
-            X, columns=data_encoder.get_feature_names_out(), index=df.index
-        )
-        logger.debug(f"TRANSFORM DIRTY dataframe -- \t{X.shape}")
+    #with warnings.catch_warnings():
+    #    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    #    warnings.filterwarnings("ignore", category=FutureWarning)
+    #    warnings.filterwarnings("ignore", category=UserWarning)
+    X = pd.DataFrame(
+        X, columns=data_encoder.get_feature_names_out(), index=df.index
+    )
+    logger.debug(f"TRANSFORM DIRTY dataframe -- \t{X.shape}")
 
     return X
 
 
 def transform(
-    df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst
+    df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst, fit_X: pd.DataFrame, fit_y: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # here res is the featurization result,
     # this function aligns with what is computed during
@@ -1604,8 +1608,26 @@ def transform(
         text_cols,
     ) = res
 
-    logger.info("-" * 90)
+    #if not hasattr(self, '_feature_params'):
+    #    raise ValueError('Must first run `g.umap()` or `g.featurize()` before transforming data')
+    #if kind not in self._feature_params:
+    #    raise ValueError(f'Must first run `g.umap(kind="{kind}")` or `g.featurize(kind="{kind}")` before transforming data')
+    #trained_params = self._feature_params[kind]
+
+    assert df is not None, 'df must be provided to transform data'
+    X_df_intersection = df.columns.intersection(fit_X.columns)
+    missing_cols = fit_X.columns.difference(X_df_intersection)
+    assert len(X_df_intersection) == len(fit_X.columns), f'All fit X df columns must appear in new transformed df columns, missing {missing_cols}, received {df.columns}'
+    logger.debug(f"Transforming {kind} cols {df.columns} with fit X columns: {fit_X.columns}")
+    df = df[fit_X.columns]
     
+    assert ydf is not None, 'ydf must be provided to transform data'
+    y_df_intersection = ydf.columns.intersection(fit_y.columns)
+    missing_cols = fit_y.columns.difference(y_df_intersection)
+    assert len(y_df_intersection) == len(fit_y.columns), f'All fit y df columns must appear in new transformed y df columns, missing {missing_cols}, received {ydf.columns}'
+    logger.debug(f"Transforming {kind} cols {ydf.columns} with fit y columns: {fit_y.columns}")
+    ydf = ydf[fit_y.columns]
+
     # index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
@@ -1638,15 +1660,15 @@ def transform(
             tX = transform_text(res_df, text_model, text_cols)
         logger.info("** text features are empty") if tX.empty else None
 
-    # concat text to dirty_cat, with text in front.
+    # concat text to skrub, with text in front.
     if not tX.empty and not X.empty:
         X = pd.concat([tX, X], axis=1)
-        logger.info("--Combining both Textual and Numeric/Dirty_Cat")
+        logger.info("--Combining both Textual and Numeric/skrub")
     elif not tX.empty and X.empty:
         X = tX  # textual
         logger.info("--Just textual")
     elif not X.empty:
-        logger.info("--Just Numeric/Dirty_Cat transformer")
+        logger.info("--Just Numeric/skrub transformer")
         X = X  # dirty/Numeric
     else:
         logger.info("-" * 60)
@@ -1655,7 +1677,7 @@ def transform(
 
     # now if edges, add T at front
     if kind == "edges":
-        X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
+        X = pd.concat([T, X], axis=1)  # edges, text, skrub
         logger.info("-Combining MultiLabelBinarizer with previous features")
 
     logger.info("-" * 40)
@@ -1675,10 +1697,10 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind="nodes"):
+    def __init__(self, df: pd.DataFrame, y: pd.DataFrame, kind="nodes"):
         self._df = df
         self.feature_names_in = df.columns  
-        self._y = pd.DataFrame([], index=df.index) if y is None else y
+        self._y = y
         self.target_names_in = self._y.columns
         self.kind = kind
         self._assertions()
@@ -1759,12 +1781,12 @@ class FastEncoder:
 
     def transform(self, df, ydf=None):
         "Raw transform, no scaling."
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
         return X, y
     
     def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
         if scaling_pipeline is not None and not X.empty:
             X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
         if scaling_pipeline_target is not None and y is not None and not y.empty:
@@ -2405,7 +2427,7 @@ class FeatureMixin(MIXIN_BASE):
                 https://scikit-learn.org/stable/modules/preprocessing.html
                 Here 'standard' corresponds to 'StandardScaler' in scikits.
         :param use_scaler_target: selects which scaler to scale the target
-        :param cardinality_threshold: dirty_cat threshold on cardinality of
+        :param cardinality_threshold: skrub threshold on cardinality of
                 categorical labels across columns.
                 If value is greater than threshold, will run GapEncoder
                 (a topic model) on column.
