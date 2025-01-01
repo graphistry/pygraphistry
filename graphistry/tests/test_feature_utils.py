@@ -237,10 +237,13 @@ class TestFastEncoder(unittest.TestCase):
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-    def test_allclose_fit_transform_on_same_data(self):
+    def test_allclose_fit_transform_on_same_data_nodes(self):
         check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_allclose_fit_transform_on_same_data_edges(self):
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
-        
+
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
