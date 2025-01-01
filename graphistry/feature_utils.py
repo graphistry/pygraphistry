@@ -1625,7 +1625,7 @@ def transform(
     y_df_intersection = ydf.columns.intersection(fit_y.columns)
     missing_cols = fit_y.columns.difference(y_df_intersection)
     assert len(y_df_intersection) == len(fit_y.columns), f'All fit y df columns must appear in new transformed y df columns, missing {missing_cols}, received {ydf.columns}'
-    logger.debug(f"Transforming {kind} cols {y.columns} with fit y columns: {fit_y.columns}")
+    logger.debug(f"Transforming {kind} cols {ydf.columns} with fit y columns: {fit_y.columns}")
     ydf = ydf[fit_y.columns]
 
     # index = df.index
