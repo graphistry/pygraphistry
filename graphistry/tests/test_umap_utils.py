@@ -903,8 +903,8 @@ class TestCudfUmap(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy or not has_cuml, reason="requires cuml dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_base(self):
-        graphistry.nodes(self.df).umap('auto')._node_embedding.shape == (self.samples, 2)
-        graphistry.nodes(self.df).umap('engine')._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap(engine='auto')._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap(engine='cuml')._node_embedding.shape == (self.samples, 2)
 
 
 if __name__ == "__main__":
