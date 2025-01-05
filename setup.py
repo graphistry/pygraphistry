@@ -55,7 +55,7 @@ base_extras_light = {
 }
 
 base_extras_heavy = {
-  'umap-learn': ['umap-learn','skrub', 'scikit-learn>=1.4', 'scipy>=1.14.0'],
+  'umap-learn': ['umap-learn','skrub', 'scikit-learn', 'scipy>=1.14'],
   'pygraphviz': ['pygraphviz'],  # + apt-get graphviz, graphviz-dev
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
