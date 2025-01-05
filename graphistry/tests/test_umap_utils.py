@@ -433,7 +433,7 @@ class TestUMAPMethods(unittest.TestCase):
         df.loc[[1,20,35,42,30], 'z'] = 1
         df.loc[[10,5,16,28,35], 'z'] = 1.0
         df.loc[[12,7], 'z'] = 'NaN'
-        df.loc[[13,8], 'z'] = np.NaN
+        df.loc[[13,8], 'z'] = np.nan
 
         graphistry.nodes(df).umap()
         assert True
