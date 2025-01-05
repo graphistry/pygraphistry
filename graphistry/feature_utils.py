@@ -321,6 +321,7 @@ def drop_duplicates_with_warning(df: pd.DataFrame) -> pd.DataFrame:
             f"Duplicate columns found: {duplicates}, using first of each."
         )
         df = df.loc[:, ~duplicate_cols]
+        df = df[ [c for c, dupe in zip(df.columns, duplicate_cols) if not dupe] ]
     return df
 
 
