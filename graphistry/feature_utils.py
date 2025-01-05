@@ -1642,16 +1642,17 @@ def normalize_X_y(
         extra_cols = set(X.columns).difference(set(feature_names_in))
         if extra_cols:
             warnings.warn(f'Dropping extra columns in X: {extra_cols}, expected only {feature_names_in}')
-            X = X[feature_names_in]
+            X = X[[c for c in feature_names_in]]
 
-    y = drop_duplicates_with_warning(y)
-    if target_names_in is not None:
-        extra_cols = set(y.columns).difference(set(target_names_in))
-        if extra_cols:
-            warnings.warn(f'Dropping extra columns in y: {extra_cols}, expected only {target_names_in}')
-            y = y[target_names_in]
+    if len(y.columns) > 0:
+        y = drop_duplicates_with_warning(y)
+        if target_names_in is not None:
+            extra_cols = set(y.columns).difference(set(target_names_in))
+            if extra_cols:
+                warnings.warn(f'Dropping extra columns in y: {extra_cols}, expected only {target_names_in}')
+                y = y[[c for c in target_names_in]]
 
-    X = features_without_target(X, y)
+        X = features_without_target(X, y)
 
     return X, y
 
@@ -1838,7 +1839,7 @@ class FastEncoder:
             text_cols,
         ] = self.res
 
-        self._hecho(res)
+        # self._hecho(res)
         # data_encoder.feature_names_in = self.feature_names_in
         # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
