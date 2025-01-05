@@ -102,7 +102,7 @@ def make_safe_gpu_dataframes(X: pd.DataFrame, y: Optional[pd.DataFrame], engine)
         return new_kwargs['X'], new_kwargs['y']
 
     if 'cudf' in str(getmodule(X)) or (y is not None and 'cudf' in str(getmodule(y))):
-    if has_cudf_dependancy_:
+        logger.debug('safe_gpu_dataframes has_cudf: %s %s %s', X.dtypes, y.dtypes if y is not None else None, engine)
         return safe_cudf(X, y)
     else:
         return X, y
