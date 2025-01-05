@@ -238,22 +238,12 @@ def features_without_target(
     if y is None:
         return df
     remove_cols = []
-    if y is None:
-        pass
-    elif isinstance(y, pd.DataFrame):
-        yc = y.columns
-        xc = df.columns
-        for c in yc:
-            if c in xc:
-                remove_cols.append(c)
+    if isinstance(y, pd.DataFrame):
+        remove_cols = list(df.columns.intersection(y.columns))
     elif is_cudf_df(y):
         import cudf
         assert isinstance(y, cudf.DataFrame)
-        yc = y.columns
-        xc = df.columns
-        for c in yc:
-            if c in xc:
-                remove_cols.append(c)
+        remove_cols = list(df.columns.intersection(y.columns))
     elif isinstance(y, pd.Series):
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
@@ -263,16 +253,16 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
+        # TODO: what does y-as-a-list mean?
         remove_cols = y  # noqa
     elif isinstance(y, str):
+        # TODO: what does y-as-a-string mean?
         remove_cols = [y]
     else:
-        logger.warning(
-            "Target is not of type(DataFrame) and has no columns"
-        )  # noqa
+        raise ValueError(f"Expected y target to be one of None, DF, Series, List, str, got: {type(y)}")
     if len(remove_cols):
-        logger.debug(f"Removing {remove_cols} columns from DataFrame")
-        tf = df.drop(columns=remove_cols, errors="ignore") # noqa
+        warnings.warn(f"Removing target y {remove_cols} columns from X DataFrame")
+        tf = df.drop(columns=remove_cols)
         return tf
     return df
 
@@ -318,6 +308,19 @@ def remove_internal_namespace_if_present(df: pd.DataFrame) -> pd.DataFrame:
         #     df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
     else:
         df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+    return df
+
+
+def drop_duplicates_with_warning(df: pd.DataFrame) -> pd.DataFrame:
+    duplicate_cols = df.columns.duplicated()
+    duplicates = [
+        name for name, dupe in zip(df.columns, duplicate_cols) if dupe
+    ]
+    if duplicates:
+        warnings.warn(
+            f"Duplicate columns found: {duplicates}, using first of each."
+        )
+        df = df.loc[:, ~duplicate_cols]
     return df
 
 
@@ -1553,8 +1556,9 @@ def transform_dirty(
     name: str = "",
 ) -> pd.DataFrame:
     # from sklearn.preprocessing import MultiLabelBinarizer
-    logger.debug(f"-{name} Encoder:")
-    logger.debug(f"\t{data_encoder}\n")
+    #logger.debug(f"\n{'~' * 80}\n-{name} Encoder:")
+    #logger.debug(f"{data_encoder}\n")
+    #logger.debug('\n' + '=' * 80)
     # print(f"-{name} Encoder:")
     # print(f"\t{data_encoder}\n")
     # try:
@@ -1562,35 +1566,100 @@ def transform_dirty(
     # except Exception as e:
     #     logger.warning(e)
     #     pass
-    logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
+    #logger.debug(f"TRANSFORM pre as df -- \t{df.dtypes}|{df.shape}")
 
     # #####################################  for dirty_cat 0.3.0
     use_columns = getattr(data_encoder, 'columns_', [])
     if len(use_columns):
-        #print(f"Using columns: {use_columns}")
+        #logger.debug(f"Using columns: {use_columns}")
         X = data_encoder.transform(df[df.columns.intersection(use_columns)])
     # #####################################  with dirty_cat 0.2.0
     else:
+        logger.debug(f"Using all columns: {df.columns}")
+        logger.debug('data_encoder: %s', data_encoder)
+        feature_names_in = None
+
+        try:
+            from skrub import TableVectorizer
+            if isinstance(data_encoder, TableVectorizer):
+                feature_names_in = data_encoder.feature_names_in_
+        except ImportError:
+            pass
+        except ModuleNotFoundError:
+            pass
+
+        try:
+            from sklearn.preprocessing import FunctionTransformer
+            if isinstance(data_encoder, FunctionTransformer):
+                if hasattr(data_encoder, 'get_feature_names_in_'):
+                    #sklearn 1.x+
+                    feature_names_in = data_encoder.feature_names_in_.tolist()
+        except ImportError:
+            pass
+        except ModuleNotFoundError:
+            pass
+
+        if feature_names_in is not None:
+            missing_cols = set(feature_names_in).difference(set(df.columns))
+            if missing_cols:
+                raise ValueError(f'All fit X df columns must appear in df columns to transform, missing {missing_cols}, received {df.columns}, expected all of {feature_names_in}')
+            excess_cols = set(df.columns).difference(set(feature_names_in))
+            if excess_cols:
+                warnings.warn(f'Dropping extra columns in df: {excess_cols}, expected only {feature_names_in}')
+                df = df[feature_names_in]
+            if list(df.columns) != list(feature_names_in):
+                df = df[feature_names_in]  # sort
+
         X = data_encoder.transform(df)
     # ###################################
     # X = data_encoder.transform(df)
 
-    logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
+    logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.dtypes}|{X.shape}")
     X = make_array(X)
-    #with warnings.catch_warnings():
-    #    warnings.filterwarnings("ignore", category=DeprecationWarning)
-    #    warnings.filterwarnings("ignore", category=FutureWarning)
-    #    warnings.filterwarnings("ignore", category=UserWarning)
     X = pd.DataFrame(
         X, columns=data_encoder.get_feature_names_out(), index=df.index
     )
-    logger.debug(f"TRANSFORM DIRTY dataframe -- \t{X.shape}")
+    logger.debug(f"TRANSFORM DIRTY dataframe -- \t{X.dtypes}|{X.shape}")
 
     return X
 
 
+# TODO make a similar variant that coerces to fit() schema: subsetting & sorting
+def normalize_X_y(
+    X: pd.DataFrame,
+    y: pd.DataFrame,
+    feature_names_in: Optional[pd.Index] = None,
+    target_names_in: Optional[pd.Index] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Prepare for most finnicky featurizers: drop duplicates, and remove targets from data
+
+    Warns on fixed violations
+    """
+
+    X = drop_duplicates_with_warning(X)
+    if feature_names_in is not None:
+        extra_cols = set(X.columns).difference(set(feature_names_in))
+        if extra_cols:
+            warnings.warn(f'Dropping extra columns in X: {extra_cols}, expected only {feature_names_in}')
+            X = X[feature_names_in]
+
+    y = drop_duplicates_with_warning(y)
+    if target_names_in is not None:
+        extra_cols = set(y.columns).difference(set(target_names_in))
+        if extra_cols:
+            warnings.warn(f'Dropping extra columns in y: {extra_cols}, expected only {target_names_in}')
+            y = y[target_names_in]
+
+    X = features_without_target(X, y)
+
+    return X, y
+
+
 def transform(
-    df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst, fit_X: pd.DataFrame, fit_y: pd.DataFrame
+    df: pd.DataFrame, ydf: Optional[pd.DataFrame],
+    res: List, kind: str, src, dst,
+    feature_names_in: pd.Index, target_names_in: pd.Index
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # here res is the featurization result,
     # this function aligns with what is computed during
@@ -1614,19 +1683,32 @@ def transform(
     #    raise ValueError(f'Must first run `g.umap(kind="{kind}")` or `g.featurize(kind="{kind}")` before transforming data')
     #trained_params = self._feature_params[kind]
 
-    assert df is not None, 'df must be provided to transform data'
-    X_df_intersection = df.columns.intersection(fit_X.columns)
-    missing_cols = fit_X.columns.difference(X_df_intersection)
-    assert len(X_df_intersection) == len(fit_X.columns), f'All fit X df columns must appear in new transformed df columns, missing {missing_cols}, received {df.columns}'
-    logger.debug(f"Transforming {kind} cols {df.columns} with fit X columns: {fit_X.columns}")
-    df = df[fit_X.columns]
+
+    prev_def = df
+    if len(df.columns) == 0:
+        raise ValueError('df must have columns to transform data')
     
-    assert ydf is not None, 'ydf must be provided to transform data'
-    y_df_intersection = ydf.columns.intersection(fit_y.columns)
-    missing_cols = fit_y.columns.difference(y_df_intersection)
-    assert len(y_df_intersection) == len(fit_y.columns), f'All fit y df columns must appear in new transformed y df columns, missing {missing_cols}, received {ydf.columns}'
-    logger.debug(f"Transforming {kind} cols {ydf.columns} with fit y columns: {fit_y.columns}")
-    ydf = ydf[fit_y.columns]
+    if ydf is None:
+        ydf = pd.DataFrame([])
+
+    df, ydf = normalize_X_y(df, ydf, feature_names_in, target_names_in)
+
+    if len(df.columns) == 0:
+        raise ValueError(f'df must have columns to transform data, received X={prev_def.columns}, y={ydf.columns}, returned {df.columns}')
+
+    assert df is not None, 'df must be provided to transform data'
+    X_df_intersection = df.columns.intersection(feature_names_in)
+    missing_cols = feature_names_in.difference(X_df_intersection)
+    assert set(X_df_intersection) == set(feature_names_in), f'All fit X df columns must appear in df columns to transform, missing {missing_cols}, received {df.columns}, expected all of {feature_names_in}'
+    if list(df.columns) != list(feature_names_in):
+        df = df[feature_names_in]  # sort
+    
+    if len(ydf.columns) > 0:
+        y_df_intersection = ydf.columns.intersection(target_names_in)
+        missing_cols = target_names_in.difference(y_df_intersection)
+        assert set(y_df_intersection) == set(target_names_in), f'All fit y df columns must appear in new transformed y df columns, missing {missing_cols}, received {ydf.columns}'
+        if list(ydf.columns) != list(target_names_in):
+            ydf = ydf[target_names_in]  # sort
 
     # index = df.index
     y = pd.DataFrame([])
@@ -1646,7 +1728,7 @@ def transform(
                             data_encoder,
                             "Numeric or Dirty Edge-Features")
 
-    if ydf is not None:
+    if len(ydf.columns) > 0:
         logger.info("-Transforming Target--")
         y = transform_dirty(ydf, label_encoder,
                             name=f"{kind.title()}-Label")
@@ -1698,6 +1780,7 @@ def transform(
 
 class FastEncoder:
     def __init__(self, df: pd.DataFrame, y: pd.DataFrame, kind="nodes"):
+        df, y = normalize_X_y(df, y)
         self._df = df
         self.feature_names_in = df.columns  
         self._y = y
@@ -1779,14 +1862,14 @@ class FastEncoder:
         )
         self._set_result(res)
 
-    def transform(self, df, ydf=None):
+    def transform(self, df: pd.DataFrame, ydf: Optional[pd.DataFrame] = None):
         "Raw transform, no scaling."
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self.feature_names_in, self.target_names_in)
         return X, y
     
-    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
+    def _transform_scaled(self, df: pd.DataFrame, ydf: Optional[pd.DataFrame], scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
-        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df, self._y)
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst, self._df.columns, self._y.columns)
         if scaling_pipeline is not None and not X.empty:
             X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
         if scaling_pipeline_target is not None and y is not None and not y.empty:
@@ -2026,8 +2109,7 @@ class FeatureMixin(MIXIN_BASE):
 
             return fresh_res
 
-        X_resolved = features_without_target(X_resolved, y_resolved)
-        X_resolved = remove_internal_namespace_if_present(X_resolved)
+        X_resolved, y_resolved = normalize_X_y(X_resolved, y_resolved)
 
         keys_to_remove = ["X", "y", "remove_node_column"]
         nfkwargs = dict()
@@ -2099,6 +2181,8 @@ class FeatureMixin(MIXIN_BASE):
                 **{res._destination: res._edges[res._destination]}
             )
 
+        X_resolved, y_resolved = normalize_X_y(X_resolved, y_resolved)
+
         # now that everything is set
         fkwargs = dict(
             X=X_resolved,
@@ -2142,8 +2226,6 @@ class FeatureMixin(MIXIN_BASE):
                 setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
-
-        X_resolved = features_without_target(X_resolved, y_resolved)
 
         keys_to_remove = [
             "X",
