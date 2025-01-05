@@ -303,11 +303,6 @@ class Test_Neo4jConnector:
     @pytest.mark.xfail(reason='Waiting on https://github.com/neo4j/neo4j-python-driver/pull/789')
     def test_neo4j_ready(self):
 
-        #To fully suppress, nest under;
-        #import warnings
-        #with warnings.catch_warnings():
-        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
-
         g = graphistry.cypher("MATCH (a)-[b]-(c) WHERE a <> c RETURN a, b, c LIMIT 1")
         assert len(g._nodes) == 2
 
