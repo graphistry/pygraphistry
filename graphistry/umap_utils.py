@@ -13,7 +13,7 @@ from graphistry.utils.lazy_import import (
 )
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
-from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
+from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic, normalize_X_y,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize, setup_logger
@@ -83,18 +83,13 @@ def resolve_umap_engine(
     )
 
 
-def make_safe_gpu_dataframes(X, y, engine):
+def make_safe_gpu_dataframes(X: pd.DataFrame, y: Optional[pd.DataFrame], engine) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
 
-    def safe_cudf(X, y, cudf):
-        # remove duplicate columns
-        if len(X.columns) != len(set(X.columns)):
-            X = X.loc[:, ~X.columns.duplicated()]
-        try:
-            y = y.loc[:, ~y.columns.duplicated()]
-        except:
-            pass
+    def safe_cudf(X, y):
+        import cudf
+
         if y is not None:
-            X = X.loc[:, ~X.columns.isin(y.columns)]
+            X, y = normalize_X_y(X, y)
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
@@ -106,9 +101,9 @@ def make_safe_gpu_dataframes(X, y, engine):
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
 
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
+    if 'cudf' in str(getmodule(X)) or (y is not None and 'cudf' in str(getmodule(y))):
     if has_cudf_dependancy_:
-        return safe_cudf(X, y, cudf)
+        return safe_cudf(X, y)
     else:
         return X, y
 
@@ -394,20 +389,24 @@ class UMAPMixin(MIXIN_BASE):
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
         if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
-            emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
+            return pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
-        elif emb.shape[1] == 2 and hasattr(emb, 'device'):
-            import cudf
-            emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        else:
-            columns = [config.X, config.Y] + [
-                f"umap_{k}" for k in range(2, emb.shape[1])
-            ]
-            if 'cudf.core.dataframe' not in str(getmodule(emb)):
-                emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf.core.dataframe' in str(getmodule(emb)):
-                emb.columns = columns
+            return emb
+        elif emb.shape[1] == 2 and hasattr(emb, 'device') and emb.device == 'cuda':
+            try:
+                import cudf
+                emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
+            except (ModuleNotFoundError, ImportError):
+                pass
+
+        columns = [config.X, config.Y] + [
+            f"umap_{k}" for k in range(2, emb.shape[1])
+        ]
+        if 'cudf.core.dataframe' not in str(getmodule(emb)):
+            emb = pd.DataFrame(emb, columns=columns, index=index)
+        elif 'cudf.core.dataframe' in str(getmodule(emb)):
+            emb.columns = columns
         return emb
 
     def _process_umap(
@@ -682,8 +681,8 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            logger.debug("umap X_ (%s): %s", type(X_), X_)
-            logger.debug("umap y_ (%s): %s", type(y_), y_)
+            logger.debug("umap X_ (%s): %s", type(X_), X_.columns)
+            logger.debug("umap y_ (%s): %s", type(y_), y_.columns)
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
