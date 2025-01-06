@@ -6,7 +6,9 @@ from inspect import getmodule
 import numpy as np
 import pandas as pd
 
+from graphistry.Engine import Engine, df_to_engine
 from graphistry.models.compute.features import GraphEntityKind
+from graphistry.models.compute.umap import UMAPEngine, UMAPEngineConcrete, umap_engine_values
 from graphistry.utils.lazy_import import (
     lazy_cudf_import,
     lazy_umap_import,
@@ -60,14 +62,9 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal['cuml', 'umap_learn']
-UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
-
-
 def resolve_umap_engine(
     engine: UMAPEngine,
-) -> UMAPEngineConcrete:  # noqa
-    if engine in [CUML, UMAP_LEARN]:
+) -> UMAPEngineConcrete:
         return engine  # type: ignore
     if engine in ["auto"]:
         has_cuml_dependancy_, _, _ = lazy_cuml_import()
