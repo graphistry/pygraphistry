@@ -47,7 +47,7 @@ jobs:
       github.event_name == 'workflow_dispatch' || 
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
     runs-on:
-      group: gpu_public
+      group: GPU Runners - Public
 
     strategy:
       matrix:
@@ -57,11 +57,6 @@ jobs:
 
     - name: Checkout repo
       uses: actions/checkout@v3
-      with:
-        lfs: true
-
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
