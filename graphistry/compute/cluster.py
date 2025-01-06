@@ -5,7 +5,7 @@ import numpy as np
 from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional
 from typing_extensions import Literal
 from collections import Counter
-
+from graphistry.models.compute.features import GraphEntityKind, graph_entity_kind_values
 from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.models.ModelDict import ModelDict

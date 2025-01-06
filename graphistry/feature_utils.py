@@ -15,12 +15,15 @@ from typing import (
     Optional,
     Tuple,
     TYPE_CHECKING, 
-)  # noqa
-from typing_extensions import Literal  # Literal native to py3.8+
+)
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
 from graphistry.features import ScalerType
+from graphistry.models.compute.features import (
+    GraphEntityKind,
+    FeatureEngineConcrete, FeatureEngine, feature_engine_concrete_values
+)
 from graphistry.utils.lazy_import import (
     lazy_sentence_transformers_import,
     lazy_import_has_min_dependancy,
@@ -106,9 +109,6 @@ def is_cudf_s(s: Any) -> bool:
 #
 #      featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "skrub", "torch"]
-FeatureEngine = Literal[FeatureEngineConcrete, "dirty_cat", "auto"]
-
 
 def resolve_feature_engine(
     feature_engine: FeatureEngine,
@@ -123,7 +123,7 @@ def resolve_feature_engine(
         )
         return "skrub"
 
-    if feature_engine in ["none", "pandas", "skrub", "torch"]:
+    if feature_engine in feature_engine_concrete_values:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
@@ -2062,7 +2062,7 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
         
-        from .features import ModelDict
+        from graphistry.models.ModelDict import ModelDict
 
         fkwargs = ModelDict("Featurize Params",
             X=X_resolved,
