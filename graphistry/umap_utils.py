@@ -6,6 +6,7 @@ from inspect import getmodule
 import numpy as np
 import pandas as pd
 
+from graphistry.models.compute.features import GraphEntityKind
 from graphistry.utils.lazy_import import (
     lazy_cudf_import,
     lazy_umap_import,
@@ -212,7 +213,7 @@ class UMAPMixin(MIXIN_BASE):
         umap_fit_kwargs: Dict[str, Any] = {},
         umap_transform_kwargs: Dict[str, Any] = {},
     ):
-        from graphistry.features import ModelDict
+        from graphistry.models.ModelDict import ModelDict
 
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
