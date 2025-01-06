@@ -1,3 +1,4 @@
+from typing import Any, Union
 import hashlib
 import json
 import logging
@@ -10,8 +11,9 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from graphistry.models.ModelDict import ModelDict
 
+from graphistry.models.ModelDict import ModelDict
+from graphistry.Plottable import Plottable
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
@@ -131,8 +133,8 @@ def hash_memoize(v: Any) -> str:
 
 
 def check_set_memoize(
-    g, metadata, attribute, name: str = "", memoize: bool = True
-):  # noqa: C901
+    g: Plottable, metadata, attribute: str, name: str = "", memoize: bool = True
+) -> Union[bool, Any]:
     """
     Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
     for the fact that it must have `attribute`. If they have not changed, will return memoized version,

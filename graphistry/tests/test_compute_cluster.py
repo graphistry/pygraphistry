@@ -2,6 +2,7 @@ import pandas as pd
 import unittest
 import pytest
 import graphistry
+from graphistry.Plottable import Plottable
 from graphistry.constants import DBSCAN
 from graphistry.models.ModelDict import ModelDict
 from graphistry.utils.lazy_import import (
@@ -17,13 +18,13 @@ ndf = edf = pd.DataFrame({'src': [1, 2, 1, 4], 'dst': [4, 5, 6, 1], 'label': ['a
 
 class TestComputeCluster(unittest.TestCase):
     
-    def _condition(self, g, kind):
+    def _condition(self, g: Plottable, kind):
         if kind == 'nodes':
-            self.assertTrue(g._node_dbscan is not None, 'instance has no `_node_dbscan` method')
+            self.assertTrue(g._dbscan_nodes is not None, 'instance has no `_dbscan_nodes` method')
             self.assertTrue(DBSCAN in g._nodes, 'node df has no `_dbscan` attribute')
             #self.assertTrue(g._point_color is not None, 'instance has no `_point_color` method')
         else:
-            self.assertTrue(g._edge_dbscan is not None, 'instance has no `_edge_dbscan` method')
+            self.assertTrue(g._dbscan_edges is not None, 'instance has no `_dbscan_edges` method')
             self.assertTrue(DBSCAN in g._edges, 'edge df has no `_dbscan` attribute')
     
     @pytest.mark.skipif(not has_dbscan or not has_umap, reason="requires ai dependencies")

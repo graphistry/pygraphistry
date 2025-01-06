@@ -1,9 +1,9 @@
 from inspect import getmodule
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-from graphistry.utils.lazy_import import lazy_cudf_import
 
 
 class Engine(Enum):

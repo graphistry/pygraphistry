@@ -112,7 +112,7 @@ def is_cudf_s(s: Any) -> bool:
 
 def resolve_feature_engine(
     feature_engine: FeatureEngine,
-) -> FeatureEngineConcrete:  # noqa
+) -> FeatureEngineConcrete:
 
     if feature_engine == "dirty_cat":
         # deprecation warning
@@ -135,7 +135,7 @@ def resolve_feature_engine(
             return "skrub"
         return "pandas"
 
-    raise ValueError(  # noqa
+    raise ValueError(
         f'feature_engine expected to be "none", '
         '"pandas", "skrub", "torch", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
@@ -223,7 +223,7 @@ def safe_divide(a, b):
     b = np.array(b)
     return np.divide(
         a, b, out=np.zeros_like(a), where=b != 0.0, casting="unsafe"
-    )  # noqa
+    )
 
 
 def features_without_target(
@@ -1846,8 +1846,8 @@ class FastEncoder:
         self.feature_columns_target = y_enc.columns
         self.X = X_encs
         self.y = y_encs
-        self.X_orignal = X_enc
-        self.y_orignal = y_enc
+        self.X_original = X_enc  # resolved at fit
+        self.y_original = y_enc  # resolved at fit
         self.data_encoder = data_encoder  # is list for edges
         self.label_encoder = label_encoder
         self.scaling_pipeline = scaling_pipeline
@@ -2126,9 +2126,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
-        res._node_features_raw = encoder.X_orignal  # .copy()
+        res._node_features_raw = encoder.X_original  # .copy()
         res._node_target = encoder.y
-        res._node_target_raw = encoder.y_orignal  # .copy()
+        res._node_target_raw = encoder.y_original  # .copy()
         res._node_encoder = encoder  # now this does
         # all the work `._node_encoder.transform(df, y)` etc
 
@@ -2245,9 +2245,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if editing, should also update fresh_res
         res._edge_features = encoder.X
-        res._edge_features_raw = encoder.X_orignal  # .copy()
+        res._edge_features_raw = encoder.X_original  # .copy()
         res._edge_target = encoder.y
-        res._edge_target_raw = encoder.y_orignal  # .copy()
+        res._edge_target_raw = encoder.y_original  # .copy()
         res._edge_encoder = encoder
 
         return res
@@ -2920,7 +2920,7 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
+    def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: GraphEntityKind = 'nodes', target: bool = False) -> pd.DataFrame:
         """Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain the string `column_part` in their name.`X = g.get_matrix(['feature1', 'feature2'])` will retrieve a feature matrix with only the columns that contain the string `feature1` or `feature2` in their name. Most useful for topic modeling, where the column names are of the form `topic_0: descriptor`, `topic_1: descriptor`, etc. Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc]. Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
             **Example:**

@@ -1,13 +1,10 @@
+from typing import TYPE_CHECKING
+from logging import getLogger
 import pandas as pd
 
 from .feature_utils import FeatureMixin
 from .ai_utils import search_to_df, FaissVectorSearch
 from .constants import WEIGHT, DISTANCE
-from logging import getLogger
-
-from typing import (
-    TYPE_CHECKING,
-)  # noqa
 
 
 if TYPE_CHECKING:

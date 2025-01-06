@@ -201,9 +201,15 @@ class PlotterBase(Plottable):
 
         # the fit umap instance
         self._umap = None
+        self._umap_engine = None
         self._umap_params : Optional[Dict[str, Any]] = None
         self._umap_fit_kwargs : Optional[Dict[str, Any]] = None
         self._umap_transform_kwargs : Optional[Dict[str, Any]] = None
+
+        self._dbscan_engine = None
+        self._dbscan_params = None
+        self._dbscan_nodes = None  # fit model
+        self._dbscan_edges = None  # fit model
 
         self._adjacency = None
         self._entity_to_index = None
@@ -214,11 +220,7 @@ class PlotterBase(Plottable):
         self._use_feat: bool = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
-        
-        # Dbscan
-        self._node_dbscan = None  # the fit dbscan instance
-        self._edge_dbscan = None
-        
+
         # DGL
         self.DGL_graph = None  # the DGL graph
 
