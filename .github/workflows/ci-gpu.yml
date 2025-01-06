@@ -1,0 +1,237 @@
+name: ci-gpu
+on:
+  pull_request:
+    types:
+      - labeled
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - trigger-ci-gpu
+
+jobs:
+
+  stub_mt:
+    name: Always-succeed step to prevent appearing as a failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Do nothing
+        run: echo "Do nothing"
+
+  cancel_outstanding:  
+    name: Detect and cancel outstanding runs of this workflow
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Cancel Previous Runs
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cancel') }}
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+  confirm_rapids:
+    name: Confirm RAPIDS
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    needs: [ cancel_outstanding ]
+    runs-on:
+      group: GPU Runners
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        CUDA_SHORT_VERSION: ['11.8']
+      fail-fast: true
+    steps:
+
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.ref || github.head_ref }}
+
+      - name: version envvars
+        run: |
+          echo "CUDA_SHORT_VERSION=${{ matrix.CUDA_SHORT_VERSION }}" >> $GITHUB_ENV
+          ( rm -f CUDA_SHORT_VERSION || echo ok ) && ( echo ${{ matrix.CUDA_SHORT_VERSION }} > CUDA_SHORT_VERSION )
+
+      - name: Pull RAPIDS image
+        run: |
+          docker pull rapidsai/base:24.10-cuda${CUDA_SHORT_VERSION}-py3.10
+
+      - name: Test cudf
+        shell: 'script -q -e -c "bash {0}"'  # tty
+        run: |
+          docker run \
+            --security-opt seccomp=unconfined \
+            --rm -it \
+            --gpus all \
+            --entrypoint /bin/bash \
+            "rapidsai/base:24.10-cuda${CUDA_SHORT_VERSION}-py3.10" \
+            -c "python -c 'import cudf; v = cudf.DataFrame({\"x\": [1,2,3]}).x.sum(); print(\"got\", v); assert v == 6'"
+
+
+
+  test-full-ai:
+    needs: [ test-minimal-python ]
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    runs-on:
+      group: GPU Runners
+
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11, 3.12]
+        #include:
+        #  - python-version: 3.12
+        #    continue-on-error: true
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
+        echo "skrub: `pip show skrub | grep Version`"
+        echo "pandas: `pip show pandas | grep Version`"
+        echo "numpy: `pip show numpy | grep Version`"
+        echo "scikit-learn: `pip show scikit-learn | grep Version`"
+        echo "scipy: `pip show scipy | grep Version`"
+        echo "umap-learn: `pip show umap-learn | grep Version`"
+
+    - name: Type check
+      env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
+
+    - name: Full dbscan tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-dbscan.sh
+        
+    - name: Full feature tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-features.sh
+
+    - name: Full search tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-text.sh
+
+    - name: Full umap tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-umap-learn-core.sh
+
+    - name: Full embed tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-embed.sh
+
+    - name: Full DGL (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-dgl.sh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  fep_tests:
+    name: Test FEP
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    needs: [ cancel_outstanding ]
+    runs-on:
+      group: GPU Runners
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        CUDA_SHORT_VERSION: ['11.8']
+      fail-fast: true
+    steps:
+
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.ref || github.head_ref }}
+
+      - name: version envvars
+        run: |
+          echo "VERSION=$(cat VERSION)" >> $GITHUB_ENV
+          echo "VERSION_ENV=$(cat versions/VERSION_ENV)" >> $GITHUB_ENV
+          echo "VERSION_BASE=$(cat versions/VERSION_BASE)" >> $GITHUB_ENV
+          echo "VERSION_BASE_PYTHON=$(cat versions/VERSION_BASE_PYTHON)" >> $GITHUB_ENV
+          echo "VERSION_APP=$(cat versions/VERSION_APP)" >> $GITHUB_ENV
+          echo "VERSION_AZ_GCLOUD_BASE=$(cat versions/VERSION_AZ_GCLOUD_BASE)" >> $GITHUB_ENV
+          echo "CUDA_SHORT_VERSION=${{ matrix.CUDA_SHORT_VERSION }}" >> $GITHUB_ENV
+          ( rm -f CUDA_SHORT_VERSION || echo ok ) && ( echo ${{ matrix.CUDA_SHORT_VERSION }} > CUDA_SHORT_VERSION )
+
+      - name: docker private login
+        run: echo ${{ secrets.DOCKER_PRIVATE_TOKEN }} | docker login -u ${{ secrets.DOCKER_PRIVATE_USER }} --password-stdin
+
+      - name: setup prod env
+        run: make secrets.fake
+
+      - name: build prod forge-etl-python
+        env:
+          COMPOSE_SERVICE: forge-etl-python
+          DOCKER_IMAGE: etl-server-python          
+        run: |
+          make base.ci.private compose_service=${COMPOSE_SERVICE} docker_image_name=${DOCKER_IMAGE} \
+            builder=app_native                                                                      \
+            tag=${VERSION} cuda_short_version=${CUDA_SHORT_VERSION}                                 \
+            tag_env=${VERSION_ENV} tag_base=${VERSION_BASE} tag_app=${VERSION_APP}
+
+      - name: nvidia-smi
+        run: nvidia-smi
+      
+      - name: test forge-etl-python gpu
+        shell: 'script -q -e -c "bash {0}"'  # tty
+        run : |
+          cd apps/forge/etl-server-python \
+            && CPUS_TEST='4.0' CPUS_FEP='4.0' CPUS_DCW='4.0' DCW_CUDA_VISIBLE_DEVICES=0 TEST_CUDA_VISIBLE_DEVICES=0 \
+              ./test-docker.sh
+        
+      # blocked on https://github.com/rapidsai/rmm/issues/1022
+      #- name: test cpu
+      #  run: |
+      #    cd apps/forge/etl-server-python && ./test-docker-cpu.sh
