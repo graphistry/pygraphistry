@@ -57,11 +57,6 @@ jobs:
 
     - name: Checkout repo
       uses: actions/checkout@v3
-      with:
-        lfs: true
-
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
