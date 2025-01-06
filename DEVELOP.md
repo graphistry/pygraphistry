@@ -97,6 +97,16 @@ graphistry.__version__
 
 GitHub Actions: See `.github/workflows`
 
+CI runs on every PR and updates them
+
+### GPU CI
+
+GPU CI can be manually triggered by core dev team members:
+
+1. Push intended changes to protected branches `gpu-public` or `master`
+2. Manually trigger action [ci-gpu](https://github.com/graphistry/pygraphistry/actions/workflows/ci-gpu.yml) on one of the above branches
+
+GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 ## Debugging Tips
 
