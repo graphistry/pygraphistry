@@ -10,8 +10,7 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any
-from collections import UserDict
+from graphistry.models.ModelDict import ModelDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
@@ -309,65 +308,6 @@ def deprecated(message):
 
 
 # #############################################################################
-# MODEL Parameter HELPERS
-def get_timestamp():
-    import datetime
-
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-class ModelDict(UserDict):
-    """Helper class to print out model names and keep track of updates
-
-    Args:
-        message: description of model
-        verbose: print out model names, logging happens regardless
-    """
-
-    def __init__(self, message, verbose=True, _timestamp=False, *args, **kwargs):
-        self._message = message
-        self._verbose = verbose
-        self._timestamp = _timestamp  # do no use this inside the class, as it will trigger memoization. Only use outside of class.
-        L = (
-            len(message)
-            if _timestamp is False
-            else max(len(message), len(get_timestamp()) + 1)
-        )
-        self._print_length = min(80, L)
-        self._updates = []
-        super().__init__(*args, **kwargs)
-
-    def print(self, message):
-        if self._timestamp:
-            message = f"{message}\n{get_timestamp()}"
-        if self._verbose:
-            print("_" * self._print_length)
-            print()
-            print(message)
-            print("_" * self._print_length)
-            print()
-
-    def __repr__(self):
-        # logger.info(self._message)
-        self.print(self._message)
-        return super().__repr__()
-
-    # def __setitem__(self, key, value):  # can't get this to work properly as it doesn't get called on update
-    #     self._updates.append({key: value})
-    #     if len(self._updates) > 1:
-    #         self._message += (
-    #             "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-    #         )
-    #     return super().__setitem__(key, value)
-
-    def update(self, *args, **kwargs):
-        self._updates.append(args[0])
-        if len(self._updates) > 1:  # don't take first update since its the init/default
-            self._message += (
-                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-            )
-        return super().update(*args, **kwargs)
-
 
 def is_notebook():
     """Check if running in a notebook"""
