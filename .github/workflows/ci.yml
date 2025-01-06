@@ -278,6 +278,11 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-embed.sh
 
+    - name: Full DGL tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-dgl.sh
+
 
   test-neo4j:
 
