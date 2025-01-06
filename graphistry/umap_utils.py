@@ -17,7 +17,7 @@ from graphistry.utils.lazy_import import (
 )
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
-from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic, normalize_X_y,
+from .feature_utils import (FeatureMixin, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize, setup_logger
@@ -77,7 +77,7 @@ def resolve_umap_engine(
         if has_umap_dependancy_:
             return 'umap_learn'
 
-    raise ValueError(  # noqa
+    raise ValueError(
         f'engine expected to be "auto", '
         '"umap_learn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
@@ -373,13 +373,16 @@ class UMAPMixin(MIXIN_BASE):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y, umap_fit_kwargs)
-        logger.debug('_umap_fit_transform:\nX::%s\n%s\n%s\nkwargs:\n%s\ny:\n%s', type(X), X.dtypes, X, umap_transform_kwargs, y)
-        #logger.debug('per col types: %s', {k: (type(X[k]), X[k].dtype) for k in X.columns})
-        try:
-            logger.debug('X as pandas', X.to_pandas())  # type: ignore
-        except:
-            pass
+        logger.debug('_umap_fit_transform:\nX::%s\n%s\nkwargs:\n%s\ny:\n%s', type(X), X.dtypes, umap_transform_kwargs, y.dtypes if y is not None else None)
         emb = self._umap.transform(X, **umap_transform_kwargs)
+
+        engine = umap_model_to_engine(self._umap)
+        if engine == CUML:
+            import cudf
+            assert isinstance(emb, cudf.DataFrame), f'Expected cudf.DataFrame, got {type(emb)}'
+        elif engine == UMAP_LEARN:
+            assert isinstance(emb, np.ndarray), f'Expected np.ndarray, got {type(emb)}'
+
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
 
@@ -410,14 +413,19 @@ class UMAPMixin(MIXIN_BASE):
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
         """
-        df, y = make_safe_gpu_dataframes(df, y, 'pandas')
+
+        engine = self._umap_engine
+        assert engine is not None, f'Expected self._umap_engine to be resolved, got {engine}'
+
+        df, y = make_safe_umap_gpu_dataframes(df, y, engine)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False)
-        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)  # type: ignore
+        X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)  # type: ignore
+        assert self._umap is not None, 'Expected self._umap to be initialized'
         emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
-        if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas')  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas')
+        if return_graph and kind == 'nodes':
+            emb, _ = make_safe_umap_gpu_dataframes(emb, None, engine)  # for now so we don't have to touch infer_edges, force to pandas
+            X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
@@ -426,17 +434,33 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
-            return pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
-            emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
-            return emb
-        elif emb.shape[1] == 2 and hasattr(emb, 'device') and emb.device == 'cuda':
-            try:
-                import cudf
-                emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
-            except (ModuleNotFoundError, ImportError):
-                pass
+
+        engine = umap_model_to_engine(self._umap)
+
+        if engine == CUML:
+            import cudf
+            if not isinstance(emb, cudf.DataFrame):
+                warnings.warn(f'Expected cudf.DataFrame, trying to convert from {type(emb)}')
+                if isinstance(emb, pd.DataFrame):
+                    emb = cudf.DataFrame.from_pandas(emb)
+                else:
+                    emb = cudf.DataFrame(emb)
+            if emb.shape[1] == 2:
+                emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
+                return emb
+        elif engine == UMAP_LEARN:
+            if 'cudf.core.dataframe' in str(getmodule(emb)):
+                warnings.warn(f'cudf detected, but not imported, will try to convert to pandas: type={type(emb)}')
+                emb = emb.to_pandas()
+                #raise ValueError(f'Did not expect cudf value for sklearn engine, emb type: {type(emb)}')
+            if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
+                return pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
+            elif emb.shape[1] == 2 and hasattr(emb, 'device') and emb.device == 'cuda':
+                try:
+                    import cudf
+                    emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index).to_pandas()
+                except (ModuleNotFoundError, ImportError):
+                    pass
 
         columns = [config.X, config.Y] + [
             f"umap_{k}" for k in range(2, emb.shape[1])

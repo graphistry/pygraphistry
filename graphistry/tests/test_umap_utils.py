@@ -575,14 +575,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3 = g3a.umap(dbscan=False)
         logger.debug("======= g3.umap() done ======")
         assert len(g2._node_features) == len(g3._node_features)
+        assert g2._node_features.shape[1] < g3._node_features.shape[1]
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            try:
-                assert set(g2._node_features.columns) == set(g3._node_features.columns)
-            except AssertionError:
-                warnings.warn("Columns do not match", UserWarning)
-                
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
@@ -817,7 +811,8 @@ class TestCUMLMethods(TestUMAPMethods):
         logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap()
         logger.debug("======= g3.umap() done ======")
-        assert g2._node_features.shape == g3._node_features.shape, f"featurize() should be idempotent, found {g2._node_features.shape} != {g3._node_features.shape}"
+        assert g2._node_features.shape[0] == g3._node_features.shape[0]
+        assert g2._node_features.shape[1] < g3._node_features.shape[1]
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
