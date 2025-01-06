@@ -2,6 +2,7 @@ import copy
 from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 from inspect import getmodule
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -65,6 +66,8 @@ def is_legacy_cuml():
 def resolve_umap_engine(
     engine: UMAPEngine,
 ) -> UMAPEngineConcrete:
+    
+    if engine in umap_engine_values:
         return engine  # type: ignore
     if engine in ["auto"]:
         has_cuml_dependancy_, _, _ = lazy_cuml_import()
@@ -81,29 +84,56 @@ def resolve_umap_engine(
     )
 
 
-def make_safe_gpu_dataframes(X: pd.DataFrame, y: Optional[pd.DataFrame], engine) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+def umap_model_to_engine(v: Any) -> Optional[UMAPEngineConcrete]:
+
+    if v is None:
+        return None
+
+    try:
+        from umap import UMAP
+        if isinstance(v, UMAP):
+            return 'umap_learn'
+    except (ModuleNotFoundError, ImportError):
+        pass
+
+    try:
+        from cuml import UMAP
+        if isinstance(v, UMAP):
+            return 'cuml'
+    except (ModuleNotFoundError, ImportError):
+        pass
+
+    raise ValueError(f"Unknown UMAP engine: {v}")
+
+
+def make_safe_umap_gpu_dataframes(
+    X: pd.DataFrame, y: Optional[pd.DataFrame], engine: UMAPEngineConcrete
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+
+    if engine not in ["umap_learn", "cuml"]:
+        raise ValueError(f"Expected engine to be umap_learn or cuml, got {engine}")
 
     def safe_cudf(X, y):
         import cudf
 
-        if y is not None:
-            X, y = normalize_X_y(X, y)
+        #if y is not None and normalize:
+        #    X, y = normalize_X_y(X, y)
+        #    logger.debug('Normalized X: %s %s', X.dtypes, y.dtypes if y is not None else None)
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "skrub"]:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
-                new_kwargs[key] = cudf.from_pandas(value)
-            else:
-                new_kwargs[key] = value
+            if value is None:
+                new_kwargs[key] = None
+            elif engine == "umap_learn":
+                new_kwargs[key] = df_to_engine(value, Engine.PANDAS)
+            elif engine == 'cuml':
+                new_kwargs[key] = df_to_engine(value, Engine.CUDF)
         return new_kwargs['X'], new_kwargs['y']
 
-    if 'cudf' in str(getmodule(X)) or (y is not None and 'cudf' in str(getmodule(y))):
-        logger.debug('safe_gpu_dataframes has_cudf: %s %s %s', X.dtypes, y.dtypes if y is not None else None, engine)
+    if 'cudf' in str(getmodule(X)) or (y is not None and 'cudf' in str(getmodule(y))) or engine == "cuml":
         return safe_cudf(X, y)
-    else:
-        return X, y
+    
+    return X, y
 
 ###############################################################################
 
@@ -114,10 +144,18 @@ def make_safe_gpu_dataframes(X: pd.DataFrame, y: Optional[pd.DataFrame], engine)
 # #############################################################################
 
 
-def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
-    return check_set_memoize(
+def reuse_umap(g: Plottable, memoize: bool, metadata: Any) -> Optional[Plottable]:
+    o = check_set_memoize(
         g, metadata, attribute="_umap_param_to_g", name="umap", memoize=memoize
     )
+
+    if o is False:
+        return None
+    
+    if isinstance(o, Plottable):
+        return o
+    
+    raise ValueError(f'Expected Plottable or False, got {type(o)}')
 
 
 def umap_graph_to_weighted_edges(umap_graph, engine: UMAPEngineConcrete, is_legacy, cfg=config):
@@ -189,13 +227,12 @@ class UMAPMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         #self._umap_initialized = False
-        #self.engine = self.engine if hasattr(self, "engine") else None
         pass
 
 
     def umap_lazy_init(
         self,
-        res,
+        res: Plottable,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
         spread: float = 0.5,
@@ -246,10 +283,12 @@ class UMAPMixin(MIXIN_BASE):
         
         logger.debug('lazy init')
         # set new umap kwargs
+        res._umap_engine = engine_resolved
         res._umap_params = umap_params
         res._umap_fit_kwargs = umap_fit_kwargs
         res._umap_transform_kwargs = umap_transform_kwargs
 
+        #assert isinstance(res, UMAPMixin)
         res._n_components = n_components
         res._metric = metric
         res._n_neighbors = n_neighbors
@@ -260,7 +299,6 @@ class UMAPMixin(MIXIN_BASE):
         res._negative_sample_rate = negative_sample_rate
         res._umap = umap_engine.UMAP(**umap_params)
         logger.debug('Initialized UMAP with params: %s', umap_params)
-        res.engine = engine_resolved
         res._suffix = suffix
                                                             
         return res
@@ -301,7 +339,9 @@ class UMAPMixin(MIXIN_BASE):
         logger.info("-" * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        if self.engine == CUML and is_legacy_cuml():  # type: ignore
+        engine = umap_model_to_engine(self._umap)
+
+        if engine == CUML and is_legacy_cuml():  # type: ignore
             from cuml.neighbors import NearestNeighbors
 
             knn = NearestNeighbors(n_neighbors=self._n_neighbors)  # type: ignore
@@ -314,7 +354,7 @@ class UMAPMixin(MIXIN_BASE):
         self._weighted_adjacency = self._umap.graph_
         # if changing, also update fresh_res
         self._weighted_edges_df = umap_graph_to_weighted_edges(
-            self._umap.graph_, self.engine, is_legacy_cuml()  # type: ignore
+            self._umap.graph_, engine, is_legacy_cuml()  # type: ignore
         )
 
         mins = (time() - t) / 60
@@ -344,13 +384,13 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
 
-    def transform_umap(self, df: pd.DataFrame, 
-                    y: Optional[pd.DataFrame] = None, 
-                    kind: str = 'nodes', 
-                    min_dist: Union[str, float, int] = 'auto', 
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
                     n_neighbors: int = 7,
                     merge_policy: bool = False,
-                    sample: Optional[int] = None, 
+                    sample: Optional[int] = None,
                     return_graph: bool = True,
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
@@ -409,7 +449,7 @@ class UMAPMixin(MIXIN_BASE):
 
     def _process_umap(
         self,
-        res,
+        res: 'UMAPMixin',
         X_: pd.DataFrame,
         y_: pd.DataFrame,
         kind,
@@ -440,7 +480,7 @@ class UMAPMixin(MIXIN_BASE):
         old_res = reuse_umap(res, memoize, umap_kwargs_reuse)
         if old_res:
             logger.debug(" --- [[ RE-USING UMAP ]], umap previous n_components: %s", umap_params['n_components'])
-            fresh_res = copy.copy(res)
+            fresh_res: UMAPMixin = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
                 if hasattr(old_res, attr):
                     setattr(fresh_res, attr, getattr(old_res, attr))
@@ -464,7 +504,7 @@ class UMAPMixin(MIXIN_BASE):
         return res
 
     def _set_features(  # noqa: E303
-        self, res, X, y, kind, feature_engine, featurize_kwargs
+        self, res: 'UMAPMixin', X, y, kind, feature_engine, featurize_kwargs
     ):
         """
         Helper for setting features for memoize
@@ -608,29 +648,10 @@ class UMAPMixin(MIXIN_BASE):
         )
         logger.debug("umap_kwargs: %s", umap_kwargs_combined)
 
-        # temporary until we have full cudf support in feature_utils.py
-        has_cudf, _, cudf = lazy_cudf_import()
-
         if inplace:
             res = self
         else:
             res = self.bind()
-
-        if has_cudf:
-            flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
-            flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
-
-            #if flag_nodes_cudf or flag_edges_cudf:
-            if False:
-                if flag_nodes_cudf:
-                    res._nodes = res._nodes.to_pandas()
-                if flag_edges_cudf:
-                    res._edges = res._edges.to_pandas()
-                if (X is not None) or (y is not None):
-                    res = res.umap(X=X, y=y, kind=kind, feature_engine=feature_engine, **umap_kwargs_combined, **featurize_kwargs)  # type: ignore
-                else:
-                    res = res.umap(X=self._nodes, y=self._edges, kind=kind, feature_engine=feature_engine, **umap_kwargs_combined, **featurize_kwargs)  # type: ignore
-                return res
 
         res = res.umap_lazy_init(
             res,
@@ -648,6 +669,8 @@ class UMAPMixin(MIXIN_BASE):
             umap_fit_kwargs=umap_fit_kwargs,
             umap_transform_kwargs=umap_transform_kwargs
         )
+        engine_resolved = res._umap_engine
+        assert engine_resolved is not None, f'Expected engine to be resolved, got {engine_resolved}'
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
@@ -685,13 +708,13 @@ class UMAPMixin(MIXIN_BASE):
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
+                import cudf
                 assert isinstance(X_, cudf.DataFrame)
                 logger.debug('nodes type: %s', type(nodes))
                 import cupy as cp
                 index_to_nodes_dict = dict(zip(range(len(nodes)), cp.asnumpy(nodes)))
 
-            # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
+            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs_combined
@@ -721,7 +744,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
+            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs_combined
@@ -766,7 +789,7 @@ class UMAPMixin(MIXIN_BASE):
             res, kind, encode_position, encode_weight, play
         )  # noqa: E501
 
-        if res.engine == CUML and is_legacy_cuml():  # type: ignore
+        if engine_resolved == CUML and is_legacy_cuml():  # type: ignore
             res = res.prune_self_edges()
 
         if dbscan:

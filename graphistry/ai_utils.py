@@ -1,8 +1,10 @@
+from inspect import getmodule
 import warnings
 import pandas as pd
 import numpy as np
 
 import graphistry
+from graphistry.Plottable import Plottable
 
 from .constants import DISTANCE, WEIGHT, BATCH
 from logging import getLogger
@@ -377,7 +379,7 @@ def infer_graph(
     return hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_features, new_targets)
 
 
-def infer_self_graph(res, 
+def infer_self_graph(res: Plottable, 
     emb, X, y, df, infer_on_umap_embedding=False, eps="auto", n_neighbors=7, verbose=False, 
 ):
     """
