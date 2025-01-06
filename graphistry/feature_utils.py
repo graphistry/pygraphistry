@@ -2364,7 +2364,6 @@ class FeatureMixin(MIXIN_BASE):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
-            logger.info("-transform(kind=nodes): df - X=%s, y=%s", df.columns, y.columns if y is not None else None)
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
         elif kind == "edges":
             X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
