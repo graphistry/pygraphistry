@@ -399,8 +399,29 @@ def infer_self_graph(res: Plottable,
         graphistry Plottable object
     """
     #enhanced = is_notebook()
-    
-    print("-" * 50) if verbose else None
+
+    was_cudf = False
+    emb_orig = emb
+    X_orig = X
+    y_orig = y
+    if 'cudf' in str(getmodule(emb)) or 'cudf' in str(getmodule(X)):
+        warnings.warn("cudf not supported in this function, converting to pandas")
+        was_cudf = True
+        import cudf
+        if emb is not None and isinstance(emb, cudf.DataFrame):
+            emb = emb.to_pandas()
+        if X is not None and isinstance(X, cudf.DataFrame):
+            X = X.to_pandas()
+        if df is not None and isinstance(df, cudf.DataFrame):
+            df = df.to_pandas()
+
+    #WIP
+    if 'cudf' in str(getmodule(emb)) or 'cudf' in str(getmodule(X)):
+        import cudf
+        import cupy as cp
+        ncp = cp
+    else:
+        ncp = np
     
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = emb
@@ -420,11 +441,11 @@ def infer_self_graph(res: Plottable,
         ), "minibatches emb and X must have same number of rows since h(df) = emb"
         df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
     else:  # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
-        df['x'] = np.random.random(df.shape[0])
-        df['y'] = np.random.random(df.shape[0])
+        df['x'] = ncp.random.random(df.shape[0])
+        df['y'] = ncp.random.random(df.shape[0])
 
     #  if umap, need to add '_n' as node id to df, adding new indices to existing graph
-    numeric_indices = np.arange(
+    numeric_indices = ncp.arange(
         X_previously_fit.shape[0],
         dtype=np.float64  # this seems off but works
         )
@@ -476,5 +497,12 @@ def infer_self_graph(res: Plottable,
     logger.debug('', len(new_edges_df), 'total edges after dropping duplicates') if verbose else None
     logger.debug(" ** Final graph has", len(df), "nodes") if verbose else None
     # #########################################################
-    print("-" * 50) if verbose else None
-    return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)
+
+    if was_cudf:
+        import cudf
+        if isinstance(df, pd.DataFrame):
+            df = cudf.DataFrame.from_pandas(df)
+        if isinstance(new_edges_df, pd.DataFrame):
+            new_edges_df = cudf.DataFrame.from_pandas(new_edges_df)
+
+    return hydrate_graph(res, df, new_edges_df, node, src, dst, emb_orig, X_orig, y_orig)
