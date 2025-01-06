@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
+import pytest
 import graphistry
 from common import NoAuthTestCase
 
 
+try:
+    import openpyxl
+    has_openpyxl = True
+except (ImportError, ModuleNotFoundError):
+    has_openpyxl = False
+
+
+@pytest.mark.skipif(not has_openpyxl, reason="openpyxl not installed")
 class TestNodexlBindings(NoAuthTestCase):
     def test_from_xls_default(self):
         xls = pd.ExcelFile(
