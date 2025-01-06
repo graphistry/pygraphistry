@@ -4,7 +4,7 @@ set -ex
 
 TEST_FILES=${@:-"graphistry/tests/test_feature_utils.py graphistry/tests/test_umap_utils.py"}
 
-PYTHON_VERSION=${PYTHON_VERSION:-3.9} \
+PYTHON_VERSION=${PYTHON_VERSION:-3.10} \
 PIP_DEPS=${PIP_DEPS:--e .[ai,test,testai]} \
 WITH_LINT=${WITH_LINT:-1} \
 WITH_TYPECHECK=${WITH_TYPECHECK:-1} \
