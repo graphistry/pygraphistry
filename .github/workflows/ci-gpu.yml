@@ -18,6 +18,15 @@ jobs:
       - name: Do nothing
         run: echo "Do nothing"
 
+  gpu-permission:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(fromJson('["lmeyerov", "tanmoyio", "aucahuasi", "silkspace", "DataBoyTx"]'), github.actor))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Do nothing
+        run: echo "Do nothing"
+
   cancel_outstanding:  
     name: Detect and cancel outstanding runs of this workflow
     if: |
@@ -32,50 +41,8 @@ jobs:
         with:
           access_token: ${{ github.token }}
 
-  confirm_rapids:
-    name: Confirm RAPIDS
-    if: |
-      github.event_name == 'workflow_dispatch' || 
-      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
-    needs: [ cancel_outstanding ]
-    runs-on:
-      group: gpu_public
-    timeout-minutes: 5
-    strategy:
-      matrix:
-        CUDA_SHORT_VERSION: ['11.8']
-      fail-fast: true
-    steps:
-
-      - name: Checkout main repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref }}
-
-      - name: version envvars
-        run: |
-          echo "CUDA_SHORT_VERSION=${{ matrix.CUDA_SHORT_VERSION }}" >> $GITHUB_ENV
-          ( rm -f CUDA_SHORT_VERSION || echo ok ) && ( echo ${{ matrix.CUDA_SHORT_VERSION }} > CUDA_SHORT_VERSION )
-
-      - name: Pull RAPIDS image
-        run: |
-          docker pull rapidsai/base:24.10-cuda${CUDA_SHORT_VERSION}-py3.10
-
-      - name: Test cudf
-        shell: 'script -q -e -c "bash {0}"'  # tty
-        run: |
-          docker run \
-            --security-opt seccomp=unconfined \
-            --rm -it \
-            --gpus all \
-            --entrypoint /bin/bash \
-            "rapidsai/base:24.10-cuda${CUDA_SHORT_VERSION}-py3.10" \
-            -c "python -c 'import cudf; v = cudf.DataFrame({\"x\": [1,2,3]}).x.sum(); print(\"got\", v); assert v == 6'"
-
-
-
   test-full-ai:
-    needs: [ test-minimal-python ]
+    needs: [ gpu-permission ]
     if: |
       github.event_name == 'workflow_dispatch' || 
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
@@ -130,32 +97,8 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
-    - name: Full dbscan tests (rich featurize)
+    - name: Run all tests
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-dbscan.sh
-        
-    - name: Full feature tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-features.sh
-
-    - name: Full search tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-text.sh
-
-    - name: Full umap tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-umap-learn-core.sh
-
-    - name: Full embed tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-embed.sh
-
-    - name: Full DGL (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-dgl.sh
+        python -m pytest --version
+        python -B -m pytest -vv
