@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, graphistry, neo4j, os, numpy as np, pandas as pd, pyarrow as pa, pytest
+import datetime as dt, graphistry, os, numpy as np, pandas as pd, pyarrow as pa, pytest
+
+try:
+    import neo4j
+    has_neo4j = True
+except (ImportError, ModuleNotFoundError):
+    has_neo4j = False
 
 from graphistry.bolt_util import (
     neo_df_to_pd_df,
@@ -13,6 +19,7 @@ from graphistry.bolt_util import (
 )
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_neo_df_to_pd_df_basics():
     rec = {"x": 1, "b": True, "s": "abc", "a": [1, 2, 3], "d": {"r": "v"}, "mt": None}
     df = pd.DataFrame([rec])
@@ -30,6 +37,7 @@ def test_neo_df_to_pd_df_basics():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_neo_df_to_pd_df_basics_na():
     recs = {
         "x": [1, None],
@@ -54,6 +62,7 @@ def test_neo_df_to_pd_df_basics_na():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_dates_homogeneous():
     rec = {
         "d": neo4j.time.Date(2020, 10, 20),
@@ -79,6 +88,7 @@ def test_dates_homogeneous():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_dates_homogeneous_na():
     recs = {
         "d": [neo4j.time.Date(2020, 10, 20), None],
@@ -110,6 +120,7 @@ def test_dates_homogeneous_na():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_dates_heterogeneous():
     recs = {
         "d": [neo4j.time.Date(2020, 10, 20), 1],
@@ -143,6 +154,7 @@ def test_dates_heterogeneous():
         pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_spatial_homogenous():
     rec = {
         "p": neo4j.spatial.Point([1, 2, 3]),
@@ -196,6 +208,7 @@ def test_spatial_homogenous():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_spatial_homogenous_na():
     recs = {
         "p": [neo4j.spatial.Point([1, 2, 3, 4]), None],
@@ -252,6 +265,7 @@ def test_spatial_homogenous_na():
     pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 def test_spatial_heterogeneous():
     recs = {
         "p": [neo4j.spatial.Point([1, 2, 3, 4]), 1],
@@ -284,6 +298,7 @@ def test_spatial_heterogeneous():
         pa.Table.from_pandas(df2)
 
 
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
 @pytest.mark.skipif(
     not ("WITH_NEO4J" in os.environ) or os.environ["WITH_NEO4J"] != "1",
     reason="No WITH_NEO4J=1",
