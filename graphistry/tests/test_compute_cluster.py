@@ -3,7 +3,7 @@ import unittest
 import pytest
 import graphistry
 from graphistry.constants import DBSCAN
-from graphistry.util import ModelDict
+from graphistry.models.ModelDict import ModelDict
 from graphistry.utils.lazy_import import (
     lazy_dbscan_import,
     lazy_umap_import

@@ -8,7 +8,7 @@ from collections import Counter
 
 from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
-from graphistry.features import ModelDict
+from graphistry.models.ModelDict import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
 from graphistry.utils.lazy_import import lazy_cudf_import, lazy_dbscan_import
 
