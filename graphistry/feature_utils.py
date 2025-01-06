@@ -253,11 +253,9 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
-        # TODO: what does y-as-a-list mean?
-        remove_cols = y  # noqa
+        raise NotImplementedError("y-as-a-list not implemented")
     elif isinstance(y, str):
-        # TODO: what does y-as-a-string mean?
-        remove_cols = [y]
+        raise NotImplementedError("y-as-a-string not implemented")
     else:
         raise ValueError(f"Expected y target to be one of None, DF, Series, List, str, got: {type(y)}")
     if len(remove_cols):
@@ -565,7 +563,7 @@ def get_preprocessing_pipeline(
     n_bins: int = 10,
     encode: str = "ordinal",
     strategy: str = "quantile",
-) -> Pipeline:  # noqa
+) -> Pipeline:
     """Helper function for imputing and scaling np.ndarray data using different scaling transformers.
 
     :param X: np.ndarray
@@ -656,9 +654,37 @@ def fit_pipeline(
     columns = X.columns
     index = X.index
 
+    was_cudf = 'cudf' in str(getmodule(X))
+    if was_cudf:
+        warnings.warn("cudf DataFrames are being converted to pandas for preprocessing", UserWarning)
+        import cudf
+        if isinstance(X, cudf.DataFrame):
+            X = X.to_pandas()
+        elif isinstance(X, cudf.Series):
+            raise ValueError("cudf Series not supported")
+        else:
+            raise ValueError(f'Unexpected type for X: {type(X)}')
+
     X = transformer.fit_transform(X)
     if keep_n_decimals:
-        X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        if 'cudf' in str(getmodule(X)) or 'cupy' in str(getmodule(X)):
+            try:
+                # Is this a cupy, cudf, ?
+                X = X.round(decimals=keep_n_decimals)
+            except:
+                logger.error(f"Failed to round GPU object of type {type(X)}")
+                raise
+        else:
+            if isinstance(X, np.ndarray):
+                X = np.round(X, decimals=keep_n_decimals)
+            else:
+                X = X.round(decimals=keep_n_decimals)
+
+    if was_cudf:
+        import cudf
+        if isinstance(X, pd.DataFrame):
+            return X
+        return cudf.DataFrame(X, columns=columns, index=index)
 
     return pd.DataFrame(X, columns=columns, index=index)
 
@@ -766,7 +792,12 @@ def encode_textual(
             f"Encoded Textual Data using {model} at "
             f"{len(df) / ((time() - t) / 60):.2f} rows per minute"
         )
-    res = pd.DataFrame(embeddings,
+    logger.debug('embeddings type=%s, df type=%s', type(embeddings), type(df))
+    if 'cudf' in str(getmodule(df)):
+        import cudf
+        res = cudf.DataFrame(embeddings, columns=transformed_columns, index=df.index)
+    else:
+        res = pd.DataFrame(embeddings,
                        columns=transformed_columns,
                        index=df.index)
 
@@ -1293,6 +1324,17 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     """
     # uses mlb with fit=T/F so we can use it in transform mode
     # to recreate edge feature concat definition
+    if not isinstance(edf, pd.DataFrame):
+        if 'cudf' in str(getmodule(edf)):
+            import cudf
+            if isinstance(edf, cudf.DataFrame):
+                warnings.warn("edf is not a pandas DataFrame, converting")
+                edf = edf.to_pandas()
+            else:
+                raise ValueError(f'Unexpected type for edf: {type(edf)}')
+        else:
+            raise ValueError(f'Unexpected type for edf: {type(edf)}')
+
     source = edf[src]
     destination = edf[dst]
     logger.debug("Encoding Edges using MultiLabelBinarizer")
@@ -1467,7 +1509,15 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and skrub encoding =>")
-        X_enc = pd.concat([T, X_enc], axis=1)
+        if isinstance(X_enc, pd.DataFrame):
+            X_enc = pd.concat([T, X_enc], axis=1)
+        else:
+            import cudf
+            if not isinstance(T, cudf.DataFrame):
+                T2 = cudf.DataFrame(T)
+            else:
+                T2 = T
+            X_enc = cudf.concat([T2, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
@@ -2314,6 +2364,7 @@ class FeatureMixin(MIXIN_BASE):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
+            logger.info("-transform(kind=nodes): df - X=%s, y=%s", df.columns, y.columns if y is not None else None)
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
         elif kind == "edges":
             X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
