@@ -138,16 +138,12 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
     if verbose:
         cnt = Counter(labels)
         message = f"DBSCAN found {len(cnt)} clusters with {cnt[-1]} outliers"
-        print()
-        print('-' * len(message))
-        print(message)
-        print(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape}")
-        print('-' * len(message))
-
-    return g
+        logger.debug(message)
+        logger.debug(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape} :: {X.dtypes}")
 
 
-def dbscan_predict(X: pd.DataFrame, model: Any):
+# TODO what happens in gpu mode?
+def dbscan_predict_sklearn(X: pd.DataFrame, model: Any) -> np.ndarray:
     """
     DBSCAN has no predict per se, so we reverse engineer one here
     from https://stackoverflow.com/questions/27822752/scikit-learn-predicting-new-points-with-dbscan
@@ -182,7 +178,9 @@ class ClusterMixin(MIXIN_BASE):
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import()
 
         if engine_dbscan in [CUML]:
-            print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
+            warnings.warn('`_cluster_dbscan(..)` experimental')
+            #engine_dbscan = 'sklearn'
+
 
         res.engine_dbscan = engine_dbscan  # resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
