@@ -39,7 +39,7 @@ jobs:
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
     needs: [ cancel_outstanding ]
     runs-on:
-      group: GPU Runners
+      group: gpu_public
     timeout-minutes: 5
     strategy:
       matrix:
@@ -80,14 +80,11 @@ jobs:
       github.event_name == 'workflow_dispatch' || 
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
     runs-on:
-      group: GPU Runners
+      group: gpu_public
 
     strategy:
       matrix:
-        python-version: [3.9, '3.10', 3.11, 3.12]
-        #include:
-        #  - python-version: 3.12
-        #    continue-on-error: true
+        python-version: ['3.10', 3.11, 3.12]
 
     steps:
 
@@ -104,6 +101,9 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: nvidia-smi
+      run: nvidia-smi
+
     - name: Install test dependencies
       run: |
         python -m venv pygraphistry
@@ -116,6 +116,12 @@ jobs:
         echo "scikit-learn: `pip show scikit-learn | grep Version`"
         echo "scipy: `pip show scipy | grep Version`"
         echo "umap-learn: `pip show umap-learn | grep Version`"
+
+    - name: Test RAPIDS
+      shell: 'script -q -e -c "bash {0}"'  # tty
+      run: |
+        source pygraphistry/bin/activate
+        python -c 'import cudf; v = cudf.DataFrame({\"x\": [1,2,3]}).x.sum(); print(\"got\", v); assert v == 6'
 
     - name: Type check
       env:
@@ -153,85 +159,3 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         ./bin/test-dgl.sh
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  fep_tests:
-    name: Test FEP
-    if: |
-      github.event_name == 'workflow_dispatch' || 
-      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
-    needs: [ cancel_outstanding ]
-    runs-on:
-      group: GPU Runners
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        CUDA_SHORT_VERSION: ['11.8']
-      fail-fast: true
-    steps:
-
-      - name: Checkout main repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref }}
-
-      - name: version envvars
-        run: |
-          echo "VERSION=$(cat VERSION)" >> $GITHUB_ENV
-          echo "VERSION_ENV=$(cat versions/VERSION_ENV)" >> $GITHUB_ENV
-          echo "VERSION_BASE=$(cat versions/VERSION_BASE)" >> $GITHUB_ENV
-          echo "VERSION_BASE_PYTHON=$(cat versions/VERSION_BASE_PYTHON)" >> $GITHUB_ENV
-          echo "VERSION_APP=$(cat versions/VERSION_APP)" >> $GITHUB_ENV
-          echo "VERSION_AZ_GCLOUD_BASE=$(cat versions/VERSION_AZ_GCLOUD_BASE)" >> $GITHUB_ENV
-          echo "CUDA_SHORT_VERSION=${{ matrix.CUDA_SHORT_VERSION }}" >> $GITHUB_ENV
-          ( rm -f CUDA_SHORT_VERSION || echo ok ) && ( echo ${{ matrix.CUDA_SHORT_VERSION }} > CUDA_SHORT_VERSION )
-
-      - name: docker private login
-        run: echo ${{ secrets.DOCKER_PRIVATE_TOKEN }} | docker login -u ${{ secrets.DOCKER_PRIVATE_USER }} --password-stdin
-
-      - name: setup prod env
-        run: make secrets.fake
-
-      - name: build prod forge-etl-python
-        env:
-          COMPOSE_SERVICE: forge-etl-python
-          DOCKER_IMAGE: etl-server-python          
-        run: |
-          make base.ci.private compose_service=${COMPOSE_SERVICE} docker_image_name=${DOCKER_IMAGE} \
-            builder=app_native                                                                      \
-            tag=${VERSION} cuda_short_version=${CUDA_SHORT_VERSION}                                 \
-            tag_env=${VERSION_ENV} tag_base=${VERSION_BASE} tag_app=${VERSION_APP}
-
-      - name: nvidia-smi
-        run: nvidia-smi
-      
-      - name: test forge-etl-python gpu
-        shell: 'script -q -e -c "bash {0}"'  # tty
-        run : |
-          cd apps/forge/etl-server-python \
-            && CPUS_TEST='4.0' CPUS_FEP='4.0' CPUS_DCW='4.0' DCW_CUDA_VISIBLE_DEVICES=0 TEST_CUDA_VISIBLE_DEVICES=0 \
-              ./test-docker.sh
-        
-      # blocked on https://github.com/rapidsai/rmm/issues/1022
-      #- name: test cpu
-      #  run: |
-      #    cd apps/forge/etl-server-python && ./test-docker-cpu.sh
