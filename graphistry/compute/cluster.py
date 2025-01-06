@@ -102,10 +102,24 @@ def get_model_matrix(
         hasattr(g, "_node_encoder") if kind == "nodes" else hasattr(g, "_edge_encoder")
     )
 
+    engine = g._dbscan_engine
+    assert engine is not None, 'DBSCAN engine not set'
+
+    df_engine: Engine = Engine.CUDF if engine == 'cuml' else Engine.PANDAS
+
+    ###
+
+    from graphistry.feature_utils import FeatureMixin
+    assert isinstance(g, FeatureMixin)
+
+    # TODO does get_matrix do cudf?
     df = g.get_matrix(cols, kind=kind, target=target)
 
+    # TODO does _get_embedding do cudf?
     if umap and cols is None and g._umap is not None:
-        df = g._get_embedding(kind)            
+        from graphistry.umap_utils import UMAPMixin
+        assert isinstance(g, UMAPMixin)
+        df = g._get_embedding(kind)
     
     df2, _ = make_safe_gpu_dataframes(df, None, df_engine)
 
@@ -170,10 +184,9 @@ def dbscan_fit_inplace(
         res._edges = res._edges.assign(_dbscan=labels)
         res._dbscan_edges = dbscan
     else:
-        raise ValueError("kind must be one of `nodes` or `edges`")
+        raise ValueError(f"kind must be one of `nodes` or `edges`, got {kind}")
 
-    kind = "node" if kind == "nodes" else "edge"
-    setattr(g, f"_{kind}_dbscan", dbscan)
+    setattr(res, f"_{kind}_dbscan", dbscan)
     
     if cols is not None:  # set False since we used the features for verbose
         use_umap_embedding = False
@@ -207,6 +220,44 @@ def dbscan_predict_sklearn(X: pd.DataFrame, model: Any) -> np.ndarray:
             y_new[i] = model.labels_[model.core_sample_indices_[shortest_dist_idx]]
 
     return y_new
+
+def dbscan_predict_cuml(X: Any, model: Any) -> Any:
+
+    import cudf
+    import cupy as cp
+    from sklearn.cluster import DBSCAN as skDBSCAN
+    from cuml import DBSCAN
+    #assert isinstance(X, cudf.DataFrame), f'Expected cudf.DataFrame, got: {type(X)}'
+    if isinstance(X, cudf.DataFrame):
+        X = X.to_pandas()
+    
+    if isinstance(X, pd.DataFrame) and isinstance(model, skDBSCAN):
+        return dbscan_predict_sklearn(X, model)
+
+    assert isinstance(model, DBSCAN), f'Expected cuml.DBSCAN, got: {type(model)}'
+
+    #raise NotImplementedError('cuml lacks predict, and for cpu fallback, components_')
+    warnings.warn('cuml lacks predict, cpu fallback, components_')
+
+    n_samples = X.shape[0]
+
+    y_new = np.ones(shape=n_samples, dtype=int) * -1
+
+    components = model.components_.to_pandas() if isinstance(model.components_, cudf.DataFrame) else model.components_
+
+    for i in range(n_samples):
+        diff = components - X.iloc[i, :].values  # NumPy broadcasting
+
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+
+        shortest_dist_idx = np.argmin(dist)
+
+        if dist[shortest_dist_idx] < model.eps:
+            y_new[i] = model.labels_[model.core_sample_indices_[shortest_dist_idx]]
+
+    return y_new
+
+
 
 
 class ClusterMixin(MIXIN_BASE):
@@ -437,10 +488,17 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
-            df, y = make_safe_gpu_dataframes(df, y, 'pandas')
-            X, emb = make_safe_gpu_dataframes(X, emb, 'pandas')
-            g = self._infer_edges(emb, X, y, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
+            #raise NotImplementedError("Engine specificity")
+            #if 'cudf' in str(getmodule(df)) or 'cudf' in str(getmodule(y)):
+            #    warnings.warn("transform_dbscan using cpu fallback")
+            #df, y = make_safe_gpu_dataframes(df, y, Engine.PANDAS)
+            #X, emb = make_safe_gpu_dataframes(X, emb, Engine.PANDAS)
+            engine = self._dbscan_engine
+            engine_df = Engine.CUDF if engine == 'cuml' else Engine.PANDAS
+            df2, y2 = make_safe_gpu_dataframes(df, y, engine_df)
+            X2, emb2 = make_safe_gpu_dataframes(X, emb, engine_df)
+            g = self._infer_edges(emb2, X2, y2, df2, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
-                )
+            )
             return g
         return emb, X, y, df
