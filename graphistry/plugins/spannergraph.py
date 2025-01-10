@@ -4,9 +4,6 @@ import json
 import time
 import logging
 from typing import Any
-from google.cloud.spanner_dbapi.connection import connect
-from google.cloud.spanner_v1.data_types import JsonObject
-from google.cloud.spanner_v1 import KeySet
 
 logging.basicConfig(level=logging.INFO)
 
@@ -91,6 +88,7 @@ class spannergraph:
             ConnectionError: If the connection to Spanner fails.
         """
         try:
+            from google.cloud.spanner_dbapi.connection import connect  # Lazy import
             connection = connect(self.instance_id, self.database_id)
             connection.autocommit = True
             logging.info("Connected to Spanner database.")
@@ -141,6 +139,7 @@ class spannergraph:
         Returns:
             list: A list of dictionaries containing nodes and edges.
         """
+        from google.cloud.spanner_v1.data_types import JsonObject  # Lazy import
         data = [ query_result.data ]
         json_list = []
         for record in data:
