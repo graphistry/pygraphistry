@@ -11,3 +11,5 @@ Getting Started
    For developers <../demos/for_developers.ipynb>
 
    CSV upload miniapp <../demos/upload_csv_miniapp.ipynb>
+
+   Visually analyze any table as a graph: Our 3 favorite shapings <../demos/more_examples/simple/table_to_graph_three_ways.ipynb>
