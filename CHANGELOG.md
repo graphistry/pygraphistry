@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+
+* Fix typo in new shaping tutorial
+
+
 ## [0.35.5 - 2025-01-10]
 
 ### Docs
