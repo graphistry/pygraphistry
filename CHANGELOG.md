@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.5 - 2025-01-10]
+
+### Docs
+
+* New tutorial on graph shaping
+
 ## [0.35.4 - 2024-12-28]
 
 ### Fixes
