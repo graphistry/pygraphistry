@@ -769,21 +769,29 @@ def setup(app: Sphinx):
     app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
     app.connect("doctree-resolved", assert_external_images_removed)
-    app.add_css_file('graphistry.css', priority=900)
 
-    if not hasattr(app, 'builder'):
-        print('No app.builder found')
-        # use dir to enumerate field names & types
-        attr_and_types: str = '\n'.join([f'{name}: {type(getattr(app, name))}' for name in dir(app)])
-        print(f'attr_and_types:\n---\n{attr_and_types}\n---\n')
+    def on_builder(app: Sphinx) -> None:
+        if not hasattr(app, 'builder'):
+            print('No app.builder found for app type=', type(app))
+            # use dir to enumerate field names & types
+            attr_and_types: str = '\n'.join([f'{name}: {type(getattr(app, name))}' for name in dir(app)])
+            print(f'attr_and_types:\n---\n{attr_and_types}\n---\n')
+            return
 
-    if hasattr(app, 'builder') and (app.builder.name == "html" or app.builder.name == "readthedocs"):
-        app.add_js_file("https://plausible.io/js/script.hash.outbound-links.js", **{
-            "defer": "true",
-            "data-domain": "pygraphistry.readthedocs.io",
-        })
-        app.add_js_file(None, body="""
-            window.plausible = window.plausible || function() {
-                (window.plausible.q = window.plausible.q || []).push(arguments)
-            }
-        """)
+        if (app.builder.name == "html" or app.builder.name == "readthedocs"):
+            app.add_css_file('graphistry.css', priority=900)
+            app.add_js_file("https://plausible.io/js/script.hash.outbound-links.js", **{
+                "defer": "true",
+                "data-domain": "pygraphistry.readthedocs.io",
+            })
+            app.add_js_file(None, body="""
+                window.plausible = window.plausible || function() {
+                    (window.plausible.q = window.plausible.q || []).push(arguments)
+                }
+            """)
+            return
+        
+        print('No custom handling for app.builder.name=', app.builder.name)
+
+    app.connect('builder-inited', on_builder)
+
