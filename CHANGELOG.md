@@ -7,10 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.6 - 2025-01-11]
+
 ### Docs
 
 * Fix typo in new shaping tutorial
-
+* Privacy-preserving analytics
 
 ## [0.35.5 - 2025-01-10]
 
