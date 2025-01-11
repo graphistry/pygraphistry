@@ -763,8 +763,21 @@ def setup(app):
     """
     Connect the replace_iframe_src function to the doctree-resolved event.
     """    
+    print(f"Building with builder: {app.builder.name}")
+    
     app.connect("doctree-resolved", ignore_svg_images_for_latex)
     app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
     app.connect("doctree-resolved", assert_external_images_removed)
     app.add_css_file('graphistry.css', priority=900)
+
+    if app.builder.name == "html" or app.builder.name == "readthedocs":
+        app.add_js_file("https://plausible.io/js/script.hash.outbound-links.js", **{
+            "defer": "true",
+            "data-domain": "pygraphistry.readthedocs.io",
+        })
+        app.add_js_file(None, body="""
+            window.plausible = window.plausible || function() {
+                (window.plausible.q = window.plausible.q || []).push(arguments)
+            }
+        """)
