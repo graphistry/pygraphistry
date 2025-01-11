@@ -764,7 +764,6 @@ def setup(app: Sphinx):
     """
     Connect the replace_iframe_src function to the doctree-resolved event.
     """    
-    print(f"Building with builder: {app.builder.name}")
     
     app.connect("doctree-resolved", ignore_svg_images_for_latex)
     app.connect("doctree-resolved", remove_external_images_for_latex)
