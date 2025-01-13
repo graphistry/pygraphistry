@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import time
 import logging
-from typing import Any
+from typing import Any, List, Dict
 
 logging.basicConfig(level=logging.INFO)
 
@@ -11,65 +11,53 @@ class QueryResult:
     """
     Encapsulates the results of a query, including metadata.
 
-    Attributes:
-        data (list): The raw query results.
-        execution_time (float): The time taken to execute the query.
-        record_count (int): The number of records returned.
+    :ivar list data: The raw query results.
+    :ivar float execution_time: The time taken to execute the query.
+    :ivar int record_count: The number of records returned.
     """
 
-    def __init__(self, data: list, execution_time: float):
+    def __init__(self, data: List[Any], execution_time: float):
+        """
+        Initializes a QueryResult instance.
+
+        :param data: The raw query results.
+        :param execution_time: The time taken to execute the query.
+        """
         self.data = data
         self.execution_time = execution_time
         self.record_count = len(data)
 
-    def summary(self) -> dict:
+    def summary(self) -> Dict[str, Any]:
         """
         Provides a summary of the query execution.
 
-        Returns:
-            dict: A summary of the query results.
+        :return: A summary of the query results.
         """
         return {
             "execution_time": self.execution_time,
             "record_count": self.record_count
         }
 
+
 class spannergraph:
     """
-    A comprehensive interface for interacting with Google Spanner Graph databases. 
+    A comprehensive interface for interacting with Google Spanner Graph databases.
 
-    This class provides methods for connecting to the database, executing queries,
-    processing graph data into structured formats, and constructing visualizations
-    with the Graphistry library.
-
-    Attributes:
-        project_id (str): The Google Cloud project ID.
-        instance_id (str): The Spanner instance ID.
-        database_id (str): The Spanner database ID.
-        connection: The active connection to the Spanner database.
-        graphistry: The Graphistry parent object.
-
-    Key Methods:
-        __connect: Establish a connection to the Spanner database.
-        execute_query: Run a GQL query against the database.
-        parse_spanner_json: Convert raw Spanner JSON results into structured data.
-        get_nodes_df: Extract and structure graph nodes into a pandas DataFrame.
-        get_edges_df: Extract and structure graph edges into a pandas DataFrame.
-        gql_to_graph: Combine the above methods to generate a Graphistry visualization.
-        get_schema: Retrieve the schema of the database.
-        validate_data: Validate input data for queries or updates.
-        dump_config: Returns the configuration of the spannergraph instance.
+    :ivar str project_id: The Google Cloud project ID.
+    :ivar str instance_id: The Spanner instance ID.
+    :ivar str database_id: The Spanner database ID.
+    :ivar Any connection: The active connection to the Spanner database.
+    :ivar Any graphistry: The Graphistry parent object.
     """
 
-    def __init__(self, graphistry, project_id: str, instance_id: str, database_id: str):
+    def __init__(self, graphistry: Any, project_id: str, instance_id: str, database_id: str):
         """
         Initializes the spannergraph instance.
 
-        Args:
-            graphistry: The Graphistry parent object.
-            project_id (str): The Google Cloud project ID.
-            instance_id (str): The Spanner instance ID.
-            database_id (str): The Spanner database ID.
+        :param graphistry: The Graphistry parent object.
+        :param project_id: The Google Cloud project ID.
+        :param instance_id: The Spanner instance ID.
+        :param database_id: The Spanner database ID.
         """
         self.graphistry = graphistry
         self.project_id = project_id
@@ -79,13 +67,10 @@ class spannergraph:
 
     def __connect(self) -> Any:
         """
-        Establish a connection to the Spanner database.
+        Establishes a connection to the Spanner database.
 
-        Returns:
-            Any: A connection object to the Spanner database.
-
-        Raises:
-            ConnectionError: If the connection to Spanner fails.
+        :return: A connection object to the Spanner database.
+        :raises ConnectionError: If the connection to Spanner fails.
         """
         try:
             from google.cloud.spanner_dbapi.connection import connect  # Lazy import
@@ -108,14 +93,9 @@ class spannergraph:
         """
         Executes a GQL query on the Spanner database.
 
-        Args:
-            query (str): The GQL query to execute.
-
-        Returns:
-            QueryResult: The results of the query execution.
-
-        Raises:
-            RuntimeError: If the query execution fails.
+        :param query: The GQL query to execute.
+        :return: The results of the query execution.
+        :raises RuntimeError: If the query execution fails.
         """
         try:
             start_time = time.time()
@@ -129,18 +109,15 @@ class spannergraph:
             raise RuntimeError(f"Query execution failed: {e}")
 
     @staticmethod
-    def parse_spanner_json(query_result: QueryResult) -> list:
+    def parse_spanner_json(query_result: QueryResult) -> List[Dict[str, Any]]:
         """
         Converts Spanner JSON graph data into structured Python objects.
 
-        Args:
-            query_result (QueryResult): The results of the executed query.
-
-        Returns:
-            list: A list of dictionaries containing nodes and edges.
+        :param query_result: The results of the executed query.
+        :return: A list of dictionaries containing nodes and edges.
         """
         from google.cloud.spanner_v1.data_types import JsonObject  # Lazy import
-        data = [ query_result.data ]
+        data = [query_result.data]
         json_list = []
         for record in data:
             for item in record:
@@ -168,15 +145,12 @@ class spannergraph:
         return json_list
 
     @staticmethod
-    def get_nodes_df(json_data: list) -> pd.DataFrame:
+    def get_nodes_df(json_data: List[Dict[str, Any]]) -> pd.DataFrame:
         """
         Converts graph nodes into a pandas DataFrame.
 
-        Args:
-            json_data (list): The structured JSON data containing graph nodes.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing node information.
+        :param json_data: The structured JSON data containing graph nodes.
+        :return: A DataFrame containing node information.
         """
         nodes = [
             {"label": node["label"], "identifier": node["identifier"], **node["properties"]}
@@ -188,15 +162,12 @@ class spannergraph:
         return nodes_df
 
     @staticmethod
-    def get_edges_df(json_data: list) -> pd.DataFrame:
+    def get_edges_df(json_data: List[Dict[str, Any]]) -> pd.DataFrame:
         """
         Converts graph edges into a pandas DataFrame.
 
-        Args:
-            json_data (list): The structured JSON data containing graph edges.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing edge information.
+        :param json_data: The structured JSON data containing graph edges.
+        :return: A DataFrame containing edge information.
         """
         edges = [
             {
@@ -215,13 +186,10 @@ class spannergraph:
 
     def gql_to_graph(self, query: str) -> Any:
         """
-        Executes a query and constructs a graphistry graph from the results.
+        Executes a query and constructs a Graphistry graph from the results.
 
-        Args:
-            query (str): The GQL query to execute.
-
-        Returns:
-            Any: A graphistry graph object constructed from the query results.
+        :param query: The GQL query to execute.
+        :return: A Graphistry graph object constructed from the query results.
         """
         query_result = self.execute_query(query)
         json_data = self.parse_spanner_json(query_result)
@@ -230,12 +198,11 @@ class spannergraph:
         g = self.graphistry.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
         return g
 
-    def get_schema(self) -> dict:
+    def get_schema(self) -> Dict[str, List[Dict[str, str]]]:
         """
         Retrieves the schema of the Spanner database.
 
-        Returns:
-            dict: A dictionary containing table names and column details.
+        :return: A dictionary containing table names and column details.
         """
         schema = {}
         try:
@@ -251,16 +218,13 @@ class spannergraph:
             logging.error(f"Failed to retrieve schema: {e}")
         return schema
 
-    def validate_data(self, data: dict, schema: dict) -> bool:
+    def validate_data(self, data: Dict[str, List[Dict[str, Any]]], schema: Dict[str, List[Dict[str, str]]]) -> bool:
         """
         Validates input data against the database schema.
 
-        Args:
-            data (dict): The data to validate.
-            schema (dict): The schema of the database.
-
-        Returns:
-            bool: True if the data is valid, False otherwise.
+        :param data: The data to validate.
+        :param schema: The schema of the database.
+        :return: True if the data is valid, False otherwise.
         """
         for table, columns in data.items():
             if table not in schema:
@@ -274,13 +238,14 @@ class spannergraph:
         logging.info("Data validation passed.")
         return True
 
-    def dump_config(self) -> dict:
+    def dump_config(self) -> Dict[str, str]:
         """
         Returns the current configuration of the spannergraph instance.
 
-        Returns:
-            dict: A dictionary containing configuration details.
+        :return: A dictionary containing configuration details.
         """
         return {
-            "project_id": self
+            "project_id": self.project_id,
+            "instance_id": self.instance_id,
+            "database_id": self.database_id
         }
