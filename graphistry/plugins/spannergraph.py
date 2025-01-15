@@ -5,9 +5,9 @@ import time
 import logging
 from typing import Any, List, Dict
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
 
-class QueryResult:
+class SpannerQueryResult:
     """
     Encapsulates the results of a query, including metadata.
 
@@ -18,7 +18,7 @@ class QueryResult:
 
     def __init__(self, data: List[Any], execution_time: float):
         """
-        Initializes a QueryResult instance.
+        Initializes a SpannerQueryResult instance.
 
         :param data: The raw query results.
         :param execution_time: The time taken to execute the query.
@@ -39,7 +39,7 @@ class QueryResult:
         }
 
 
-class spannergraph:
+class SpannerGraph:
     """
     A comprehensive interface for interacting with Google Spanner Graph databases.
 
@@ -52,7 +52,7 @@ class spannergraph:
 
     def __init__(self, graphistry: Any, project_id: str, instance_id: str, database_id: str):
         """
-        Initializes the spannergraph instance.
+        Initializes the SpannerGraph instance.
 
         :param graphistry: The Graphistry parent object.
         :param project_id: The Google Cloud project ID.
@@ -70,7 +70,7 @@ class spannergraph:
         Establishes a connection to the Spanner database.
 
         :return: A connection object to the Spanner database.
-        :raises ConnectionError: If the connection to Spanner fails.
+        :raises SpannerConnectionError: If the connection to Spanner fails.
         """
         try:
             from google.cloud.spanner_dbapi.connection import connect  # Lazy import
@@ -79,7 +79,7 @@ class spannergraph:
             logging.info("Connected to Spanner database.")
             return connection
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to Spanner: {e}")
+            raise SpannerConnectionError(f"Failed to connect to Spanner: {e}")
 
     def close_connection(self) -> None:
         """
@@ -89,7 +89,7 @@ class spannergraph:
             self.connection.close()
             logging.info("Connection to Spanner database closed.")
 
-    def execute_query(self, query: str) -> QueryResult:
+    def execute_query(self, query: str) -> SpannerQueryResult:
         """
         Executes a GQL query on the Spanner database.
 
@@ -104,12 +104,12 @@ class spannergraph:
             results = cursor.fetchall()
             execution_time = time.time() - start_time
             logging.info(f"Query executed in {execution_time:.4f} seconds.")
-            return QueryResult(results, execution_time)
+            return SpannerQueryResult(results, execution_time)
         except Exception as e:
             raise RuntimeError(f"Query execution failed: {e}")
 
     @staticmethod
-    def parse_spanner_json(query_result: QueryResult) -> List[Dict[str, Any]]:
+    def parse_spanner_json(query_result: SpannerQueryResult) -> List[Dict[str, Any]]:
         """
         Converts Spanner JSON graph data into structured Python objects.
 
@@ -240,7 +240,7 @@ class spannergraph:
 
     def dump_config(self) -> Dict[str, str]:
         """
-        Returns the current configuration of the spannergraph instance.
+        Returns the current configuration of the SpannerGraph instance.
 
         :return: A dictionary containing configuration details.
         """

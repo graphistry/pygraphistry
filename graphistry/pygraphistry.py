@@ -571,6 +571,10 @@ class PyGraphistry(object):
         PyGraphistry._config["bolt_driver"] = bolt_util.to_bolt_driver(driver)
 
     @staticmethod
+    def set_spanner_config(spanner_config=None):
+        PyGraphistry._config["spanner"] = spanner_config # TODO(tcook): bolt_util.to_bolt_driver(driver)
+
+    @staticmethod
     def register(
         key: Optional[str] = None,
         username: Optional[str] = None,
@@ -583,6 +587,7 @@ class PyGraphistry(object):
         api: Optional[Literal[1, 3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
+        spanner_config: Optional[Union[Dict, Any]] = None,        
         token_refresh_ms: int = 10 * 60 * 1000,
         store_token_creds_in_memory: Optional[bool] = None,
         client_protocol_hostname: Optional[str] = None,
@@ -620,6 +625,8 @@ class PyGraphistry(object):
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
         :type bolt: Union[dict, Any]
+        :param spanner_config: Spanner connection information. Named constructor arguments for instantiating a spanner client
+        :type spanner_config: Union[dict, Any]
         :param protocol: Protocol used to contact visualization server, defaults to "https".
         :type protocol: Optional[str]
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
@@ -705,6 +712,8 @@ class PyGraphistry(object):
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         PyGraphistry.set_bolt_driver(bolt)
+        PyGraphistry.set_spanner_config(spanner_config)
+        Pygraphistry.spanner_init(spanner_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
 
@@ -1029,6 +1038,31 @@ class PyGraphistry(object):
                     g = graphistry.bolt(driver)
         """
         return Plotter().bolt(driver)
+
+    @staticmethod
+    def spanner_init(spanner_config=None):
+        """
+
+        TODO(tcook): fix pydocs
+        :param spanner_config: a dict of project_id, instance_id and database_id for spanner connection
+        :return: Plotter w/spanner connection 
+
+        Call this to create a Plotter with a Spanner Graph Connection
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    spanner_CONF = { project_id: "my_project", instance_id: "my_instance", database_id: "my_database"}
+                    g = graphistry.spanner_init(spanner_CONF)
+
+        """
+        if spanner_config is None: 
+            return None
+        else: 
+            return Plotter().spanner_init(spanner_config)
+
 
     @staticmethod
     def cypher(query, params={}):
@@ -1824,21 +1858,21 @@ class PyGraphistry(object):
             protocol, server, web_port, api_port, db, user, pwd, verbose
         )
 
+    # tcook - is this needed?  or we use spanner_init? 
+    # @staticmethod
+    # def spannergraph(project_id, instance_id, database_id):
+    #     """
+    #     Create a new PlotterBase instance with SpannerGraph configured.
 
-    @staticmethod
-    def spannergraph(project_id, instance_id, database_id):
-        """
-        Create a new PlotterBase instance with SpannerGraph configured.
+    #     Args:
+    #         project_id (str): Google Cloud project ID.
+    #         instance_id (str): Spanner instance ID.
+    #         database_id (str): Spanner database ID.
 
-        Args:
-            project_id (str): Google Cloud project ID.
-            instance_id (str): Spanner instance ID.
-            database_id (str): Spanner database ID.
-
-        Returns:
-            PlotterBase: A PlotterBase instance configured with SpannerGraph.
-        """
-        return Plotter().spannergraph(project_id, instance_id, database_id)
+    #     Returns:
+    #         PlotterBase: A PlotterBase instance configured with SpannerGraph.
+    #     """
+    #     return Plotter().spannergraph(project_id, instance_id, database_id)
 
 
     @staticmethod

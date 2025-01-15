@@ -35,10 +35,11 @@ from .bolt_util import (
     end_node_id_key,
     to_bolt_driver)
 
+
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-# from .database_clients.spannergraph import spannergraph
+from .plugins import SpannerGraph
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -2272,6 +2273,16 @@ class PlotterBase(Plottable):
         res._bolt_driver = to_bolt_driver(driver)
         return res
 
+    def spanner_init(self, spanner_config):
+        res = copy.copy(self)
+
+        project_id = spanner_config["project_id"]
+        instance_id = spanner_config["instance_id"]
+        database_id = spanner_config["database_id"]
+        # TODO(tcook): throw an exception when any are missing? 
+
+        res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id)
+        return res       
 
     def infer_labels(self):
         """
@@ -2460,6 +2471,15 @@ class PlotterBase(Plottable):
             )\
             .nodes(nodes)\
             .edges(edges)
+    
+    
+    def spanner_query(self, query: str, params: Dict[str, Any] = {}) -> Plottable:
+        from .pygraphistry import PyGraphistry
+
+        res = copy.copy(self)
+
+        return res._spannergraph.gql_to_graph(query)
+
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
         
