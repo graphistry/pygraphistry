@@ -2283,7 +2283,7 @@ class PlotterBase(Plottable):
 
         res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id)
         print(f'DEBUG: created SpannerGraph object: {res._spannergraph} type(res): {type(res)}')
-        return res       
+        return res
 
     def infer_labels(self):
         """
@@ -2512,7 +2512,7 @@ class PlotterBase(Plottable):
             else: 
                 print(f'DEBUG: PyGraphistry._config["spanner"] is None')
         
-            res._spannergraph = res.spanner_init(PyGraphistry._config["spanner"])
+            res = res.spanner_init(PyGraphistry._config["spanner"])
             return res._spannergraph.gql_to_graph(query)
         else: 
             print(f'DEBUG: res._spannergraph is NOT None')
