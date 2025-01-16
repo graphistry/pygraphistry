@@ -571,8 +571,33 @@ class PyGraphistry(object):
         PyGraphistry._config["bolt_driver"] = bolt_util.to_bolt_driver(driver)
 
     @staticmethod
-    def set_spanner_config(spanner_config=None):
-        PyGraphistry._config["spanner"] = spanner_config # TODO(tcook): bolt_util.to_bolt_driver(driver)
+    # def set_spanner_config(spanner_config: Optional[Union[Dict, Any] = None):  
+    def set_spanner_config(spanner_config):
+        """
+        Saves the spanner config to internal Pygraphistry _config
+        :param spanner_config: dict of the project_id, instance_id and database_id
+        :type spanner_config: Optional[Union[Dict, Any]]
+        :returns: None.
+        :rtype: None
+
+        **Example: calling set_spanner_config**
+                ::
+
+                    import graphistry
+                    graphistry.register(...)
+
+                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID }
+
+                    graphistry.set_spanner_config(SPANNER_CONF)
+     
+        """
+
+        if spanner_config is not None: 
+            PyGraphistry._config["spanner"] = spanner_config 
+
+
 
     @staticmethod
     def register(
@@ -713,7 +738,7 @@ class PyGraphistry(object):
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         PyGraphistry.set_bolt_driver(bolt)
         PyGraphistry.set_spanner_config(spanner_config)
-        Pygraphistry.spanner_init(spanner_config)
+        PyGraphistry.spanner_init(spanner_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
 
@@ -1043,7 +1068,7 @@ class PyGraphistry(object):
     def spanner_init(spanner_config=None):
         """
 
-        TODO(tcook): fix pydocs
+        TODO(tcook): update pydocs
         :param spanner_config: a dict of project_id, instance_id and database_id for spanner connection
         :return: Plotter w/spanner connection 
 
@@ -1858,21 +1883,10 @@ class PyGraphistry(object):
             protocol, server, web_port, api_port, db, user, pwd, verbose
         )
 
-    # tcook - is this needed?  or we use spanner_init? 
-    # @staticmethod
-    # def spannergraph(project_id, instance_id, database_id):
-    #     """
-    #     Create a new PlotterBase instance with SpannerGraph configured.
-
-    #     Args:
-    #         project_id (str): Google Cloud project ID.
-    #         instance_id (str): Spanner instance ID.
-    #         database_id (str): Spanner database ID.
-
-    #     Returns:
-    #         PlotterBase: A PlotterBase instance configured with SpannerGraph.
-    #     """
-    #     return Plotter().spannergraph(project_id, instance_id, database_id)
+    @staticmethod
+    def spanner_query(query: str, params: Dict[str, Any] = {}) -> Plottable:    
+        # TODO(tcook): add pydocs 
+        return Plotter().spanner_query(query, params)
 
 
     @staticmethod
@@ -2536,7 +2550,7 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
-spannergraph = PyGraphistry.spannergraph
+spanner_query = PyGraphistry.spanner_query
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

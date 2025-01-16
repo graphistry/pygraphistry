@@ -31,6 +31,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     bolt,
     cypher,
     tigergraph,
+    spanner_query,
     gsql,
     gsql_endpoint,
     cosmos,

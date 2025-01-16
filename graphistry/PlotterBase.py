@@ -39,7 +39,7 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-from .plugins import SpannerGraph
+from .plugins.spannergraph import SpannerGraph
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -2282,6 +2282,7 @@ class PlotterBase(Plottable):
         # TODO(tcook): throw an exception when any are missing? 
 
         res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id)
+        print(f'DEBUG: created SpannerGraph object: {res._spannergraph}')
         return res       
 
     def infer_labels(self):
@@ -2474,6 +2475,30 @@ class PlotterBase(Plottable):
     
     
     def spanner_query(self, query: str, params: Dict[str, Any] = {}) -> Plottable:
+        """
+        TODO(tcook):  maybe rename to spanner_query_gql since spanner supports multiple languages. SQL, GQL, etc
+
+        query google spanner graph database and return Plottable with nodes and edges populated  
+        :param query: GQL query string 
+        :type query: Str
+        :returns: Plottable
+        :rtype: Plottable
+
+        **Example: calling spanner_query
+                ::
+
+                    import graphistry
+
+                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID }
+
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+
+                    g = graphistry.spanner_query("Graph MyGraph\nMATCH ()-[]->()" )
+     
+        """
+
         from .pygraphistry import PyGraphistry
 
         res = copy.copy(self)
