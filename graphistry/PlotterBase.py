@@ -2272,17 +2272,24 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._bolt_driver = to_bolt_driver(driver)
         return res
-
+    
+    # TODO(tcook): add pydocs, typing 
     def spanner_init(self, spanner_config):
         res = copy.copy(self)
 
         project_id = spanner_config["project_id"]
         instance_id = spanner_config["instance_id"]
         database_id = spanner_config["database_id"]
-        # TODO(tcook): throw an exception when any are missing? 
+
+        # check if valid 
+        required_keys = ["project_id", "instance_id", "database_id"]
+        for key in required_keys:
+            value = spanner_config.get(key)
+            if not value:  # checks for None or empty values
+                raise ValueError(f"Missing or invalid value for required Spanner configuration: '{key}'")
 
         res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id)
-        print(f'DEBUG: created SpannerGraph object: {res._spannergraph} type(res): {type(res)}')
+        logger.debug("Created SpannerGraph object: {res._spannergraph}")
         return res
 
     def infer_labels(self):
@@ -2481,7 +2488,7 @@ class PlotterBase(Plottable):
         query google spanner graph database and return Plottable with nodes and edges populated  
         :param query: GQL query string 
         :type query: Str
-        :returns: Plottable
+        :returns: Plottable with the results of GQL query as a graph
         :rtype: Plottable
 
         **Example: calling spanner_query
@@ -2496,26 +2503,25 @@ class PlotterBase(Plottable):
                     graphistry.register(..., spanner_config=SPANNER_CONF)
 
                     g = graphistry.spanner_query("Graph MyGraph\nMATCH ()-[]->()" )
+
+                    g.plot()
      
         """
 
-        # is this needed? 
         from .pygraphistry import PyGraphistry
-        print(f'DEBUG: PlotterBase.py spanner_query()')
 
         res = copy.copy(self)
         
         if res._spannergraph is None: 
             spanner_config = PyGraphistry._config["spanner"]
             if spanner_config is not None: 
-                print(f'DEBUG: Spanner Config: {spanner_config}')
+                logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                print(f'DEBUG: PyGraphistry._config["spanner"] is None')
+                logger.debug(f'PyGraphistry._config["spanner"] is None')
         
             res = res.spanner_init(PyGraphistry._config["spanner"])
             return res._spannergraph.gql_to_graph(query)
         else: 
-            print(f'DEBUG: res._spannergraph is NOT None')
             return res._spannergraph.gql_to_graph(query)
 
 

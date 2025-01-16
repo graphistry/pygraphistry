@@ -2,10 +2,19 @@ import os
 import pandas as pd
 import json
 import time
-import logging
 from typing import Any, List, Dict
 
-# logging.basicConfig(level=logging.INFO)
+from graphistry.util import setup_logger
+logger = setup_logger(__name__)
+
+import logging
+logging.basicConfig(level=logging.INFO)
+
+from google.cloud.spanner_v1.data_types import JsonObject
+
+class SpannerConnectionError(Exception):
+    """Custom exception for errors related to Spanner connection."""
+    pass
 
 class SpannerQueryResult:
     """
@@ -26,7 +35,6 @@ class SpannerQueryResult:
         self.data = data
         self.execution_time = execution_time
         self.record_count = len(data)
-        print('DEBUG: SpannerQueryResults init()')
 
     def summary(self) -> Dict[str, Any]:
         """
@@ -64,19 +72,19 @@ class SpannerGraph:
         self.project_id = project_id
         self.instance_id = instance_id
         self.database_id = database_id
-        print('DEBUG: SpannerGraph init()')
         self.connection = self.__connect()
-        print(f'DEBUG: SpannerQueryResults connection = {self.connection}')
 
     def __connect(self) -> Any:
         """
         Establishes a connection to the Spanner database.
 
         :return: A connection object to the Spanner database.
+        :rtype: google.cloud.spanner_dbapi.connection
         :raises SpannerConnectionError: If the connection to Spanner fails.
         """
+        from google.cloud.spanner_dbapi.connection import connect
+
         try:
-            from google.cloud.spanner_dbapi.connection import connect  # Lazy import
             connection = connect(self.instance_id, self.database_id)
             connection.autocommit = True
             logging.info("Connected to Spanner database.")
@@ -98,9 +106,10 @@ class SpannerGraph:
 
         :param query: The GQL query to execute.
         :return: The results of the query execution.
+        :rtype: SpannerQueryResult
         :raises RuntimeError: If the query execution fails.
         """
-        print(f'DEBUG: SpannerGraph execute_query() query:{query}')
+        logger.debug(f' SpannerGraph execute_query() query:{query}\n')
 
         try:
             start_time = time.time()
@@ -114,79 +123,103 @@ class SpannerGraph:
             raise RuntimeError(f"Query execution failed: {e}")
 
     @staticmethod
-    def parse_spanner_json(query_result: SpannerQueryResult) -> List[Dict[str, Any]]:
-        """
-        Converts Spanner JSON graph data into structured Python objects.
-
-        :param query_result: The results of the executed query.
-        :return: A list of dictionaries containing nodes and edges.
-        """
-        from google.cloud.spanner_v1.data_types import JsonObject  # Lazy import
-        data = [query_result.data]
+    def convert_spanner_json(data):
+        from google.cloud.spanner_v1.data_types import JsonObject
         json_list = []
-        for record in data:
-            for item in record:
+        for item in data:
+            for elements in item:
                 json_entry = {"nodes": [], "edges": []}
-                elements = json.loads(item.serialize()) if isinstance(item, JsonObject) else item
                 for element in elements:
-                    if element.get('kind') == 'node':
-                        for label in element.get('labels', []):
-                            json_entry["nodes"].append({
-                                "label": label,
-                                "identifier": element.get('identifier'),
-                                "properties": element.get('properties', {})
-                            })
-                    elif element.get('kind') == 'edge':
-                        for label in element.get('labels', []):
-                            json_entry["edges"].append({
-                                "label": label,
-                                "identifier": element.get('identifier'),
-                                "source": element.get('source_node_identifier'),
-                                "destination": element.get('destination_node_identifier'),
-                                "properties": element.get('properties', {})
-                            })
-                if json_entry["nodes"] or json_entry["edges"]:
+                    element_dict_list = json.loads(element.serialize()) if isinstance(element, JsonObject) else element
+                    for element_dict in element_dict_list:
+                        if element_dict.get('kind') == 'node':
+                            labels = element_dict.get('labels', [])
+                            for label in labels:
+                                node_data = {
+                                    "label": label,
+                                    "identifier": element_dict.get('identifier'),
+                                    "properties": element_dict.get('properties', {})
+                                }
+                                json_entry["nodes"].append(node_data)
+                        elif element_dict.get('kind') == 'edge':
+                            labels = element_dict.get('labels', [])
+                            for label in labels:
+                                edge_data = {
+                                    "label": label,
+                                    "identifier": element_dict.get('identifier'),
+                                    "source": element_dict.get('source_node_identifier'),
+                                    "destination": element_dict.get('destination_node_identifier'),
+                                    "properties": element_dict.get('properties')
+                                }
+                                json_entry["edges"].append(edge_data)
+                if json_entry["nodes"] or json_entry["edges"]:  # only add non-empty entries
                     json_list.append(json_entry)
         return json_list
 
     @staticmethod
-    def get_nodes_df(json_data: List[Dict[str, Any]]) -> pd.DataFrame:
+    def get_nodes_df(json_data: list) -> pd.DataFrame:
         """
-        Converts graph nodes into a pandas DataFrame.
-
+        Converts spanner json nodes into a pandas DataFrame.
+    
         :param json_data: The structured JSON data containing graph nodes.
-        :return: A DataFrame containing node information.
+        :return: A DataFrame containing node information
+        :rtype: pd.DataFrame         
         """
         nodes = [
-            {"label": node["label"], "identifier": node["identifier"], **node["properties"]}
+            { 
+                "label": node.get("label"), 
+                "identifier": node["identifier"], 
+                **node.get("properties", {})
+            }
             for entry in json_data
-            for node in entry["nodes"]
+            for node in entry.get("nodes", [])
         ]
         nodes_df = pd.DataFrame(nodes).drop_duplicates()
-        nodes_df['type'] = nodes_df['label']
+
+        # if 'type' property exists, skip setting and warn
+        if "type" not in nodes_df.columns:
+            # check 'label' column exists before assigning it to 'type'
+            if "label" in nodes_df.columns:
+                nodes_df['type'] = nodes_df['label']
+            else:
+                nodes_df['type'] = None  # Assign a default value if 'label' is missing
+        else: 
+            logger.warn("unable to assign 'type' from label, column exists\n")
+        
         return nodes_df
 
     @staticmethod
-    def get_edges_df(json_data: List[Dict[str, Any]]) -> pd.DataFrame:
+    def get_edges_df(json_data: list) -> pd.DataFrame:
         """
-        Converts graph edges into a pandas DataFrame.
+        Converts spanner json edges into a pandas DataFrame
 
         :param json_data: The structured JSON data containing graph edges.
         :return: A DataFrame containing edge information.
+        :rtype: pd.DataFrame 
         """
         edges = [
             {
-                "label": edge["label"],
+                "label": edge.get("label"),
                 "identifier": edge["identifier"],
                 "source": edge["source"],
                 "destination": edge["destination"],
-                **edge["properties"]
+                **edge.get("properties", {})
             }
             for entry in json_data
-            for edge in entry["edges"]
+            for edge in entry.get("edges", [])
         ]
         edges_df = pd.DataFrame(edges).drop_duplicates()
-        edges_df['type'] = edges_df['label']
+
+        # if 'type' property exists, skip setting and warn
+        if "type" not in edges_df.columns:
+            # check 'label' column exists before assigning it to 'type'
+            if "label" in edges_df.columns:
+                edges_df['type'] = edges_df['label']
+            else:
+                edges_df['type'] = None  # Assign a default value if 'label' is missing
+        else: 
+            logger.warn("unable to assign 'type' from label, column exists\n")
+
         return edges_df
 
     def gql_to_graph(self, query: str) -> Any:
@@ -197,12 +230,17 @@ class SpannerGraph:
         :return: A Graphistry graph object constructed from the query results.
         """
         query_result = self.execute_query(query)
-        json_data = self.parse_spanner_json(query_result)
+        # convert json result set to a list 
+        query_result_list = [ query_result.data ]
+        json_data = self.convert_spanner_json(query_result_list)
         nodes_df = self.get_nodes_df(json_data)
         edges_df = self.get_edges_df(json_data)
+        # TODO(tcook): add more error handling here if nodes or edges are empty
         g = self.graphistry.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
         return g
 
+    # TODO(tcook): add wrapper funcs in PlotterBase for these utility functions: 
+    
     def get_schema(self) -> Dict[str, List[Dict[str, str]]]:
         """
         Retrieves the schema of the Spanner database.

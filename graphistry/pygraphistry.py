@@ -738,7 +738,6 @@ class PyGraphistry(object):
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         PyGraphistry.set_bolt_driver(bolt)
         PyGraphistry.set_spanner_config(spanner_config)
-        PyGraphistry.spanner_init(spanner_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
 
