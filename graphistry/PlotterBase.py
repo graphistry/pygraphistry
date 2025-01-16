@@ -2282,7 +2282,7 @@ class PlotterBase(Plottable):
         # TODO(tcook): throw an exception when any are missing? 
 
         res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id)
-        print(f'DEBUG: created SpannerGraph object: {res._spannergraph}')
+        print(f'DEBUG: created SpannerGraph object: {res._spannergraph} type(res): {type(res)}')
         return res       
 
     def infer_labels(self):
@@ -2499,11 +2499,24 @@ class PlotterBase(Plottable):
      
         """
 
+        # is this needed? 
         from .pygraphistry import PyGraphistry
+        print(f'DEBUG: PlotterBase.py spanner_query()')
 
         res = copy.copy(self)
-
-        return res._spannergraph.gql_to_graph(query)
+        
+        if res._spannergraph is None: 
+            spanner_config = PyGraphistry._config["spanner"]
+            if spanner_config is not None: 
+                print(f'DEBUG: Spanner Config: {spanner_config}')
+            else: 
+                print(f'DEBUG: PyGraphistry._config["spanner"] is None')
+        
+            res._spannergraph = res.spanner_init(PyGraphistry._config["spanner"])
+            return res._spannergraph.gql_to_graph(query)
+        else: 
+            print(f'DEBUG: res._spannergraph is NOT None')
+            return res._spannergraph.gql_to_graph(query)
 
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):

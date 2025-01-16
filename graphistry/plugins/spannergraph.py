@@ -26,6 +26,7 @@ class SpannerQueryResult:
         self.data = data
         self.execution_time = execution_time
         self.record_count = len(data)
+        print('DEBUG: SpannerQueryResults init()')
 
     def summary(self) -> Dict[str, Any]:
         """
@@ -63,7 +64,9 @@ class SpannerGraph:
         self.project_id = project_id
         self.instance_id = instance_id
         self.database_id = database_id
+        print('DEBUG: SpannerGraph init()')
         self.connection = self.__connect()
+        print(f'DEBUG: SpannerQueryResults connection = {self.connection}')
 
     def __connect(self) -> Any:
         """
@@ -97,6 +100,8 @@ class SpannerGraph:
         :return: The results of the query execution.
         :raises RuntimeError: If the query execution fails.
         """
+        print(f'DEBUG: SpannerGraph execute_query() query:{query}')
+
         try:
             start_time = time.time()
             cursor = self.connection.cursor()
