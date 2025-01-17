@@ -178,7 +178,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
-        self._spannergraph: SpannerGraph = None
+        self._spannergraph: Any = None
 
         # feature engineering
         self._node_embedding = None
@@ -2597,7 +2597,7 @@ class PlotterBase(Plottable):
             else: 
                 logger.warning('PyGraphistry._config["spanner"] is None')
         
-            res = res.spanner_init(PyGraphistry._config["spanner"])
+            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
         return res._spannergraph.query_to_df(query)
 
