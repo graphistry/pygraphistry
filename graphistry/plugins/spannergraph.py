@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import json
 import time
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 from graphistry.Plottable import Plottable
 
