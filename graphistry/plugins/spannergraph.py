@@ -21,7 +21,7 @@ class SpannerQueryResult:
     :ivar list data: The raw query results.
     """
 
-    def __init__(self, data: List[Any], column_names: List[str]=None):
+    def __init__(self, data: List[Any], column_names: List[str] = None):
         """
         Initializes a SpannerQueryResult instance.
 
@@ -45,7 +45,7 @@ class SpannerGraph:
     :ivar Any graphistry: The Graphistry parent object.
     """
 
-    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: str=None):
+    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: str = None):
         """
         Initializes the SpannerGraph instance.
 

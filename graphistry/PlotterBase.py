@@ -2535,7 +2535,6 @@ class PlotterBase(Plottable):
                     g.plot()
      
         """
-
         from .pygraphistry import PyGraphistry
 
         res = copy.copy(self)
@@ -2545,7 +2544,7 @@ class PlotterBase(Plottable):
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                logger.warn(f'PyGraphistry._config["spanner"] is None')
+                logger.warning('PyGraphistry._config["spanner"] is None')
         
             res = res.spanner_init(PyGraphistry._config["spanner"])
 
@@ -2596,7 +2595,7 @@ class PlotterBase(Plottable):
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                logger.warn(f'PyGraphistry._config["spanner"] is None')
+                logger.warning('PyGraphistry._config["spanner"] is None')
         
             res = res.spanner_init(PyGraphistry._config["spanner"])
 
