@@ -21,14 +21,14 @@ class SpannerQueryResult:
     :ivar list data: The raw query results.
     """
 
-    def __init__(self, data: List[Any], column_names: List[str] = None):
+    def __init__(self, data: List[Any], column_names: List[str]):
         """
         Initializes a SpannerQueryResult instance.
 
         :param data: The raw query results.
         :type List[Any]
         :param column_names: a list of the column names from the cursor, defaults to None 
-        :type: List[str], optional
+        :type: List[str]
         """
         self.data = data
         self.column_names = column_names
@@ -45,7 +45,7 @@ class SpannerGraph:
     :ivar Any graphistry: The Graphistry parent object.
     """
 
-    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: str = None):
+    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: Optional[str] = None):
         """
         Initializes the SpannerGraph instance.
 
@@ -122,7 +122,7 @@ class SpannerGraph:
         json_list = []
         for item in data:
             for elements in item:
-                json_entry = {"nodes": [], "edges": []}
+                json_entry: Dict[str, List] = {"nodes": [], "edges": []}
                 for element in elements:
                     element_dict_list = json.loads(element.serialize()) if isinstance(element, JsonObject) else element
                     for element_dict in element_dict_list:
