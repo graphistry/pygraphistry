@@ -580,7 +580,7 @@ class PyGraphistry(object):
         :returns: None.
         :rtype: None
 
-        **Example: calling set_spanner_config**
+        **Example: calling set_spanner_config - all keys are required**
                 ::
 
                     import graphistry
@@ -591,7 +591,20 @@ class PyGraphistry(object):
                                      "database_id": DATABASE_ID }
 
                     graphistry.set_spanner_config(SPANNER_CONF)
-     
+
+        **Example: calling set_spanner_config with credentials_file (optional) - used for service accounts**
+                ::
+
+                    import graphistry
+                    graphistry.register(...)
+
+                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+
+                    graphistry.set_spanner_config(SPANNER_CONF)
+                         
         """
 
         if spanner_config is not None: 
@@ -1883,10 +1896,83 @@ class PyGraphistry(object):
         )
 
     @staticmethod
-    def spanner_query(query: str, params: Dict[str, Any] = {}) -> Plottable:    
-        # TODO(tcook): add pydocs 
-        return Plotter().spanner_query(query, params)
+    def spanner_gql_to_g(query: str) -> Plottable:    
+        """
+        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
+        
+        GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
+        SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
+        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
 
+        query=f'''GRAPH my_graph
+        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+
+        :param query: GQL query string 
+        :type query: Str
+
+        :returns: Plottable with the results of GQL query as a graph
+        :rtype: Plottable
+
+        **Example: calling spanner_gql_to_g
+                ::
+
+                    import graphistry
+
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+
+                    query=f'''GRAPH my_graph
+                    MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+
+                    g = graphistry.spanner_gql_to_g(query)
+
+                    g.plot()
+     
+        """
+        return Plotter().spanner_gql_to_g(query)
+
+    @staticmethod
+    def spanner_query_to_df(query: str) -> pd.DataFrame:
+        """
+
+        Submit query to google spanner database and return a df of the results 
+        
+        query can be SQL or GQL as long as table of results are returned 
+
+        query='SELECT * from Account limit 10000'
+
+        :param query: query string 
+        :type query: Str
+
+        :returns: Pandas DataFrame with the results of query
+        :rtype: pd.DataFrame
+
+        **Example: calling spanner_query_to_df
+                ::
+
+                    import graphistry
+
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+
+                    query='SELECT * from Account limit 10000'
+
+                    df = graphistry.spanner_query_to_df(query)
+
+                    g.plot()
+     
+        """
+        return Plotter().spanner_query_to_df(query)
 
     @staticmethod
     def gsql_endpoint(
@@ -2549,7 +2635,8 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
-spanner_query = PyGraphistry.spanner_query
+spanner_gql_to_g = PyGraphistry.spanner_gql_to_g
+spanner_query_to_df = PyGraphistry.spanner_query_to_df
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

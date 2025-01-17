@@ -4,13 +4,11 @@ import json
 import time
 from typing import Any, List, Dict
 
+from graphistry.Plottable import Plottable
+
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
-import logging
-logging.basicConfig(level=logging.INFO)
-
-from google.cloud.spanner_v1.data_types import JsonObject
 
 class SpannerConnectionError(Exception):
     """Custom exception for errors related to Spanner connection."""
@@ -21,31 +19,19 @@ class SpannerQueryResult:
     Encapsulates the results of a query, including metadata.
 
     :ivar list data: The raw query results.
-    :ivar float execution_time: The time taken to execute the query.
-    :ivar int record_count: The number of records returned.
     """
 
-    def __init__(self, data: List[Any], execution_time: float):
+    def __init__(self, data: List[Any], column_names: List[str]=None):
         """
         Initializes a SpannerQueryResult instance.
 
         :param data: The raw query results.
-        :param execution_time: The time taken to execute the query.
+        :type List[Any]
+        :param column_names: a list of the column names from the cursor, defaults to None 
+        :type: List[str], optional
         """
         self.data = data
-        self.execution_time = execution_time
-        self.record_count = len(data)
-
-    def summary(self) -> Dict[str, Any]:
-        """
-        Provides a summary of the query execution.
-
-        :return: A summary of the query results.
-        """
-        return {
-            "execution_time": self.execution_time,
-            "record_count": self.record_count
-        }
+        self.column_names = column_names
 
 
 class SpannerGraph:
@@ -59,7 +45,7 @@ class SpannerGraph:
     :ivar Any graphistry: The Graphistry parent object.
     """
 
-    def __init__(self, graphistry: Any, project_id: str, instance_id: str, database_id: str):
+    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: str=None):
         """
         Initializes the SpannerGraph instance.
 
@@ -68,10 +54,11 @@ class SpannerGraph:
         :param instance_id: The Spanner instance ID.
         :param database_id: The Spanner database ID.
         """
-        self.graphistry = graphistry
+        self.g = g
         self.project_id = project_id
         self.instance_id = instance_id
         self.database_id = database_id
+        self.credentials_file = credentials_file
         self.connection = self.__connect()
 
     def __connect(self) -> Any:
@@ -85,9 +72,13 @@ class SpannerGraph:
         from google.cloud.spanner_dbapi.connection import connect
 
         try:
-            connection = connect(self.instance_id, self.database_id)
+            if self.credentials_file: 
+                connection = connect(self.instance_id, self.database_id, credentials=self.credentials_file)
+            else:
+                connection = connect(self.instance_id, self.database_id)
+
             connection.autocommit = True
-            logging.info("Connected to Spanner database.")
+            logger.info("Connected to Spanner database.")
             return connection
         except Exception as e:
             raise SpannerConnectionError(f"Failed to connect to Spanner: {e}")
@@ -98,13 +89,14 @@ class SpannerGraph:
         """
         if self.connection:
             self.connection.close()
-            logging.info("Connection to Spanner database closed.")
+            logger.info("Connection to Spanner database closed.")
 
     def execute_query(self, query: str) -> SpannerQueryResult:
         """
         Executes a GQL query on the Spanner database.
 
-        :param query: The GQL query to execute.
+        :param query: The GQL query to execute
+        :type str
         :return: The results of the query execution.
         :rtype: SpannerQueryResult
         :raises RuntimeError: If the query execution fails.
@@ -116,14 +108,16 @@ class SpannerGraph:
             cursor = self.connection.cursor()
             cursor.execute(query)
             results = cursor.fetchall()
-            execution_time = time.time() - start_time
-            logging.info(f"Query executed in {execution_time:.4f} seconds.")
-            return SpannerQueryResult(results, execution_time)
+            column_names = [desc[0] for desc in cursor.description]  # extract column names
+            logger.debug(f'column names returned from query: {column_names}')
+            execution_time_s = time.time() - start_time
+            logger.info(f"Query completed in {execution_time_s:.3f} seconds.")
+            return SpannerQueryResult(results, column_names)
         except Exception as e:
             raise RuntimeError(f"Query execution failed: {e}")
 
     @staticmethod
-    def convert_spanner_json(data):
+    def convert_spanner_json(data: List[Any]) -> List[Dict[str, Any]]:
         from google.cloud.spanner_v1.data_types import JsonObject
         json_list = []
         for item in data:
@@ -157,6 +151,35 @@ class SpannerGraph:
         return json_list
 
     @staticmethod
+    def add_type_from_label_to_df(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Modify input DataFrame creating a 'type' column is created from 'label' for proper type handling in Graphistry
+        If a 'type' column already exists, it is renamed to 'type_' before creating the new 'type' column.
+
+        :param df: DataFrame containing node or edge data
+        :type df: pd.DataFrame
+
+        :return: Modified DataFrame with the updated 'type' column.
+        :rtype: query: pd.DataFrame
+
+        """
+
+        # rename 'type' to 'type_' if it exists
+        if "type" in df.columns:
+            df.rename(columns={"type": "type_"}, inplace=True)
+            logger.info("'type' column renamed to 'type_'")
+
+        # check if 'label' column exists before assigning it to 'type'
+        if "label" in df.columns:
+            df["type"] = df["label"]
+        else:
+            # assign None value if 'label' is missing
+            df["type"] = None  
+            logger.warn("'label' column missing, 'type' set to None")
+
+        return df
+
+    @staticmethod
     def get_nodes_df(json_data: list) -> pd.DataFrame:
         """
         Converts spanner json nodes into a pandas DataFrame.
@@ -176,26 +199,20 @@ class SpannerGraph:
         ]
         nodes_df = pd.DataFrame(nodes).drop_duplicates()
 
-        # if 'type' property exists, skip setting and warn
-        if "type" not in nodes_df.columns:
-            # check 'label' column exists before assigning it to 'type'
-            if "label" in nodes_df.columns:
-                nodes_df['type'] = nodes_df['label']
-            else:
-                nodes_df['type'] = None  # Assign a default value if 'label' is missing
-        else: 
-            logger.warn("unable to assign 'type' from label, column exists\n")
-        
-        return nodes_df
+        return SpannerGraph.add_type_from_label_to_df(nodes_df)
 
+
+    
     @staticmethod
     def get_edges_df(json_data: list) -> pd.DataFrame:
         """
         Converts spanner json edges into a pandas DataFrame
 
         :param json_data: The structured JSON data containing graph edges.
+        :type list 
         :return: A DataFrame containing edge information.
         :rtype: pd.DataFrame 
+
         """
         edges = [
             {
@@ -210,85 +227,41 @@ class SpannerGraph:
         ]
         edges_df = pd.DataFrame(edges).drop_duplicates()
 
-        # if 'type' property exists, skip setting and warn
-        if "type" not in edges_df.columns:
-            # check 'label' column exists before assigning it to 'type'
-            if "label" in edges_df.columns:
-                edges_df['type'] = edges_df['label']
-            else:
-                edges_df['type'] = None  # Assign a default value if 'label' is missing
-        else: 
-            logger.warn("unable to assign 'type' from label, column exists\n")
+        return SpannerGraph.add_type_from_label_to_df(edges_df)
 
-        return edges_df
 
-    def gql_to_graph(self, query: str) -> Any:
+    def gql_to_graph(self, query: str) -> Plottable:
         """
         Executes a query and constructs a Graphistry graph from the results.
 
         :param query: The GQL query to execute.
         :return: A Graphistry graph object constructed from the query results.
+        :rtype: Plottable 
         """
         query_result = self.execute_query(query)
+
         # convert json result set to a list 
         query_result_list = [ query_result.data ]
+
         json_data = self.convert_spanner_json(query_result_list)
+
         nodes_df = self.get_nodes_df(json_data)
         edges_df = self.get_edges_df(json_data)
+
         # TODO(tcook): add more error handling here if nodes or edges are empty
-        g = self.graphistry.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
-        return g
+        return self.g.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
 
-    # TODO(tcook): add wrapper funcs in PlotterBase for these utility functions: 
-    
-    def get_schema(self) -> Dict[str, List[Dict[str, str]]]:
+    def query_to_df(self, query: str) -> pd.DataFrame:
         """
-        Retrieves the schema of the Spanner database.
+        Executes a query and returns a pandas dataframe of results
 
-        :return: A dictionary containing table names and column details.
+        :param query: The query to execute.
+        :return: pandas dataframe of the query results 
+        :rtype: pd.DataFrame
         """
-        schema = {}
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute("SELECT table_name, column_name, spanner_type FROM information_schema.columns")
-            for row in cursor.fetchall():
-                table_name, column_name, spanner_type = row
-                if table_name not in schema:
-                    schema[table_name] = []
-                schema[table_name].append({"column_name": column_name, "type": spanner_type})
-            logging.info("Database schema retrieved successfully.")
-        except Exception as e:
-            logging.error(f"Failed to retrieve schema: {e}")
-        return schema
+        query_result = self.execute_query(query)
 
-    def validate_data(self, data: Dict[str, List[Dict[str, Any]]], schema: Dict[str, List[Dict[str, str]]]) -> bool:
-        """
-        Validates input data against the database schema.
+        # create DataFrame from json results, adding column names
+        df = pd.DataFrame(query_result.data, columns=query_result.column_names)
 
-        :param data: The data to validate.
-        :param schema: The schema of the database.
-        :return: True if the data is valid, False otherwise.
-        """
-        for table, columns in data.items():
-            if table not in schema:
-                logging.error(f"Table {table} does not exist in schema.")
-                return False
-            for record in columns:
-                for key in record.keys():
-                    if key not in [col["column_name"] for col in schema[table]]:
-                        logging.error(f"Column {key} is not valid for table {table}.")
-                        return False
-        logging.info("Data validation passed.")
-        return True
-
-    def dump_config(self) -> Dict[str, str]:
-        """
-        Returns the current configuration of the SpannerGraph instance.
-
-        :return: A dictionary containing configuration details.
-        """
-        return {
-            "project_id": self.project_id,
-            "instance_id": self.instance_id,
-            "database_id": self.database_id
-        }
+        return df
