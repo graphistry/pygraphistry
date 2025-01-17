@@ -124,5 +124,21 @@ setup(
         'Topic :: Software Development :: Widget Sets',
         'Topic :: System :: Distributed Computing'
     ],
+    project_urls = {
+        "Homepage": "https://www.graphistry.com",
+        "Repository": "https://github.com/graphistry/pygraphistry",
+        "Documentation": "https://pygraphistry.readthedocs.io/",
+        "Changelog": "https://github.com/graphistry/pygraphistry/blob/master/CHANGELOG.md",
+        "Issues": "https://github.com/graphistry/pygraphistry/issues",
+        "Funding": "https://www.graphistry.com",
+        "Download": "https://pypi.org/project/graphistry/#files",
+        "Slack": "https://graphistry-community.slack.com",
+        "Twitter": "https://twitter.com/graphistry",
+        "LinkedIn": "https://www.linkedin.com/company/graphistry",
+        "Contributing": "https://github.com/graphistry/pygraphistry/blob/master/CONTRIBUTING.md",
+        "License": "https://github.com/graphistry/pygraphistry/blob/main/LICENSE.txt",
+        "Code of Conduct": "https://github.com/graphistry/pygraphistry/blob/main/CODE_OF_CONDUCT.md",
+        "Support": "https://www.graphistry.com/support",
+    },
     keywords=['cugraph', 'cudf', 'cuml', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'graphviz', 'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'RAPIDS', 'RDF', 'Splunk', 'Spark', 'SQL', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
 )

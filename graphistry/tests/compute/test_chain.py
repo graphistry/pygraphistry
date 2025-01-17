@@ -1,11 +1,11 @@
 import os
 import pandas as pd
-from graphistry.compute.predicates.is_in import is_in
-from graphistry.compute.predicates.numeric import gt
 import pytest
 
-from graphistry.compute.ast import ASTNode, ASTEdge, n, e, e_undirected, e_forward
+from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward
 from graphistry.compute.chain import Chain
+from graphistry.compute.predicates.is_in import IsIn, is_in
+from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
 
 
@@ -298,6 +298,25 @@ def test_chain_serialization_pred():
     o2 = d.to_json()
     assert o == o2
 
+def test_chain_serialize_pred_is_in():
+
+    #from graphistry.compute.chain import Chain
+    #from graphistry import e_undirected, is_in
+    o = Chain([
+        e_undirected(
+            hops=1,
+            edge_match={"source": is_in(options=[
+                "Oakville Square",
+                "Maplewood Square"
+            ])})
+    ]).to_json()
+    d = Chain.from_json(o)
+    assert isinstance(d.chain[0], ASTEdgeUndirected), f'got: {type(d.chain[0])}'
+    assert d.chain[0].direction == 'undirected'
+    assert d.chain[0].hops == 1
+    assert isinstance(d.chain[0].edge_match['source'], IsIn)
+    assert d.chain[0].edge_match['source'].options == ['Oakville Square', 'Maplewood Square']
+
 def test_chain_simple_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
@@ -416,3 +435,26 @@ def test_preds_more_pd_2():
     )
     assert len(g2._nodes) == 2
     assert set(g2._nodes[g._node].tolist()) == set(['b2', 'c2'])
+
+
+def test_chain_binding_reuse():
+    edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+    nodes1_df = pd.DataFrame({'v': ['a', 'b', 'c']})
+    nodes2_df = pd.DataFrame({'s': ['a', 'b', 'c']})
+    nodes3_df = pd.DataFrame({'d': ['a', 'b', 'c']})
+    
+    g1 = CGFull().nodes(nodes1_df, 'v').edges(edges_df, 's', 'd')
+    g2 = CGFull().nodes(nodes2_df, 's').edges(edges_df, 's', 'd')
+    g3 = CGFull().nodes(nodes3_df, 'd').edges(edges_df, 's', 'd')
+
+    try:
+        g1_hop = g1.chain([n(), e(), n()])
+        g2_hop = g2.chain([n(), e(), n()])
+        g3_hop = g3.chain([n(), e(), n()])
+    except NotImplementedError:
+        return
+
+    assert g1_hop._nodes.shape == g2_hop._nodes.shape
+    assert g1_hop._edges.shape == g2_hop._edges.shape
+    assert g1_hop._nodes.shape == g3_hop._nodes.shape
+    assert g1_hop._edges.shape == g3_hop._edges.shape

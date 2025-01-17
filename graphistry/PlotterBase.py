@@ -1,4 +1,4 @@
-from graphistry.Plottable import Plottable, RenderModes
+from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
@@ -157,7 +157,7 @@ class PlotterBase(Plottable):
         self._point_y : Optional[str] = None
         # Settings
         self._height : int = 500
-        self._render : bool = True
+        self._render : RenderModesConcrete = resolve_render_mode(self, True)
         self._url_params : dict = {'info': 'true'}
         self._privacy : Optional[Privacy] = None
         # Metadata

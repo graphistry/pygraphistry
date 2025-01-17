@@ -1,6 +1,6 @@
 # Development Setup
 
-See also [CONTRIBUTE.md](CONTRIBUTE.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+See also [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
@@ -97,6 +97,16 @@ graphistry.__version__
 
 GitHub Actions: See `.github/workflows`
 
+CI runs on every PR and updates them
+
+### GPU CI
+
+GPU CI can be manually triggered by core dev team members:
+
+1. Push intended changes to protected branches `gpu-public` or `master`
+2. Manually trigger action [ci-gpu](https://github.com/graphistry/pygraphistry/actions/workflows/ci-gpu.yml) on one of the above branches
+
+GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 ## Debugging Tips
 

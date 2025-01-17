@@ -400,6 +400,22 @@ class ASTEdgeForward(ASTEdge):
             edge_query=edge_query
         )
 
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTEdge':
+        out = ASTEdgeForward(
+            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
+            hops=d['hops'] if 'hops' in d else None,
+            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
+            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
+            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
+            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
+            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
+            edge_query=d['edge_query'] if 'edge_query' in d else None,
+            name=d['name'] if 'name' in d else None
+        )
+        out.validate()
+        return out
+
 e_forward = ASTEdgeForward  # noqa: E305
 
 class ASTEdgeReverse(ASTEdge):
@@ -429,6 +445,22 @@ class ASTEdgeReverse(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query
         )
+
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTEdge':
+        out = ASTEdgeReverse(
+            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
+            hops=d['hops'] if 'hops' in d else None,
+            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
+            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
+            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
+            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
+            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
+            edge_query=d['edge_query'] if 'edge_query' in d else None,
+            name=d['name'] if 'name' in d else None
+        )
+        out.validate()
+        return out
 
 e_reverse = ASTEdgeReverse  # noqa: E305
 
@@ -460,6 +492,22 @@ class ASTEdgeUndirected(ASTEdge):
             edge_query=edge_query
         )
 
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTEdge':
+        out = ASTEdgeUndirected(
+            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
+            hops=d['hops'] if 'hops' in d else None,
+            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
+            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
+            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
+            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
+            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
+            edge_query=d['edge_query'] if 'edge_query' in d else None,
+            name=d['name'] if 'name' in d else None
+        )
+        out.validate()
+        return out
+
 e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
 
@@ -472,7 +520,17 @@ def from_json(o: JSONVal) -> Union[ASTNode, ASTEdge]:
     if o['type'] == 'Node':
         out = ASTNode.from_json(o)
     elif o['type'] == 'Edge':
-        out = ASTEdge.from_json(o)
+        if 'direction' in o:
+            if o['direction'] == 'forward':
+                out = ASTEdgeForward.from_json(o)
+            elif o['direction'] == 'reverse':
+                out = ASTEdgeReverse.from_json(o)
+            elif o['direction'] == 'undirected':
+                out = ASTEdgeUndirected.from_json(o)
+            else:
+                raise ValueError(f'Edge has unknown direction {o["direction"]}')
+        else:
+            raise ValueError('Edge missing direction')
     else:
         raise ValueError(f'Unknown type {o["type"]}')
     return out

@@ -1,6 +1,6 @@
 # Architecture
 
-This document should help get started with modifying code. See also [develop.md](DEVELOP.md) for developer commands and [CONTRIBUTE.md](CONTRIBUTE.md) for community guidelines.
+This document should help get started with modifying code. See also [develop.md](DEVELOP.md) for developer commands and [CONTRIBUTING.md](CONTRIBUTING.md) for community guidelines.
 
 ## Client/Server Wrangling Tool
 

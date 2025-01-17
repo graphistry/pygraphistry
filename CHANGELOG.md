@@ -6,6 +6,47 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+
+## [0.35.6 - 2025-01-11]
+
+### Docs
+
+* Fix typo in new shaping tutorial
+* Privacy-preserving analytics
+
+## [0.35.5 - 2025-01-10]
+
+### Docs
+
+* New tutorial on graph shaping
+
+## [0.35.4 - 2024-12-28]
+
+### Fixes
+
+* `Plottable._render` now typed as `RenderModesConcrete`
+* Remote GFQL - Handle `output_type is None` 
+
+## [0.35.3 - 2024-12-24]
+
+### Docs
+
+* Rename CONTRIBUTE.md to CONTRIBUTING.md to match OSS standards (snyk)
+* setup.py: add project_urls
+* Add FUNDING.md
+* Add CODE_OF_CONDUCT.md
+
+### Feat
+
+* GFQL serialization: Edge AST node deserializes as more precise `ASTEdge` subclasses
+
+### Fixes
+
+* GFQL Hop: Detect #614 of node id column name colliding with edge src/dst id column name and raise `NotImplementedError`
+* MyPy: Remove explicit type annotation from Engine
+
+## [0.35.2 - 2024-12-13]
+
 ### Docs
 
 * Python remote mode notebook: Fixed engine results
