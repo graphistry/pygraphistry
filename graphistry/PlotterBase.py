@@ -2546,7 +2546,7 @@ class PlotterBase(Plottable):
             else: 
                 logger.warning('PyGraphistry._config["spanner"] is None')
         
-            res = res.spanner_init(PyGraphistry._config["spanner"]) # type: ignore[attr-defined]
+            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
         return res._spannergraph.gql_to_graph(query)
 
