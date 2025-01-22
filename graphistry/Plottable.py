@@ -62,7 +62,7 @@ class Plottable(object):
     _complex_encodings : dict
     _bolt_driver : Any
     _tigergraph : Any
-    _spannergraph: Any = None
+    _spannergraph: Any
     
     _dataset_id: Optional[str]
     _url: Optional[str]
