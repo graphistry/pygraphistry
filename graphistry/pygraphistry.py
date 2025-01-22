@@ -1077,12 +1077,21 @@ class PyGraphistry(object):
         return Plotter().bolt(driver)
 
     @staticmethod
-    def spanner_init(spanner_config=None):
+    def spanner_init(spanner_config: Dict[str, str]) -> Plottable:
         """
+        Initializes a SpannerGraph object with the provided configuration and connects to the instance db
 
-        TODO(tcook): update pydocs
-        :param spanner_config: a dict of project_id, instance_id and database_id for spanner connection
-        :return: Plotter w/spanner connection 
+        spanner_config dict must contain the include the following keys, credentials_file is optional:
+            - "project_id": The GCP project ID.
+            - "instance_id": The Spanner instance ID.
+            - "database_id": The Spanner database ID.
+            - "credentials_file": json file API key for service accounts 
+
+        :param spanner_config A dictionary containing the Spanner configuration. 
+        :type (Dict[str, str])
+        :return: Plottable with a Spanner connection 
+        :rtype: Plottable
+        :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
 
         Call this to create a Plotter with a Spanner Graph Connection
 
@@ -1096,6 +1105,7 @@ class PyGraphistry(object):
 
         """
         if spanner_config is None: 
+            logger.warn('spanner_init called with spanner_config with None type. Not connected.')
             return None
         else: 
             return Plotter().spanner_init(spanner_config)
@@ -1896,7 +1906,7 @@ class PyGraphistry(object):
         )
 
     @staticmethod
-    def spanner_gql_to_g(query: str) -> Plottable:    
+    def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:    
         """
         Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
         
@@ -1934,7 +1944,7 @@ class PyGraphistry(object):
                     g.plot()
      
         """
-        return Plotter().spanner_gql_to_g(query)
+        return self.spanner_gql_to_g(query)
 
     @staticmethod
     def spanner_query_to_df(query: str) -> pd.DataFrame:

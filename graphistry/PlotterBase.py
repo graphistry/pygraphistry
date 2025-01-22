@@ -178,7 +178,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
-        self._spannergraph: Any = None
+        self._spannergraph: Any
 
         # feature engineering
         self._node_embedding = None
@@ -2292,19 +2292,7 @@ class PlotterBase(Plottable):
         """
         res = copy.copy(self)
 
-        project_id = spanner_config["project_id"]
-        instance_id = spanner_config["instance_id"]
-        database_id = spanner_config["database_id"]
-        credentials_file = spanner_config["credentials_file"]
-
-        # check if valid 
-        required_keys = ["project_id", "instance_id", "database_id"]
-        for key in required_keys:
-            value = spanner_config.get(key)
-            if not value:  # check for None or empty values
-                raise ValueError(f"Missing or invalid value for required Spanner configuration: '{key}'")
-
-        res._spannergraph = SpannerGraph(res, project_id, instance_id, database_id, credentials_file)
+        res._spannergraph = SpannerGraph(res, spanner_config)
         logger.debug("Created SpannerGraph object: {res._spannergraph}")
         return res
 
@@ -2548,7 +2536,7 @@ class PlotterBase(Plottable):
         
             res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
-        return res._spannergraph.gql_to_graph(query)
+        return res._spannergraph.gql_to_graph(self, query)
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
@@ -2599,7 +2587,7 @@ class PlotterBase(Plottable):
         
             res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
-        return res._spannergraph.query_to_df(query)
+        return res._spannergraph.query_to_df(self, query)
 
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):

@@ -45,7 +45,7 @@ class SpannerGraph:
     :ivar Any graphistry: The Graphistry parent object.
     """
 
-    def __init__(self, g: Plottable, project_id: str, instance_id: str, database_id: str, credentials_file: Optional[str] = None):
+    def __init__(self, g: Plottable, spanner_config: Dict[str, str]):
         """
         Initializes the SpannerGraph instance.
 
@@ -54,11 +54,21 @@ class SpannerGraph:
         :param instance_id: The Spanner instance ID.
         :param database_id: The Spanner database ID.
         """
-        self.g = g
-        self.project_id = project_id
-        self.instance_id = instance_id
-        self.database_id = database_id
-        self.credentials_file = credentials_file
+        
+        # check if valid 
+        required_keys = ["project_id", "instance_id", "database_id"]
+        for key in required_keys:
+            value = spanner_config.get(key)
+            if not value:  # check for None or empty values
+                raise ValueError(f"Missing or invalid value for required Spanner configuration: '{key}'")
+
+        self.project_id = spanner_config["project_id"]
+        self.instance_id = spanner_config["instance_id"]
+        self.database_id = spanner_config["database_id"]
+    
+        if spanner_config.get("credentials_file"):
+            self.credentials_file = spanner_config["credentials_file"]
+   
         self.connection = self.__connect()
 
     def __connect(self) -> Any:
