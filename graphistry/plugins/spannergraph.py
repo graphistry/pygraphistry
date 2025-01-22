@@ -240,7 +240,7 @@ class SpannerGraph:
         return SpannerGraph.add_type_from_label_to_df(edges_df)
 
 
-    def gql_to_graph(self, query: str) -> Plottable:
+    def gql_to_graph(self, res: Plottable, query: str) -> Plottable:
         """
         Executes a query and constructs a Graphistry graph from the results.
 
@@ -259,7 +259,7 @@ class SpannerGraph:
         edges_df = self.get_edges_df(json_data)
 
         # TODO(tcook): add more error handling here if nodes or edges are empty
-        return self.g.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
+        return res.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
 
     def query_to_df(self, query: str) -> pd.DataFrame:
         """
@@ -272,6 +272,5 @@ class SpannerGraph:
         query_result = self.execute_query(query)
 
         # create DataFrame from json results, adding column names
-        df = pd.DataFrame(query_result.data, columns=query_result.column_names)
-
-        return df
+        return pd.DataFrame(query_result.data, columns=query_result.column_names)
+    

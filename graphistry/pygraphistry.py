@@ -1906,7 +1906,7 @@ class PyGraphistry(object):
         )
 
     @staticmethod
-    def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:    
+    def spanner_gql_to_g(query: str) -> Plottable:    
         """
         Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
         
@@ -1944,7 +1944,7 @@ class PyGraphistry(object):
                     g.plot()
      
         """
-        return self.spanner_gql_to_g(query)
+        return Plotter().spanner_gql_to_g(query)
 
     @staticmethod
     def spanner_query_to_df(query: str) -> pd.DataFrame:

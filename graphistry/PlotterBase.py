@@ -2527,7 +2527,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         
-        if res._spannergraph is None: 
+        if not hasattr(res, '_spannergraph'):
             spanner_config = PyGraphistry._config["spanner"]
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
@@ -2536,7 +2536,7 @@ class PlotterBase(Plottable):
         
             res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
-        return res._spannergraph.gql_to_graph(self, query)
+        return res._spannergraph.gql_to_graph(res, query)
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
@@ -2578,7 +2578,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         
-        if res._spannergraph is None: 
+        if not hasattr(res, '_spannergraph'):
             spanner_config = PyGraphistry._config["spanner"]
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
@@ -2587,7 +2587,7 @@ class PlotterBase(Plottable):
         
             res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 
-        return res._spannergraph.query_to_df(self, query)
+        return res._spannergraph.query_to_df(query)
 
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
