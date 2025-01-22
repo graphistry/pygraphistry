@@ -39,7 +39,6 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-#from .plugins.spannergraph import SpannerGraph
 from .util import setup_logger
 logger = setup_logger(__name__)
 
