@@ -33,6 +33,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     tigergraph,
     spanner_gql_to_g,
     spanner_query_to_df,
+    spanner_init,
     gsql,
     gsql_endpoint,
     cosmos,

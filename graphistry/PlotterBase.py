@@ -39,7 +39,7 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-from .plugins.spannergraph import SpannerGraph
+#from .plugins.spannergraph import SpannerGraph
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -2290,6 +2290,8 @@ class PlotterBase(Plottable):
         :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
 
         """
+        from .plugins.spannergraph import SpannerGraph
+
         res = copy.copy(self)
 
         res._spannergraph = SpannerGraph(res, spanner_config)
@@ -2524,6 +2526,7 @@ class PlotterBase(Plottable):
      
         """
         from .pygraphistry import PyGraphistry
+        from .plugins.spannergraph import SpannerGraph
 
         res = copy.copy(self)
         
@@ -2532,7 +2535,7 @@ class PlotterBase(Plottable):
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                logger.warning('PyGraphistry._config["spanner"] is None')
+                raise ValueError('spanner_config is None, use spanner_init() or register() passing spanner_config')
         
             res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
 

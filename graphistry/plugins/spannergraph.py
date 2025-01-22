@@ -195,7 +195,7 @@ class SpannerGraph:
         Converts spanner json nodes into a pandas DataFrame.
     
         :param json_data: The structured JSON data containing graph nodes.
-        :return: A DataFrame containing node information
+        :return: A DataFrame containing node data from Spanner, col names will match node properties.
         :rtype: pd.DataFrame         
         """
         nodes = [
@@ -220,7 +220,7 @@ class SpannerGraph:
 
         :param json_data: The structured JSON data containing graph edges.
         :type list 
-        :return: A DataFrame containing edge information.
+        :return: A DataFrame containing edge data from Spanner, col names will match edge properties.
         :rtype: pd.DataFrame 
 
         """

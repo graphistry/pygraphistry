@@ -571,8 +571,8 @@ class PyGraphistry(object):
         PyGraphistry._config["bolt_driver"] = bolt_util.to_bolt_driver(driver)
 
     @staticmethod
-    # def set_spanner_config(spanner_config: Optional[Union[Dict, Any] = None):  
-    def set_spanner_config(spanner_config):
+    # def set_spanner_config(spanner_config):  
+    def set_spanner_config(spanner_config: Optional[Union[Dict, str]] = None):
         """
         Saves the spanner config to internal Pygraphistry _config
         :param spanner_config: dict of the project_id, instance_id and database_id
@@ -2647,6 +2647,7 @@ nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
 spanner_gql_to_g = PyGraphistry.spanner_gql_to_g
 spanner_query_to_df = PyGraphistry.spanner_query_to_df
+spanner_init = PyGraphistry.spanner_init
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin
