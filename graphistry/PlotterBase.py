@@ -35,6 +35,7 @@ from .bolt_util import (
     end_node_id_key,
     to_bolt_driver)
 
+
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
@@ -176,6 +177,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
+        self._spannergraph: Any
 
         # feature engineering
         self._node_embedding = None
@@ -2269,7 +2271,31 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._bolt_driver = to_bolt_driver(driver)
         return res
+    
+    def spanner_init(self: Plottable, spanner_config: Dict[str, str]) -> Plottable:
+        """
+        Initializes a SpannerGraph object with the provided configuration and connects to the instance db
 
+        spanner_config dict must contain the include the following keys, credentials_file is optional:
+            - "project_id": The GCP project ID.
+            - "instance_id": The Spanner instance ID.
+            - "database_id": The Spanner database ID.
+            - "credentials_file": json file API key for service accounts 
+
+        :param spanner_config A dictionary containing the Spanner configuration. 
+        :type (Dict[str, str])
+        :return: Plottable with a Spanner connection 
+        :rtype: Plottable
+        :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
+
+        """
+        from .plugins.spannergraph import SpannerGraph
+
+        res = copy.copy(self)
+
+        res._spannergraph = SpannerGraph(res, spanner_config)
+        logger.debug("Created SpannerGraph object: {res._spannergraph}")
+        return res
 
     def infer_labels(self):
         """
@@ -2458,6 +2484,113 @@ class PlotterBase(Plottable):
             )\
             .nodes(nodes)\
             .edges(edges)
+    
+    
+    def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:
+        """
+        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
+        
+        GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
+        SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
+        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
+
+        query=f'''GRAPH my_graph
+        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+
+        :param query: GQL query string 
+        :type query: Str
+
+        :returns: Plottable with the results of GQL query as a graph
+        :rtype: Plottable
+
+        **Example: calling spanner_gql_to_g
+                ::
+
+                    import graphistry
+
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+
+                    query=f'''GRAPH my_graph
+                    MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+
+                    g = graphistry.spanner_gql_to_g(query)
+
+                    g.plot()
+     
+        """
+        from .pygraphistry import PyGraphistry
+        from .plugins.spannergraph import SpannerGraph
+
+        res = copy.copy(self)
+        
+        if not hasattr(res, '_spannergraph'):
+            spanner_config = PyGraphistry._config["spanner"]
+            if spanner_config is not None: 
+                logger.debug(f"Spanner Config: {spanner_config}")
+            else: 
+                raise ValueError('spanner_config is None, use spanner_init() or register() passing spanner_config')
+        
+            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
+
+        return res._spannergraph.gql_to_graph(res, query)
+
+    def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
+        """
+
+        Submit query to google spanner database and return a df of the results 
+        
+        query can be SQL or GQL as long as table of results are returned 
+
+        query='SELECT * from Account limit 10000'
+
+        :param query: query string 
+        :type query: Str
+
+        :returns: Pandas DataFrame with the results of query
+        :rtype: pd.DataFrame
+
+        **Example: calling spanner_query_to_df
+                ::
+
+                    import graphistry
+
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+
+                    query='SELECT * from Account limit 10000'
+
+                    df = graphistry.spanner_query_to_df(query)
+
+                    g.plot()
+     
+        """
+
+        from .pygraphistry import PyGraphistry
+
+        res = copy.copy(self)
+        
+        if not hasattr(res, '_spannergraph'):
+            spanner_config = PyGraphistry._config["spanner"]
+            if spanner_config is not None: 
+                logger.debug(f"Spanner Config: {spanner_config}")
+            else: 
+                logger.warning('PyGraphistry._config["spanner"] is None')
+        
+            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
+
+        return res._spannergraph.query_to_df(query)
+
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
         

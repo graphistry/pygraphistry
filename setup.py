@@ -52,6 +52,7 @@ base_extras_light = {
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl==3.1.0', 'xlrd'],
     'jupyter': ['ipython'],
+    'spanner': ['google-cloud-spanner'],
 }
 
 base_extras_heavy = {
