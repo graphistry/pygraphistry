@@ -273,4 +273,4 @@ class SpannerGraph:
 
         # create DataFrame from json results, adding column names
         return pd.DataFrame(query_result.data, columns=query_result.column_names)
-    
+
