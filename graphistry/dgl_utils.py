@@ -1,6 +1,8 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
 from collections import Counter
+from inspect import getmodule
 from typing import Dict, Optional, TYPE_CHECKING, Tuple
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -111,12 +113,26 @@ def reindex_edgelist(df, src, dst):
     """
     srclist = df[src]
     dstlist = df[dst]
-    cnt = Counter(
-        pd.concat([srclist, dstlist], axis=0)
-    )  # can also use pd.Factorize but doesn't order by count, which is satisfying
-    ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
-    df[config.SRC] = df[src].apply(lambda x: ordered_nodes_dict[x])
-    df[config.DST] = df[dst].apply(lambda x: ordered_nodes_dict[x])
+    if isinstance(df, pd.DataFrame):
+        cnt = Counter(
+            pd.concat([srclist, dstlist], axis=0)
+        )  # can also use pd.Factorize but doesn't order by count, which is satisfying
+        ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
+        df[config.SRC] = df[src].apply(lambda x: ordered_nodes_dict[x])
+        df[config.DST] = df[dst].apply(lambda x: ordered_nodes_dict[x])
+    elif 'cudf' in str(getmodule(df)):
+        import cudf
+        if isinstance(df, cudf.DataFrame):
+            cnt = Counter(
+                cudf.concat([srclist, dstlist], axis=0).to_pandas()
+            )
+            ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
+            df[config.SRC] = cudf.Series.from_pandas(df[src].to_pandas().apply(lambda x: ordered_nodes_dict[x]))
+            df[config.DST] = cudf.Series.from_pandas(df[dst].to_pandas().apply(lambda x: ordered_nodes_dict[x]))
+        else:
+            raise ValueError("df must be cudf.DataFrame or pd.DataFrame")
+    else:
+        raise ValueError("df must be cudf.DataFrame or pd.DataFrame")
     return df, ordered_nodes_dict
 
 
@@ -141,6 +157,10 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
         eweight = df[weight_col].values
     
     shape = len(ordered_nodes_dict)
+    if not isinstance(df, pd.DataFrame):
+        if 'cudf' in str(getmodule(df)):
+            warnings.warn("cudf not supported for coo_matrix, converting to pandas")
+            df = df.to_pandas() 
     sp_mat = coo_matrix(
         (eweight, (df[config.SRC], df[config.DST])), shape=(shape, shape)
     )
@@ -232,8 +252,8 @@ class DGLGraphMixin(MIXIN_BASE):
         if self._source is None or self._destination is None:
             raise ValueError("Need to have source and destination columns bound, call bind() or edges()")
         
-        if not isinstance(self._edges, pd.DataFrame):  # type: ignore
-            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
+        if 'cudf' not in str(getmodule(self._edges)) and not isinstance(self._edges, pd.DataFrame):
+            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame/cudf.DataFrame, recieved: %s", type(self._edges))  # type: ignore
         edf: pd.DataFrame = self._edges  # type: ignore
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
@@ -243,7 +263,7 @@ class DGLGraphMixin(MIXIN_BASE):
         # print(f'OG: length: {len(edf)}')
 
         assert (
-            sum(mask) > 2
+            mask.sum() > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
         self._MASK = mask   # type: ignore
         self._edges = edf[mask]   # type: ignore
@@ -482,6 +502,10 @@ class DGLGraphMixin(MIXIN_BASE):
                                            reuse_if_existing=reuse_if_existing,
                                            *args, **kwargs)
         if featurize_edges:
+            if not isinstance(res._edges, pd.DataFrame):
+                if 'cudf' in str(getmodule(res._edges)):
+                    warnings.warn("cudf not supported for featurizing edges, converting to pandas")
+                    res = res.edges(res._edges.to_pandas())  # type: ignore
             res = res._featurize_edges_to_dgl(
                 res,
                 **kwargs_edges

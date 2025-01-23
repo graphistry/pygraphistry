@@ -78,6 +78,17 @@ def lazy_dirty_cat_import():
         logger.warn('Unexpected exn during lazy import', exc_info=e)
         return False, e, None
 
+def lazy_skrub_import():
+    warnings.filterwarnings("ignore")
+    try:
+        import skrub 
+        return True, 'ok', skrub
+    except ModuleNotFoundError as e:
+        return False, e, None
+    except Exception as e:
+        logger.warn('Unexpected exn during lazy import', exc_info=e)
+        return False, e, None
+
 def lazy_embed_import():
     try:
         import torch

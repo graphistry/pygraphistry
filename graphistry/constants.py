@@ -43,8 +43,7 @@ TEST_MASK = "test_mask"
 
 # ##############################################################
 # for preprocessors namespace
-#   for dirty_cat params
-DIRTY_CAT = "dirty_cat"
+SKRUB = 'skrub'
 N_TOPICS_DEFAULT = 42
 N_TOPICS_TARGET_DEFAULT = 7
 N_HASHERS_DEFAULT = 100

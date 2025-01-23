@@ -1,9 +1,9 @@
 from inspect import getmodule
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union
 from enum import Enum
-from graphistry.utils.lazy_import import lazy_cudf_import
 
 
 class Engine(Enum):
@@ -29,6 +29,8 @@ def resolve_engine(
     g_or_df: Optional[Any] = None,
 ) -> Engine:
 
+    from graphistry.utils.lazy_import import lazy_cudf_import
+
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
@@ -42,7 +44,8 @@ def resolve_engine(
         if isinstance(g_or_df, Plottable):
             if g_or_df._nodes is not None and g_or_df._edges is not None:
                 if not isinstance(g_or_df._nodes, type(g_or_df._edges)):
-                    raise ValueError(f'Edges and nodes must be same type for auto engine selection, got: {type(g_or_df._edges)} and {type(g_or_df._nodes)}')
+                    #raise ValueError(f'Edges and nodes must be same type for auto engine selection, got: {type(g_or_df._edges)} and {type(g_or_df._nodes)}')
+                    warnings.warn(f'Edges and nodes must be same type for auto engine selection, got: {type(g_or_df._edges)} and {type(g_or_df._nodes)}')                
             g_or_df = g_or_df._edges if g_or_df._edges is not None else g_or_df._nodes
     
     if g_or_df is not None:
