@@ -21,6 +21,7 @@ Plugins - Data Providers
    Titan <../demos/demos_databases_apis/gremlin-tinkerpop/TitanDemo.ipynb>
    Neo4j - Official <../demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb>
    Neo4j - Contributed <../demos/demos_databases_apis/neo4j/contributed/Neo4jTwitter.ipynb>
+   Google Spanner - Finance Graph <../demos/demos_databases_apis/spanner/google_spanner_finance_graph.ipynb>
    SQL - Postgres <../demos/demos_databases_apis/sql/postgres.ipynb>
    Tigergraph: Bindings <../demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb>
    Tigergraph: Fraud <../demos/demos_databases_apis/tigergraph/fraud_raw_REST_calls.ipynb>
