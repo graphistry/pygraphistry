@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.9 - 2025-01-22]
+
+### Docs 
+
+* Spanner: minor changes to html and markdown in notebook for proper rendering in readthedocs 
+
+## [0.35.8 - 2025-01-22]
+
+### Docs
+
+* Spanner: fix for plots rendering in readthedocs demo notebooks
+
+
 ## [0.35.7 - 2025-01-22]
 
 ### Feat 
