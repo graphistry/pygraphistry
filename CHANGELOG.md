@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.7 - 2025-01-22]
+
+### Feat 
+
+* added support for Google Spanner Graph and Google Spanner `spanner_gql_to_g` and `spanner_query_to_df` 
+* added new Google Spanner Graph demo notebook 
+
 ## [0.35.6 - 2025-01-11]
 
 ### Docs
