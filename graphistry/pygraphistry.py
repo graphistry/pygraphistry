@@ -583,7 +583,7 @@ class PyGraphistry(object):
         """Set sso_opt_into_type to memory"""
         PyGraphistry._config["sso_opt_into_type"] = value
 
-    # def set_spanner_config(spanner_config):  
+    @staticmethod 
     def set_spanner_config(spanner_config: Optional[Union[Dict, str]] = None):
         """
         Saves the spanner config to internal Pygraphistry _config
