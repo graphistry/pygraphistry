@@ -12,6 +12,46 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixes
 * Fix refresh function does not reset some variable in memory that cause weird behavior
 
+## [0.35.9 - 2025-01-22]
+
+### Docs 
+
+* Spanner: minor changes to html and markdown in notebook for proper rendering in readthedocs 
+
+## [0.35.8 - 2025-01-22]
+
+### Docs
+
+* Spanner: fix for plots rendering in readthedocs demo notebooks
+
+
+## [0.35.7 - 2025-01-22]
+
+### Feat 
+
+* added support for Google Spanner Graph and Google Spanner `spanner_gql_to_g` and `spanner_query_to_df` 
+* added new Google Spanner Graph demo notebook 
+
+## [0.35.6 - 2025-01-11]
+
+### Docs
+
+* Fix typo in new shaping tutorial
+* Privacy-preserving analytics
+
+## [0.35.5 - 2025-01-10]
+
+### Docs
+
+* New tutorial on graph shaping
+
+## [0.35.4 - 2024-12-28]
+
+### Fixes
+
+* `Plottable._render` now typed as `RenderModesConcrete`
+* Remote GFQL - Handle `output_type is None` 
+
 ## [0.35.3 - 2024-12-24]
 
 ### Docs

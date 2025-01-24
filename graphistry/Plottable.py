@@ -54,7 +54,7 @@ class Plottable(object):
     _point_x : Optional[str]
     _point_y : Optional[str]
     _height : int
-    _render : bool
+    _render : RenderModesConcrete
     _url_params : dict
     _name : Optional[str]
     _description : Optional[str]
@@ -62,7 +62,8 @@ class Plottable(object):
     _complex_encodings : dict
     _bolt_driver : Any
     _tigergraph : Any
-
+    _spannergraph: Any
+    
     _dataset_id: Optional[str]
     _url: Optional[str]
     _nodes_file_id: Optional[str]
@@ -497,26 +498,9 @@ class Plottable(object):
         url_params: Dict[str, Any] = {},
         render: Optional[Union[bool, RenderModes]] = None
     ) -> 'Plottable':
-        """Specify iframe height and add URL parameter dictionary.
-
-        The library takes care of URI component encoding for the dictionary.
-
-        :param height: Height in pixels.
-        :type height: int
-
-        :param url_params: Dictionary of querystring parameters to append to the URL.
-        :type url_params: dict
-
-        :param render: Set default render mode from RenderModes types, where True/None is "auto" and False is "url"
-        :type render: Optional[Union[bool, RenderModes]]
-
-        """
-
-        res = self.copy()
-        res._height = height or self._height
-        res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render is None else render
-        return res
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
     
     def to_cudf(self) -> 'Plottable':
         if 1 + 1:

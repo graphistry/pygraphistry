@@ -1,0 +1,99 @@
+name: ci-gpu
+on:
+  pull_request:
+    types:
+      - labeled
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - trigger-ci-gpu
+
+jobs:
+
+  stub_mt:
+    name: Always-succeed step to prevent appearing as a failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Do nothing
+        run: echo "Do nothing"
+
+  gpu-permission:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(fromJson('["lmeyerov", "tanmoyio", "aucahuasi", "silkspace", "DataBoyTx"]'), github.actor))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Do nothing
+        run: echo "Do nothing"
+
+  cancel_outstanding:  
+    name: Detect and cancel outstanding runs of this workflow
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Cancel Previous Runs
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cancel') }}
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+  test-full-ai:
+    needs: [ gpu-permission ]
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    runs-on:
+      group: GPU Runners - Public
+
+    strategy:
+      matrix:
+        python-version: ['3.10', 3.11, 3.12]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: nvidia-smi
+      run: nvidia-smi
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
+        echo "skrub: `pip show skrub | grep Version`"
+        echo "pandas: `pip show pandas | grep Version`"
+        echo "numpy: `pip show numpy | grep Version`"
+        echo "scikit-learn: `pip show scikit-learn | grep Version`"
+        echo "scipy: `pip show scipy | grep Version`"
+        echo "umap-learn: `pip show umap-learn | grep Version`"
+
+    - name: Test RAPIDS
+      shell: 'script -q -e -c "bash {0}"'  # tty
+      run: |
+        source pygraphistry/bin/activate
+        python -c 'import cudf; v = cudf.DataFrame({\"x\": [1,2,3]}).x.sum(); print(\"got\", v); assert v == 6'
+
+    - name: Type check
+      env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
+
+    - name: Run all tests
+      run: |
+        source pygraphistry/bin/activate
+        python -m pytest --version
+        python -B -m pytest -vv
