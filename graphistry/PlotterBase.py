@@ -2530,13 +2530,14 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         
         if not hasattr(res, '_spannergraph'):
-            spanner_config = PyGraphistry._config["spanner"]
+            spanner_config = PyGraphistry._config.get("spanner", None)
+
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                raise ValueError('spanner_config is None, use spanner_init() or register() passing spanner_config')
+                raise ValueError('spanner_config not defined. Pass spanner_config via register() and retry query.')
         
-            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
+            res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]
 
         return res._spannergraph.gql_to_graph(res, query)
 
