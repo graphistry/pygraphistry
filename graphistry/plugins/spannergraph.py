@@ -82,7 +82,8 @@ class SpannerGraph:
         from google.cloud.spanner_dbapi.connection import connect
 
         try:
-            if self.credentials_file: 
+            if hasattr(self, 'credentials_file') and self.credentials_file is not None:
+                
                 connection = connect(self.instance_id, self.database_id, credentials=self.credentials_file)
             else:
                 connection = connect(self.instance_id, self.database_id)

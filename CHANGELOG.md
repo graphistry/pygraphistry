@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.35.10 - 2025-01-24]
+
+### Fixes: 
+
+* Spanner: better handling of spanner_config issues: #634, #644
+
 ## [0.35.9 - 2025-01-22]
 
 ### Docs 
