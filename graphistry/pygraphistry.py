@@ -15,7 +15,7 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
-from .util import in_databricks, setup_logger, in_ipython, make_iframe
+from .util import in_databricks, setup_logger, in_ipython, make_iframe, display_message_html
 from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException
 
 from .messages import (
@@ -135,6 +135,12 @@ class PyGraphistry(object):
         PyGraphistry._config["api_key"] = None
         PyGraphistry._is_authenticated = False
 
+    @staticmethod
+    def __reset_sso_variables_in_memory():
+        """Reset the sso related variable in memory, used when switching hosts, switching register method"""
+
+        PyGraphistry._config["sso_state"] = None
+        PyGraphistry._config["sso_opt_into_type"] = None
 
 
     @staticmethod
@@ -271,8 +277,8 @@ class PyGraphistry(object):
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-            print("Please click the above URL to open browser to login")
+            display(HTML(f'<a href="{auth_url}" target="_blank" style="display: inline-block; margin-top: 10px; padding: 10px 20px; font-size: 16px; font-weight: bold; color: #fff; background-color: #007bff; text-decoration: none; border-radius: 5px;">Login with SSO</a>'))
+            print('<p style="margin-top: 5px; color: #555;">Please click the button above to open the browser and log in.</p>')
             print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
@@ -406,6 +412,8 @@ class PyGraphistry(object):
                 logger.debug("2. @PyGraphistry refresh :relogin")
                 if isinstance(e, TokenExpireException):
                     print("Token is expired, you need to relogin")                    
+                    PyGraphistry._config['api_token'] = None
+                    PyGraphistry._is_authenticated = False 
                 return PyGraphistry.relogin()
 
             if not fail_silent:
@@ -414,7 +422,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def verify_token(token=None, fail_silent=False) -> bool:
-        """Return True iff current or provided token is still valid"""
+        """Return True if current or provided token is still valid"""
         using_self_token = token is None
         try:
             logger.debug("JWT refresh")
@@ -571,7 +579,11 @@ class PyGraphistry(object):
         PyGraphistry._config["bolt_driver"] = bolt_util.to_bolt_driver(driver)
 
     @staticmethod
-    # def set_spanner_config(spanner_config):  
+    def set_sso_opt_into_type(value: Optional[str]):
+        """Set sso_opt_into_type to memory"""
+        PyGraphistry._config["sso_opt_into_type"] = value
+
+    @staticmethod 
     def set_spanner_config(spanner_config: Optional[Union[Dict, str]] = None):
         """
         Saves the spanner config to internal Pygraphistry _config
@@ -609,7 +621,6 @@ class PyGraphistry(object):
 
         if spanner_config is not None: 
             PyGraphistry._config["spanner"] = spanner_config 
-
 
 
     @staticmethod
@@ -753,6 +764,8 @@ class PyGraphistry(object):
         PyGraphistry.set_spanner_config(spanner_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
+        # Reset sso related variables in memory
+        PyGraphistry.__reset_sso_variables_in_memory()
 
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password, org_name)
@@ -2483,7 +2496,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def org_name(value=None):
-        """Set or get the org_name when register/login.
+        """Set or get the organization name during registration or login.
+
+        :param value: The organization name to set. If None, the current organization name is returned.
+        :type value: Optional[str]
+        :return: The current organization name if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the organization name**
+            ::
+                import graphistry
+                graphistry.org_name("my_org_name")
+
+        **Example: Getting the organization name**
+            ::
+                import graphistry
+                org_name = graphistry.org_name()
         """
 
         if value is None:
@@ -2501,7 +2529,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def idp_name(value=None):
-        """Set or get the idp_name when register/login.
+        """Set or get the IDP (Identity Provider) name during registration or login.
+
+        :param value: The IDP name to set. If None, the current IDP name is returned.
+        :type value: Optional[str]
+        :return: The current IDP name if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the IDP name**
+            ::
+                import graphistry
+                graphistry.idp_name("my_idp_name")
+
+        **Example: Getting the IDP name**
+            ::
+                import graphistry
+                idp_name = graphistry.idp_name()
         """
 
         if value is None:
@@ -2516,7 +2559,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_state(value=None):
-        """Set or get the sso_state when register/sso login.
+        """Set or get the SSO state during registration or SSO login.
+
+        :param value: The SSO state to set. If None, the current SSO state is returned.
+        :type value: Optional[str]
+        :return: The current SSO state if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the SSO state**
+            ::
+                import graphistry
+                graphistry.sso_state("my_sso_state")
+
+        **Example: Getting the SSO state**
+            ::
+                import graphistry
+                sso_state = graphistry.sso_state()
         """
 
         if value is None:
@@ -2552,7 +2610,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def personal_key_id(value: Optional[str] = None):
-        """Set or get the personal_key_id when register.
+        """Set or get the personal_key_id during registration.
+
+        :param value: The personal key ID to set. If None, the current personal key ID is returned.
+        :type value: Optional[str]
+        :return: The current personal key ID if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the personal key ID**
+            ::
+                import graphistry
+                graphistry.personal_key_id("my_personal_key_id")
+
+        **Example: Getting the personal key ID**
+            ::
+                import graphistry
+                key_id = graphistry.personal_key_id()
         """
 
         if value is None:
@@ -2566,7 +2639,22 @@ class PyGraphistry(object):
 
     @staticmethod
     def personal_key_secret(value: Optional[str] = None):
-        """Set or get the personal_key_secret when register.
+        """Set or get the personal_key_secret during registration.
+
+        :param value: The personal key secret to set. If None, the current personal key secret is returned.
+        :type value: Optional[str]
+        :return: The current personal key secret if value is None, otherwise None.
+        :rtype: Optional[str]
+
+        **Example: Setting the personal key secret**
+            ::
+                import graphistry
+                graphistry.personal_key_secret("my_personal_key_secret")
+
+        **Example: Getting the personal key secret**
+            ::
+                import graphistry
+                secret = graphistry.personal_key_secret()
         """
 
         if value is None:
@@ -2608,7 +2696,225 @@ class PyGraphistry(object):
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
 
+    @staticmethod
+    def sso_repeat_get_token(repeat: int = 20, wait: int = 5):
+        """Repeatedly call to obtain the JWT token after SSO login.
 
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :return: The obtained JWT token or None if unsuccessful
+        :rtype: Optional[str]
+
+        **Example:**
+
+        ::
+
+            token = PyGraphistry.sso_repeat_get_token(repeat=10, wait=2)
+            if token:
+                print("Token obtained:", token)
+            else:
+                print("Failed to obtain token")
+        """
+        
+        for _ in range(repeat):
+            token = PyGraphistry.sso_get_token()
+            if token:
+                return token
+            time.sleep(wait)
+
+        return
+
+    @staticmethod
+    def sso_wait_for_token_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False, display_mode: str = 'text'):
+        if display_mode == 'html':
+            PyGraphistry.sso_wait_for_token_html_display(repeat, wait, fail_silent)
+        else:
+            PyGraphistry.sso_wait_for_token_text_display(repeat, wait, fail_silent)
+
+    @staticmethod
+    def sso_wait_for_token_text_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
+        """Get the JWT token for SSO login and display the corresponding message in text.
+
+        This method attempts to obtain the JWT token for SSO login and displays the result as a text message.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param fail_silent: Whether to suppress exceptions on failure, defaults to False
+        :type fail_silent: bool, optional
+
+        **Example:**
+
+        ::
+
+            PyGraphistry.sso_wait_for_token_text_display(repeat=10, wait=2, fail_silent=True)
+        """
+        if not PyGraphistry.api_token():
+            msg_text = '....'
+            if not PyGraphistry.sso_repeat_get_token(repeat, wait):
+                msg_text = f'{msg_text}\nUnable to retrieve token after {repeat * wait} seconds ....'
+                if not fail_silent:
+                    msg = f"Unable to retrieve token after {repeat * wait} seconds. Please re-run the login process"
+                    if in_ipython() or in_databricks() or PyGraphistry.set_sso_opt_into_type == "display":
+                        display_message_html(f"<strong>{msg}</strong>")
+                    raise Exception(msg) 
+                else:
+                    msg_text = f'{msg_text}\nToken retrieved successfully'
+                    print(msg_text)
+                    return
+
+            msg_text = f'{msg_text}\nToken retrieved successfully'
+            print(msg_text)
+        else:
+            print('Token is valid; no further action needed.')
+
+
+    @staticmethod
+    def sso_wait_for_token_html_display(repeat: int = 20, wait: int = 5, fail_silent: bool = False):
+        """Get the JWT token for SSO login and display the corresponding message in HTML.
+
+        This method attempts to obtain the JWT token for SSO login and displays the result as an HTML message.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param fail_silent: Whether to suppress exceptions on failure, defaults to False
+        :type fail_silent: bool, optional
+
+        **Example:**
+
+        ::
+
+            PyGraphistry.sso_wait_for_token_html_display(repeat=10, wait=2, fail_silent=True)
+        """
+        from IPython.display import display, HTML
+        if not PyGraphistry.api_token():
+            msg_html = '<br /><strong> .... </strong>'
+            if not PyGraphistry.sso_repeat_get_token(repeat, wait):
+                msg_html = f'{msg_html}<br /><strong>Unable to retrieve token after {repeat * wait} seconds. Please try logging in again.</strong>'
+                if not fail_silent:
+                    raise Exception(f"Unable to retrieve token after {repeat * wait} seconds. Please try logging in again.") 
+                else:
+                    msg_html = f'{msg_html}<br /><strong>Token retrieved successfully</strong>'
+                    display(HTML(msg_html))
+                    return
+
+            msg_html = f'{msg_html}<br /><strong>Token retrieved successfully</strong>'
+            display(HTML(msg_html))
+        else:
+            display(HTML('<br /><strong>Token is valid; no further action needed.</strong>'))
+
+
+    @staticmethod
+    def sso_verify_token_display(
+        repeat: int = 20,
+        wait: int = 5,
+        display_mode: str = 'text'
+    ) -> bool:
+        """Verify the JWT token display the corresponding message either in text or HTML.
+
+        :param repeat: Number of times to attempt obtaining the token, defaults to 20
+        :type repeat: int, optional
+        :param wait: Number of seconds to wait between attempts, defaults to 5
+        :type wait: int, optional
+        :param display_mode: Whether to display message in text or HTML, default is 'text'
+        :type display_mode: str, optional
+        :return: Whether token is still valid
+        :rtype: bool
+        """        
+        if display_mode == 'html':
+            from IPython.display import display, HTML, clear_output
+            clear_output()
+
+        required_login = False
+        token = PyGraphistry.api_token()
+        if token:
+            is_valid = PyGraphistry.verify_token()
+            if not is_valid:
+                print("***********token not valid, refresh token*****************")
+                if display_mode == 'html':
+                    display(HTML('<br /><strong>Refreshing token ....</strong>'))
+                try:
+                    PyGraphistry.refresh()
+                except Exception:
+                    required_login = True
+
+            else:
+                print("Token is still valid")
+                if display_mode == 'html':
+                    display(HTML('<br /><strong>Token is still valid ....</strong>'))
+
+        else:
+            required_login = True
+
+        if required_login:
+            print("***********Prepare to sign in*****************")            
+            msg_html = f'<br /><strong>Prepare to sign in ....</strong><br><strong>Please Login with the link appear later. Waiting for success login for {repeat * wait} seconds, please login within {wait} seconds....</strong><br /><strong>Please close the browser tab and come back to dashboard....</strong>'
+            display(HTML(msg_html))
+
+
+        return not required_login
+
+
+    # Databricks Dashboard SSO helper functions
+    class DatabricksHelper():
+        """Helper class to improve the sso login flow"""
+        @staticmethod
+        def register_databricks_sso(
+            server: Optional[str] = None,
+            org_name: Optional[str] = None,
+            idp_name: Optional[str] = None,
+            **kwargs
+        ):
+            """Wrapper function for :func:`graphistry.PyGraphistry.register`, specially for databrick SSO
+        :param server: URL of the visualization server.
+        :type server: Optional[str]
+        :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
+        :type certificate_validation: Optional[bool]
+        :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
+        :type bolt: Union[dict, Any]
+        :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
+        :type token_refresh_ms: int
+        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes (Token-originated have a hard limit, so always-on requires creds somewhere)
+        :type store_token_creds_in_memory: Optional[bool]
+        :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        :type client_protocol_hostname: Optional[str]
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
+        :param idp_name: Set sso login idp name. Default as None (for site-wide SSO / for the only idp record).
+        :type idp_name: Optional[str]
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :returns: None.
+        :rtype: None
+
+        **Example: Standard (2.0 api by org_name via SSO configured for site or for organization with only 1 IdP)**
+        ::
+
+            import graphistry
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name")
+
+        **Example: Standard (2.0 api by org_name via SSO with a specific IdP configured for an organization)**
+        ::
+
+            import graphistry
+            graphistry.register_databricks_sso(server='200.1.1.1', org_name="org-name", idp_name="idp-name")
+
+        **Example: Override SSO url display method to use `display()`, `webbrowser.open()`, or just `print()`**
+        ::
+
+            import graphistry
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="display")
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="browser")
+            graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type=None)
+
+        """
+            if not PyGraphistry.api_token():
+                PyGraphistry.register(api=3, protocol="https", server=server, is_sso_login=True, org_name=org_name, idp_name=idp_name, sso_timeout=None, sso_opt_into_type="display")
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
@@ -2666,6 +2972,11 @@ personal_key_id = PyGraphistry.personal_key_id
 personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
+# databricks dashboard helper functions
+sso_wait_for_token_display = PyGraphistry.sso_wait_for_token_display
+sso_verify_token_display = PyGraphistry.sso_verify_token_display
+sso_repeat_get_token = PyGraphistry.sso_repeat_get_token
+register_databricks_sso = PyGraphistry.DatabricksHelper.register_databricks_sso
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
