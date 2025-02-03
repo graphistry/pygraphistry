@@ -960,10 +960,20 @@ def process_dirty_dataframes(
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
+        if 'cudf' in str(getmodule(ndf)):
+            import cudf
+            assert isinstance(ndf, cudf.DataFrame)
+            logger.debug('Coercing cudf to pandas for skrub, with feature_engine=%s', feature_engine)
+            ndf_passthrough = ndf.to_pandas()
+            coercing_to_pandas = True
+        else:
+            ndf_passthrough = ndf
+            coercing_to_pandas = False
+
         try:
-            X_enc = data_encoder.fit_transform(ndf, y)
+            X_enc = data_encoder.fit_transform(ndf_passthrough, y)
         except TypeError:
-            nndf = ndf.copy()
+            nndf = ndf_passthrough.copy()
             object_columns = nndf.select_dtypes(include=['object']).columns
             nndf[object_columns] = nndf[object_columns].astype(str)
             X_enc = data_encoder.fit_transform(nndf, y)
@@ -990,9 +1000,14 @@ def process_dirty_dataframes(
         data_encoder.get_feature_names_out = callThrough(features_transformed)
         
         X_enc = pd.DataFrame(
-            X_enc, columns=features_transformed, index=ndf.index
+            X_enc, columns=features_transformed, index=ndf_passthrough.index
         )
         X_enc = X_enc.fillna(0.0)
+
+        if coercing_to_pandas:
+            import cudf
+            X_enc = cudf.DataFrame.from_pandas(X_enc)
+
     elif not all_numeric and (not has_skrub or feature_engine in ["pandas", "none"]):
         numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
         logger.warning("-*-*- DataFrame is not numeric and no skrub, dropping non-numeric")
