@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from inspect import getmodule
 from logging import getLogger
 import pandas as pd
 
@@ -40,6 +41,8 @@ class SearchToGraphMixin(MIXIN_BASE):
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
         X = self._get_feature("nodes")
+        if 'cudf' in str(getmodule(X)):
+            X = X.to_pandas()
         self.search_index = FaissVectorSearch(
             X.values
         )  # self._build_search_index(X, angular, n_trees, faiss=False)
@@ -47,6 +50,10 @@ class SearchToGraphMixin(MIXIN_BASE):
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes", return_graph=False)
+
+        nodes = self._nodes
+        if 'cudf' in str(getmodule(nodes)):
+            nodes = nodes.to_pandas()
 
         results = self.search_index.search_df(vect, self._nodes, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
@@ -210,15 +217,40 @@ class SearchToGraphMixin(MIXIN_BASE):
         # print('shape of edges', edf.shape)
         rdf = df = res._nodes
         # print('shape of nodes', rdf.shape)
+
+        if 'cudf' in str(getmodule(edges)):
+            import cudf
+
+            if not isinstance(rdf, cudf.DataFrame):
+                rdf = cudf.from_pandas(rdf)
+                df = rdf
+
+            concat = cudf.concat
+            cudf_coercion = True
+        else:
+            concat = pd.concat
+            cudf_coercion = False
+
         node = res._node
         indices = rdf[node]
+        if cudf_coercion:
+            import cudf
+            if not isinstance(indices, cudf.Series):
+                indices = cudf.Series.from_pandas(indices)
         src = res._source
         dst = res._destination
         if query != "":
             # run a real query, else return entire graph
             rdf, _ = res.search(query, thresh=thresh, fuzzy=True, top_n=top_n)
             if not rdf.empty:
+                if cudf_coercion:
+                    import cudf
+                    #if not isinstance(indices, cudf.Series):
+                    #    indices = cudf.Series.from_pandas(indices)
+                    if not isinstance(rdf, cudf.DataFrame):
+                        rdf = cudf.from_pandas(rdf)
                 indices = rdf[node]
+
                 # now get edges from indices
                 if broader:  # this will make a broader graph, finding NN in src OR dst
                     edges = edf[(edf[src].isin(indices)) | (edf[dst].isin(indices))]
@@ -236,19 +268,35 @@ class SearchToGraphMixin(MIXIN_BASE):
         except:  # for explicit edges
             pass
 
-        found_indices = pd.concat([edges[src], edges[dst], indices], axis=0).unique()
+        #logger.info('type edges=%s, indices=%s', type(edges), type(indices))
+        #raise ValueError(f'stop here: {type(edges)}, {type(indices)}')
+
+        found_indices = concat([edges[src], edges[dst], indices], axis=0).unique()
         emb = None
+        node_feats = res._node_features
+        if cudf_coercion:
+            import cudf
+            if not isinstance(node_feats, cudf.DataFrame):
+                node_feats = cudf.from_pandas(node_feats)
+
+        node_emb = res._node_embedding
+        if cudf_coercion and res._umap is not None:
+            import cudf
+            node_emb = res._node_embedding
+            if not isinstance(node_emb, cudf.DataFrame):
+                node_emb = cudf.from_pandas(node_emb)
+
         try:
             tdf = rdf.iloc[found_indices]
-            feats = res._node_features.iloc[found_indices]  # type: ignore
+            feats = node_feats.iloc[found_indices]  # type: ignore
             if res._umap is not None:
-                emb = res._node_embedding.iloc[found_indices]  # type: ignore
+                emb = node_emb.iloc[found_indices]  # type: ignore
         except Exception:  # for explicit relabeled nodes
             #logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
-            feats = res._node_features.loc[tdf.index]  # type: ignore
+            feats = node_feats.loc[tdf.index]  # type: ignore
             if res._umap is not None:
-                emb = res._node_embedding[df[node].isin(found_indices)]  # type: ignore
+                emb = node_emb[df[node].isin(found_indices)]  # type: ignore
         logger.info(f" - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
         logger.info(

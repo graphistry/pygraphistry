@@ -131,7 +131,7 @@ class Test_categorical_ring(NoAuthTestCase):
         rs = (g._nodes['x'] * g._nodes['x'] + g._nodes['y'] * g._nodes['y']).apply(np.sqrt)
         assert rs.min() == 500
         assert rs.max() == 800
-        assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 5
+        assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 4
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i
-            assert row['label'] == str(2 + 2 * i)
+            assert row['label'] == ['a', 'bb', 'cc', 'dd'][i]
