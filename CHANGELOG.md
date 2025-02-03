@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Breaking
+
+* `from_cugraph` returns using the src/dst bindings of `cugraph.Graph` object instead of base `Plottable`
+
+### Feat
+
+* Switch to `skrub` for feature engineering
+* More AI methods support GPU path
+* Support cugraph 26.10+
+
 ## [0.35.4 - 2024-12-28]
 
 ### Fixes

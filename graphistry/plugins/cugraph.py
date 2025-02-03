@@ -1,12 +1,13 @@
-import pandas as pd
 from typing import Any, Dict, List, Optional, Union
+import pandas as pd
+import warnings
+
 from graphistry.constants import NODE
 from graphistry.Engine import EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
-
 
 
 #import logging
@@ -38,7 +39,7 @@ def from_cugraph(self,
 ) -> Plottable:
     """
     
-    If bound IDs, use the same IDs in the returned graph.
+    Take input cugraph.Graph object and load in data and bindings (source, destination, edge_weight)
 
     If non-empty nodes/edges, instead of returning G's topology, use existing topology and merge in G's attributes
     
@@ -50,8 +51,28 @@ def from_cugraph(self,
 
     ####
 
-    src = self._source or SRC_CUGRAPH
-    dst = self._destination or DST_CUGRAPH
+    if hasattr(G, 'source_columns') and G.source_columns is not None:
+        s = G.source_columns
+        if isinstance(s, list):
+            s = s[0]
+        assert isinstance(s, str), "Found G.source_columns, and expected it to be a string or a list of one string, but was: %s" % G.souurce_columns
+        if self._source is not None and self._source != s:
+            warnings.warn('Switching g source column name to G source column name')
+    else:
+        s = self._source or SRC_CUGRAPH
+    src = s
+
+    if hasattr(G, 'destination_columns') and G.destination_columns is not None:
+        d = G.destination_columns
+        if isinstance(d, list):
+            d = d[0]
+        assert isinstance(d, str), "Found G.destination_columns, and expected it to be a string or a list of one string, but was: %s" % G.destination_columns
+        if self._destination is not None and self._destination != d:
+            warnings.warn('Switching g destination column name to G destination column name')
+    else:
+        d = self._destination or DST_CUGRAPH
+    dst = d
+
     edges_gdf = G.view_edge_list()  # src, dst
 
     if g._nodes is not None and load_nodes:
@@ -326,7 +347,15 @@ def compute_cugraph_core(
             out = out[0]
         if out_col is not None:
             raise ValueError('Graph returned, but out_col was specified')
-        return from_cugraph(self, out, load_nodes=False)
+        self2 = self
+        if self._source != out.source_columns:
+            logger.debug('Switching g source column name to G source column name to work around cugraph inconsistency')
+            if out.source_columns == 'src':
+                self2 = self.edges(self._edges.rename(columns={self._source: 'src', self._destination: 'dst'}), 'src', 'dst')
+        res = from_cugraph(self2, out, load_nodes=False)
+        if not (self2 is self):
+            res = res.edges(self._edges, self._source, self._destination)
+        return res
 
     raise ValueError('Unsupported algorithm: %s', alg)
 
