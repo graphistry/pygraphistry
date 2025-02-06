@@ -23,6 +23,7 @@ Graph
 * `Gremlin <https://tinkerpop.apache.org>`_ (:class:`graphistry.gremlin.GremlinMixin`)
 * `Memgraph <https://memgraph.com>`_ (:meth:`graphistry.PlotterBase.PlotterBase.cypher`)
 * `Neo4j <https://neo4j.com>`_ (:meth:`graphistry.PlotterBase.PlotterBase.cypher`)
+* `Google Spanner Graph <https://cloud.google.com/spanner/docs/graph/overview>`_ (:meth:`graphistry.PlotterBase.PlotterBase.spanner_gql_to_g`)
 * `TigerGraph <https://www.tigergraph.com>`_ (:meth:`graphistry.PlotterBase.PlotterBase.gsql`)
 * `Trovares <https://trovares.com>`_
 

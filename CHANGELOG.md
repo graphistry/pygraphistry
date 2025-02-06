@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.36.0 - 2025-02-05]
+
 ### Breaking
 
 * `from_cugraph` returns using the src/dst bindings of `cugraph.Graph` object instead of base `Plottable`
@@ -41,6 +43,45 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * ci ai tests: py 3.8, 3.9 => 3.9..3.12
 * ci tests dgl
 * plugin tests check for module imports
+
+## [0.35.10 - 2025-01-24]
+
+### Fixes: 
+
+* Spanner: better handling of spanner_config issues: #634, #644
+
+## [0.35.9 - 2025-01-22]
+
+### Docs 
+
+* Spanner: minor changes to html and markdown in notebook for proper rendering in readthedocs 
+
+## [0.35.8 - 2025-01-22]
+
+### Docs
+
+* Spanner: fix for plots rendering in readthedocs demo notebooks
+
+
+## [0.35.7 - 2025-01-22]
+
+### Feat 
+
+* added support for Google Spanner Graph and Google Spanner `spanner_gql_to_g` and `spanner_query_to_df` 
+* added new Google Spanner Graph demo notebook 
+
+## [0.35.6 - 2025-01-11]
+
+### Docs
+
+* Fix typo in new shaping tutorial
+* Privacy-preserving analytics
+
+## [0.35.5 - 2025-01-10]
+
+### Docs
+
+* New tutorial on graph shaping
 
 ## [0.35.4 - 2024-12-28]
 
