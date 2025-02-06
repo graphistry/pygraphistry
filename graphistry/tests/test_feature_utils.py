@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 import unittest
-import warnings
 
 from graphistry.feature_utils import (
     process_dirty_dataframes,
@@ -31,7 +30,6 @@ has_min_dependancy_text, _, _ = lazy_sentence_transformers_import()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
@@ -215,7 +213,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
         # assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
 
-class TestFastEncoder(unittest.TestCase):
+class TestFastEncoderNode(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
@@ -225,6 +223,21 @@ class TestFastEncoder(unittest.TestCase):
                  use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
         self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_allclose_fit_transform_on_same_data_nodes(self):
+        check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_columns_match(self):
+        assert set(self.X.columns) == set(self.x.columns), 'Node Feature Columns do not match'
+        assert set(self.Y.columns) == set(self.y.columns), 'Node Target Columns do not match'
+
+class TestFastEncoderEdge(unittest.TestCase):
+    # we test how far off the fit returned values different from the transformed
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def setUp(self):
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
         fenc.fit(src='src', dst='dst', feature_engine=resolve_feature_engine('auto'),
@@ -235,23 +248,20 @@ class TestFastEncoder(unittest.TestCase):
         
         self.Xe, self.Ye = fenc.X, fenc.y
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
-        
+
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-    def test_allclose_fit_transform_on_same_data(self):
-        check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+    def test_allclose_fit_transform_on_same_data_edges(self):
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
-        
+
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
-        assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
-        assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
-        assert all(self.Xe.columns == self.xe.columns), 'Edge Feature Columns do not match'
-        assert all(self.Ye.columns == self.ye.columns), 'Edge Target Columns do not match'
-        
-        
+        assert set(self.Xe.columns) == set(self.xe.columns), 'Edge Feature Columns do not match'
+        assert set(self.Ye.columns) == set(self.ye.columns), 'Edge Target Columns do not match'
+
+
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import dirty_cat
+        import skrub
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -272,44 +282,40 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            skrub.TableVectorizer,
+            f"Data Encoder is not a skrub.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            skrub.TableVectorizer,
+            f"Data Target Encoder is not a skrub.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            for min_words in [
-                2,
-                4000,
-            ]:  # last one should skip encoding, and throw all to dirty_cat
+        for min_words in [
+            2,
+            4000,
+        ]:  # last one should skip encoding, and throw all to skrub
 
-                X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
-                    ndf_reddit,
-                    y=double_target_reddit,
-                    use_scaler='none',
-                    cardinality_threshold=40,
-                    cardinality_threshold_target=40,
-                    n_topics=20,
-                    min_words=min_words,
-                    model_name=model_avg_name,
-                    feature_engine=resolve_feature_engine('auto')
-                )
-                self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
+            X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+                ndf_reddit,
+                y=double_target_reddit,
+                use_scaler='none',
+                cardinality_threshold=40,
+                cardinality_threshold_target=40,
+                n_topics=20,
+                min_words=min_words,
+                model_name=model_avg_name,
+                feature_engine=resolve_feature_engine('auto')
+            )
+            self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
     @pytest.mark.skipif(not has_min_dependancy, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+        g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
         y = g2._get_target('node')
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
@@ -359,36 +365,34 @@ class TestFeatureMethods(unittest.TestCase):
         )
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            for cardinality in [2, 200]:
-                for use_ngram in [True, False]:
-                    for use_col in use_cols:
-                        for target in targets:
-                            logger.debug("*" * 90)
-                            value = [cardinality, use_ngram, target, use_col]
-                            names = "cardinality, use_ngram, target, use_col".split(', ')
-                            logger.debug(f"{value}")
-                            print(f"{[k for k in zip(names, value)]}")
-                            logger.debug("-" * 80)
-                            if kind == 'edges' and cardinality == 2:
-                                # GapEncoder is set to fail on small documents like our edge_df..., so we skip
-                                continue
-                            g2 = g.featurize(
-                                kind=kind,
-                                X=use_col,
-                                y=target,
-                                model_name=model_avg_name,
-                                use_scaler=None,
-                                use_scaler_target=None,
-                                use_ngrams=use_ngram,
-                                min_df=0.0,
-                                max_df=1.0,
-                                cardinality_threshold=cardinality,
-                                cardinality_threshold_target=cardinality
-                            )
-            
-                            self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+        for cardinality in [2, 200]:
+            for use_ngram in [True, False]:
+                for use_col in use_cols:
+                    for target in targets:
+                        logger.debug("*" * 90)
+                        value = [cardinality, use_ngram, target, use_col]
+                        names = "cardinality, use_ngram, target, use_col".split(', ')
+                        logger.debug(f"{value}")
+                        print(f"{[k for k in zip(names, value)]}")
+                        logger.debug("-" * 80)
+                        if kind == 'edges' and cardinality == 2:
+                            # GapEncoder is set to fail on small documents like our edge_df..., so we skip
+                            continue
+                        g2 = g.featurize(
+                            kind=kind,
+                            X=use_col,
+                            y=target,
+                            model_name=model_avg_name,
+                            use_scaler=None,
+                            use_scaler_target=None,
+                            use_ngrams=use_ngram,
+                            min_df=0.0,
+                            max_df=1.0,
+                            cardinality_threshold=cardinality,
+                            cardinality_threshold_target=cardinality
+                        )
+        
+                        self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
