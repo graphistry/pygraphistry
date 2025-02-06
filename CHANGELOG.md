@@ -7,6 +7,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.36.0 - 2025-02-05]
+
+### Breaking
+
+* `from_cugraph` returns using the src/dst bindings of `cugraph.Graph` object instead of base `Plottable`
+* `pip install graphistry[umap-learn]` and `pip install graphistry[ai]` are now Python 3.9+ (was 3.8+)
+* `Plottable`'s fields `_node_dbscan` / `_edge_dbscan` are now `_dbscan_nodes` / `_dbscan_edges`
+
+### Feat
+
+* Switch to `skrub` for feature engineering
+* More AI methods support GPU path
+* Support cugraph 26.10+, numpy 2.0+
+* Add more umap, dbscan fields to `Plottable`
+
+### Infra
+
+* `[umap-learn]` + `[ai]` unpin deps - scikit, scipy, torch (now 2), etc
+
+### Refactor
+
+* Move more type models to models/compute/{feature,umap,cluster}
+* Turn more print => logger
+
+### Fixes
+
+* Remove lint/type ignores and fix root causes
+
+### Tests
+
+* Stop ignoring warnings in featurize and umap
+* python version tests use corresponding python version for mypy
+* ci umap tests: py 3.8, 3.9 => 3.9..3.12
+* ci ai tests: py 3.8, 3.9 => 3.9..3.12
+* ci tests dgl
+* plugin tests check for module imports
+
 ## [0.35.10 - 2025-01-24]
 
 ### Fixes: 

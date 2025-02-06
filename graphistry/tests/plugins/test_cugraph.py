@@ -69,8 +69,8 @@ class Test_from_cugraph(NoAuthTestCase):
         g = graphistry.from_cugraph(G, load_nodes=False)
         assert g._nodes is None and g._node is None
         assert g._source is not None and g._destination is not None
-        assert g._source == SRC_CUGRAPH
-        assert g._destination == DST_CUGRAPH
+        assert g._source == 'a'
+        assert g._destination == 'b'
         assert g._edges is not None
         assert isinstance(g._edges, cudf.DataFrame)
         assert len(g._edges) == len(edges)
@@ -88,14 +88,14 @@ class Test_from_cugraph(NoAuthTestCase):
         assert g._nodes is None and g._node is None
         assert len(g._edges) == len(edges)
         assert g._source is not None and g._destination is not None
-        assert g._source == SRC_CUGRAPH
-        assert g._destination == DST_CUGRAPH
+        assert g._source == 'a'
+        assert g._destination == 'b'
         assert g._edges is not None
         assert isinstance(g._edges, cudf.DataFrame)
         assert len(g._edges) == len(edges)
         assert len(g._edges[g._source].dropna()) == len(edges)
         assert len(g._edges[g._destination].dropna()) == len(edges)
-        assert (g._edges['weights'].to_pandas() == edges_w['w']).all()
+        assert (g._edges['w'].to_pandas() == edges_w['w']).all()
 
     def test_merge_existing_edges_pandas(self):
 
@@ -191,8 +191,8 @@ class Test_to_cugraph(NoAuthTestCase):
         logger.debug('G: %s', G)
         g2 = graphistry.from_cugraph(G)
         assert g2._edges.shape == g._edges.shape
-        assert g2._source == SRC_CUGRAPH
-        assert g2._destination == DST_CUGRAPH
+        assert g2._source == g._source
+        assert g2._destination == g._destination
         assert g2._edge is None
         assert g2._nodes is None and g2._node is None
         #logger.debug('g2._nodes: %s', g2._nodes)
@@ -249,8 +249,8 @@ class Test_to_cugraph(NoAuthTestCase):
         logger.debug('G: %s', G)
         g2 = graphistry.from_cugraph(G)
         assert g2._edges.shape == g._edges.shape
-        assert g2._source == SRC_CUGRAPH
-        assert g2._destination == DST_CUGRAPH
+        assert g2._source == g._source
+        assert g2._destination == g._destination
         assert g2._edge is None
         assert (
             g2._edges
@@ -283,8 +283,8 @@ class Test_to_cugraph(NoAuthTestCase):
         logger.debug('ig: %s', G)
         g2 = graphistry.from_cugraph(G).materialize_nodes()
         assert g2._edges.shape == g._edges.shape
-        assert g2._source == SRC_CUGRAPH
-        assert g2._destination == DST_CUGRAPH
+        assert g2._source == g._source
+        assert g2._destination == g._destination
         assert g2._edge is None
         assert g2._node == 'id'
         logger.debug('g2._nodes: %s', g2._nodes)
@@ -336,8 +336,8 @@ class Test_to_cugraph(NoAuthTestCase):
         logger.debug('G: %s', G)
         g2 = graphistry.from_cugraph(G).materialize_nodes()
         assert g2._edges.shape == g._edges.shape
-        assert g2._source == SRC_CUGRAPH
-        assert g2._destination == DST_CUGRAPH
+        assert g2._source == g._source
+        assert g2._destination == g._destination
         assert g2._edge is None
         logger.debug('g2._nodes: %s', g2._nodes)
         logger.debug('other: %s', nodes)
@@ -604,6 +604,8 @@ class Test_cugraph_compute(NoAuthTestCase):
 
         edges3_gdf = cudf.from_pandas(edges3_df)
         g = graphistry.edges(edges3_gdf, 'a', 'b').bind(edge_weight='f').materialize_nodes()
+        assert g._source == 'a'
+        assert g._destination == 'b'
         for alg in [x for x in compute_algs]:
             if alg not in skiplist:
                 opts = overrides[alg] if alg in overrides else {}

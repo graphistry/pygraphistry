@@ -2,7 +2,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal
 import pandas as pd
 
+from graphistry.models.ModelDict import ModelDict
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
+from graphistry.models.compute.dbscan import DBSCANEngine
+from graphistry.models.compute.umap import UMAPEngineConcrete
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.utils.json import JSONVal
@@ -72,11 +75,13 @@ class Plottable(object):
     _node_embedding : Optional[pd.DataFrame]
     _node_encoder : Optional[Any]
     _node_features : Optional[pd.DataFrame]
+    _node_features_raw: Optional[pd.DataFrame]
     _node_target : Optional[pd.DataFrame]
 
     _edge_embedding : Optional[pd.DataFrame]
     _edge_encoder : Optional[Any]
     _edge_features : Optional[pd.DataFrame]
+    _edge_features_raw: Optional[pd.DataFrame]
     _edge_target : Optional[pd.DataFrame]
 
     _weighted_adjacency: Optional[Any]
@@ -88,9 +93,26 @@ class Plottable(object):
     _xy: Optional[pd.DataFrame]
 
     _umap : Optional[UMAP]
-    _umap_params: Optional[Dict[str, Any]]
+    _umap_engine: Optional[UMAPEngineConcrete]
+    _umap_params: Optional[Union[ModelDict, Dict[str, Any]]]
     _umap_fit_kwargs: Optional[Dict[str, Any]]
     _umap_transform_kwargs: Optional[Dict[str, Any]]
+
+    # extra umap
+    _n_components: int
+    _metric: str
+    _n_neighbors: int
+    _min_dist: float
+    _spread: float
+    _local_connectivity: int
+    _repulsion_strength: float
+    _negative_sample_rate: float
+    _suffix: str
+
+    _dbscan_engine: Optional[DBSCANEngine]
+    _dbscan_params: Optional[ModelDict]
+    _dbscan_nodes: Optional[Any]  # fit model
+    _dbscan_edges: Optional[Any]  # fit model
 
     _adjacency : Optional[Any]
     _entity_to_index : Optional[dict]
