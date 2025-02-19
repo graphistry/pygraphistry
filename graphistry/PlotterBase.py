@@ -203,9 +203,15 @@ class PlotterBase(Plottable):
 
         # the fit umap instance
         self._umap = None
+        self._umap_engine = None
         self._umap_params : Optional[Dict[str, Any]] = None
         self._umap_fit_kwargs : Optional[Dict[str, Any]] = None
         self._umap_transform_kwargs : Optional[Dict[str, Any]] = None
+
+        self._dbscan_engine = None
+        self._dbscan_params = None
+        self._dbscan_nodes = None  # fit model
+        self._dbscan_edges = None  # fit model
 
         self._adjacency = None
         self._entity_to_index = None
@@ -216,11 +222,7 @@ class PlotterBase(Plottable):
         self._use_feat: bool = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
-        
-        # Dbscan
-        self._node_dbscan = None  # the fit dbscan instance
-        self._edge_dbscan = None
-        
+
         # DGL
         self.DGL_graph = None  # the DGL graph
 
@@ -2543,13 +2545,14 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         
         if not hasattr(res, '_spannergraph'):
-            spanner_config = PyGraphistry._config["spanner"]
+            spanner_config = PyGraphistry._config.get("spanner", None)
+
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                raise ValueError('spanner_config is None, use spanner_init() or register() passing spanner_config')
+                raise ValueError('spanner_config not defined. Pass spanner_config via register() and retry query.')
         
-            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
+            res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]
 
         return res._spannergraph.gql_to_graph(res, query)
 

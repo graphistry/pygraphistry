@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 from typing import Iterable
-import os, numpy as np, pandas as pd, pyarrow as pa, pytest, queue
+import numpy as np, pandas as pd, pytest, queue
 from common import NoAuthTestCase
 from concurrent.futures import Future
 from mock import patch
-from gremlin_python.driver.resultset import ResultSet
-from gremlin_python.structure.graph import Vertex, Edge, Path
+
+try:
+    from gremlin_python.driver.resultset import ResultSet
+    from gremlin_python.structure.graph import Vertex, Edge, Path
+    has_gremlin = True
+except (ImportError, ModuleNotFoundError):
+    has_gremlin = False
+
 
 from graphistry.gremlin import (
     CosmosMixin,
@@ -76,7 +82,7 @@ def make_resultset(items=[]) -> Iterable:
 
 # ### Gremlin ### #
 
-
+@pytest.mark.skipif(not has_gremlin, reason="gremlin-python not installed")
 class TestGremlinMixin(NoAuthTestCase):
     def test_connect_default_off(self):
         tg = TG()
@@ -376,6 +382,7 @@ class TestGremlinMixin(NoAuthTestCase):
         ] == "g.v('a').addE('x').to(g.v('b')).property('v1', '2')"
 
 
+@pytest.mark.skipif(not has_gremlin, reason="gremlin-python not installed")
 class TestCosmosMixin(NoAuthTestCase):
     def test_cosmos_init(self):
         cg = CFull(

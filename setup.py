@@ -23,7 +23,7 @@ stubs = [
   'pandas-stubs', 'types-requests', 'ipython', 'tqdm-stubs'
 ]
 
-test_workarounds = ['scikit-learn<=1.3.2']
+test_workarounds = []
 
 dev_extras = {
     'docs': [
@@ -56,11 +56,18 @@ base_extras_light = {
 }
 
 base_extras_heavy = {
-  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
+  'umap-learn': ['umap-learn','skrub', 'scikit-learn', 'scipy'],
   'pygraphviz': ['pygraphviz'],  # + apt-get graphviz, graphviz-dev
+  'rapids': [
+    "cudf-cu12==24.12.*", "dask-cudf-cu12==24.12.*", "cuml-cu12==24.12.*",
+    "cugraph-cu12==24.12.*", "nx-cugraph-cu12==24.12.*",
+    #"cuspatial-cu12==24.12.*",
+    #"cuproj-cu12==24.12.*", "cuxfilter-cu12==24.12.*", "cucim-cu12==24.12.*",
+    #"pylibraft-cu12==24.12.*", "raft-dask-cu12==24.12.*", "cuvs-cu12==24.12.*",
+  ],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
