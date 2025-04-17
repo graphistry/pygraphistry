@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.36.1 - 2025-04-17]
+
+### Feat
+
+* Add "erase_files_on_fail" option to plot function
+
 ## [0.36.0 - 2025-02-05]
 
 ### Breaking
