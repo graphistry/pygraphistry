@@ -562,6 +562,7 @@ class Plottable(object):
     def upload(
         self,
         memoize: bool = True,
+        erase_files_on_fail=True,
         validate: bool = True
     ) -> 'Plottable':
         if 1 + 1:

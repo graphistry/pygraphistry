@@ -1428,6 +1428,7 @@ class PlotterBase(Plottable):
     def upload(
         self,
         memoize: bool = True,
+        erase_files_on_fail=True,
         validate: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
@@ -1439,6 +1440,9 @@ class PlotterBase(Plottable):
 
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default true.
         :type memoize: bool
+
+        :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
+        :type erase_files_on_fail: bool
 
         :param validate: Controls validations, including those for encodings. Default true.
         :type validate: bool
@@ -1458,6 +1462,7 @@ class PlotterBase(Plottable):
             render='g',
             as_files=True,
             memoize=memoize,
+            erase_files_on_fail=erase_files_on_fail,
             validate=validate
         )
 
