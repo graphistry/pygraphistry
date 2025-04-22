@@ -534,7 +534,8 @@ class ArrowUploader:
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: bool = True
+        validate: bool = True,
+        erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
@@ -546,12 +547,13 @@ class ArrowUploader:
             file_opts = {'name': self.name + ' edges'}
             if self.org_name:
                 file_opts['org_name'] = self.org_name
+            upload_url_opts = 'erase=true' if erase_files_on_fail else 'erase=false'
 
-            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
             self.edges_file_id = e_file_id
 
             if not (self.nodes is None):
-                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts)
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts, upload_url_opts=upload_url_opts)
                 self.nodes_file_id = n_file_id
 
             self.create_dataset({
@@ -573,12 +575,12 @@ class ArrowUploader:
                 "name": self.name,
                 "description": self.description
             }, validate)
-            
+
             self.post_edges_arrow()
-            
+
             if not (self.nodes is None):
                 self.post_nodes_arrow()
-        
+
         return self
 
 
