@@ -562,6 +562,7 @@ class Plottable(object):
     def upload(
         self,
         memoize: bool = True,
+        erase_files_on_fail=True,
         validate: bool = True
     ) -> 'Plottable':
         if 1 + 1:
@@ -575,7 +576,7 @@ class Plottable(object):
         name=None,
         description=None,
         render: Optional[Union[bool, RenderModes]] = "auto",
-        skip_upload=False, as_files=False, memoize=True,
+        skip_upload=False, as_files=False, memoize=True, erase_files_on_fail: bool = True,
         extra_html="", override_html_style=None, validate: bool = True
     ) -> 'Plottable':
         if 1 + 1:

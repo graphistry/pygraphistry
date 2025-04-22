@@ -147,7 +147,7 @@ class ArrowFileUploader():
 
         if file_id is None:
             file_id = self.create_file(file_opts)
-        
+
         resp = self.post_arrow(arr, file_id, upload_url_opts)
         out = MemoizedFileUpload(file_id, resp)
 

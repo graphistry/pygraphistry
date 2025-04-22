@@ -1428,6 +1428,7 @@ class PlotterBase(Plottable):
     def upload(
         self,
         memoize: bool = True,
+        erase_files_on_fail=True,
         validate: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
@@ -1439,6 +1440,9 @@ class PlotterBase(Plottable):
 
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default true.
         :type memoize: bool
+
+        :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
+        :type erase_files_on_fail: bool
 
         :param validate: Controls validations, including those for encodings. Default true.
         :type validate: bool
@@ -1458,6 +1462,7 @@ class PlotterBase(Plottable):
             render='g',
             as_files=True,
             memoize=memoize,
+            erase_files_on_fail=erase_files_on_fail,
             validate=validate
         )
 
@@ -1468,7 +1473,7 @@ class PlotterBase(Plottable):
         name=None,
         description=None,
         render: Optional[Union[bool, RenderModes]] = "auto",
-        skip_upload=False, as_files=False, memoize=True,
+        skip_upload=False, as_files=False, memoize=True, erase_files_on_fail=True,
         extra_html="", override_html_style=None, validate: bool = True
     ):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
@@ -1501,6 +1506,9 @@ class PlotterBase(Plottable):
 
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default on.
         :type memoize: bool
+
+        :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
+        :type erase_files_on_fail: bool
 
         :param extra_html: Allow injecting arbitrary HTML into the visualization iframe.
         :type extra_html: Optional[str]
@@ -1565,7 +1573,7 @@ class PlotterBase(Plottable):
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
-            dataset.post(as_files=as_files, memoize=memoize, validate=validate)
+            dataset.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
             dataset.maybe_post_share_link(self)
             info = {
                 'name': dataset.dataset_id,
