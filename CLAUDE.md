@@ -201,6 +201,7 @@ PyGraphistry has different dependency sets depending on functionality:
 * Select only needed columns: `df[['col1', 'col2']]` not `df` when processing large DataFrames
 * Use `concat` and `drop_duplicates` with `subset` parameter when combining DataFrames
 * Process collections at once (vectorized) rather than element by element
+* Use `logger.debug('msg %s', var)` not f-strings in loggers to skip interpolation costs when log level disabled
 
 ### GFQL & Engine
 * Respect engine abstractions - use `df_concat`, `resolve_engine` etc. to support both pandas/cudf
@@ -208,6 +209,7 @@ PyGraphistry has different dependency sets depending on functionality:
 * Be mindful of column name conflicts in graph operations
 * Reuse computed temporary columns to avoid unnecessary conversions
 * Consider memory implications during graph traversals
+
 
 ## Git tips
 

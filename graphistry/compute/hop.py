@@ -203,8 +203,8 @@ def process_hop_direction(
     )
     
     if debugging:
-        logger.debug(f'--- direction {direction_name} ---')
-        logger.debug(f'hop_edges basic:\n%s', hop_edges)
+        logger.debug('--- direction %s ---', direction_name)
+        logger.debug('hop_edges basic:\n%s', hop_edges)
     
     # Apply target wave front filtering if provided
     if intermediate_target_wave_front is not None:
@@ -214,7 +214,7 @@ def process_hop_direction(
             on=target_col
         )
         if debugging:
-            logger.debug(f'hop_edges filtered by target_wave_front:\n%s', hop_edges)
+            logger.debug('hop_edges filtered by target_wave_front:\n%s', hop_edges)
     
     # Extract node IDs from results - use the appropriate column based on direction
     result_col = source_col if is_reverse else dest_col
