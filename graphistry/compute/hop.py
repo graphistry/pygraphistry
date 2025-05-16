@@ -253,14 +253,13 @@ def hop(self: Plottable,
             # Prepare edges for forward merging - handle column name conflicts
             if node_src_conflict:
                 # When node and source columns have the same name, use a temporary column
-                edges_for_merge = edges_indexed.copy()
+                # Create a new dataframe with only the needed columns and add the temporary column
+                merge_df = edges_indexed[[g2._source, g2._destination, EDGE_ID]].assign(
+                    **{TEMP_SRC_COL: edges_indexed[g2._source]}
+                )
                 
-                # Create a new temporary column for the merge
-                edges_for_merge[str(TEMP_SRC_COL)] = edges_for_merge[g2._source]
-                
-                # Assign node using the temp column instead of the conflicting one
-                merge_df = edges_for_merge[[g2._source, g2._destination, EDGE_ID, str(TEMP_SRC_COL)]]
-                merge_df = merge_df.assign(**{g2._node: merge_df[str(TEMP_SRC_COL)]})
+                # Assign node using the temp column
+                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_SRC_COL]})
             else:
                 # No conflict, proceed normally
                 merge_df = edges_indexed[[g2._source, g2._destination, EDGE_ID]]
@@ -315,14 +314,13 @@ def hop(self: Plottable,
             # Prepare edges for reverse merging - handle column name conflicts
             if node_dst_conflict:
                 # When node and destination columns have the same name, use a temporary column
-                edges_for_merge = edges_indexed.copy()
+                # Create a new dataframe with only the needed columns and add the temporary column
+                merge_df = edges_indexed[[g2._destination, g2._source, EDGE_ID]].assign(
+                    **{TEMP_DST_COL: edges_indexed[g2._destination]}
+                )
                 
-                # Create a new temporary column for the merge
-                edges_for_merge[str(TEMP_DST_COL)] = edges_for_merge[g2._destination]
-                
-                # Assign node using the temp column instead of the conflicting one
-                merge_df = edges_for_merge[[g2._destination, g2._source, EDGE_ID, str(TEMP_DST_COL)]]
-                merge_df = merge_df.assign(**{g2._node: merge_df[str(TEMP_DST_COL)]})
+                # Assign node using the temp column
+                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_DST_COL]})
             else:
                 # No conflict, proceed normally
                 merge_df = edges_indexed[[g2._destination, g2._source, EDGE_ID]]
