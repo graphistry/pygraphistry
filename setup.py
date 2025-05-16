@@ -20,7 +20,7 @@ core_requires = [
 ]
 
 stubs = [
-  'pandas-stubs', 'types-requests', 'ipython', 'tqdm-stubs'
+  'pandas-stubs', 'types-requests', 'ipython', 'types-tqdm'
 ]
 
 test_workarounds = []
@@ -38,7 +38,7 @@ dev_extras = {
       'sphinx-copybutton==0.5.2',
       'sphinx-book-theme==1.1.3',
     ],
-    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,
+    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],

@@ -1,14 +1,9 @@
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from typing_extensions import Literal
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
-
-
-if TYPE_CHECKING:
-    SeriesT = pd.Series
-else:
-    SeriesT = Any
+from graphistry.compute.typing import SeriesT
 
 class Duplicated(ASTPredicate):
     def __init__(self, keep: Literal['first', 'last', False] = 'first') -> None:
