@@ -1,5 +1,5 @@
 import logging
-from typing import Any, List, Optional, TYPE_CHECKING, Union
+from typing import Any, List, Optional, Tuple, TYPE_CHECKING, Union
 import pandas as pd
 
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
@@ -109,6 +109,150 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
+
+
+def process_hop_direction(
+    direction_name: str,
+    wave_front_iter: 'DataFrameT',
+    edges_indexed: 'DataFrameT',
+    column_conflict: bool,
+    source_col: str,
+    dest_col: str,
+    edge_id_col: str,
+    node_col: str,
+    temp_col: str,
+    intermediate_target_wave_front: Optional['DataFrameT'],
+    base_target_nodes: 'DataFrameT',
+    target_col: str,
+    node_match_query: Optional[str],
+    node_match_dict: Optional[dict],
+    is_reverse: bool,
+    debugging: bool
+) -> Tuple['DataFrameT', 'DataFrameT']:
+    """
+    Process a single hop direction (forward or reverse)
+    
+    Parameters:
+    -----------
+    direction_name : str
+        Name of the direction for debug logging ('forward' or 'reverse')
+    wave_front_iter : DataFrame
+        Current wave front of nodes to expand from
+    edges_indexed : DataFrame
+        The indexed edges DataFrame
+    column_conflict : bool
+        Whether there's a name conflict between node and edge columns
+    source_col : str
+        The source column name
+    dest_col : str
+        The destination column name
+    edge_id_col : str
+        The edge ID column name
+    node_col : str
+        The node column name
+    temp_col : str
+        The temporary column name for conflict resolution
+    intermediate_target_wave_front : DataFrame or None
+        Pre-calculated target wave front for filtering
+    base_target_nodes : DataFrame
+        The base target nodes for destination filtering
+    target_col : str
+        The target column for merging (destination or source depending on direction)
+    node_match_query : str or None
+        Optional query for node filtering
+    node_match_dict : dict or None
+        Optional dictionary for node filtering
+    is_reverse : bool
+        Whether this is the reverse direction
+    debugging : bool
+        Whether debug logging is enabled
+        
+    Returns:
+    --------
+    Tuple[DataFrame, DataFrame]
+        The processed hop edges and node IDs
+    """
+    
+    # Prepare edges for merging using centralized function
+    merge_df = prepare_merge_dataframe(
+        edges_indexed=edges_indexed,
+        column_conflict=column_conflict,
+        source_col=source_col,
+        dest_col=dest_col,
+        edge_id_col=edge_id_col,
+        node_col=node_col,
+        temp_col=temp_col,
+        is_reverse=is_reverse
+    )
+    
+    # Select the appropriate columns based on direction
+    if is_reverse:
+        # For reverse direction: dst, src, id
+        ordered_cols = [dest_col, source_col, edge_id_col]
+    else:
+        # For forward direction: src, dst, id
+        ordered_cols = [source_col, dest_col, edge_id_col]
+    
+    # Merge with wavefront to follow links
+    hop_edges = (
+        wave_front_iter.merge(
+            merge_df,
+            how='inner',
+            on=node_col)
+        [ordered_cols]
+    )
+    
+    if debugging:
+        logger.debug(f'--- direction {direction_name} ---')
+        logger.debug(f'hop_edges basic:\n%s', hop_edges)
+    
+    # Apply target wave front filtering if provided
+    if intermediate_target_wave_front is not None:
+        hop_edges = hop_edges.merge(
+            intermediate_target_wave_front.rename(columns={node_col: target_col}),
+            how='inner',
+            on=target_col
+        )
+        if debugging:
+            logger.debug(f'hop_edges filtered by target_wave_front:\n%s', hop_edges)
+    
+    # Extract node IDs from results - use the appropriate column based on direction
+    result_col = source_col if is_reverse else dest_col
+    new_node_ids = hop_edges[[result_col]].rename(columns={result_col: node_col}).drop_duplicates()
+    
+    # Apply node filtering if needed
+    if node_match_query is not None or node_match_dict is not None:
+        if debugging:
+            logger.debug('--- node filtering ---')
+            logger.debug('node_match_query: %s', node_match_query)
+            logger.debug('node_match_dict: %s', node_match_dict)
+            logger.debug('base_target_nodes:\n%s', base_target_nodes)
+            logger.debug('new_node_ids:\n%s', new_node_ids)
+            logger.debug('enriched nodes for filtering:\n%s', 
+                        base_target_nodes.merge(new_node_ids, on=node_col, how='inner'))
+            
+        new_node_ids = query_if_not_none(
+            node_match_query,
+            filter_by_dict(
+                base_target_nodes.merge(new_node_ids, on=node_col, how='inner'),
+                node_match_dict
+        ))[[node_col]]
+        
+        hop_edges = hop_edges.merge(
+            new_node_ids.rename(columns={node_col: target_col}),
+            how='inner',
+            on=target_col
+        )
+        
+        if debugging:
+            logger.debug('new_node_ids after filtering:\n%s', new_node_ids)
+            logger.debug('hop_edges filtered by node predicates:\n%s', hop_edges)
+    
+    if debugging:
+        logger.debug('hop_edges final:\n%s', hop_edges)
+        logger.debug('new_node_ids final:\n%s', new_node_ids)
+        
+    return hop_edges, new_node_ids
 
 
 def hop(self: Plottable,
@@ -323,12 +467,17 @@ def hop(self: Plottable,
             else:
                 intermediate_target_wave_front = target_wave_front[[g2._node]]
 
+        # Initialize hop edges and node IDs for both directions
         hop_edges_forward = None
         new_node_ids_forward = None
+        hop_edges_reverse = None
+        new_node_ids_reverse = None
+        
+        # Process the forward direction if needed
         if direction in ['forward', 'undirected']:
-            # Prepare edges for forward merging - handle column name conflicts
-            # Prepare edges for forward merging using centralized function
-            merge_df = prepare_merge_dataframe(
+            hop_edges_forward, new_node_ids_forward = process_hop_direction(
+                direction_name='forward',
+                wave_front_iter=wave_front_iter,
                 edges_indexed=edges_indexed,
                 column_conflict=node_src_conflict,
                 source_col=g2._source,
@@ -336,49 +485,20 @@ def hop(self: Plottable,
                 edge_id_col=EDGE_ID,
                 node_col=g2._node,
                 temp_col=TEMP_SRC_COL,
-                is_reverse=False
+                intermediate_target_wave_front=intermediate_target_wave_front,
+                base_target_nodes=base_target_nodes,
+                target_col=g2._destination,
+                node_match_query=destination_node_query,
+                node_match_dict=destination_node_match,
+                is_reverse=False,
+                debugging=debugging_hop and logger.isEnabledFor(logging.DEBUG)
             )
-            
-            hop_edges_forward = (
-                wave_front_iter.merge(
-                    merge_df,
-                    how='inner',
-                    on=g2._node)
-                [[g2._source, g2._destination, EDGE_ID]]
-            )
-            if target_wave_front is not None:
-                # Use the pre-calculated intermediate_target_wave_front
-                hop_edges_forward = hop_edges_forward.merge(
-                    intermediate_target_wave_front.rename(columns={g2._node: g2._destination}),
-                    how='inner',
-                    on=g2._destination
-                )
-            new_node_ids_forward = hop_edges_forward[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()
 
-            if destination_node_query is not None or destination_node_match is not None:
-                new_node_ids_forward = query_if_not_none(
-                    destination_node_query,
-                    filter_by_dict(
-                        base_target_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
-                        destination_node_match
-                ))[[g2._node]]
-                hop_edges_forward = hop_edges_forward.merge(
-                    new_node_ids_forward.rename(columns={g2._node: g2._destination}),
-                    how='inner',
-                    on=g2._destination
-                )
-
-            if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                logger.debug('--- direction in [forward, undirected] ---')
-                logger.debug('hop_edges_forward:\n%s', hop_edges_forward)
-                logger.debug('new_node_ids_forward:\n%s', new_node_ids_forward)
-
-        hop_edges_reverse = None
-        new_node_ids_reverse = None
+        # Process the reverse direction if needed
         if direction in ['reverse', 'undirected']:
-            # Prepare edges for reverse merging - handle column name conflicts
-            # Prepare edges for reverse merging using centralized function
-            merge_df = prepare_merge_dataframe(
+            hop_edges_reverse, new_node_ids_reverse = process_hop_direction(
+                direction_name='reverse',
+                wave_front_iter=wave_front_iter,
                 edges_indexed=edges_indexed,
                 column_conflict=node_dst_conflict,
                 source_col=g2._source,
@@ -386,58 +506,14 @@ def hop(self: Plottable,
                 edge_id_col=EDGE_ID,
                 node_col=g2._node,
                 temp_col=TEMP_DST_COL,
-                is_reverse=True
+                intermediate_target_wave_front=intermediate_target_wave_front,
+                base_target_nodes=base_target_nodes,
+                target_col=g2._source,
+                node_match_query=destination_node_query,
+                node_match_dict=destination_node_match,
+                is_reverse=True,
+                debugging=debugging_hop and logger.isEnabledFor(logging.DEBUG)
             )
-            
-            hop_edges_reverse = (
-                wave_front_iter.merge(
-                    merge_df,
-                    how='inner',
-                    on=g2._node)
-                [[g2._destination, g2._source, EDGE_ID]]
-            )
-            if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                logger.debug('--- direction in [reverse, undirected] ---')
-                logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
-
-            if target_wave_front is not None:
-                # Use the pre-calculated intermediate_target_wave_front
-                hop_edges_reverse = hop_edges_reverse.merge(
-                    intermediate_target_wave_front.rename(columns={g2._node: g2._source}),
-                    how='inner',
-                    on=g2._source
-                )
-                if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug('hop_edges_reverse filtered by target_wave_front:\n%s', hop_edges_reverse)
-
-            new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
-
-            if destination_node_query is not None or destination_node_match is not None:
-                if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug('--- destination predicate filtering ---')
-                    logger.debug('destination_node_query: %s', destination_node_query)
-                    logger.debug('destination_node_match: %s', destination_node_match)
-                    logger.debug('base_target_nodes:\n%s', base_target_nodes)
-                    logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
-                    logger.debug('enriched nodes for filtering:\n%s', base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'))
-                new_node_ids_reverse = query_if_not_none(
-                    destination_node_query,
-                    filter_by_dict(
-                        base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
-                        destination_node_match
-                ))[[g2._node]]
-                hop_edges_reverse = hop_edges_reverse.merge(
-                    new_node_ids_reverse.rename(columns={g2._node: g2._source}),
-                    how='inner',
-                    on=g2._source
-                )
-                if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
-                    logger.debug('hop_edges_reverse filtered by destination predicates:\n%s', hop_edges_reverse)
-            
-            if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                logger.debug('hop_edges_reverse:\n%s', hop_edges_reverse)
-                logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
 
         mt : List[DataFrameT] = []  # help mypy
 
