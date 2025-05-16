@@ -187,6 +187,27 @@ PyGraphistry has different dependency sets depending on functionality:
 * We're version controlled: Avoid unnecessary rewrites to preserve history
 * Occasionally try lint & type checks when editing
 
+## Performance Guidelines
+
+### Functional & Immutable
+* Follow functional programming style - return new objects rather than modifying existing ones
+* No explicit `copy()` calls on DataFrames - pandas/cudf operations already return new objects
+* Chain operations to minimize intermediate objects
+
+### DataFrame Efficiency
+* Never call `str()` repeatedly on the same value - compute once and reuse
+* Use `assign()` instead of direct column assignment: `df = df.assign(**{col: val})` not `df[col] = val`
+* Select only needed columns: `df[['col1', 'col2']]` not `df` when processing large DataFrames
+* Use `concat` and `drop_duplicates` with `subset` parameter when combining DataFrames
+* Process collections at once (vectorized) rather than element by element
+
+### GFQL & Engine
+* Respect engine abstractions - use `df_concat`, `resolve_engine` etc. to support both pandas/cudf
+* Collection-oriented algorithms: Process entire node/edge collections at once
+* Be mindful of column name conflicts in graph operations
+* Reuse computed temporary columns to avoid unnecessary conversions
+* Consider memory implications during graph traversals
+
 ## Git tips
 
 * Commits: We use conventional commits for commit messages, where each commit is a semantic change that can be understood in isolation, typically in the form of `type(scope): subject`. For example, `fix(graph): fix a bug in graph loading`. Try to isolate commits to one change at a time, and use the `--amend` flag to modify the last commit if you need to make changes before pushing. Changes should be atomic and self-contained, don't do too many things in one commit.
