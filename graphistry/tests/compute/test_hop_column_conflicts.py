@@ -60,7 +60,7 @@ class TestHopColumnConflicts(NoAuthTestCase):
         assert result._edges.shape[0] > 0
 
     def test_node_column_same_as_source(self):
-        """Test error when node ID column has same name as edge source column"""
+        """Test that hop works when node ID column has same name as edge source column"""
         
         # Create nodes and edges where the node ID has the same name as source
         nodes_df = pd.DataFrame({
@@ -75,12 +75,16 @@ class TestHopColumnConflicts(NoAuthTestCase):
         # Create graph with conflicting column names
         g = CGFull().nodes(nodes_df, 's').edges(edges_df, 's', 'd')
         
-        # Hop should raise NotImplementedError
-        with pytest.raises(NotImplementedError, match="Node id column cannot currently have the same name as edge src column"):
-            g.hop(pd.DataFrame({'s': ['a']}), 1)
+        # With the new implementation, hop should work correctly
+        result = g.hop(pd.DataFrame({'s': ['a']}), 1)
+        
+        # Verify the hop operation worked correctly
+        assert result._nodes.shape[0] > 0
+        assert result._edges.shape[0] > 0
+        assert 's' in result._nodes.columns
 
     def test_node_column_same_as_destination(self):
-        """Test error when node ID column has same name as edge destination column"""
+        """Test that hop works when node ID column has same name as edge destination column"""
         
         # Create nodes and edges where the node ID has the same name as destination
         nodes_df = pd.DataFrame({
@@ -95,9 +99,13 @@ class TestHopColumnConflicts(NoAuthTestCase):
         # Create graph with conflicting column names
         g = CGFull().nodes(nodes_df, 'd').edges(edges_df, 's', 'd')
         
-        # Hop should raise NotImplementedError
-        with pytest.raises(NotImplementedError, match="Node id column cannot currently have the same name as edge dst column"):
-            g.hop(pd.DataFrame({'d': ['a']}), 1)
+        # With the new implementation, hop should work correctly
+        result = g.hop(pd.DataFrame({'d': ['b']}), 1)
+        
+        # Verify the hop operation worked correctly
+        assert result._nodes.shape[0] > 0
+        assert result._edges.shape[0] > 0
+        assert 'd' in result._nodes.columns
 
     def test_safe_vs_dangerous_column_names(self):
         """Compare results of hop with safe column names vs potentially dangerous ones"""

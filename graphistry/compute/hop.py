@@ -12,6 +12,37 @@ from .typing import DataFrameT
 logger = setup_logger(__name__)
 
 
+def generate_safe_column_name(base_name, df, prefix="__temp_", suffix="__"):
+    """
+    Generate a temporary column name that doesn't conflict with existing columns.
+    Uses a simple incrementing counter to avoid dependencies.
+    
+    Parameters:
+    -----------
+    base_name : str
+        The original column name to base the temporary name on
+    df : DataFrame
+        The DataFrame to check for column name conflicts
+    prefix : str
+        Prefix to prepend to the temporary column name
+    suffix : str
+        Suffix to append to the temporary column name
+        
+    Returns:
+    --------
+    str
+        A unique column name that doesn't exist in the DataFrame
+    """
+    counter = 0
+    temp_name = f"{prefix}{base_name}_{counter}{suffix}"
+    
+    while temp_name in df.columns:
+        counter += 1
+        temp_name = f"{prefix}{base_name}_{counter}{suffix}"
+        
+    return temp_name
+
+
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
@@ -116,10 +147,23 @@ def hop(self: Plottable,
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
     logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
-    if g2._node == g2._source:
-        raise NotImplementedError(f'Not supported: Node id column cannot currently have the same name as edge src column: {g2._node}')
-    if g2._node == g2._destination:
-        raise NotImplementedError(f'Not supported: Node id column cannot currently have the same name as edge dst column: {g2._node}')
+    # Check for column name conflicts
+    node_src_conflict = g2._node == g2._source
+    node_dst_conflict = g2._node == g2._destination
+    
+    # Only generate temp names if there's a conflict
+    TEMP_SRC_COL = g2._source
+    TEMP_DST_COL = g2._destination
+    
+    if node_src_conflict:
+        TEMP_SRC_COL = generate_safe_column_name(g2._source, g2._edges)
+        if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+            logger.debug('Node column conflicts with source column, using temp name: %s', TEMP_SRC_COL)
+    
+    if node_dst_conflict:
+        TEMP_DST_COL = generate_safe_column_name(g2._destination, g2._edges)
+        if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+            logger.debug('Node column conflicts with destination column, using temp name: %s', TEMP_DST_COL)
 
     starting_nodes = nodes if nodes is not None else g2._nodes
 
@@ -205,9 +249,25 @@ def hop(self: Plottable,
         hop_edges_forward = None
         new_node_ids_forward = None
         if direction in ['forward', 'undirected']:
+            # Prepare edges for forward merging - handle column name conflicts
+            if node_src_conflict:
+                # When node and source columns have the same name, use a temporary column
+                edges_for_merge = edges_indexed.copy()
+                
+                # Create a new temporary column for the merge
+                edges_for_merge[TEMP_SRC_COL] = edges_for_merge[g2._source]
+                
+                # Assign node using the temp column instead of the conflicting one
+                merge_df = edges_for_merge[[g2._source, g2._destination, EDGE_ID, TEMP_SRC_COL]]
+                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_SRC_COL]})
+            else:
+                # No conflict, proceed normally
+                merge_df = edges_indexed[[g2._source, g2._destination, EDGE_ID]]
+                merge_df = merge_df.assign(**{g2._node: merge_df[g2._source]})
+            
             hop_edges_forward = (
                 wave_front_iter.merge(
-                    edges_indexed[[g2._source, g2._destination, EDGE_ID]].assign(**{g2._node: edges_indexed[g2._source]}),
+                    merge_df,
                     how='inner',
                     on=g2._node)
                 [[g2._source, g2._destination, EDGE_ID]]
@@ -251,9 +311,25 @@ def hop(self: Plottable,
         hop_edges_reverse = None
         new_node_ids_reverse = None
         if direction in ['reverse', 'undirected']:
+            # Prepare edges for reverse merging - handle column name conflicts
+            if node_dst_conflict:
+                # When node and destination columns have the same name, use a temporary column
+                edges_for_merge = edges_indexed.copy()
+                
+                # Create a new temporary column for the merge
+                edges_for_merge[TEMP_DST_COL] = edges_for_merge[g2._destination]
+                
+                # Assign node using the temp column instead of the conflicting one
+                merge_df = edges_for_merge[[g2._destination, g2._source, EDGE_ID, TEMP_DST_COL]]
+                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_DST_COL]})
+            else:
+                # No conflict, proceed normally
+                merge_df = edges_indexed[[g2._destination, g2._source, EDGE_ID]]
+                merge_df = merge_df.assign(**{g2._node: merge_df[g2._destination]})
+            
             hop_edges_reverse = (
                 wave_front_iter.merge(
-                    edges_indexed[[g2._destination, g2._source, EDGE_ID]].assign(**{g2._node: edges_indexed[g2._destination]}),
+                    merge_df,
                     how='inner',
                     on=g2._node)
                 [[g2._destination, g2._source, EDGE_ID]]
