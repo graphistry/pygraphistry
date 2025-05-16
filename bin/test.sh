@@ -11,4 +11,13 @@ python3 --version
 
 python -m pytest --version
 
-python -B -m pytest -vv $@
+# Set up base pytest arguments
+PYTEST_ARGS="-vv"
+
+# Add parallel testing by default when no args are provided
+if [ $# -eq 0 ]; then
+    PYTEST_ARGS="$PYTEST_ARGS -n auto"
+fi
+
+# Run pytest with the computed arguments plus any user-provided args
+python -B -m pytest $PYTEST_ARGS $@
