@@ -29,6 +29,10 @@ Most components follow functional-style programming where methods create new cop
 
 ## Development Commands
 
+### Containers
+
+PyGraphistry uses Docker for development and testing. The `docker` directory contains Dockerfiles and scripts for building and running tests in isolated environments. The bin/*.sh are unaware of the Docker context, so you should run from the docker folder, which calls the appropriate scripts.
+
 ### Environment Setup
 
 ```bash
@@ -131,6 +135,44 @@ cd docker && ./test-gpu-local.sh
 2. Tag with semantic versioning: `git tag X.Y.Z && git push --tags`
 3. Confirm GitHub Actions publishes to PyPI
 
+### Dependencies
+
+* Dependencies are managed in `setup.py`
+* The `stubs` list in setup.py contains type stubs for development
+* Avoid adding unnecessary dependencies
+* If you encounter type checking errors related to missing imports:
+  - First check if they're already defined in the `stubs` list in setup.py
+  - If not, consider adding them to the ignore list in mypy.ini using format:
+    ```
+    [mypy-package_name.*]
+    ignore_missing_imports = True
+    ```
+
+#### Dependency Structure
+
+```python
+# Core dependencies - always installed
+core_requires = [
+  'numpy', 'pandas', 'pyarrow', 'requests', ...
+]
+
+# Type stubs for development
+stubs = [
+  'pandas-stubs', 'types-requests', 'ipython', 'types-tqdm'
+]
+
+# Optional dependencies by category
+base_extras_light = {...}  # Light integrations (networkx, igraph, etc)
+base_extras_heavy = {...}  # Heavy integrations (GPU, AI, etc)
+dev_extras = {...}         # Development tools (docs, testing, etc)
+```
+
+#### Docker Testing Dependencies
+
+* Docker tests install dependencies via `-e .[test,build]` or `-e .[dev]`
+* The PIP_DEPS environment variable controls which dependencies are installed
+* If adding new stubs, add them to the `stubs` list in setup.py
+
 ## Project Dependencies
 
 PyGraphistry has different dependency sets depending on functionality:
@@ -139,3 +181,14 @@ PyGraphistry has different dependency sets depending on functionality:
 - Optional integrations: networkx, igraph, neo4j, gremlin, etc.
 - GPU acceleration: RAPIDS ecosystem (cudf, cugraph)
 - AI extensions: umap-learn, dgl, torch, sentence-transformers
+
+## Coding tips
+
+* We're version controlled: Avoid unnecessary rewrites to preserve history
+* Occasionally try lint & type checks when editing
+
+## Git tips
+
+* Commits: We use conventional commits for commit messages, where each commit is a semantic change that can be understood in isolation, typically in the form of `type(scope): subject`. For example, `fix(graph): fix a bug in graph loading`. Try to isolate commits to one change at a time, and use the `--amend` flag to modify the last commit if you need to make changes before pushing. Changes should be atomic and self-contained, don't do too many things in one commit.
+
+* CHANGELOG.md: We use a changelog to track changes in the project. We use semvars as git tags, so while deveoping, put in the top (reverse-chronological) section of the changelog `## [Development]`. Organize changes into subsections like `### Feat`,  `### Fixed`, `### Breaking 🔥`, etc.: reuse section names from the rest of the CHANGELOG.md. Be consistent in general.
