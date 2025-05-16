@@ -3,12 +3,7 @@ import pandas as pd
 from typing import Any, TYPE_CHECKING
 
 from graphistry.compute.ASTSerializable import ASTSerializable
-
-
-if TYPE_CHECKING:
-    SeriesT = pd.Series
-else:
-    SeriesT = Any
+from graphistry.compute.typing import SeriesT
 
 
 class ASTPredicate(ASTSerializable):
