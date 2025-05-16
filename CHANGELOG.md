@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.36.2 - 2025-05-16]
+
 ### Feat
 
 * GFQL: Hop pattern matching now supports node ID column having same name as edge source or destination column
