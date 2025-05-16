@@ -308,6 +308,20 @@ def hop(self: Plottable,
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP CONTINUE ~~~~~~~~~~~')
             logger.debug('wave_front_iter:\n%s', wave_front_iter)
+            
+        # Pre-calculate intermediate_target_wave_front once for this iteration
+        # This will be used for both forward and reverse directions if needed
+        intermediate_target_wave_front = None
+        if target_wave_front is not None:
+            # Calculate this once for both directions
+            if hops_remaining:
+                intermediate_target_wave_front = concat([
+                    target_wave_front[[g2._node]],
+                    self._nodes[[g2._node]]
+                    ], sort=False, ignore_index=True
+                ).drop_duplicates()
+            else:
+                intermediate_target_wave_front = target_wave_front[[g2._node]]
 
         hop_edges_forward = None
         new_node_ids_forward = None
@@ -333,16 +347,7 @@ def hop(self: Plottable,
                 [[g2._source, g2._destination, EDGE_ID]]
             )
             if target_wave_front is not None:
-                # target prev internal transitions (g._nodes) + starting point (target)
-                # final hop can only be to target
-                if hops_remaining:
-                    intermediate_target_wave_front = concat([
-                        target_wave_front[[g2._node]],
-                        self._nodes[[g2._node]]
-                        ], sort=False, ignore_index=True
-                    ).drop_duplicates()
-                else:
-                    intermediate_target_wave_front = target_wave_front[[g2._node]]
+                # Use the pre-calculated intermediate_target_wave_front
                 hop_edges_forward = hop_edges_forward.merge(
                     intermediate_target_wave_front.rename(columns={g2._node: g2._destination}),
                     how='inner',
@@ -396,14 +401,7 @@ def hop(self: Plottable,
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
             if target_wave_front is not None:
-                if hops_remaining:
-                    intermediate_target_wave_front = concat([
-                        target_wave_front[[g2._node]],
-                        self._nodes[[g2._node]]
-                        ], sort=False, ignore_index=True
-                    ).drop_duplicates()
-                else:
-                    intermediate_target_wave_front = target_wave_front[[g2._node]]
+                # Use the pre-calculated intermediate_target_wave_front
                 hop_edges_reverse = hop_edges_reverse.merge(
                     intermediate_target_wave_front.rename(columns={g2._node: g2._source}),
                     how='inner',
