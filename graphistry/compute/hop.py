@@ -43,6 +43,68 @@ def generate_safe_column_name(base_name, df, prefix="__temp_", suffix="__"):
     return temp_name
 
 
+def prepare_merge_dataframe(
+    edges_indexed: 'DataFrameT', 
+    column_conflict: bool, 
+    source_col: str, 
+    dest_col: str, 
+    edge_id_col: str, 
+    node_col: str, 
+    temp_col: str, 
+    is_reverse: bool = False
+) -> 'DataFrameT':
+    """
+    Prepare a merge DataFrame handling column name conflicts for hop operations.
+    Centralizes the conflict resolution logic for both forward and reverse directions.
+    
+    Parameters:
+    -----------
+    edges_indexed : DataFrame
+        The indexed edges DataFrame
+    column_conflict : bool
+        Whether there's a column name conflict
+    source_col : str
+        The source column name
+    dest_col : str
+        The destination column name
+    edge_id_col : str
+        The edge ID column name
+    node_col : str
+        The node column name
+    temp_col : str
+        The temporary column name to use in case of conflict
+    is_reverse : bool, default=False
+        Whether to prepare for reverse direction hop
+        
+    Returns:
+    --------
+    DataFrame
+        A merge DataFrame prepared for hop operation
+    """
+    # For reverse direction, swap source and destination
+    if is_reverse:
+        src, dst = dest_col, source_col
+    else:
+        src, dst = source_col, dest_col
+    
+    # Select columns based on direction
+    required_cols = [src, dst, edge_id_col]
+    
+    if column_conflict:
+        # Handle column conflict by creating temporary column
+        merge_df = edges_indexed[required_cols].assign(
+            **{temp_col: edges_indexed[src]}
+        )
+        # Assign node using the temp column
+        merge_df = merge_df.assign(**{node_col: merge_df[temp_col]})
+    else:
+        # No conflict, proceed normally
+        merge_df = edges_indexed[required_cols]
+        merge_df = merge_df.assign(**{node_col: merge_df[src]})
+    
+    return merge_df
+
+
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
@@ -251,19 +313,17 @@ def hop(self: Plottable,
         new_node_ids_forward = None
         if direction in ['forward', 'undirected']:
             # Prepare edges for forward merging - handle column name conflicts
-            if node_src_conflict:
-                # When node and source columns have the same name, use a temporary column
-                # Create a new dataframe with only the needed columns and add the temporary column
-                merge_df = edges_indexed[[g2._source, g2._destination, EDGE_ID]].assign(
-                    **{TEMP_SRC_COL: edges_indexed[g2._source]}
-                )
-                
-                # Assign node using the temp column
-                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_SRC_COL]})
-            else:
-                # No conflict, proceed normally
-                merge_df = edges_indexed[[g2._source, g2._destination, EDGE_ID]]
-                merge_df = merge_df.assign(**{g2._node: merge_df[g2._source]})
+            # Prepare edges for forward merging using centralized function
+            merge_df = prepare_merge_dataframe(
+                edges_indexed=edges_indexed,
+                column_conflict=node_src_conflict,
+                source_col=g2._source,
+                dest_col=g2._destination,
+                edge_id_col=EDGE_ID,
+                node_col=g2._node,
+                temp_col=TEMP_SRC_COL,
+                is_reverse=False
+            )
             
             hop_edges_forward = (
                 wave_front_iter.merge(
@@ -312,19 +372,17 @@ def hop(self: Plottable,
         new_node_ids_reverse = None
         if direction in ['reverse', 'undirected']:
             # Prepare edges for reverse merging - handle column name conflicts
-            if node_dst_conflict:
-                # When node and destination columns have the same name, use a temporary column
-                # Create a new dataframe with only the needed columns and add the temporary column
-                merge_df = edges_indexed[[g2._destination, g2._source, EDGE_ID]].assign(
-                    **{TEMP_DST_COL: edges_indexed[g2._destination]}
-                )
-                
-                # Assign node using the temp column
-                merge_df = merge_df.assign(**{g2._node: merge_df[TEMP_DST_COL]})
-            else:
-                # No conflict, proceed normally
-                merge_df = edges_indexed[[g2._destination, g2._source, EDGE_ID]]
-                merge_df = merge_df.assign(**{g2._node: merge_df[g2._destination]})
+            # Prepare edges for reverse merging using centralized function
+            merge_df = prepare_merge_dataframe(
+                edges_indexed=edges_indexed,
+                column_conflict=node_dst_conflict,
+                source_col=g2._source,
+                dest_col=g2._destination,
+                edge_id_col=EDGE_ID,
+                node_col=g2._node,
+                temp_col=TEMP_DST_COL,
+                is_reverse=True
+            )
             
             hop_edges_reverse = (
                 wave_front_iter.merge(
