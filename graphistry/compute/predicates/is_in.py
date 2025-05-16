@@ -1,14 +1,9 @@
-from typing import TYPE_CHECKING, Any, List
+from typing import Any, List
 import pandas as pd
 
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
-
-
-if TYPE_CHECKING:
-    SeriesT = pd.Series
-else:
-    SeriesT = Any
+from graphistry.compute.typing import SeriesT
 
 
 class IsIn(ASTPredicate):
