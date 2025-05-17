@@ -6,6 +6,11 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+### Added
+* Added new wrapper function for register to Databricks via SSO, to simplify code to display on dashboard
+
+### Fixes
+* Fix refresh function does not reset some variable in memory that cause weird behavior
 
 ## [0.36.2 - 2025-05-16]
 
@@ -165,6 +170,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 * `plot(render=)` now `Union[bool, RenderMode]`, not just `bool` 
+
+* Documentation changed for databricks related docs
 
 ## [0.34.17 - 2024-10-20]
 

@@ -1565,7 +1565,20 @@ class PlotterBase(Plottable):
             info = PyGraphistry._etl1(dataset)
         elif api_version == 3:
             logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
-            PyGraphistry.refresh()
+            
+            if not PyGraphistry.api_token() and PyGraphistry.sso_state():  # if it is sso login
+                if in_ipython() or in_databricks() or PyGraphistry._config["sso_opt_into_type"] == 'display':
+                    PyGraphistry.sso_wait_for_token_text_display()
+                    if not PyGraphistry.sso_verify_token_display():
+                        from IPython.core.display import HTML
+                        msg_html = "<strong>Invalid token due to login timeout</strong>"
+                        return HTML(msg_html)
+                else:
+                    PyGraphistry.sso_repeat_get_token()
+                
+                
+            else:  # if not sso mode, just refresh to make sure token is valid
+                PyGraphistry.refresh()
             logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
             dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)

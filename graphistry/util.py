@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Union, Optional
 import hashlib
 import logging
 import os
@@ -171,6 +171,14 @@ def check_set_memoize(
         cache_coercion(hashed, w)
         weakref[hashed] = w
     return False
+
+def display_message_html(message: str, cleared: Optional[bool] = False):
+    from IPython.display import display, HTML, clear_output
+
+    if cleared:
+        clear_output()
+
+    display(HTML(message))
 
 
 def make_iframe(url, height, extra_html="", override_html_style=None):
