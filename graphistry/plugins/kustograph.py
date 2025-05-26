@@ -33,11 +33,11 @@ class KustoGraph:
         self.cluster = kusto_config["cluster"]
         self.database = kusto_config["database"]
 
-        if all(kusto_config.get(k) for k in ["client_id", "client_secret", "authority_id"]):
+        if all(kusto_config.get(k) for k in ["client_id", "client_secret", "tenant_id"]):
             self.credential_mode = "aad_app"
             self.client_id = kusto_config["client_id"]
             self.client_secret = kusto_config["client_secret"]
-            self.authority_id = kusto_config["authority_id"]
+            self.tenant_id = kusto_config["tenant_id"]
         else:
             self.credential_mode = "device_code"
 
@@ -50,7 +50,7 @@ class KustoGraph:
                     self.cluster,
                     self.client_id,
                     self.client_secret,
-                    self.authority_id,
+                    self.tenant_id,
                 )
             else:
                 kcsb = KustoConnectionStringBuilder.with_aad_device_authentication(self.cluster)
