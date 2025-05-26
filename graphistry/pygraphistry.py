@@ -609,7 +609,11 @@ class PyGraphistry(object):
 
         if spanner_config is not None: 
             PyGraphistry._config["spanner"] = spanner_config 
-
+    
+    @staticmethod
+    def set_kusto_config(kusto_config):
+        if kusto_config is not None:
+            PyGraphistry._config["kusto"] = kusto_config
 
 
     @staticmethod
@@ -626,6 +630,7 @@ class PyGraphistry(object):
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         spanner_config: Optional[Union[Dict, Any]] = None,        
+        kusto_config: Optional[Union[Dict, Any]] = None,
         token_refresh_ms: int = 10 * 60 * 1000,
         store_token_creds_in_memory: Optional[bool] = None,
         client_protocol_hostname: Optional[str] = None,
@@ -751,6 +756,7 @@ class PyGraphistry(object):
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         PyGraphistry.set_bolt_driver(bolt)
         PyGraphistry.set_spanner_config(spanner_config)
+        PyGraphistry.set_kusto_config(kusto_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
 
@@ -1110,6 +1116,13 @@ class PyGraphistry(object):
         else: 
             return Plotter().spanner_init(spanner_config)
 
+    @staticmethod
+    def kusto_init(kusto_config: Dict[str, str]) -> Plottable:
+        if kusto_config is None:
+            logger.warn('kusto_init called with kusto_config with None type. Not connected.')
+            return None
+        else:
+            return Plotter().kusto_init(kusto_config)
 
     @staticmethod
     def cypher(query, params={}):
@@ -1985,6 +1998,10 @@ class PyGraphistry(object):
         return Plotter().spanner_query_to_df(query)
 
     @staticmethod
+    def kusto_query_to_df(query: str) -> pd.DataFrame:
+        return Plotter().kusto_query_to_df(query)
+
+    @staticmethod
     def gsql_endpoint(
         self, method_name, args={}, bindings=None, db=None, dry_run=False
     ):
@@ -2648,6 +2665,10 @@ tigergraph = PyGraphistry.tigergraph
 spanner_gql_to_g = PyGraphistry.spanner_gql_to_g
 spanner_query_to_df = PyGraphistry.spanner_query_to_df
 spanner_init = PyGraphistry.spanner_init
+
+kusto_query_to_df = PyGraphistry.kusto_query_to_df
+kusto_init = PyGraphistry.kusto_init
+
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin
