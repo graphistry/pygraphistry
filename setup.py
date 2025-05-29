@@ -8,7 +8,7 @@ def unique_flatten_dict(d):
   return list(set(sum( d.values(), [] )))
 
 core_requires = [
-  'numpy',
+  'numpy==1.26.4',
   'palettable >= 3.0',
   'pandas',
   'pyarrow >= 0.15.0',
