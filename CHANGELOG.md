@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* Fix embed_utils.py modifying global logging.StreamHandler.terminator (#660)
+
 ## [0.36.2 - 2025-05-16]
 
 ### Feat
