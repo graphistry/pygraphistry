@@ -418,7 +418,16 @@ class UMAPMixin(MIXIN_BASE):
         assert engine is not None, f'Expected self._umap_engine to be resolved, got {engine}'
 
         df, y = make_safe_umap_gpu_dataframes(df, y, engine)
-        X, y_ = self.transform(df, y, kind=kind, return_graph=False)
+        result = self.transform(df, y, kind=kind, return_graph=False)
+        # When return_graph=False, transform returns a tuple (X, y_)
+        if not isinstance(result, tuple):
+            raise ValueError(f"Expected transform with return_graph=False to return tuple, got {type(result)}")
+        X, y_ = result
+        # transform should always return a tuple, even if y_ is empty/None
+        assert isinstance(X, pd.DataFrame), f"Expected X to be DataFrame, got {type(X)}"
+        if y_ is None:
+            # Create empty DataFrame to maintain consistent return type
+            y_ = pd.DataFrame(index=X.index)
         X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)  # type: ignore
         assert self._umap is not None, 'Expected self._umap to be initialized'
         emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
@@ -430,6 +439,9 @@ class UMAPMixin(MIXIN_BASE):
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
             return g
+        # Ensure y_ is never None when returning the tuple
+        if y_ is None:
+            y_ = pd.DataFrame(index=X.index)
         return emb, X, y_
 
     def _bundle_embedding(self, emb, index):
