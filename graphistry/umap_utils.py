@@ -130,7 +130,7 @@ def make_safe_umap_gpu_dataframes(
                 new_kwargs[key] = df_to_engine(value, Engine.CUDF)
         return new_kwargs['X'], new_kwargs['y']
 
-    if 'cudf' in str(getmodule(X)) or (y is not None and 'cudf' in str(getmodule(y))) or engine == "cuml":
+    if 'cudf' in str(getmodule(X)) or (y is not None and not y.empty and 'cudf' in str(getmodule(y))) or engine == "cuml":
         return safe_cudf(X, y)
     
     return X, y
@@ -373,7 +373,7 @@ class UMAPMixin(MIXIN_BASE):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y, umap_fit_kwargs)
-        logger.debug('_umap_fit_transform:\nX::%s\n%s\nkwargs:\n%s\ny:\n%s', type(X), X.dtypes, umap_transform_kwargs, y.dtypes if y is not None else None)
+        logger.debug('_umap_fit_transform:\nX::%s\n%s\nkwargs:\n%s\ny:\n%s', type(X), X.dtypes, umap_transform_kwargs, y.dtypes if y is not None and not y.empty else None)
         emb = self._umap.transform(X, **umap_transform_kwargs)
 
         engine = umap_model_to_engine(self._umap)
@@ -434,8 +434,11 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind == 'nodes':
             emb, _ = make_safe_umap_gpu_dataframes(emb, None, engine)  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)
-            g = self._infer_edges(emb, X, y_, df, 
+            X_safe, y_safe = make_safe_umap_gpu_dataframes(X, y_, engine)
+            # Ensure y_safe is never None when passed to _infer_edges
+            if y_safe is None:
+                y_safe = pd.DataFrame(index=X_safe.index)
+            g = self._infer_edges(emb, X_safe, y_safe, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
             return g
