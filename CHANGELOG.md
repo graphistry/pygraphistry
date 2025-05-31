@@ -10,9 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * Fix embed_utils.py modifying global logging.StreamHandler.terminator ([#660](https://github.com/graphistry/pygraphistry/issues/660)) ([8480cd06](https://github.com/graphistry/pygraphistry/commit/8480cd06))
-* Fix feature_utils._transform returning None implicitly ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
-* Fix umap_utils.transform_umap None value handling ([d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4))
-* Fix text_utils type assertions for transform return values ([e5e7d4ee](https://github.com/graphistry/pygraphistry/commit/e5e7d4ee))
+* Fix None/empty value handling and type safety across multiple modules: feature_utils, umap_utils, ai_utils, and text_utils ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51), [d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4), [e5e7d4ee](https://github.com/graphistry/pygraphistry/commit/e5e7d4ee), [a9396272](https://github.com/graphistry/pygraphistry/commit/a9396272), [ad8c3870](https://github.com/graphistry/pygraphistry/commit/ad8c3870), [daf099ed](https://github.com/graphistry/pygraphistry/commit/daf099ed))
 
 ### Chore
 
@@ -23,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Add AI assistant prompt templates and conventional commits guidance ([a52048a7](https://github.com/graphistry/pygraphistry/commit/a52048a7))
 * Simplify CLAUDE.md to point to ai_code_notes README ([e5393381](https://github.com/graphistry/pygraphistry/commit/e5393381))
+* Update AI assistant documentation with Docker-first testing ([db5496eb](https://github.com/graphistry/pygraphistry/commit/db5496eb))
 
 ## [0.36.2 - 2025-05-16]
 
