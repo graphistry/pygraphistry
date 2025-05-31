@@ -2340,6 +2340,7 @@ class FeatureMixin(MIXIN_BASE):
                 "Fit on data (g.featurize(kind='..', ...))"
                 "before being able to transform data"
             )
+            raise ValueError(f"Encoder {encoder} not initialized. Call featurize() first.")
 
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 
@@ -2350,7 +2351,7 @@ class FeatureMixin(MIXIN_BASE):
                   sample: Optional[int] = None, 
                   return_graph: bool = True,
                   scaled: bool = True,
-                  verbose: bool = False):
+                  verbose: bool = False) -> Union[Tuple[pd.DataFrame, Optional[pd.DataFrame]], Plottable]:
         """Transform new data and append to existing graph, or return dataframes
         
             **args:**
@@ -2383,8 +2384,7 @@ class FeatureMixin(MIXIN_BASE):
         elif kind == "edges":
             X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
         else:
-            logger.debug("kind must be one of `nodes`,"
-                         f"`edges`, found {kind}")
+            raise ValueError(f"kind must be one of 'nodes' or 'edges', found {kind}")
             
         if return_graph and kind not in ["edges"]:
             emb = None  # will not be able to infer graph from umap coordinates, 
@@ -2456,7 +2456,9 @@ class FeatureMixin(MIXIN_BASE):
         if df is None:  # use the original data
             X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)  # type: ignore
         else:
-            X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
+            result = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
+            assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
+            X, y = result
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore
