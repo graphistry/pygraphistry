@@ -9,19 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-* Fix embed_utils.py modifying global logging.StreamHandler.terminator (#660, 8480cd06)
-* Fix feature_utils._transform returning None implicitly (25e4bf51)
-* Fix umap_utils.transform_umap None value handling (d2941ec4)
-* Fix text_utils type assertions for transform return values (e5e7d4ee)
+* Fix embed_utils.py modifying global logging.StreamHandler.terminator ([#660](https://github.com/graphistry/pygraphistry/issues/660)) ([8480cd06](https://github.com/graphistry/pygraphistry/commit/8480cd06))
+* Fix feature_utils._transform returning None implicitly ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* Fix umap_utils.transform_umap None value handling ([d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4))
+* Fix text_utils type assertions for transform return values ([e5e7d4ee](https://github.com/graphistry/pygraphistry/commit/e5e7d4ee))
 
 ### Chore
 
-* Switch to setup_logger utility in multiple modules (842fb904)
-* Add AI_PROGRESS/ to .gitignore (f0c18b3b)
+* Switch to setup_logger utility in multiple modules ([842fb904](https://github.com/graphistry/pygraphistry/commit/842fb904))
+* Add AI_PROGRESS/ and PLAN.md to .gitignore ([f0c18b3b](https://github.com/graphistry/pygraphistry/commit/f0c18b3b), [ac25a356](https://github.com/graphistry/pygraphistry/commit/ac25a356))
 
 ### Docs
 
-* Add AI assistant prompt templates and conventional commits guidance (a52048a7)
+* Add AI assistant prompt templates and conventional commits guidance ([a52048a7](https://github.com/graphistry/pygraphistry/commit/a52048a7))
 
 ## [0.36.2 - 2025-05-16]
 
