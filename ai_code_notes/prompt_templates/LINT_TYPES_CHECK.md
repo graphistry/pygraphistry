@@ -12,6 +12,18 @@ Status: [IN_PROGRESS/COMPLETE/BLOCKED]
 
 This template guides systematic code quality checks using flake8 (linting) and mypy (type checking) for PyGraphistry.
 
+### Quick Start - Docker Commands
+```bash
+# Run lint and typecheck only (recommended approach)
+cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
+
+# Skip lint check
+cd docker && WITH_LINT=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
+
+# Skip typecheck
+cd docker && WITH_TYPECHECK=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
+```
+
 1. **Start without creating files** - Run Steps 1-2 first
 2. **MANDATORY: FIX ALL FIXABLE ISSUES** - You MUST attempt to fix every error found
 3. **Create AI_PROGRESS file only if needed**:
@@ -65,7 +77,8 @@ The lint/type check process is **iterative by design**:
 
 ### Step 1: Check Lint Issues with flake8
 **Started**: [YYYY-MM-DD HH:MM:SS]
-**Command**: `./bin/lint.sh`
+**Command (containerized)**: `cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh`
+**Command (direct)**: `./bin/lint.sh` (requires local environment)
 **Purpose**: Identify all linting issues
 **Action**: Run and categorize issues by type
 
@@ -107,7 +120,8 @@ The lint/type check process is **iterative by design**:
 
 ### Step 2: Type Check with MyPy
 **Started**: [YYYY-MM-DD HH:MM:SS]
-**Command**: `./bin/typecheck.sh`
+**Command (containerized)**: `cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh`
+**Command (direct)**: `./bin/typecheck.sh` (requires local environment)
 **Purpose**: Verify type safety across the codebase
 **Action**: Run and filter results
 
@@ -155,11 +169,12 @@ If ANY errors found above, you MUST:
 <!-- FILL IN: Verification results -->
 **Verification Commands**:
 ```bash
-# Run lint check
-./bin/lint.sh
+# Containerized approach (recommended)
+cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
-# Run type check
-./bin/typecheck.sh
+# Or run directly if you have local environment
+# ./bin/lint.sh
+# ./bin/typecheck.sh
 ```
 
 **Results**:
@@ -340,18 +355,21 @@ COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 \
   test-cpu
 ```
 
-### Running Lint/Type Checks
+### Running Lint/Type Checks (Containerized)
 ```bash
-# Full test with lint/typecheck (from docker directory)
+# RECOMMENDED: Run both lint and typecheck only
+cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
+
+# Full test suite including lint/typecheck/tests/build
 cd docker && ./test-cpu-local.sh
 
-# Fast iteration (skip slow parts)
+# Fast iteration (skip build)
 WITH_BUILD=0 ./test-cpu-local.sh
 
 # Only run lint check
 WITH_TYPECHECK=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
-# Only run type check
+# Only run type check  
 WITH_LINT=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Skip lint/typecheck for focused testing

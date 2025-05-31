@@ -13,14 +13,17 @@ Specialized documentation for AI assistants working on PyGraphistry. These guide
 
 ### Essential Commands
 ```bash
-# Before any work - establish baseline
-./bin/lint.sh && ./bin/typecheck.sh
+# Before any work - establish baseline (containerized)
+cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Quick Docker test (from docker/ directory)
 WITH_BUILD=0 ./test-cpu-local-minimal.sh
 
 # Run specific tests fast
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
+
+# Note: Direct script execution requires local environment setup
+# ./bin/lint.sh && ./bin/typecheck.sh
 ```
 
 ### Performance Must-Haves
@@ -141,6 +144,9 @@ cd docker
 
 # Fast iteration - skip slow parts
 WITH_BUILD=0 ./test-cpu-local-minimal.sh
+
+# Only lint and typecheck (no tests or build)
+WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Full validation before commit
 ./test-cpu-local.sh
