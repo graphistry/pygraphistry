@@ -2351,7 +2351,7 @@ class FeatureMixin(MIXIN_BASE):
                   sample: Optional[int] = None, 
                   return_graph: bool = True,
                   scaled: bool = True,
-                  verbose: bool = False) -> Union[Tuple[pd.DataFrame, Optional[pd.DataFrame]], Plottable]:
+                  verbose: bool = False) -> Union[Tuple[pd.DataFrame, pd.DataFrame], 'Plottable']:
         """Transform new data and append to existing graph, or return dataframes
         
             **args:**
