@@ -22,6 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 
 * Add AI assistant prompt templates and conventional commits guidance ([a52048a7](https://github.com/graphistry/pygraphistry/commit/a52048a7))
+* Simplify CLAUDE.md to point to ai_code_notes README ([e5393381](https://github.com/graphistry/pygraphistry/commit/e5393381))
 
 ## [0.36.2 - 2025-05-16]
 
