@@ -187,6 +187,7 @@ PyGraphistry has different dependency sets depending on functionality:
 * We're version controlled: Avoid unnecessary rewrites to preserve history
 * Occasionally try lint & type checks when editing
 * Post-process: remove Claude's explanatory comments
+* Logging: Never add handlers at module import time - let users control their logging configuration
 
 ## Performance Guidelines
 
