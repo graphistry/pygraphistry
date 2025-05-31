@@ -239,10 +239,14 @@ def features_without_target(
         return df
     remove_cols = []
     if isinstance(y, pd.DataFrame):
+        if y.empty:
+            return df
         remove_cols = list(df.columns.intersection(y.columns))
     elif is_cudf_df(y):
         import cudf
         assert isinstance(y, cudf.DataFrame)
+        if y.empty:
+            return df
         remove_cols = list(df.columns.intersection(y.columns))
     elif isinstance(y, pd.Series):
         if y.name and (y.name in df.columns):
@@ -887,7 +891,7 @@ def get_numeric_transformers(ndf, y=None):
     label_encoder = False
     data_encoder = False
     y_ = y
-    if y is not None:
+    if y is not None and not y.empty:
         y_ = y.select_dtypes(include=[np.number])
         label_encoder = FunctionTransformer(
             partial(passthrough_df_cols, columns=y_.columns)
@@ -1017,7 +1021,7 @@ def process_dirty_dataframes(
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
-    if multilabel and y is not None:
+    if multilabel and y is not None and not y.empty:
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
     elif (
         y is not None
@@ -2376,7 +2380,7 @@ class FeatureMixin(MIXIN_BASE):
         # This is temporary until cucat release 
         if 'cudf' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf' in str(getmodule(y))):
+        if (y is not None) and not y.empty and ('cudf' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
