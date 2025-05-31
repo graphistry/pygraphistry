@@ -30,8 +30,27 @@ has_cudf, cudf = check_cudf()
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
 
-logging.StreamHandler.terminator = ""
+
+# Custom handler that doesn't add newlines (for tqdm compatibility)
+# This fixes issue #660 where we were globally modifying logging.StreamHandler.terminator
+# Now we only affect our own logger without breaking other libraries' logging
+class _NoTerminatorHandler(logging.StreamHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.terminator = ""
+
+
+# Set up logger with custom handler that won't affect global logging
 logger = logging.getLogger(__name__)
+# Clear handlers to ensure we only have our custom no-terminator handler
+logger.handlers.clear()
+_handler = _NoTerminatorHandler()
+_handler.setFormatter(logging.Formatter('%(message)s'))
+_handler.setLevel(logging.WARNING)  # Set level on handler
+logger.addHandler(_handler)
+logger.setLevel(logging.WARNING)
+# Propagate=False ensures our special formatting isn't overridden by parent loggers
+logger.propagate = False
 
 
 def log(msg:str) -> None:
