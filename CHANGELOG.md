@@ -9,7 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-* Fix embed_utils.py modifying global logging.StreamHandler.terminator (#660)
+* Fix embed_utils.py modifying global logging.StreamHandler.terminator (#660, 8480cd06)
+* Fix feature_utils._transform returning None implicitly (25e4bf51)
+* Fix umap_utils.transform_umap None value handling (d2941ec4)
+* Fix text_utils type assertions for transform return values (e5e7d4ee)
+
+### Chore
+
+* Switch to setup_logger utility in multiple modules (842fb904)
+* Add AI_PROGRESS/ to .gitignore (f0c18b3b)
+
+### Docs
+
+* Add AI assistant prompt templates and conventional commits guidance (a52048a7)
 
 ## [0.36.2 - 2025-05-16]
 
