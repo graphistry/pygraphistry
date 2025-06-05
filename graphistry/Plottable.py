@@ -66,6 +66,7 @@ class Plottable(object):
     _bolt_driver : Any
     _tigergraph : Any
     _spannergraph: Any
+    _kustograph: Any
     
     _dataset_id: Optional[str]
     _url: Optional[str]

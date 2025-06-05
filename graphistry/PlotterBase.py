@@ -178,6 +178,7 @@ class PlotterBase(Plottable):
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
         self._spannergraph: Any
+        self._kustograph: Any
 
         # feature engineering
         self._node_embedding = None
@@ -2306,6 +2307,21 @@ class PlotterBase(Plottable):
         res._spannergraph = SpannerGraph(res, spanner_config)
         logger.debug("Created SpannerGraph object: {res._spannergraph}")
         return res
+
+    def kusto_init(self: Plottable, kusto_config: Dict[str, str]) -> Plottable:
+        from .plugins.kustograph import KustoGraph
+        res = copy.copy(self)
+        res._kustograph = KustoGraph(res, kusto_config)
+        return res
+
+    def kusto_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
+        from .pygraphistry import PyGraphistry
+        if not hasattr(self, '_kustograph') or self._kustograph is None:
+            kusto_config = PyGraphistry._config["kusto"]
+            if not kusto_config:
+                raise ValueError("Missing kusto_config. Use kusto_init() or register() with kusto_config.")
+            self = self.kusto_init(kusto_config)
+        return self._kustograph.query_to_df(query)
 
     def infer_labels(self):
         """

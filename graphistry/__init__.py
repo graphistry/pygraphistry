@@ -34,6 +34,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     spanner_gql_to_g,
     spanner_query_to_df,
     spanner_init,
+    kusto_query_to_df,
+    kusto_init,
     gsql,
     gsql_endpoint,
     cosmos,
