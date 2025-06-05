@@ -3,22 +3,9 @@ import copy, logging, pandas as pd, numpy as np
 
 from graphistry.PlotterBase import Plottable
 
-logger = logging.getLogger("collapse")
-#logger.setLevel(logging.DEBUG)
-
-# create console handler and set level to debug
-# best for development or debugging
-consoleHandler = logging.StreamHandler()
-#consoleHandler.setLevel(logging.DEBUG)
-
-# create formatter
-formatter = logging.Formatter(': %(message)s')
-
-# add formatter to ch
-consoleHandler.setFormatter(formatter)
-
-# add ch to logger
-logger.addHandler(consoleHandler)
+logger = logging.getLogger(__name__)
+# Handler configuration removed - let users control their own logging setup
+# Use graphistry.util.setup_logger() if needed for consistent configuration
 
 COLLAPSE_NODE = "node_collapse"
 COLLAPSE_SRC = "src_collapse"
