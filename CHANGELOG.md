@@ -5,6 +5,12 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [0.37.1 - 2025-06-05]
+
+### Fixed
+
+* Fix incorrect type annotation in `FeatureMixin.transform()` return type - was `Optional[pd.DataFrame]`, now correctly `pd.DataFrame` ([0bdb98c1](https://github.com/graphistry/pygraphistry/commit/0bdb98c1))
+
 ## [0.37.0 - 2025-06-05]
 
 ### Fixed
