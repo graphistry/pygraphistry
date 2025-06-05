@@ -5,12 +5,17 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.37.0 - 2025-06-05]
 
 ### Fixed
 
 * Fix embed_utils.py modifying global logging.StreamHandler.terminator ([#660](https://github.com/graphistry/pygraphistry/issues/660)) ([8480cd06](https://github.com/graphistry/pygraphistry/commit/8480cd06))
-* Fix None/empty value handling and type safety across multiple modules: feature_utils, umap_utils, ai_utils, and text_utils ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51), [d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4), [e5e7d4ee](https://github.com/graphistry/pygraphistry/commit/e5e7d4ee), [a9396272](https://github.com/graphistry/pygraphistry/commit/a9396272), [ad8c3870](https://github.com/graphistry/pygraphistry/commit/ad8c3870), [daf099ed](https://github.com/graphistry/pygraphistry/commit/daf099ed))
+
+### Breaking 🔥
+
+* `FeatureMixin.transform()` now raises `ValueError` for invalid `kind` parameter instead of silently continuing ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `FeatureMixin._transform()` now raises `ValueError` when encoder is not initialized instead of returning `None` ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `UMAPMixin.transform_umap()` now always returns `pd.DataFrame` (possibly empty) instead of `None` for `y_` in tuple return ([d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4))
 
 ### Chore
 
