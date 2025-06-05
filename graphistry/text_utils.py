@@ -49,7 +49,9 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
-        vect, _ = self.transform(qdf, None, kind="nodes", return_graph=False)
+        result = self.transform(qdf, None, kind="nodes", return_graph=False)
+        assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
+        vect, _ = result
 
         nodes = self._nodes
         if 'cudf' in str(getmodule(nodes)):

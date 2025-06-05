@@ -374,7 +374,7 @@ def infer_graph(
     logger.debug(" - Batch has", len(df), "nodes") if verbose else None
     logger.debug(" - Brought in", len(old_nodes), "nodes") if verbose else None
 
-    new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
+    new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None and not y.empty else Y
 
     return hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_features, new_targets)
 

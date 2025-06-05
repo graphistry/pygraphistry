@@ -5,7 +5,28 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.37.0 - 2025-06-05]
+
+### Fixed
+
+* Fix embed_utils.py modifying global logging.StreamHandler.terminator ([#660](https://github.com/graphistry/pygraphistry/issues/660)) ([8480cd06](https://github.com/graphistry/pygraphistry/commit/8480cd06))
+
+### Breaking 🔥
+
+* `FeatureMixin.transform()` now raises `ValueError` for invalid `kind` parameter instead of silently continuing ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `FeatureMixin._transform()` now raises `ValueError` when encoder is not initialized instead of returning `None` ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `UMAPMixin.transform_umap()` now always returns `pd.DataFrame` (possibly empty) instead of `None` for `y_` in tuple return ([d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4))
+
+### Chore
+
+* Switch to setup_logger utility in multiple modules ([842fb904](https://github.com/graphistry/pygraphistry/commit/842fb904))
+* Add AI_PROGRESS/ and PLAN.md to .gitignore ([f0c18b3b](https://github.com/graphistry/pygraphistry/commit/f0c18b3b), [ac25a356](https://github.com/graphistry/pygraphistry/commit/ac25a356))
+
+### Docs
+
+* Add AI assistant prompt templates and conventional commits guidance ([a52048a7](https://github.com/graphistry/pygraphistry/commit/a52048a7))
+* Simplify CLAUDE.md to point to ai_code_notes README ([e5393381](https://github.com/graphistry/pygraphistry/commit/e5393381))
+* Update AI assistant documentation with Docker-first testing ([db5496eb](https://github.com/graphistry/pygraphistry/commit/db5496eb))
 
 ## [0.36.2 - 2025-05-16]
 

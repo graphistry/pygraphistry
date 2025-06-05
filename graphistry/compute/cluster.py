@@ -18,8 +18,9 @@ from graphistry.constants import CUML, DBSCAN
 from graphistry.models.ModelDict import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
 from graphistry.utils.lazy_import import lazy_dbscan_import
+from graphistry.util import setup_logger
 
-logger = logging.getLogger("compute.cluster")
+logger = setup_logger("compute.cluster")
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable

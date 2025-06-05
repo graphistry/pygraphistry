@@ -2,10 +2,9 @@ from typing import TYPE_CHECKING, Any
 from graphistry.utils.lazy_import import lazy_networks_import
 
 from . import constants as config
+from .util import setup_logger
 
-import logging
-
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 if TYPE_CHECKING:  # noqa

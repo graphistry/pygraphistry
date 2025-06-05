@@ -3,6 +3,8 @@ from typing import Dict, Union, Tuple
 import pandas as pd
 import logging
 
+from .util import setup_logger
+
 try: 
     import matplotlib.font_manager
     import matplotlib.pyplot as plt
@@ -18,7 +20,7 @@ except:
     OneClassSVM = None  # type: ignore
 
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 # #####################################################################################################################
