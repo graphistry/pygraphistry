@@ -2,6 +2,7 @@ import pandas as pd
 import time
 import json
 from typing import Any, Dict, List, Optional
+from typing_extensions import TypedDict, NotRequired
 
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
@@ -31,8 +32,9 @@ class KustoConfig(TypedDict):
 
 
 class KustoGraph:
-    def __init__(self, client: KustoClient):
+    def __init__(self, client: KustoClient, database: str | None = None):
         self.client = client
+        self.database = database
 
     @classmethod
     def from_config(cls, cfg: KustoConfig) -> "KustoGraph":
@@ -59,14 +61,18 @@ class KustoGraph:
         except Exception as exc:
             raise KustoConnectionError(f"Failed to connect to Kusto cluster: {exc}") from exc
 
-        return cls(client=client, database=database)
+        return cls(client, database=database)
 
 
-    def execute_query(self, query: str) -> KustoQueryResult:
+    def execute_query(self, query: str, database: str | None = None) -> KustoQueryResult:
         logger.debug(f"KustoGraph execute_query(): {query}")
+        database = database or self.database
+        if not database:
+            raise ValueError("Database not specified and not set in KustoGraph")
+
         try:
             start = time.time()
-            response = self.client.execute(self.database, query)
+            response = self.client.execute(database, query)
 
             rows = list(response.primary_results[0])
             col_names = [col.column_name for col in response.primary_results[0].columns]
