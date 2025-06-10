@@ -2,9 +2,13 @@ import os
 import pandas as pd
 import json
 import time
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, TYPE_CHECKING
+from typing_extensions import TypedDict, NotRequired
 
-from google.cloud.spanner_dbapi.connection import connect, Connection
+if TYPE_CHECKING:
+    from google.cloud.spanner_dbapi.connection import Connection
+else:
+    Connection = Any
 
 from graphistry.Plottable import Plottable
 
@@ -36,6 +40,12 @@ class SpannerQueryResult:
         self.column_names = column_names
 
 
+class SpannerConfig(TypedDict):
+    instance_id: str
+    database_id: str
+    project_id: NotRequired[str]
+    credentials_file: NotRequired[str]
+
 class SpannerGraph:
     """
     A comprehensive interface for interacting with Google Spanner Graph databases.
@@ -47,36 +57,36 @@ class SpannerGraph:
         self.connection = connection
 
 
-    def from_config(cls, spanner_config: Dict[str, str]) -> "SpannerGraph":
+    @classmethod
+    def from_config(cls, spanner_config: SpannerConfig) -> "SpannerGraph":
         """
         Initializes the SpannerGraph instance and establishes a connection to the Spanner database.
 
         :param graphistry: The Graphistry parent object.
-        :param project_id: The Google Cloud project ID.
         :param instance_id: The Spanner instance ID.
         :param database_id: The Spanner database ID.
         """
+        from google.cloud.spanner_dbapi.connection import connect
         
-        required_keys = ["project_id", "instance_id", "database_id"]
-        for key in required_keys:
-            value = spanner_config.get(key)
-            if not value:
-                raise ValueError(f"Missing or invalid value for required Spanner configuration: '{key}'")
-
-        project_id = spanner_config["project_id"]
-        instance_id = spanner_config["instance_id"]
-        database_id = spanner_config["database_id"]
+        try:
+            instance_id = spanner_config["instance_id"]
+            database_id = spanner_config["database_id"]
+        except KeyError as e:
+            raise ValueError(f"Missing required Spanner configuration: '{e}'")
+        
         credentials_file = spanner_config.get("credentials_file", None)
 
         try:
             if credentials_file:
-                self.connection = connect(instance_id, database_id, credentials=credentials_file)
+                connection = connect(instance_id, database_id, credentials=credentials_file)
             else:
-                self.connection = connect(instance_id, database_id)
+                project_id = spanner_config.get("project_id")
+                if not project_id:
+                    raise ValueError("Missing required Spanner configuration: 'project_id' or 'credentials_file'")
+                connection = connect(project_id, instance_id, database_id)
 
-            self.connection.autocommit = True # NOTE: Why would we set this?
             logger.info("Connected to Spanner database.")
-            return cls(self.connection)
+            return cls(connection)
         
         except Exception as e:
             raise SpannerConnectionError(f"Failed to connect to Spanner: {e}")
@@ -107,13 +117,13 @@ class SpannerGraph:
             cursor = self.connection.cursor()
             cursor.execute(query)
             results = cursor.fetchall()
-            column_names = [desc[0] for desc in cursor.description]  # extract column names
+            column_names = [desc[0] for desc in cursor.description or []]  # extract column names
             logger.debug(f'column names returned from query: {column_names}')
             execution_time_s = time.time() - start_time
             logger.info(f"Query completed in {execution_time_s:.3f} seconds.")
             return SpannerQueryResult(results, column_names)
         except Exception as e:
-            raise RuntimeError(f"Query execution failed: {e}")
+            raise RuntimeError(f"Query execution failed: {e}") from e
 
     @staticmethod
     def convert_spanner_json(data: List[Any]) -> List[Dict[str, Any]]:
@@ -229,11 +239,13 @@ class SpannerGraph:
         return SpannerGraph.add_type_from_label_to_df(edges_df)
 
 
-    def gql_to_graph(self, res: Plottable, query: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def gql_to_graph(self, query: str, g: Plottable = Plottable()) -> Plottable:
         """
         Executes a query and constructs a Graphistry graph from the results.
 
         :param query: The GQL query to execute.
+        :param g: The Graphistry graph object to use.
+        :type g: Plottable
         :return: A Graphistry graph object constructed from the query results.
         :rtype: Plottable 
         """
@@ -247,8 +259,9 @@ class SpannerGraph:
         nodes_df = self.get_nodes_df(json_data)
         edges_df = self.get_edges_df(json_data)
 
-        return nodes_df, edges_df
-
+        # TODO(tcook): add more error handling here if nodes or edges are empty
+        return g.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
+    
 
     def query_to_df(self, query: str) -> pd.DataFrame:
         """

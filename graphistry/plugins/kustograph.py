@@ -1,11 +1,16 @@
 import pandas as pd
 import time
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from typing_extensions import TypedDict, NotRequired
 
-from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
-from azure.kusto.data.exceptions import KustoServiceError
+if TYPE_CHECKING:
+    from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
+    from azure.kusto.data.exceptions import KustoServiceError
+else:
+    KustoClient = Any
+    KustoConnectionStringBuilder = Any
+    KustoServiceError = Any
 
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -25,7 +30,7 @@ class KustoQueryResult:
 
 class KustoConfig(TypedDict):
     cluster: str
-    database: str
+    database: NotRequired[str]
     client_id: NotRequired[str]
     client_secret: NotRequired[str]
     tenant_id: NotRequired[str]
@@ -38,20 +43,21 @@ class KustoGraph:
 
     @classmethod
     def from_config(cls, cfg: KustoConfig) -> "KustoGraph":
-        required_keys = ["cluster", "database"]
-        for key in required_keys:
-            if not cfg.get(key):
-                raise ValueError(f"Missing required kusto_config key: '{key}'")
-            
-        cluster, database = cfg["cluster"], cfg["database"]
+        from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 
         try:
-            if all(cfg.get(k) for k in ("client_id", "client_secret", "tenant_id")):
+            cluster = cfg["cluster"]
+        except KeyError as e:
+            raise ValueError(f"Missing required kusto_config key: '{e}'") from e
+
+        try:
+            client_id, client_secret, tenant_id = cfg.get("client_id"), cfg.get("client_secret"), cfg.get("tenant_id")
+            if all((client_id, client_secret, tenant_id)):
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
                     cluster,
-                    cfg["client_id"],
-                    cfg["client_secret"],
-                    cfg["tenant_id"],
+                    client_id,
+                    client_secret,
+                    tenant_id,
                 )
             else:
                 kcsb = KustoConnectionStringBuilder.with_aad_device_authentication(cluster)
@@ -61,10 +67,12 @@ class KustoGraph:
         except Exception as exc:
             raise KustoConnectionError(f"Failed to connect to Kusto cluster: {exc}") from exc
 
-        return cls(client, database=database)
+        return cls(client, database=cfg.get("database"))
 
 
-    def execute_query(self, query: str, database: str | None = None) -> KustoQueryResult:
+    def query(self, query: str, database: str | None = None) -> KustoQueryResult:
+        from azure.kusto.data.exceptions import KustoServiceError
+
         logger.debug(f"KustoGraph execute_query(): {query}")
         database = database or self.database
         if not database:
@@ -85,5 +93,5 @@ class KustoGraph:
             raise RuntimeError(f"Kusto query failed: {e}")
 
     def query_to_df(self, query: str) -> pd.DataFrame:
-        result = self.execute_query(query)
+        result = self.query(query)
         return pd.DataFrame(result.data, columns=result.column_names)
