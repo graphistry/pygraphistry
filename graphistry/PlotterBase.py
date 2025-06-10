@@ -2298,20 +2298,37 @@ class PlotterBase(Plottable):
         :return: Plottable with a Spanner connection 
         :rtype: Plottable
         :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
-
+        :raises SpannerConnectionError: If the connection to Spanner fails.
         """
         from .plugins.spannergraph import SpannerGraph
 
         res = copy.copy(self)
 
-        res._spannergraph = SpannerGraph(res, spanner_config)
+        res._spannergraph = SpannerGraph.from_config(spanner_config)
         logger.debug("Created SpannerGraph object: {res._spannergraph}")
         return res
 
     def kusto_init(self: Plottable, kusto_config: Dict[str, str]) -> Plottable:
+        """
+        Initializes a KustoGraph object with the provided configuration and connects to the cluster
+
+        kusto_config dict must contain the include the following keys:
+            - "cluster": The Kusto cluster name.
+            - "database": The Kusto database name.
+            - "client_id": The Kusto client ID.
+            - "client_secret": The Kusto client secret.
+
+        :param kusto_config: A dictionary containing the Kusto configuration. 
+        :type (Dict[str, str])
+
+        :returns: Plottable with a Kusto connection 
+        :rtype: Plottable
+        :raises ValueError: If any of the required keys in `kusto_config` are missing or have invalid values.
+        :raises KustoConnectionError: If the connection to Kusto fails.
+        """
         from .plugins.kustograph import KustoGraph
         res = copy.copy(self)
-        res._kustograph = KustoGraph(res, kusto_config)
+        res._kustograph = KustoGraph.from_config(kusto_config)
         return res
 
     def kusto_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
@@ -2561,11 +2578,14 @@ class PlotterBase(Plottable):
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
             else: 
-                raise ValueError('spanner_config not defined. Pass spanner_config via register() and retry query.')
+                raise ValueError('spanner_config not defined. Pass spanner_config via register() or .spanner_init() and retry query.')
         
             res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]
 
-        return res._spannergraph.gql_to_graph(res, query)
+        nodes, edges = res._spannergraph.gql_to_graph(query)
+        
+        # TODO(tcook): add more error handling here if nodes or edges are empty
+        return res.nodes(nodes, 'identifier').edges(edges, 'source', 'destination')
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
@@ -2611,10 +2631,10 @@ class PlotterBase(Plottable):
             spanner_config = PyGraphistry._config["spanner"]
             if spanner_config is not None: 
                 logger.debug(f"Spanner Config: {spanner_config}")
-            else: 
-                logger.warning('PyGraphistry._config["spanner"] is None')
+            else:
+                raise ValueError('spanner_config not set. Pass spanner_config via register() and retry query.')
         
-            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
+            res = res.spanner_init(spanner_config)
 
         return res._spannergraph.query_to_df(query)
 

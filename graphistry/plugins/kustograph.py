@@ -22,44 +22,45 @@ class KustoQueryResult:
         self.column_names = column_names
 
 
-class KustoGraph:
+class KustoConfig(TypedDict):
+    cluster: str
+    database: str
+    client_id: NotRequired[str]
+    client_secret: NotRequired[str]
+    tenant_id: NotRequired[str]
 
-    def __init__(self, g: Plottable, kusto_config: Dict[str, str]):
+
+class KustoGraph:
+    def __init__(self, client: KustoClient):
+        self.client = client
+
+    @classmethod
+    def from_config(cls, cfg: KustoConfig) -> "KustoGraph":
         required_keys = ["cluster", "database"]
         for key in required_keys:
-            if not kusto_config.get(key):
+            if not cfg.get(key):
                 raise ValueError(f"Missing required kusto_config key: '{key}'")
+            
+        cluster, database = cfg["cluster"], cfg["database"]
 
-        self.cluster = kusto_config["cluster"]
-        self.database = kusto_config["database"]
-
-        if all(kusto_config.get(k) for k in ["client_id", "client_secret", "tenant_id"]):
-            self.credential_mode = "aad_app"
-            self.client_id = kusto_config["client_id"]
-            self.client_secret = kusto_config["client_secret"]
-            self.tenant_id = kusto_config["tenant_id"]
-        else:
-            self.credential_mode = "device_code"
-
-        self.client = self._connect()
-
-    def _connect(self) -> KustoClient:
         try:
-            if self.credential_mode == "aad_app":
+            if all(cfg.get(k) for k in ("client_id", "client_secret", "tenant_id")):
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
-                    self.cluster,
-                    self.client_id,
-                    self.client_secret,
-                    self.tenant_id,
+                    cluster,
+                    cfg["client_id"],
+                    cfg["client_secret"],
+                    cfg["tenant_id"],
                 )
             else:
-                kcsb = KustoConnectionStringBuilder.with_aad_device_authentication(self.cluster)
+                kcsb = KustoConnectionStringBuilder.with_aad_device_authentication(cluster)
 
-            logger.info(f"Connecting to Kusto cluster: {self.cluster}")
-            return KustoClient(kcsb)
+            logger.info("Connecting to Kusto cluster %s", cluster)
+            client = KustoClient(kcsb)
+        except Exception as exc:
+            raise KustoConnectionError(f"Failed to connect to Kusto cluster: {exc}") from exc
 
-        except Exception as e:
-            raise KustoConnectionError(f"Failed to connect to Kusto cluster: {e}")
+        return cls(client=client, database=database)
+
 
     def execute_query(self, query: str) -> KustoQueryResult:
         logger.debug(f"KustoGraph execute_query(): {query}")
