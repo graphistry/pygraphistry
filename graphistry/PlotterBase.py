@@ -2568,7 +2568,6 @@ class PlotterBase(Plottable):
      
         """
         from .pygraphistry import PyGraphistry
-        from .plugins.spannergraph import SpannerGraph
 
         res = copy.copy(self)
         
@@ -2580,12 +2579,9 @@ class PlotterBase(Plottable):
             else: 
                 raise ValueError('spanner_config not defined. Pass spanner_config via register() or .spanner_init() and retry query.')
         
-            res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]
-
-        nodes, edges = res._spannergraph.gql_to_graph(query)
+            res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]        
         
-        # TODO(tcook): add more error handling here if nodes or edges are empty
-        return res.nodes(nodes, 'identifier').edges(edges, 'source', 'destination')
+        return res._spannergraph.gql_to_graph(query, g=res)
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
