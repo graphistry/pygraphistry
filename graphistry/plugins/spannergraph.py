@@ -1,50 +1,21 @@
-import os
 import pandas as pd
 import json
 import time
 from typing import Any, List, Dict, TYPE_CHECKING
-from typing_extensions import TypedDict, NotRequired
 
 if TYPE_CHECKING:
     from google.cloud.spanner_dbapi.connection import Connection
 else:
     Connection = Any
 
+from graphistry.pygraphistry import PyGraphistry
 from graphistry.Plottable import Plottable
-
+from graphistry.plugins_types.spanner_types import SpannerConfig, SpannerConnectionError, SpannerQueryResult
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
 
-class SpannerConnectionError(Exception):
-    """Custom exception for errors related to Spanner connection."""
-    pass
 
-class SpannerQueryResult:
-    """
-    Encapsulates the results of a query, including metadata.
-
-    :ivar list data: The raw query results.
-    """
-
-    def __init__(self, data: List[Any], column_names: List[str]):
-        """
-        Initializes a SpannerQueryResult instance.
-
-        :param data: The raw query results.
-        :type List[Any]
-        :param column_names: a list of the column names from the cursor, defaults to None 
-        :type: List[str]
-        """
-        self.data = data
-        self.column_names = column_names
-
-
-class SpannerConfig(TypedDict):
-    instance_id: str
-    database_id: str
-    project_id: NotRequired[str]
-    credentials_file: NotRequired[str]
 
 class SpannerGraph:
     """
@@ -86,6 +57,11 @@ class SpannerGraph:
                 connection = connect(project_id, instance_id, database_id)
 
             logger.info("Connected to Spanner database.")
+            
+            connection.read_only = True
+            # NOTE: or connection.autocommit=True; Required to query INFORMATION_SCHEMA
+            # Otherwise: "Unsupported concurrency mode in query using INFORMATION_SCHEMA"
+
             return cls(connection)
         
         except Exception as e:
@@ -239,7 +215,7 @@ class SpannerGraph:
         return SpannerGraph.add_type_from_label_to_df(edges_df)
 
 
-    def gql_to_graph(self, query: str, g: Plottable = Plottable()) -> Plottable:
+    def gql_to_graph(self, query: str, g: Plottable = PyGraphistry.bind()) -> Plottable:
         """
         Executes a query and constructs a Graphistry graph from the results.
 
@@ -275,3 +251,17 @@ class SpannerGraph:
 
         # create DataFrame from json results, adding column names
         return pd.DataFrame(query_result.data, columns=query_result.column_names)
+
+
+class SpannerGraphContext:
+    def __init__(self, config: SpannerConfig | None = None):
+        config = config or PyGraphistry._config.get("spanner")
+        if not config:
+            raise ValueError("Missing spanner_config. Register globally with spanner_config or use with_spanner().")
+        self.spanner_graph = SpannerGraph.from_config(config)
+    
+    def __enter__(self):
+        return self.spanner_graph
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.spanner_graph.close()
