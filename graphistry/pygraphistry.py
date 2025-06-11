@@ -2001,10 +2001,54 @@ class PyGraphistry(object):
 
     @staticmethod
     def kusto_query(query: str, unwrap_nested: bool | None = None) -> List[pd.DataFrame]:
+        """
+        Submit a Kusto/Azure Data Explorer *query* and return result tables.
+
+        Because a Kusto request may emit multiple tables, a **list of
+        DataFrames** is always returned; most queries yield a single entry.
+
+        unwrap_nested
+        -------------
+        Controls auto‑flattening of *dynamic* (JSON) columns:
+        • True  – always try to flatten, raise if it fails  
+        • None  – default heuristic: flatten only if table looks nested  
+        • False – leave results untouched  
+
+        :param query: Kusto query string
+        :type  query: str
+        :param unwrap_nested: flatten strategy above
+        :type  unwrap_nested: bool | None
+        :returns: list of Pandas DataFrames
+        :rtype:  List[pd.DataFrame]
+
+        **Example**
+            ::
+
+                frames = graphistry.kusto_query("StormEvents | take 100")
+                df = frames[0]
+        """
         return Plotter().kusto_query(query, unwrap_nested)
 
     @staticmethod
     def kusto_query_graph(graph_name: str, snap_name: str | None = None) -> Plottable:
+        """
+        Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
+
+        Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
+        **edges**, then binds them to *self*.
+
+        :param graph_name: name of Kusto graph entity
+        :type  graph_name: str
+        :param snap_name: optional snapshot/version
+        :type  snap_name: str | None
+        :returns: Plottable ready for `.plot()` or further transforms
+        :rtype:  Plottable
+
+        **Example**
+            ::
+
+                g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
+        """
         return Plotter().kusto_query_graph(graph_name, snap_name)
 
     @staticmethod
