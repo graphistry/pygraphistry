@@ -73,7 +73,8 @@ class KustoGraph:
             for result in response.primary_results:
                 rows = result.rows
                 col_names = [col.column_name for col in result.columns]
-                results.append(KustoQueryResult(rows, col_names))
+                col_types = [col.column_type for col in result.columns]
+                results.append(KustoQueryResult(rows, col_names, col_types))
                 row_lengths.append((len(rows), len(col_names)))
 
             logger.info(f"Query returned {len(results)} results shapes: {row_lengths} in {time.time() - start:.3f} sec")
@@ -205,7 +206,7 @@ def _should_unwrap(result: "KustoQueryResult", sample_rows: int = 5) -> bool:
       2. Otherwise inspect up to `sample_rows` rows for dict / list values.
     """
     try:
-        if any(c.column_type.lower() == "dynamic" for c in result.columns):
+        if any(c.lower() == "dynamic" for c in result.column_types):
             return True
     except AttributeError:
         pass  # `.column_type` not available in older SDK versions.

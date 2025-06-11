@@ -6,9 +6,10 @@ class KustoConnectionError(Exception):
 
 
 class KustoQueryResult:
-    def __init__(self, data: List[List[Any]], column_names: List[str]):
+    def __init__(self, data: List[List[Any]], column_names: List[str], column_types: List[str]):
         self.data = data
         self.column_names = column_names
+        self.column_types = column_types
 
 
 class KustoConfig(TypedDict):
