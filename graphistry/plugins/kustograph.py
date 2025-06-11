@@ -179,52 +179,40 @@ def _normalize(records: Iterable[Mapping], prefix: str = "") -> pd.DataFrame:
 def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
     """
     Transform one Kusto result whose columns contain *dynamic* objects
-    Handles:
-    - dicts -> flatten into dot notation
-    - list[dict] -> explode into rows
-    - list[primitive] -> keep as-is
+
+    - dict          -> dot-flattened
+    - list[dict]    -> explode + flatten 
+    - list[scalar]  -> keep as-is
     """
+
     df = pd.DataFrame(result.data, columns=result.column_names)
     if not result.column_types:
-        return df  # fallback if type info unavailable
+        return df
 
     for col, col_type in zip(result.column_names, result.column_types):
         if col_type.lower() != "dynamic":
             continue
 
-        if df[col].dropna().empty:
-            continue
+        list_of_dicts = df[col].apply(
+            lambda v: isinstance(v, list) and (not v or all(isinstance(x, dict) for x in v))
+        )
+        if list_of_dicts.any():
+            df[col] = df[col].where(list_of_dicts,
+                                    df[col].apply(lambda x: [x]))
+            df = df.explode(col, ignore_index=True)
 
-        sample = df[col].dropna().iloc[0]
+        # flatten dict rows
+        dict_rows = df[col].apply(lambda v: isinstance(v, dict))
+        if dict_rows.any():
+            flat = pd.json_normalize(df.loc[dict_rows, col].tolist(), sep='.').add_prefix(f"{col}.")
+            flat.index = df.loc[dict_rows].index
+            df = df.join(flat, how='left')
+            df.loc[dict_rows, col] = pd.NA
 
-        if isinstance(sample, dict):
-            # Flatten dict into dot columns
-            flattened = pd.json_normalize(df[col].dropna().tolist(), sep=".")
-            flattened.columns = [f"{col}.{c}" for c in flattened.columns]
-            flattened.index = df[col].dropna().index
-            df = df.drop(columns=[col]).join(flattened, how="left")
+        if df[col].isna().all():
+            df = df.drop(columns=[col])
 
-        elif isinstance(sample, list):
-            if sample and all(isinstance(x, dict) for x in sample):
-                # Explode list of dicts
-                df = df.explode(col, ignore_index=True)
-                nested_flat = pd.json_normalize(df[col].dropna().tolist(), sep=".")
-                nested_flat.columns = [f"{col}.{c}" for c in nested_flat.columns]
-                nested_flat.index = df[col].dropna().index
-                df = df.drop(columns=[col]).join(nested_flat, how="left")
-
-            elif sample and all(not isinstance(x, dict) for x in sample):
-                # Keep list of primitives as-is
-                pass
-
-            else:
-                # Mixed/empty types — keep raw
-                pass
-
-        else:
-            # Primitive — treat as flat
-            pass
-
+    df = df.astype(object).where(pd.notna(df), None)
     return df.reset_index(drop=True)
 
 
