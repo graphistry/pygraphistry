@@ -105,26 +105,33 @@ class KustoGraph:
         if not results:
             return []
 
-        if unwrap_nested is False:
-            return [pd.DataFrame(r.data, columns=r.column_names) for r in results]
+        dfs: List[pd.DataFrame] = []
 
-        first = results[0]
-        do_unwrap = (
-            unwrap_nested is True or
-            (unwrap_nested is None and _should_unwrap(first))
-        )
+        for result in results:
+            do_unwrap = (
+                unwrap_nested is True or
+                (unwrap_nested is None and _should_unwrap(result))
+            )
 
-        if not do_unwrap:
-            return [pd.DataFrame(r.data, columns=r.column_names) for r in results]
+            if do_unwrap:
+                try:
+                    frames_od = _unwrap_nested(result)
+                    dfs.append(frames_od)
+                    continue
+                except Exception as exc:
+                    if unwrap_nested is True:
+                        raise RuntimeError(f"_unwrap_nested failed: {exc}") from exc
+                    # Heuristic miss – fall back silently to flat table
+                    pass
 
-        try:
-            frames_od = _unwrap_nested(first)
-            return list(frames_od.values())
-        except Exception as exc:
-            if unwrap_nested is True:
-                raise RuntimeError(f"_unwrap_nested failed: {exc}") from exc
-            # Heuristic miss – fall back silently
-            return [pd.DataFrame(r.data, columns=r.column_names) for r in results]
+            # Default: flat table
+            if not result.column_names:
+                # safety 
+                dfs.append(pd.DataFrame(result.data))
+            else:
+                dfs.append(pd.DataFrame(result.data, columns=result.column_names))
+
+        return dfs
 
 
     def query_graph(self, graph_name: str, snap_name: str | None = None, g: Plottable = PyGraphistry.bind()) -> Plottable:
@@ -156,43 +163,69 @@ def _is_dynamic(val: Any) -> bool:
     """ADT check for Kusto 'dynamic' JSON values."""
     return isinstance(val, (dict, list))
 
-def _normalize(records: Iterable[Mapping]) -> pd.DataFrame:
-    """json_normalize + dedup + stable column ordering."""
+def _normalize(records: Iterable[Mapping], prefix: str = "") -> pd.DataFrame:
+    """json_normalize + dedup + stable column ordering, with parent prefix."""
     if not records:
         return pd.DataFrame()
-    df = pd.json_normalize(list(records))
+    df = pd.json_normalize(list(records), sep='.')
+    if prefix:
+        df = df.add_prefix(f"{prefix}.")
     return df.loc[:, sorted(df.columns)].drop_duplicates().reset_index(drop=True)
 
 
 # ================================================================
 # Core transformer
 # ================================================================
-def _unwrap_nested(result: "KustoQueryResult") -> "OrderedDict[str, pd.DataFrame]":
+def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
     """
     Transform one Kusto result whose columns contain *dynamic* objects
-    (typical from `graph-match … project a, edge, v`) into
-    OrderedDict[col_name -> DataFrame].
+    Handles:
+    - dicts -> flatten into dot notation
+    - list[dict] -> explode into rows
+    - list[primitive] -> keep as-is
     """
-    frames: "OD[str, pd.DataFrame]" = OrderedDict()
+    df = pd.DataFrame(result.data, columns=result.column_names)
+    if not result.column_types:
+        return df  # fallback if type info unavailable
 
-    for col_idx, col_name in enumerate(result.column_names):
-        col_vals = [row[col_idx] for row in result.data if row[col_idx] is not None]
-
-        # Non‑dynamic column → trivial DF
-        if not col_vals or not _is_dynamic(col_vals[0]):
-            frames[col_name] = pd.DataFrame({col_name: col_vals})
+    for col, col_type in zip(result.column_names, result.column_types):
+        if col_type.lower() != "dynamic":
             continue
 
-        # Dynamic column → flatten each JSON object
-        recs: List[Mapping] = []
-        for cell in col_vals:
-            if isinstance(cell, list):
-                recs.extend(cell)     # explode lists
-            else:
-                recs.append(cell)
-        frames[col_name] = _normalize(recs)
+        if df[col].dropna().empty:
+            continue
 
-    return frames
+        sample = df[col].dropna().iloc[0]
+
+        if isinstance(sample, dict):
+            # Flatten dict into dot columns
+            flattened = pd.json_normalize(df[col].dropna().tolist(), sep=".")
+            flattened.columns = [f"{col}.{c}" for c in flattened.columns]
+            flattened.index = df[col].dropna().index
+            df = df.drop(columns=[col]).join(flattened, how="left")
+
+        elif isinstance(sample, list):
+            if sample and all(isinstance(x, dict) for x in sample):
+                # Explode list of dicts
+                df = df.explode(col, ignore_index=True)
+                nested_flat = pd.json_normalize(df[col].dropna().tolist(), sep=".")
+                nested_flat.columns = [f"{col}.{c}" for c in nested_flat.columns]
+                nested_flat.index = df[col].dropna().index
+                df = df.drop(columns=[col]).join(nested_flat, how="left")
+
+            elif sample and all(not isinstance(x, dict) for x in sample):
+                # Keep list of primitives as-is
+                pass
+
+            else:
+                # Mixed/empty types — keep raw
+                pass
+
+        else:
+            # Primitive — treat as flat
+            pass
+
+    return df.reset_index(drop=True)
 
 
 # ================================================================
