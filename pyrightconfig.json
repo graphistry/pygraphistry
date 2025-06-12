@@ -1,0 +1,8 @@
+{
+    "typeCheckingMode": "basic",
+    "ignore": [],
+    "reportArgumentType": "none",
+    "reportMissingTypeArgument": "none",
+    "reportUnknownMemberType": "none",
+    "exclude": []
+}
