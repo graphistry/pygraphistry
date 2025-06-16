@@ -2603,7 +2603,7 @@ class PlotterBase(Plottable):
             return sg.query_to_df(query)
     
 
-    def kusto_query(self: Plottable, query: str, unwrap_nested: bool | None = None) -> List[pd.DataFrame]:
+    def kusto_query(self: Plottable, query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
         """
         Submit a Kusto/Azure Data Explorer *query* and return result tables.
 
@@ -2634,7 +2634,7 @@ class PlotterBase(Plottable):
         with KustoGraphContext(self._kusto_config) as kg:
             return kg.query(query, unwrap_nested=unwrap_nested)
         
-    def kusto_query_graph(self: Plottable, graph_name: str, snap_name: str | None = None) -> Plottable:
+    def kusto_query_graph(self: Plottable, graph_name: str, snap_name: Optional[str] = None) -> Plottable:
         """
         Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
 

@@ -34,8 +34,11 @@ class KustoGraph:
             raise ValueError(f"Missing required kusto_config key: '{e}'") from e
 
         try:
-            client_id, client_secret, tenant_id = cfg.get("client_id"), cfg.get("client_secret"), cfg.get("tenant_id")
-            if all((client_id, client_secret, tenant_id)):
+            client_id = cfg.get("client_id")
+            client_secret = cfg.get("client_secret")
+            tenant_id = cfg.get("tenant_id")
+
+            if client_id is not None and client_secret is not None and tenant_id is not None:
                 kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
                     cluster,
                     client_id,
@@ -57,7 +60,6 @@ class KustoGraph:
         self.client.close()
 
 
-
     def _query(self, query: str) -> List[KustoQueryResult]:
         from azure.kusto.data.exceptions import KustoServiceError
         logger.debug(f"KustoGraph._query(): {query}")
@@ -69,7 +71,7 @@ class KustoGraph:
             results = []
             row_lengths = []
             for result in response.primary_results:
-                rows = result.rows
+                rows = [list(r) for r in result.rows]
                 col_names = [col.column_name for col in result.columns]
                 col_types = [col.column_type for col in result.columns]
                 results.append(KustoQueryResult(rows, col_names, col_types))
@@ -129,7 +131,7 @@ class KustoGraph:
         return dfs
 
 
-    def query_graph(self, graph_name: str, snap_name: str | None = None, g: Plottable = PyGraphistry.bind()) -> Plottable:
+    def query_graph(self, graph_name: str, snap_name: Optional[str] = None, g: Plottable = PyGraphistry.bind()) -> Plottable:
         if snap_name:
             graph_query = f'graph("{graph_name}", "{snap_name}" | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
         else:

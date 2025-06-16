@@ -2000,7 +2000,7 @@ class PyGraphistry(object):
         return Plotter().spanner_query_to_df(query)
 
     @staticmethod
-    def kusto_query(query: str, unwrap_nested: bool | None = None) -> List[pd.DataFrame]:
+    def kusto_query(query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
         """
         Submit a Kusto/Azure Data Explorer *query* and return result tables.
 
@@ -2030,7 +2030,7 @@ class PyGraphistry(object):
         return Plotter().kusto_query(query, unwrap_nested)
 
     @staticmethod
-    def kusto_query_graph(graph_name: str, snap_name: str | None = None) -> Plottable:
+    def kusto_query_graph(graph_name: str, snap_name: Optional[str] = None) -> Plottable:
         """
         Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
 

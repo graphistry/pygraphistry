@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 import time
-from typing import Any, List, Dict, TYPE_CHECKING
+from typing import Any, List, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from google.cloud.spanner_dbapi.connection import Connection
@@ -254,7 +254,7 @@ class SpannerGraph:
 
 
 class SpannerGraphContext:
-    def __init__(self, config: SpannerConfig | None = None):
+    def __init__(self, config: Optional[SpannerConfig] = None):
         config = config or PyGraphistry._config.get("spanner")
         if not config:
             raise ValueError("Missing spanner_config. Register globally with spanner_config or use with_spanner().")
