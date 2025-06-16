@@ -191,7 +191,7 @@ def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
             flat = pd.json_normalize(df.loc[dict_rows, col].tolist(), sep='.').add_prefix(f"{col}.")
             flat.index = df.loc[dict_rows].index
             df = df.join(flat, how='left')
-            df.loc[dict_rows, col] = pd.NA
+            df[col] = df[col].mask(dict_rows, pd.NA)
 
         if df[col].isna().all():
             df = df.drop(columns=[col])
