@@ -1,6 +1,6 @@
 import time
 import pandas as pd
-from typing import Any, List, Mapping, Dict, Iterable, Tuple, Optional, TYPE_CHECKING
+from typing import Any, List, Mapping, Dict, Iterable, Tuple, Optional, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from azure.kusto.data import KustoClient
@@ -88,7 +88,7 @@ class KustoGraph:
         self,
         query: str,
         *,
-        unwrap_nested: bool | None = True
+        unwrap_nested: Optional[bool] = True
     ) -> List[pd.DataFrame]:
         """
         Run *query* and return a list of DataFrames.
@@ -220,7 +220,7 @@ def _should_unwrap(result: "KustoQueryResult", sample_rows: int = 5) -> bool:
 
 
 class KustoGraphContext:
-    def __init__(self, config: KustoConfig | None = None):
+    def __init__(self, config: Union[KustoConfig, None] = None):
         config = config or PyGraphistry._config.get("kusto")
         if not config:
             raise ValueError("Missing kusto_config. Register globally with kusto_config or use with_kusto().")
