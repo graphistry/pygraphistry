@@ -239,10 +239,14 @@ def features_without_target(
         return df
     remove_cols = []
     if isinstance(y, pd.DataFrame):
+        if y.empty:
+            return df
         remove_cols = list(df.columns.intersection(y.columns))
     elif is_cudf_df(y):
         import cudf
         assert isinstance(y, cudf.DataFrame)
+        if y.empty:
+            return df
         remove_cols = list(df.columns.intersection(y.columns))
     elif isinstance(y, pd.Series):
         if y.name and (y.name in df.columns):
@@ -887,7 +891,7 @@ def get_numeric_transformers(ndf, y=None):
     label_encoder = False
     data_encoder = False
     y_ = y
-    if y is not None:
+    if y is not None and not y.empty:
         y_ = y.select_dtypes(include=[np.number])
         label_encoder = FunctionTransformer(
             partial(passthrough_df_cols, columns=y_.columns)
@@ -1017,7 +1021,7 @@ def process_dirty_dataframes(
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
-    if multilabel and y is not None:
+    if multilabel and y is not None and not y.empty:
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
     elif (
         y is not None
@@ -2340,6 +2344,7 @@ class FeatureMixin(MIXIN_BASE):
                 "Fit on data (g.featurize(kind='..', ...))"
                 "before being able to transform data"
             )
+            raise ValueError(f"Encoder {encoder} not initialized. Call featurize() first.")
 
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 
@@ -2350,7 +2355,7 @@ class FeatureMixin(MIXIN_BASE):
                   sample: Optional[int] = None, 
                   return_graph: bool = True,
                   scaled: bool = True,
-                  verbose: bool = False):
+                  verbose: bool = False) -> Union[Tuple[pd.DataFrame, pd.DataFrame], 'Plottable']:
         """Transform new data and append to existing graph, or return dataframes
         
             **args:**
@@ -2375,7 +2380,7 @@ class FeatureMixin(MIXIN_BASE):
         # This is temporary until cucat release 
         if 'cudf' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf' in str(getmodule(y))):
+        if (y is not None) and not y.empty and ('cudf' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
@@ -2383,8 +2388,7 @@ class FeatureMixin(MIXIN_BASE):
         elif kind == "edges":
             X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
         else:
-            logger.debug("kind must be one of `nodes`,"
-                         f"`edges`, found {kind}")
+            raise ValueError(f"kind must be one of 'nodes' or 'edges', found {kind}")
             
         if return_graph and kind not in ["edges"]:
             emb = None  # will not be able to infer graph from umap coordinates, 
@@ -2456,7 +2460,9 @@ class FeatureMixin(MIXIN_BASE):
         if df is None:  # use the original data
             X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)  # type: ignore
         else:
-            X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
+            result = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
+            assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
+            X, y = result
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore

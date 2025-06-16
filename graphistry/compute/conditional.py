@@ -5,8 +5,9 @@ from typing_extensions import Literal
 
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 
-logger = logging.getLogger("compute.conditional")
+logger = setup_logger("compute.conditional")
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable
