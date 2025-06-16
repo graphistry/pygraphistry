@@ -151,7 +151,7 @@ def _normalize(records: Iterable[Mapping], prefix: str = "") -> pd.DataFrame:
     """json_normalize + dedup + stable column ordering, with parent prefix."""
     if not records:
         return pd.DataFrame()
-    df = pd.json_normalize(list(records), sep='.')
+    df = pd.json_normalize([dict(r) for r in records], sep='.')
     if prefix:
         df = df.add_prefix(f"{prefix}.")
     return df.loc[:, sorted(df.columns)].drop_duplicates().reset_index(drop=True)
