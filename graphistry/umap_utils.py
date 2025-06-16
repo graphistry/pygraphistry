@@ -430,7 +430,7 @@ class UMAPMixin(MIXIN_BASE):
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors) 
             return g
-        return emb, X, y_
+        return emb, X, y_  # type: ignore
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
