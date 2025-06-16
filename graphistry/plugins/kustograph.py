@@ -1,8 +1,6 @@
-import pandas as pd
 import time
-from typing import Any, List, TYPE_CHECKING
-from collections import OrderedDict
-from typing import Mapping, List, Dict, Any, Iterable, Tuple, Optional
+import pandas as pd
+from typing import Any, List, Mapping, Dict, Iterable, Tuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from azure.kusto.data import KustoClient
@@ -108,10 +106,7 @@ class KustoGraph:
         dfs: List[pd.DataFrame] = []
 
         for result in results:
-            do_unwrap = (
-                unwrap_nested is True or
-                (unwrap_nested is None and _should_unwrap(result))
-            )
+            do_unwrap = (unwrap_nested is True or (unwrap_nested is None and _should_unwrap(result)))
 
             if do_unwrap:
                 try:
@@ -147,18 +142,7 @@ class KustoGraph:
         return g.nodes(nodes, node='NodeId').edges(edges, source='src', destination='dst')
 
 
-
-# ================================================================
-# kusto_graph.py  –  new imports
-# ================================================================
-from collections import OrderedDict
-from typing import Any, Iterable, Mapping, List, Dict, OrderedDict as OD
-import pandas as pd
-
-
-# ================================================================
-# Low‑level utilities
-# ================================================================
+# Kusto Utils
 def _is_dynamic(val: Any) -> bool:
     """ADT check for Kusto 'dynamic' JSON values."""
     return isinstance(val, (dict, list))
@@ -173,9 +157,7 @@ def _normalize(records: Iterable[Mapping], prefix: str = "") -> pd.DataFrame:
     return df.loc[:, sorted(df.columns)].drop_duplicates().reset_index(drop=True)
 
 
-# ================================================================
 # Core transformer
-# ================================================================
 def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
     """
     Transform one Kusto result whose columns contain *dynamic* objects
@@ -216,9 +198,7 @@ def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-# ================================================================
 # Heuristic for ``unwrap_nested is None``
-# ================================================================
 def _should_unwrap(result: "KustoQueryResult", sample_rows: int = 5) -> bool:
     """
     Decide whether result *looks* like it contains nested/dynamic columns.
@@ -239,9 +219,6 @@ def _should_unwrap(result: "KustoQueryResult", sample_rows: int = 5) -> bool:
     return False
 
 
-
-
-
 class KustoGraphContext:
     def __init__(self, config: KustoConfig | None = None):
         config = config or PyGraphistry._config.get("kusto")
@@ -254,4 +231,3 @@ class KustoGraphContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.kusto_graph.close()
-
