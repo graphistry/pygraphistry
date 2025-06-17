@@ -785,8 +785,19 @@ def encode_textual(
             embeddings = make_array(model.fit_transform(res))
             transformed_columns = list(model[0].vocabulary_.keys())
         else:
-            model_name = os.path.split(model_name)[-1]
-            model = SentenceTransformer(f"{model_name}")
+            # Handle different model name formats:
+            # 1. Local path: "/models/xyz" -> extract just model name (preserves old behavior)
+            # 2. Org prefix: "org/model" -> use as-is
+            # 3. Legacy: "model" -> prepend "sentence-transformers/"
+            if model_name.startswith('/') or model_name.startswith('./'):
+                # Local path - extract just the model name (preserves old behavior)
+                model_name = os.path.split(model_name)[-1]
+            elif '/' not in model_name:
+                # Legacy format without org prefix, add sentence-transformers/
+                model_name = f"sentence-transformers/{model_name}"
+            # else: already has org/model format, use as-is
+            
+            model = SentenceTransformer(model_name)
             batch_size = graphistry_config.get('encode_textual.batch_size')
             embeddings = model.encode(res.values, **({'batch_size': batch_size} if batch_size is not None else {}))
             transformed_columns = _get_sentence_transformer_headers(
