@@ -10,6 +10,8 @@ from graphistry.privacy import Privacy, Mode
 
 from .constants import SRC, DST, NODE
 from .plugins_types import CuGraphKind
+from .plugins_types.kusto_types import KustoConfig
+from .plugins_types.spanner_types import SpannerConfig
 from .plugins.igraph import (
     to_igraph as to_igraph_base, from_igraph as from_igraph_base,
     compute_igraph as compute_igraph_base,
@@ -177,8 +179,9 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
-        self._spannergraph: Any
-
+        self._kusto_config : Optional[KustoConfig] = None
+        self._spanner_config : Optional[SpannerConfig] = None
+        
         # feature engineering
         self._node_embedding = None
         self._node_encoder = None
@@ -2282,30 +2285,50 @@ class PlotterBase(Plottable):
         res._bolt_driver = to_bolt_driver(driver)
         return res
     
-    def spanner_init(self: Plottable, spanner_config: Dict[str, str]) -> Plottable:
-        """
-        Initializes a SpannerGraph object with the provided configuration and connects to the instance db
 
-        spanner_config dict must contain the include the following keys, credentials_file is optional:
-            - "project_id": The GCP project ID.
+    def spanner(self: Plottable, spanner_config: SpannerConfig) -> Plottable:
+        """
+        Set spanner configuration for this Plottable.
+
+        SpannerConfig
             - "instance_id": The Spanner instance ID.
             - "database_id": The Spanner database ID.
+            - "project_id": The GCP project ID.
             - "credentials_file": json file API key for service accounts 
-
-        :param spanner_config A dictionary containing the Spanner configuration. 
-        :type (Dict[str, str])
+        
+        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
+        Otherwise, project_id and the spanner login process will be used to authenticate.
+            
+        :param spanner_config: A dictionary containing the Spanner configuration. 
+        :type (SpannerConfig)
         :return: Plottable with a Spanner connection 
         :rtype: Plottable
-        :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
-
         """
-        from .plugins.spannergraph import SpannerGraph
+        self._spanner_config = spanner_config
+        return self
+    
 
-        res = copy.copy(self)
+    def kusto(self: Plottable, kusto_config: KustoConfig) -> Plottable:
+        """
+        Set kusto configuration for this Plottable.
 
-        res._spannergraph = SpannerGraph(res, spanner_config)
-        logger.debug("Created SpannerGraph object: {res._spannergraph}")
-        return res
+        KustoConfig
+            - "cluster": The Kusto cluster name.
+            - "database": The Kusto database name.
+          For AAD authentication:
+            - "client_id": The Kusto client ID.
+            - "client_secret": The Kusto client secret.
+            - "tenant_id": The Kusto tenant ID.
+          Otherwise: process will use web browser to authenticate.
+
+        :param kusto_config: A dictionary containing the Kusto configuration. 
+        :type (KustoConfig)
+        :returns: Plottable with a Kusto connection 
+        :rtype: Plottable
+        """
+        self._kusto_config = kusto_config
+        return self
+
 
     def infer_labels(self):
         """
@@ -2534,22 +2557,11 @@ class PlotterBase(Plottable):
                     g.plot()
      
         """
-        from .pygraphistry import PyGraphistry
-        from .plugins.spannergraph import SpannerGraph
-
+        from .plugins.spannergraph import SpannerGraphContext
         res = copy.copy(self)
+        with SpannerGraphContext(res._spanner_config) as sg:
+            return sg.gql_to_graph(query, g=res)
         
-        if not hasattr(res, '_spannergraph'):
-            spanner_config = PyGraphistry._config.get("spanner", None)
-
-            if spanner_config is not None: 
-                logger.debug(f"Spanner Config: {spanner_config}")
-            else: 
-                raise ValueError('spanner_config not defined. Pass spanner_config via register() and retry query.')
-        
-            res = res.spanner_init(spanner_config)  # type: ignore[attr-defined]
-
-        return res._spannergraph.gql_to_graph(res, query)
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
@@ -2586,22 +2598,65 @@ class PlotterBase(Plottable):
                     g.plot()
      
         """
+        from .plugins.spannergraph import SpannerGraphContext
+        with SpannerGraphContext(self._spanner_config) as sg:
+            return sg.query_to_df(query)
+    
 
-        from .pygraphistry import PyGraphistry
+    def kusto_query(self: Plottable, query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
+        """
+        Submit a Kusto/Azure Data Explorer *query* and return result tables.
 
-        res = copy.copy(self)
+        Because a Kusto request may emit multiple tables, a **list of
+        DataFrames** is always returned; most queries yield a single entry.
+
+        unwrap_nested
+        -------------
+        Controls auto-flattening of *dynamic* (JSON) columns:
+        • True  - always try to flatten, raise if it fails  
+        • None  - default heuristic: flatten only if table looks nested  
+        • False - leave results untouched  
+
+        :param query: Kusto query string
+        :type  query: str
+        :param unwrap_nested: flatten strategy above
+        :type  unwrap_nested: bool | None
+        :returns: list of Pandas DataFrames
+        :rtype:  List[pd.DataFrame]
+
+        **Example**
+            ::
+
+                frames = graphistry.kusto_query("StormEvents | take 100")
+                df = frames[0]
+        """
+        from .plugins.kustograph import KustoGraphContext
+        with KustoGraphContext(self._kusto_config) as kg:
+            return kg.query(query, unwrap_nested=unwrap_nested)
         
-        if not hasattr(res, '_spannergraph'):
-            spanner_config = PyGraphistry._config["spanner"]
-            if spanner_config is not None: 
-                logger.debug(f"Spanner Config: {spanner_config}")
-            else: 
-                logger.warning('PyGraphistry._config["spanner"] is None')
+    def kusto_query_graph(self: Plottable, graph_name: str, snap_name: Optional[str] = None) -> Plottable:
+        """
+        Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
+
+        Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
+        **edges**, then binds them to *self*.
+
+        :param graph_name: name of Kusto graph entity
+        :type  graph_name: str
+        :param snap_name: optional snapshot/version
+        :type  snap_name: str | None
+        :returns: Plottable ready for `.plot()` or further transforms
+        :rtype:  Plottable
+
+        **Example**
+            ::
+
+                g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
+        """
+        from .plugins.kustograph import KustoGraphContext
+        with KustoGraphContext(self._kusto_config) as kg:
+            return kg.query_graph(graph_name, snap_name, g=self)
         
-            res = res.spanner_init(PyGraphistry._config["spanner"])  # type: ignore[attr-defined]
-
-        return res._spannergraph.query_to_df(query)
-
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
         

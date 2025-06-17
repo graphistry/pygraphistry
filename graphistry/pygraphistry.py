@@ -3,6 +3,8 @@ from typing_extensions import Literal
 from graphistry.Plottable import Plottable
 from graphistry.privacy import Mode, Privacy
 from graphistry.utils.requests import log_requests_error
+from graphistry.plugins_types.spanner_types import SpannerConfig
+from graphistry.plugins_types.kusto_types import KustoConfig
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -609,7 +611,11 @@ class PyGraphistry(object):
 
         if spanner_config is not None: 
             PyGraphistry._config["spanner"] = spanner_config 
-
+    
+    @staticmethod
+    def set_kusto_config(kusto_config):
+        if kusto_config is not None:
+            PyGraphistry._config["kusto"] = kusto_config
 
 
     @staticmethod
@@ -626,6 +632,7 @@ class PyGraphistry(object):
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         spanner_config: Optional[Union[Dict, Any]] = None,        
+        kusto_config: Optional[Union[Dict, Any]] = None,
         token_refresh_ms: int = 10 * 60 * 1000,
         store_token_creds_in_memory: Optional[bool] = None,
         client_protocol_hostname: Optional[str] = None,
@@ -751,6 +758,7 @@ class PyGraphistry(object):
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         PyGraphistry.set_bolt_driver(bolt)
         PyGraphistry.set_spanner_config(spanner_config)
+        PyGraphistry.set_kusto_config(kusto_config)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
 
@@ -1077,39 +1085,46 @@ class PyGraphistry(object):
         return Plotter().bolt(driver)
 
     @staticmethod
-    def spanner_init(spanner_config: Dict[str, str]) -> Plottable:
+    def spanner(spanner_config: SpannerConfig) -> Plottable:
         """
-        Initializes a SpannerGraph object with the provided configuration and connects to the instance db
+        Set spanner configuration for this Plottable.
 
-        spanner_config dict must contain the include the following keys, credentials_file is optional:
-            - "project_id": The GCP project ID.
+        SpannerConfig
             - "instance_id": The Spanner instance ID.
             - "database_id": The Spanner database ID.
+            - "project_id": The GCP project ID.
             - "credentials_file": json file API key for service accounts 
-
-        :param spanner_config A dictionary containing the Spanner configuration. 
-        :type (Dict[str, str])
+        
+        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
+        Otherwise, project_id and the spanner login process will be used to authenticate.
+            
+        :param spanner_config: A dictionary containing the Spanner configuration. 
+        :type (SpannerConfig)
         :return: Plottable with a Spanner connection 
         :rtype: Plottable
-        :raises ValueError: If any of the required keys in `spanner_config` are missing or have invalid values.
-
-        Call this to create a Plotter with a Spanner Graph Connection
-
-        **Example**
-
-                ::
-
-                    import graphistry
-                    spanner_CONF = { project_id: "my_project", instance_id: "my_instance", database_id: "my_database"}
-                    g = graphistry.spanner_init(spanner_CONF)
-
         """
-        if spanner_config is None: 
-            logger.warn('spanner_init called with spanner_config with None type. Not connected.')
-            return None
-        else: 
-            return Plotter().spanner_init(spanner_config)
+        return Plotter().spanner(spanner_config)
 
+    @staticmethod
+    def kusto(kusto_config: KustoConfig) -> Plottable:
+        """
+        Set kusto configuration for this Plottable.
+
+        KustoConfig
+            - "cluster": The Kusto cluster name.
+            - "database": The Kusto database name.
+          For AAD authentication:
+            - "client_id": The Kusto client ID.
+            - "client_secret": The Kusto client secret.
+            - "tenant_id": The Kusto tenant ID.
+          Otherwise: process will use web browser to authenticate.
+
+        :param kusto_config: A dictionary containing the Kusto configuration. 
+        :type (KustoConfig)
+        :returns: Plottable with a Kusto connection 
+        :rtype: Plottable
+        """
+        return Plotter().kusto(kusto_config)
 
     @staticmethod
     def cypher(query, params={}):
@@ -1985,6 +2000,58 @@ class PyGraphistry(object):
         return Plotter().spanner_query_to_df(query)
 
     @staticmethod
+    def kusto_query(query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
+        """
+        Submit a Kusto/Azure Data Explorer *query* and return result tables.
+
+        Because a Kusto request may emit multiple tables, a **list of
+        DataFrames** is always returned; most queries yield a single entry.
+
+        unwrap_nested
+        -------------
+        Controls auto‑flattening of *dynamic* (JSON) columns:
+        • True  – always try to flatten, raise if it fails  
+        • None  – default heuristic: flatten only if table looks nested  
+        • False – leave results untouched  
+
+        :param query: Kusto query string
+        :type  query: str
+        :param unwrap_nested: flatten strategy above
+        :type  unwrap_nested: bool | None
+        :returns: list of Pandas DataFrames
+        :rtype:  List[pd.DataFrame]
+
+        **Example**
+            ::
+
+                frames = graphistry.kusto_query("StormEvents | take 100")
+                df = frames[0]
+        """
+        return Plotter().kusto_query(query, unwrap_nested)
+
+    @staticmethod
+    def kusto_query_graph(graph_name: str, snap_name: Optional[str] = None) -> Plottable:
+        """
+        Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
+
+        Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
+        **edges**, then binds them to *self*.
+
+        :param graph_name: name of Kusto graph entity
+        :type  graph_name: str
+        :param snap_name: optional snapshot/version
+        :type  snap_name: str | None
+        :returns: Plottable ready for `.plot()` or further transforms
+        :rtype:  Plottable
+
+        **Example**
+            ::
+
+                g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
+        """
+        return Plotter().kusto_query_graph(graph_name, snap_name)
+
+    @staticmethod
     def gsql_endpoint(
         self, method_name, args={}, bindings=None, db=None, dry_run=False
     ):
@@ -2645,9 +2712,12 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
+spanner = PyGraphistry.spanner
 spanner_gql_to_g = PyGraphistry.spanner_gql_to_g
 spanner_query_to_df = PyGraphistry.spanner_query_to_df
-spanner_init = PyGraphistry.spanner_init
+kusto = PyGraphistry.kusto
+kusto_query = PyGraphistry.kusto_query
+kusto_query_graph = PyGraphistry.kusto_query_graph
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

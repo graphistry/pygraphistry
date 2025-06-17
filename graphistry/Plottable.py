@@ -7,7 +7,9 @@ from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, Ou
 from graphistry.models.compute.dbscan import DBSCANEngine
 from graphistry.models.compute.umap import UMAPEngineConcrete
 from graphistry.plugins_types.cugraph_types import CuGraphKind
-from graphistry.Engine import Engine, EngineAbstract
+from graphistry.plugins_types.kusto_types import KustoConfig
+from graphistry.plugins_types.spanner_types import SpannerConfig
+from graphistry.Engine import EngineAbstract
 from graphistry.utils.json import JSONVal
 
 
@@ -65,7 +67,9 @@ class Plottable(object):
     _complex_encodings : dict
     _bolt_driver : Any
     _tigergraph : Any
-    _spannergraph: Any
+    
+    _spanner_config: Optional[SpannerConfig]
+    _kusto_config: Optional[KustoConfig]
     
     _dataset_id: Optional[str]
     _url: Optional[str]
