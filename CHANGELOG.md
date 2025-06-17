@@ -5,6 +5,18 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [ - ]
+
+### Feat
+* Kusto/Azure Data Explorer integration. `PyGraphistry.kusto()`, `kusto_query()`, `kusto_query_graph()`
+* Extra kusto install target `pip install graphistry[kusto]` installs azure-kusto-data, azure-identity
+
+### Changed
+* Legacy `Plottable.spanner_init()` & `PyGraphistry.spanner_init()` helpers no longer shipped. Use `spanner()`
+
+### Breaking
+* Kusto device authentication doesn't persist. 
+
 ## [0.37.0 - 2025-06-05]
 
 ### Fixed

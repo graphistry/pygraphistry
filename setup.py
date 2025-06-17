@@ -53,6 +53,7 @@ base_extras_light = {
     'nodexl': ['openpyxl==3.1.0', 'xlrd'],
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
+    'kusto': ['azure-kusto-data', 'azure-identity']
 }
 
 base_extras_heavy = {
