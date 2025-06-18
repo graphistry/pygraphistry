@@ -1,17 +1,19 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol
+from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
 from graphistry.models.ModelDict import ModelDict
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.models.compute.dbscan import DBSCANEngine
 from graphistry.models.compute.umap import UMAPEngineConcrete
+from graphistry.models.compute.features import GraphEntityKind
 from graphistry.plugins_types.cugraph_types import CuGraphKind
+from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 from graphistry.plugins_types.kusto_types import KustoConfig
 from graphistry.plugins_types.spanner_types import SpannerConfig
+from graphistry.privacy import Mode as PrivacyMode
 from graphistry.Engine import EngineAbstract
 from graphistry.utils.json import JSONVal
-
 
 if TYPE_CHECKING:
     try:
@@ -22,9 +24,20 @@ if TYPE_CHECKING:
         from sklearn.pipeline import Pipeline
     except:
         Pipeline = Any
+    try:
+        from cugraph import Graph
+        from cugraph import MultiGraph
+        from cugraph import BiPartiteGraph
+    except:
+        Graph = Any
+        MultiGraph = Any
+        BiPartiteGraph = Any
 else:
     UMAP = Any
     Pipeline = Any
+    Graph = Any
+    MultiGraph = Any
+    BiPartiteGraph = Any
 
 
 RenderModesConcrete = Literal["g", "url", "ipython", "databricks", "browser"]
@@ -32,7 +45,8 @@ RENDER_MODE_CONCRETE_VALUES: Set[RenderModesConcrete] = set(["g", "url", "ipytho
 RenderModes = Union[Literal["auto"], RenderModesConcrete]
 RENDER_MODE_VALUES: Set[RenderModes] = set(["auto", "g", "url", "ipython", "databricks", "browser"])
 
-class Plottable(object):
+@runtime_checkable
+class Plottable(Protocol):
 
     _edges : Any
     _nodes : Any
@@ -67,7 +81,7 @@ class Plottable(object):
     _complex_encodings : dict
     _bolt_driver : Any
     _tigergraph : Any
-    
+
     _spanner_config: Optional[SpannerConfig]
     _kusto_config: Optional[KustoConfig]
     
@@ -81,12 +95,14 @@ class Plottable(object):
     _node_features : Optional[pd.DataFrame]
     _node_features_raw: Optional[pd.DataFrame]
     _node_target : Optional[pd.DataFrame]
+    _node_target_raw : Optional[pd.DataFrame]
 
     _edge_embedding : Optional[pd.DataFrame]
     _edge_encoder : Optional[Any]
     _edge_features : Optional[pd.DataFrame]
     _edge_features_raw: Optional[pd.DataFrame]
     _edge_target : Optional[pd.DataFrame]
+    _edge_target_raw : Optional[pd.DataFrame]
 
     _weighted_adjacency: Optional[Any]
     _weighted_adjacency_nodes : Optional[Any]
@@ -119,12 +135,14 @@ class Plottable(object):
     _dbscan_edges: Optional[Any]  # fit model
 
     _adjacency : Optional[Any]
-    _entity_to_index : Optional[dict]
-    _index_to_entity : Optional[dict]
+    _entity_to_index : Optional[Dict]
+    _index_to_entity : Optional[Dict]
 
+    # DGL
     DGL_graph: Optional[Any]
+    _dgl_graph: Optional[Any]
     
-    # embed utils
+    # KG embeddings
     _relation : Optional[str]
     _use_feat: bool
     _triplets: Optional[List]  # actually torch.Tensor too
@@ -134,56 +152,83 @@ class Plottable(object):
     _partition_offsets: Optional[Dict[str, Dict[int, float]]]  # from gib
 
 
-    def __init__(self, *args, **kwargs):
-        #raise RuntimeError('should not happen')
-        None
+    def reset_caches(self) -> None:
+        ...
+
+    def addStyle(
+        self,
+        fg: Dict[str, Any],
+        bg: Optional[Dict[str, Any]] = None,
+        page: Optional[Dict[str, Any]] = None,
+        logo: Optional[Dict[str, Any]] = None,
+    ) -> 'Plottable':
+        ...
+    
+    def name(self, name: str) -> 'Plottable':
+        ...
+    
+    def description(self, description: str) -> 'Plottable':
+        ...
 
     def nodes(
         self, nodes: Union[Callable, Any], node: Optional[str] = None,
-        *args, **kwargs
+        *args: Any, **kwargs: Any
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def edges(
         self, edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None, edge: Optional[str] = None,
-        *args, **kwargs
+        *args: Any, **kwargs: Any
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
-    def pipe(self, graph_transform: Callable, *args, **kwargs) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def pipe(self, graph_transform: Callable, *args: Any, **kwargs: Any) -> 'Plottable':
+        ...
 
-    def bind(self, source=None, destination=None, node=None, edge=None,
-             edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
-             edge_source_color=None, edge_destination_color=None,
-             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
-             point_x=None, point_y=None):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def graph(self, ig: Any) -> 'Plottable':
+        ...
 
-    def copy(self):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def bind(
+        self,
+        source: Optional[str] = None,
+        destination: Optional[str] = None,
+        node: Optional[str] = None,
+        edge: Optional[str] = None,
+        edge_title: Optional[str] = None,
+        edge_label: Optional[str] = None,
+        edge_color: Optional[str] = None,
+        edge_weight: Optional[str] = None,
+        edge_size: Optional[str] = None,
+        edge_opacity: Optional[str] = None,
+        edge_icon: Optional[str] = None,
+        edge_source_color: Optional[str] = None,
+        edge_destination_color: Optional[str] = None,
+        point_title: Optional[str] = None,
+        point_label: Optional[str] = None,
+        point_color: Optional[str] = None,
+        point_weight: Optional[str] = None,
+        point_size: Optional[str] = None,
+        point_opacity: Optional[str] = None,
+        point_icon: Optional[str] = None,
+        point_x: Optional[str] = None,
+        point_y: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        url: Optional[str] = None,
+        nodes_file_id: Optional[str] = None,
+        edges_file_id: Optional[str] = None,
+    ) -> 'Plottable':
+        ...
 
-    # ### compute
+    def copy(self) -> 'Plottable':
+        ...
+
+    # ### ComputeMixin
 
     def get_indegrees(self, col: str = 'degree_in') -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def get_outdegrees(self, col: str = 'degree_out') -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def get_degrees(
         self,
@@ -191,14 +236,10 @@ class Plottable(object):
         degree_in: str = "degree_in",
         degree_out: str = "degree_out",
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def materialize_nodes(self, reuse: bool = True, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def get_topological_levels(
         self,
@@ -207,32 +248,16 @@ class Plottable(object):
         warn_cycles: bool = True,
         remove_self_loops: bool = True
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
     
-    def drop_nodes(
-        self,
-        nodes: Any
-    ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def drop_nodes(self, nodes: Any) -> 'Plottable':
+        ...
 
-    def keep_nodes(
-        self,
-        nodes: Union[List, Any]
-    ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def keep_nodes(self, nodes: Union[List, Any]) -> 'Plottable':
+        ...
 
-    def prune_self_edges(
-        self
-    ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def prune_self_edges(self) -> 'Plottable':
+        ...
 
     def collapse(
         self,
@@ -243,9 +268,7 @@ class Plottable(object):
         unwrap: bool = False,
         verbose: bool = False
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def hop(self,
         nodes: Optional[pd.DataFrame],
@@ -261,28 +284,20 @@ class Plottable(object):
         return_as_wave_front: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def filter_nodes_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def filter_edges_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     # FIXME python recursive typing issues
     def chain(self, ops: Union[Any, List[Any]]) -> 'Plottable':
         """
         ops is Union[List[ASTObject], Chain]
         """
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
     
     def chain_remote(
         self: 'Plottable',
@@ -299,9 +314,7 @@ class Plottable(object):
         """
         chain is Union[List[ASTObject], Chain]
         """
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def chain_remote_shape(
         self: 'Plottable',
@@ -317,9 +330,7 @@ class Plottable(object):
         """
         chain is Union[List[ASTObject], Chain]
         """
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return pd.DataFrame({})
+        ...
 
     def python_remote_g(
         self: 'Plottable',
@@ -332,9 +343,7 @@ class Plottable(object):
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def python_remote_table(
         self: 'Plottable',
@@ -347,9 +356,7 @@ class Plottable(object):
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> pd.DataFrame:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return pd.DataFrame({})
+        ...
 
     def python_remote_json(
         self: 'Plottable',
@@ -360,38 +367,30 @@ class Plottable(object):
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> Any:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return {}
+        ...
 
     def to_igraph(self, 
         directed: bool = True,
-        use_vids: bool = False,
         include_nodes: bool = True,
         node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None
+        edge_attributes: Optional[List[str]] = None,
+        use_vids: bool = False
     ) -> Any:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def from_igraph(self,
-        ig,
+        ig: Any,
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None,
         load_nodes: bool = True, load_edges: bool = True,
         merge_if_existing: bool = True
-    ):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> 'Plottable':
+        ...
     
     def compute_igraph(self,
         alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}, stringify_rich_types: bool = True
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
     
     def layout_igraph(self,
         layout: str,
@@ -403,9 +402,7 @@ class Plottable(object):
         play: Optional[int] = 0,
         params: dict = {}
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def from_cugraph(self,
         G,
@@ -413,10 +410,8 @@ class Plottable(object):
         edge_attributes: Optional[List[str]] = None,
         load_nodes: bool = True, load_edges: bool = True,
         merge_if_existing: bool = True
-    ):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> 'Plottable':
+        ...
 
     def to_cugraph(self, 
         directed: bool = True,
@@ -424,19 +419,15 @@ class Plottable(object):
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None,
         kind : CuGraphKind = 'Graph'
-    ) -> Any:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> Union[Graph, MultiGraph, BiPartiteGraph]:
+        ...
 
     def compute_cugraph(self,
         alg: str, out_col: Optional[str] = None, params: dict = {},
         kind : CuGraphKind = 'Graph', directed = True,
         G: Optional[Any] = None
-    ):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> 'Plottable':
+        ...
 
     def layout_cugraph(self,
         layout: str = 'force_atlas2', params: dict = {},
@@ -446,20 +437,32 @@ class Plottable(object):
         x_out_col: str = 'x',
         y_out_col: str = 'y',
         play: Optional[int] = 0
-    ):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> 'Plottable':
+        ...
+
+    def layout_graphviz(self,
+        prog: Prog = 'dot',
+        args: Optional[str] = None,
+        directed: bool = True,
+        strict: bool = False,
+        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+        node_attr: Optional[Dict[NodeAttr, Any]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+        skip_styling: bool = False,
+        render_to_disk: bool = False,  # unsafe in server settings
+        path: Optional[str] = None,
+        format: Optional[Format] = None
+    ) -> 'Plottable':
+        ...
 
     def from_networkx(self, G: Any) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
+
+    def networkx_checkoverlap(self, g: Any) -> None:
+        ...
     
     def networkx2pandas(self, G: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return pd.DataFrame(), pd.DataFrame()
+        ...
     
     def fa2_layout(
         self,
@@ -469,9 +472,7 @@ class Plottable(object):
         partition_key: Optional[str] = None,
         engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def layout_settings(
         self,
@@ -495,10 +496,8 @@ class Plottable(object):
         precision_vs_speed: Optional[float] = None,
         gravity: Optional[float] = None,
         scaling_ratio: Optional[float] = None
-    ):
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    ) -> 'Plottable':
+        ...
 
     def scene_settings(
         self,
@@ -510,58 +509,41 @@ class Plottable(object):
         edge_opacity: Optional[float] = None,
         point_opacity: Optional[float] = None,
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
-    def encode_axis(self, rows=[]) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+    def encode_axis(self, rows: List[Dict] = []) -> 'Plottable':
+        ...
 
     def settings(self,
-        height: Optional[float] = None,
+        height: Optional[int] = None,
         url_params: Dict[str, Any] = {},
         render: Optional[Union[bool, RenderModes]] = None
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
-    
+        ...
+
+    def privacy(self, mode: Optional[PrivacyMode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None) -> 'Plottable':
+        ...
+
     def to_cudf(self) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
     
     def to_pandas(self) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def protocol(self, v: Optional[str] = None) -> str:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return ''
+        ...
     
     def server(self, v: Optional[str] = None) -> str:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return ''
+        ...
     
     def client_protocol_hostname(self, v: Optional[str] = None) -> str:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return ''
+        ...
     
     def base_url_server(self, v: Optional[str] = None) -> str:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return ''
+        ...
     
     def base_url_client(self, v: Optional[str] = None) -> str:
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return ''
+        ...
 
     def upload(
         self,
@@ -569,20 +551,60 @@ class Plottable(object):
         erase_files_on_fail=True,
         validate: bool = True
     ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        ...
 
     def plot(
         self,
-        graph=None,
-        nodes=None,
-        name=None,
-        description=None,
+        graph: Optional[Any] = None,
+        nodes: Optional[Any] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
         render: Optional[Union[bool, RenderModes]] = "auto",
-        skip_upload=False, as_files=False, memoize=True, erase_files_on_fail: bool = True,
-        extra_html="", override_html_style=None, validate: bool = True
-    ) -> 'Plottable':
-        if 1 + 1:
-            raise RuntimeError('should not happen')
-        return self
+        skip_upload: bool = False,
+        as_files: bool = False,
+        memoize: bool = True,
+        erase_files_on_fail: bool = True,
+        extra_html: str = "",
+        override_html_style: Optional[str] = None,
+        validate: bool = True
+    ) -> Any:
+        ...
+
+    def pandas2igraph(self, edges: pd.DataFrame, directed: bool = True) -> Any:
+        ...
+
+    def igraph2pandas(self, ig: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        ...
+
+    def infer_labels(self) -> 'Plottable':
+        ...
+
+    
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: bool = True,
+                  scaled: bool = True,
+                  verbose: bool = False) -> Union[Tuple[pd.DataFrame, pd.DataFrame], 'Plottable']:
+        ...
+
+
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
+                    n_neighbors: int = 7,
+                    merge_policy: bool = False,
+                    sample: Optional[int] = None,
+                    return_graph: bool = True,
+                    fit_umap_embedding: bool = True,
+                    umap_transform_kwargs: Dict[str, Any] = {}
+    ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], 'Plottable']:
+        ...
+
+
+    
