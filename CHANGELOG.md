@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 * Legacy `Plottable.spanner_init()` & `PyGraphistry.spanner_init()` helpers no longer shipped. Use `spanner()`
+* PyPI publish workflow now uses Trusted Publishing (OIDC) instead of password authentication
 
 ### Breaking
 * Kusto device authentication doesn't persist. 
