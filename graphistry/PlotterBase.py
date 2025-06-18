@@ -1,5 +1,5 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
@@ -9,21 +9,11 @@ from graphistry.privacy import Privacy, Mode
 
 
 from .constants import SRC, DST, NODE
-from .plugins_types import CuGraphKind
 from .plugins_types.kusto_types import KustoConfig
 from .plugins_types.spanner_types import SpannerConfig
-from .plugins.igraph import (
-    to_igraph as to_igraph_base, from_igraph as from_igraph_base,
-    compute_igraph as compute_igraph_base,
-    layout_igraph as layout_igraph_base
-)
-from .plugins.graphviz import layout_graphviz as layout_graphviz_base
-from .plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
-from .plugins.cugraph import (
-    to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
-    compute_cugraph as compute_cugraph_base,
-    layout_cugraph as layout_cugraph_base
-)
+from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
+from .plugins.graphviz import layout_graphviz
+from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
@@ -129,7 +119,7 @@ class PlotterBase(Plottable):
 
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super(PlotterBase, self).__init__()
+        super().__init__(*args, **kwargs)
 
         # Bindings
         self._edges : Any = None
@@ -189,17 +179,18 @@ class PlotterBase(Plottable):
         self._node_features_raw = None
         self._node_target = None
         self._node_target_encoder = None
+        self._node_target_raw: Optional[pd.DataFrame] = None
 
         self._edge_embedding = None
-        self._edge_encoder = None
+        self._edge_encoder: Optional[Any] = None
         self._edge_features = None
         self._edge_features_raw = None
-        self._edge_target = None
-        self._edge_target_encoder = None
+        self._edge_target : Optional[pd.DataFrame] = None
+        self._edge_target_raw = None
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
-        self._weighted_edges_df = None
+        self._weighted_edges_df: Optional[pd.DataFrame] = None
         self._weighted_edges_df_from_nodes = None
         self._weighted_edges_df_from_edges = None
         self._xy = None
@@ -210,6 +201,16 @@ class PlotterBase(Plottable):
         self._umap_params : Optional[Dict[str, Any]] = None
         self._umap_fit_kwargs : Optional[Dict[str, Any]] = None
         self._umap_transform_kwargs : Optional[Dict[str, Any]] = None
+        
+        self._local_connectivity: int = 1
+        self._metric: str = "euclidean"
+        self._suffix: str = ""
+        self._n_components: int = 2
+        self._n_neighbors: int = 12
+        self._negative_sample_rate: int = 5
+        self._min_dist: float = 0.1
+        self._repulsion_strength: float = 1
+        self._spread: float = 0.5
 
         self._dbscan_engine = None
         self._dbscan_params = None
@@ -217,14 +218,17 @@ class PlotterBase(Plottable):
         self._dbscan_edges = None  # fit model
 
         self._adjacency = None
-        self._entity_to_index = None
-        self._index_to_entity = None
+        self._entity_to_index: Optional[Dict] = None
+        self._index_to_entity: Optional[Dict] = None
         
         # KG embeddings
         self._relation : Optional[str] = None
-        self._use_feat: bool = False
+        self._use_feat = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
+
+        # Layout
+        self._partition_offsets: Optional[Dict[str, Dict[int, float]]] = None
 
         # DGL
         self.DGL_graph = None  # the DGL graph
@@ -1224,7 +1228,7 @@ class PlotterBase(Plottable):
 
         return graph_transform(self, *args, **kwargs)
 
-    def graph(self, ig):
+    def graph(self, ig: Any) -> Plottable:
         """Specify the node and edge data.
 
         :param ig: NetworkX graph or an IGraph graph with node and edge attributes.
@@ -1619,60 +1623,13 @@ class PlotterBase(Plottable):
         else:
             raise ValueError(f"Unexpected render mode resolution: {render_mode}")
 
-    def from_igraph(self,
-        ig,
-        node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None,
-        load_nodes = True, load_edges = True,
-        merge_if_existing = True
-    ):
-        return from_igraph_base(
-            self,
-            ig,
-            node_attributes,
-            edge_attributes,
-            load_nodes, load_edges,
-            merge_if_existing
-        )
-    from_igraph.__doc__ = from_igraph_base.__doc__
+    from_igraph = from_igraph
+    to_igraph = to_igraph
+    compute_igraph = compute_igraph
+    layout_igraph = layout_igraph
 
 
-    def to_igraph(self, 
-        directed = True, use_vids = False, include_nodes = True,
-        node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None,
-    ):
-        return to_igraph_base(
-            self,
-            directed = directed, use_vids = use_vids, include_nodes = include_nodes,
-            node_attributes = node_attributes,
-            edge_attributes = edge_attributes
-        )
-    to_igraph.__doc__ = to_igraph_base.__doc__
-
-
-    def compute_igraph(self,
-        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}, stringify_rich_types: bool = True
-    ):
-        return compute_igraph_base(self, alg, out_col, directed, use_vids, params, stringify_rich_types)
-    compute_igraph.__doc__ = compute_igraph_base.__doc__
-
-
-    def layout_igraph(self,
-        layout: str,
-        directed: Optional[bool] = None,
-        use_vids: bool = False,
-        bind_position: bool = True,
-        x_out_col: str = 'x',
-        y_out_col: str = 'y',
-        play: Optional[int] = 0,
-        params: dict = {}
-    ):
-        return layout_igraph_base(self, layout, directed, use_vids, bind_position, x_out_col, y_out_col, play, params)
-    layout_igraph.__doc__ = layout_igraph_base.__doc__
-
-
-    def pandas2igraph(self, edges, directed=True):
+    def pandas2igraph(self, edges: pd.DataFrame, directed: bool = True) -> Any:
         """Convert a pandas edge dataframe to an IGraph graph.
 
         Uses current bindings. Defaults to treating edges as directed.
@@ -1708,7 +1665,7 @@ class PlotterBase(Plottable):
                                       vertex_name_attr=self._node)
 
 
-    def igraph2pandas(self, ig):
+    def igraph2pandas(self, ig: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
 
         Deprecated in favor of `.from_igraph()`
@@ -1755,7 +1712,7 @@ class PlotterBase(Plottable):
         return (edges, nodes)
 
 
-    def networkx_checkoverlap(self, g):
+    def networkx_checkoverlap(self, g: Any) -> None:
         """
         Raise an error if the node attribute already exists in the graph
         """
@@ -1771,7 +1728,7 @@ class PlotterBase(Plottable):
         if not (self._node is None) and self._node in vattribs:
             error('Vertex attribute "%s" already exists.' % self._node)
 
-    def networkx2pandas(self, g):
+    def networkx2pandas(self, G: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         def get_nodelist(g):
             for n in g.nodes(data=True):
@@ -1782,11 +1739,11 @@ class PlotterBase(Plottable):
                 yield dict({self._source: e[0], self._destination: e[1]}, **e[2])
 
         self._check_mandatory_bindings(False)
-        self.networkx_checkoverlap(g)
+        self.networkx_checkoverlap(G)
         
         self._node = self._node or PlotterBase._defaultNodeId
-        nodes = pd.DataFrame(get_nodelist(g))
-        edges = pd.DataFrame(get_edgelist(g))
+        nodes = pd.DataFrame(get_nodelist(G))
+        edges = pd.DataFrame(get_edgelist(G))
         return (edges, nodes)
 
     def from_networkx(self, G) -> Plottable:
@@ -1870,72 +1827,13 @@ class PlotterBase(Plottable):
         e_df, n_df = g.networkx2pandas(G)
         return g.edges(e_df).nodes(n_df)
 
-    def from_cugraph(self,
-        G,
-        node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None,
-        load_nodes: bool = True, load_edges: bool = True,
-        merge_if_existing: bool = True
-    ):
-        return from_cugraph_base(
-            self, G,
-            node_attributes, edge_attributes, load_nodes, merge_if_existing)
-    from_cugraph.__doc__ = from_cugraph_base.__doc__
 
-    def to_cugraph(self, 
-        directed: bool = True,
-        include_nodes: bool = True,
-        node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None,
-        kind : CuGraphKind = 'Graph'
-    ):
-        return to_cugraph_base(
-            self, directed, include_nodes, node_attributes, edge_attributes, kind
-        )
-    to_cugraph.__doc__ = to_cugraph_base.__doc__
+    from_cugraph = from_cugraph
+    to_cugraph = to_cugraph
+    compute_cugraph = compute_cugraph
+    layout_cugraph = layout_cugraph
 
-    def compute_cugraph(self,
-        alg: str, out_col: Optional[str] = None, params: dict = {},
-        kind : CuGraphKind = 'Graph', directed = True,
-        G: Optional[Any] = None
-    ):
-        return compute_cugraph_base(
-            self, alg, out_col, params, kind, directed, G
-        )
-    compute_cugraph.__doc__ = compute_cugraph_base.__doc__
-
-    def layout_cugraph(self,
-        layout: str = 'force_atlas2', params: dict = {},
-        kind : CuGraphKind = 'Graph', directed = True,
-        G: Optional[Any] = None,
-        bind_position: bool = True,
-        x_out_col: str = 'x',
-        y_out_col: str = 'y',
-        play: Optional[int] = 0
-    ):
-        return layout_cugraph_base(
-            self, layout, params, kind, directed, G,
-            bind_position, x_out_col, y_out_col, play
-        )
-    layout_cugraph.__doc__ = layout_cugraph_base.__doc__
-    
-    def layout_graphviz(self,
-        prog: Prog = 'dot',
-        args: Optional[str] = None,
-        directed: bool = True,
-        strict: bool = False,
-        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-        node_attr: Optional[Dict[NodeAttr, Any]] = None,
-        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
-        skip_styling: bool = False,
-        render_to_disk: bool = False,  # unsafe in server settings
-        path: Optional[str] = None,
-        format: Optional[Format] = None
-    ) -> Plottable:
-        return layout_graphviz_base(
-            self, prog, args, directed, strict, graph_attr, node_attr, edge_attr, skip_styling, render_to_disk, path, format
-        )
-    layout_graphviz.__doc__ = layout_graphviz_base.__doc__
+    layout_graphviz = layout_graphviz
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
@@ -2289,7 +2187,6 @@ class PlotterBase(Plottable):
     def spanner(self: Plottable, spanner_config: SpannerConfig) -> Plottable:
         """
         Set spanner configuration for this Plottable.
-
         SpannerConfig
             - "instance_id": The Spanner instance ID.
             - "database_id": The Spanner database ID.
@@ -2306,12 +2203,11 @@ class PlotterBase(Plottable):
         """
         self._spanner_config = spanner_config
         return self
-    
+
 
     def kusto(self: Plottable, kusto_config: KustoConfig) -> Plottable:
         """
         Set kusto configuration for this Plottable.
-
         KustoConfig
             - "cluster": The Kusto cluster name.
             - "database": The Kusto database name.
@@ -2320,7 +2216,6 @@ class PlotterBase(Plottable):
             - "client_secret": The Kusto client secret.
             - "tenant_id": The Kusto tenant ID.
           Otherwise: process will use web browser to authenticate.
-
         :param kusto_config: A dictionary containing the Kusto configuration. 
         :type (KustoConfig)
         :returns: Plottable with a Kusto connection 
@@ -2328,7 +2223,7 @@ class PlotterBase(Plottable):
         """
         self._kusto_config = kusto_config
         return self
-
+    
 
     def infer_labels(self):
         """
@@ -2518,7 +2413,7 @@ class PlotterBase(Plottable):
             .nodes(nodes)\
             .edges(edges)
     
-    
+
     def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:
         """
         Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
@@ -2526,34 +2421,24 @@ class PlotterBase(Plottable):
         GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
         SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
         of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
-
         query=f'''GRAPH my_graph
         MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-
         :param query: GQL query string 
         :type query: Str
-
         :returns: Plottable with the results of GQL query as a graph
         :rtype: Plottable
-
         **Example: calling spanner_gql_to_g
                 ::
-
                     import graphistry
-
                     # credentials_file is optional, all others are required
                     SPANNER_CONF = { "project_id":  PROJECT_ID,                 
                                      "instance_id": INSTANCE_ID, 
                                      "database_id": DATABASE_ID, 
                                      "credentials_file": CREDENTIALS_FILE }
-
                     graphistry.register(..., spanner_config=SPANNER_CONF)
-
                     query=f'''GRAPH my_graph
                     MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-
                     g = graphistry.spanner_gql_to_g(query)
-
                     g.plot()
      
         """
@@ -2561,96 +2446,76 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         with SpannerGraphContext(res._spanner_config) as sg:
             return sg.gql_to_graph(query, g=res)
-        
+
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
-
         Submit query to google spanner database and return a df of the results 
         
         query can be SQL or GQL as long as table of results are returned 
-
         query='SELECT * from Account limit 10000'
-
         :param query: query string 
         :type query: Str
-
         :returns: Pandas DataFrame with the results of query
         :rtype: pd.DataFrame
-
         **Example: calling spanner_query_to_df
                 ::
-
                     import graphistry
-
                     # credentials_file is optional, all others are required
                     SPANNER_CONF = { "project_id":  PROJECT_ID,                 
                                      "instance_id": INSTANCE_ID, 
                                      "database_id": DATABASE_ID, 
                                      "credentials_file": CREDENTIALS_FILE }
-
                     graphistry.register(..., spanner_config=SPANNER_CONF)
-
                     query='SELECT * from Account limit 10000'
-
                     df = graphistry.spanner_query_to_df(query)
-
                     g.plot()
      
         """
         from .plugins.spannergraph import SpannerGraphContext
         with SpannerGraphContext(self._spanner_config) as sg:
             return sg.query_to_df(query)
-    
+
 
     def kusto_query(self: Plottable, query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
         """
         Submit a Kusto/Azure Data Explorer *query* and return result tables.
-
         Because a Kusto request may emit multiple tables, a **list of
         DataFrames** is always returned; most queries yield a single entry.
-
         unwrap_nested
         -------------
         Controls auto-flattening of *dynamic* (JSON) columns:
         • True  - always try to flatten, raise if it fails  
         • None  - default heuristic: flatten only if table looks nested  
         • False - leave results untouched  
-
         :param query: Kusto query string
         :type  query: str
         :param unwrap_nested: flatten strategy above
         :type  unwrap_nested: bool | None
         :returns: list of Pandas DataFrames
         :rtype:  List[pd.DataFrame]
-
         **Example**
             ::
-
                 frames = graphistry.kusto_query("StormEvents | take 100")
                 df = frames[0]
         """
         from .plugins.kustograph import KustoGraphContext
         with KustoGraphContext(self._kusto_config) as kg:
             return kg.query(query, unwrap_nested=unwrap_nested)
-        
+
     def kusto_query_graph(self: Plottable, graph_name: str, snap_name: Optional[str] = None) -> Plottable:
         """
         Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
-
         Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
         **edges**, then binds them to *self*.
-
         :param graph_name: name of Kusto graph entity
         :type  graph_name: str
         :param snap_name: optional snapshot/version
         :type  snap_name: str | None
         :returns: Plottable ready for `.plot()` or further transforms
         :rtype:  Plottable
-
         **Example**
             ::
-
                 g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
         """
         from .plugins.kustograph import KustoGraphContext

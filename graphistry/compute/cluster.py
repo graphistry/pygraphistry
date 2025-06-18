@@ -1,4 +1,4 @@
-from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional
+from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional, cast
 from typing_extensions import Literal
 from collections import Counter
 from inspect import getmodule
@@ -262,8 +262,9 @@ def dbscan_predict_cuml(X: Any, model: Any) -> Any:
 
 
 class ClusterMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs):
-        pass
+    
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def _cluster_dbscan(
         self, kind: GraphEntityKind, cols, fit_umap_embedding, target, min_dist, min_samples, engine_dbscan: DBSCANEngineAbstract, verbose, *args, **kwargs
@@ -376,11 +377,11 @@ class ClusterMixin(MIXIN_BASE):
         return res
 
     def _transform_dbscan(
-        self: Plottable, df: pd.DataFrame, ydf, kind, verbose
+        self, df: pd.DataFrame, ydf, kind, verbose
     ) -> Tuple[Union[pd.DataFrame, None], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
         res = self.bind()
-        if hasattr(res, "_dbscan_params"):
+        if hasattr(res, "_dbscan_params") and res._dbscan_params is not None:
             # Assume that we are transforming to last fit of dbscan
             cols = res._dbscan_params["cols"]
             umap = res._dbscan_params["fit_umap_embedding"]
@@ -391,9 +392,9 @@ class ClusterMixin(MIXIN_BASE):
 
             emb = None
             if umap and cols is None:
-                emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)
+                emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)  # type: ignore
             else:
-                X, y = res.transform(df, ydf, kind=kind, return_graph=False)
+                X, y = res.transform(df, ydf, kind=kind, return_graph=False)  # type: ignore
             XX = X
             if target:
                 XX = y

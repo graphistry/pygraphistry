@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Any
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -15,7 +15,7 @@ DST_IGRAPH = 'target'
 NODE_IGRAPH = NODE
 
 def from_igraph(self,
-    ig,
+    ig: Any,
     node_attributes: Optional[List[str]] = None,
     edge_attributes: Optional[List[str]] = None,
     load_nodes: bool = True, load_edges: bool = True,
@@ -221,7 +221,7 @@ def to_igraph(
     node_attributes: Optional[List[str]] = None,
     edge_attributes: Optional[List[str]] = None,
     use_vids: bool = False
-):
+) -> Any:
     """Convert current item to igraph Graph . See examples in from_igraph.
 
     :param directed: Whether to create a directed graph (default True)

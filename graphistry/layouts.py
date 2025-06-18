@@ -4,7 +4,7 @@ from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
     circle_layout as circle_layout_base,
-    fa2_layout as fa2_layout_base,
+    fa2_layout,
     group_in_a_box_layout as group_in_a_box_layout_base,
     modularity_weighted_layout as modularity_weighted_layout_base,
     ring_categorical as ring_categorical_base,
@@ -15,24 +15,17 @@ from .layout.graph import Graph
 from .util import deprecated, setup_logger
 logger = setup_logger(__name__)
 
-if TYPE_CHECKING:
-    MIXIN_BASE = Plottable
-else:
-    MIXIN_BASE = object
 
+class LayoutsMixin(Plottable):
 
-class LayoutsMixin(MIXIN_BASE):
-
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def circle_layout(self, *args, **kwargs):
         return circle_layout_base(self, *args, **kwargs)
     circle_layout.__doc__ = circle_layout_base.__doc__
 
-    def fa2_layout(self, *args, **kwargs):
-        return fa2_layout_base(self, *args, **kwargs)
-    fa2_layout.__doc__ = fa2_layout_base.__doc__
+    fa2_layout = fa2_layout
 
     def group_in_a_box_layout(self, *args, **kwargs):
         return group_in_a_box_layout_base(self, *args, **kwargs)

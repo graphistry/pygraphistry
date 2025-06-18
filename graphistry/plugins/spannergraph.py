@@ -259,9 +259,9 @@ class SpannerGraphContext:
         if not config:
             raise ValueError("Missing spanner_config. Register globally with spanner_config or use with_spanner().")
         self.spanner_graph = SpannerGraph.from_config(config)
-    
+
     def __enter__(self):
         return self.spanner_graph
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.spanner_graph.close()

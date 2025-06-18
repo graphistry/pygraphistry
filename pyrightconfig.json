@@ -4,5 +4,6 @@
     "reportArgumentType": "none",
     "reportMissingTypeArgument": "none",
     "reportUnknownMemberType": "none",
+    "reportIncompatibleMethodOverride": "error",
     "exclude": []
 }

@@ -1,6 +1,6 @@
 import copy
 from time import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union, cast
 from inspect import getmodule
 import warnings
 
@@ -19,7 +19,7 @@ from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, XSymbolic, YSymbolic,
                             resolve_feature_engine)
-from .PlotterBase import Plottable, WeakValueDictionary
+from .PlotterBase import Plottable, WeakValueDictionary, PlotterBase
 from .util import check_set_memoize, setup_logger
 
 
@@ -152,7 +152,7 @@ def reuse_umap(g: Plottable, memoize: bool, metadata: Any) -> Optional[Plottable
     if o is False:
         return None
     
-    if isinstance(o, Plottable):
+    if isinstance(o, PlotterBase):
         return o
     
     raise ValueError(f'Expected Plottable or False, got {type(o)}')
@@ -222,12 +222,9 @@ class UMAPMixin(MIXIN_BASE):
     """
     UMAP Mixin for automagic UMAPing
     """
-    # FIXME where is this used? 
-    _umap_memoize: WeakValueDictionary = WeakValueDictionary()
 
-    def __init__(self, *args, **kwargs):
-        #self._umap_initialized = False
-        pass
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
 
     def umap_lazy_init(
@@ -690,7 +687,7 @@ class UMAPMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('UMAPMixin', self.bind())
 
         res = res.umap_lazy_init(
             res,
@@ -899,7 +896,7 @@ class UMAPMixin(MIXIN_BASE):
 
         """
         if inplace:
-            res = self
+            res: Plottable = self
         else:
             res = self.bind()
 
