@@ -1,7 +1,7 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
 from collections import Counter
 from inspect import getmodule
-from typing import Dict, Optional, TYPE_CHECKING, Tuple
+from typing import Dict, Optional, TYPE_CHECKING, Tuple, cast, Any
 import warnings
 
 import numpy as np
@@ -214,12 +214,17 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
 #######################################################################################################################
 
 
-class DGLGraphMixin(MIXIN_BASE):
+class DGLGraphMixin(FeatureMixin):
     """
         Automagic DGL models from Graphistry Instances.
         
     """
-    def __init__(self):
+    _dgl_graph: Optional[Any]
+    _edges: Any
+    _edge_target : Optional[pd.DataFrame]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.dgl_initialized = False
 
     def dgl_lazy_init(self, train_split: float = 0.8, device: str = "cpu"):
@@ -265,8 +270,8 @@ class DGLGraphMixin(MIXIN_BASE):
         assert (
             mask.sum() > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
-        self._MASK = mask   # type: ignore
-        self._edges = edf[mask]   # type: ignore
+        self._MASK = mask
+        self._edges = edf[mask]
 
         logger.debug(f'new EDGES: length: {len(self._edges)}')
 
@@ -319,7 +324,7 @@ class DGLGraphMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('DGLGraphMixin', self.bind())
 
         if res._node is None:
             res._node = config.IMPLICIT_NODE_ID
@@ -453,7 +458,7 @@ class DGLGraphMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('DGLGraphMixin', self.bind())
 
         res.dgl_lazy_init(train_split=train_split, device=device)
 

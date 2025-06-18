@@ -57,8 +57,9 @@ def probs(x, given, df: pd.DataFrame, how='index'):
     return res
 
 class ConditionalMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs):
-        pass
+    
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def conditional_graph(self, x, given, kind='nodes', *args, **kwargs):
         """

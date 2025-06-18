@@ -6,6 +6,7 @@ from time import time
 from inspect import getmodule
 import warnings
 from functools import partial
+from typing import cast
 
 from typing import (
     List,
@@ -2041,7 +2042,7 @@ def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[lis
     return res
 
 
-class FeatureMixin(MIXIN_BASE):
+class FeatureMixin(ComputeMixin):
     """FeatureMixin for automatic featurization of nodes and edges DataFrames. Subclasses UMAPMixin for umap-ing of automatic features.
 
     Usage:
@@ -2067,8 +2068,8 @@ class FeatureMixin(MIXIN_BASE):
     _feature_memoize: WeakValueDictionary = WeakValueDictionary()
     _feature_params: dict = {}
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def _get_feature(self, kind):
         kind2 = kind.replace('s', '')
@@ -2115,7 +2116,7 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ):
-        res = self.copy() 
+        res = self.copy()
         ndf = res._nodes
         node = res._node
 
@@ -2175,7 +2176,7 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine=feature_engine,
         )
 
-        res._feature_params = {
+        cast('FeatureMixin', res)._feature_params = {
             **getattr(res, "_feature_params", {}),
             "nodes": fkwargs,
         }
@@ -2246,17 +2247,17 @@ class FeatureMixin(MIXIN_BASE):
         verbose: bool = False,
     ):
 
-        res = self.copy()
+        res = cast('FeatureMixin', self.copy())
         edf = res._edges
         X_resolved = resolve_X(edf, X)
         y_resolved = resolve_y(edf, y)
 
-        if res._source not in X_resolved:
+        if res._source and res._source not in X_resolved:
             logger.debug("adding g._source to edge features")
             X_resolved = X_resolved.assign(
                 **{res._source: res._edges[res._source]}
             )
-        if res._destination not in X_resolved:
+        if res._destination and res._destination not in X_resolved:
             logger.debug("adding g._destination to edge features")
             X_resolved = X_resolved.assign(
                 **{res._destination: res._edges[res._destination]}
@@ -2678,7 +2679,7 @@ class FeatureMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('FeatureMixin', self.bind())
 
         raw_feature_engine = feature_engine
         feature_engine = resolve_feature_engine(feature_engine)
@@ -2802,7 +2803,7 @@ class FeatureMixin(MIXIN_BASE):
         """helper method gets node feature and target matrix if X, y are not specified. if X, y are specified will set them as `_node_target` and `_node_target` attributes
         """
 
-        res = self.bind()
+        res = cast('FeatureMixin', self.bind())
 
         if not reuse_if_existing:  # will cause re-featurization
             res._node_features = None
@@ -2810,12 +2811,14 @@ class FeatureMixin(MIXIN_BASE):
 
         if reuse_if_existing and res._node_features is not None:
             logger.info('-Reusing Existing Node Featurization')
-            return res._node_features, res._node_target, res
+            # NOTE: Wasn't sure if " res._node_target is not None" ought to have been a condition for this code path
+            node_target = res._node_target if res._node_target is not None else pd.DataFrame()
+            return res._node_features, node_target, res
 
         use_scaler_resolved = resolve_scaler(use_scaler, feature_engine)
         use_scaler_target_resolved = resolve_scaler_target(use_scaler_target, feature_engine, multilabel)
 
-        res = res._featurize_nodes(
+        res = cast('FeatureMixin', res)._featurize_nodes(
             X=X,
             y=y,
             use_scaler=use_scaler_resolved,
@@ -2850,7 +2853,7 @@ class FeatureMixin(MIXIN_BASE):
 
         assert res._node_features is not None  # ensure no infinite loop
 
-        return res.featurize_or_get_nodes_dataframe_if_X_is_None(
+        return cast('FeatureMixin', res).featurize_or_get_nodes_dataframe_if_X_is_None(
             res._node_features,
             res._node_target,
             use_scaler=use_scaler_resolved,
@@ -2924,7 +2927,7 @@ class FeatureMixin(MIXIN_BASE):
         :return: data `X` and `y`
         """
 
-        res = self.bind()
+        res = cast('FeatureMixin', self.bind())
 
         if not reuse_if_existing:
             res._edge_features = None

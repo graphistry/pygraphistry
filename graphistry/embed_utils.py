@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple, cast
 
 from graphistry.utils.lazy_import import lazy_embed_import
 from .PlotterBase import Plottable
@@ -72,9 +72,12 @@ class EmbedDistScore:
         return -(h * r - t).norm(p=1, dim=1)  # type: ignore
 
 
-class HeterographEmbedModuleMixin(MIXIN_BASE):
-    def __init__(self):
-        super().__init__()
+class HeterographEmbedModuleMixin(ComputeMixin):
+    _nodes: Any
+    _edges: Any
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         self._protocol = {
             "TransE": EmbedDistScore.TransE,
@@ -86,9 +89,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self._relation2id = {}
         self._id2node = {}
         self._id2relation = {}
-        self._relation = None
-        self._use_feat = False
-        self._kg_embed_dim = None
         self._kg_embeddings = None
         
         self._embed_model = None
@@ -319,7 +319,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('HeterographEmbedModuleMixin', self.bind())
         
         requires_new_model = False
         if res._relation != relation:

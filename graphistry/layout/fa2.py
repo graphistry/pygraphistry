@@ -66,7 +66,7 @@ def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) 
 
 
 def fa2_layout(
-    g: Plottable, 
+    self: Plottable, 
     fa2_params: Optional[Dict[str, Any]] = None,
     circle_layout_params: Optional[Dict[str, Any]] = None,
     singleton_layout: Optional[Callable[[Plottable, Union[Tuple[float, float, float, float], Any]], Plottable]] = None,
@@ -98,6 +98,7 @@ def fa2_layout(
     :returns: A graph object with FA2 and circle layouts applied.
     :rtype: graphistry.Plottable.Plottable
     """
+    g = self
 
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
