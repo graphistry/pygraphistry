@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.38.0 - 2025-06-17]
 
+### Changed
+* PyPI publish workflow now uses Trusted Publishing (OIDC) instead of password authentication
+
+## [0.38.0 - 2025-06-17]
+
 ### Feat
 * Kusto/Azure Data Explorer integration. `PyGraphistry.kusto()`, `kusto_query()`, `kusto_query_graph()`
 * Extra kusto install target `pip install graphistry[kusto]` installs azure-kusto-data, azure-identity
