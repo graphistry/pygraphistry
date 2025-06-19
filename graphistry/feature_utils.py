@@ -2811,7 +2811,8 @@ class FeatureMixin(ComputeMixin):
 
         if reuse_if_existing and res._node_features is not None:
             logger.info('-Reusing Existing Node Featurization')
-            # NOTE: Wasn't sure if " res._node_target is not None" ought to have been a condition for this code path
+            # NOTE: Perhaps for these df.empty stubs, we need len(y.index) == len(X.index)
+            #       even if no columns, downstream code could be confused on shape mismatch
             node_target = res._node_target if res._node_target is not None else pd.DataFrame()
             return res._node_features, node_target, res
 

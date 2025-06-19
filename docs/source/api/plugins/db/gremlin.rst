@@ -12,5 +12,4 @@ As an open source technology, multiple databases support it.
 .. autoclass:: graphistry.gremlin.GremlinMixin
    :members:
    :undoc-members:
-   :inherited-members:
    :show-inheritance:
