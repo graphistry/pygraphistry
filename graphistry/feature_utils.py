@@ -16,7 +16,9 @@ from typing import (
     Optional,
     Tuple,
     TYPE_CHECKING, 
+    overload,
 )
+from typing_extensions import Literal
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from graphistry.config import config as graphistry_config
@@ -2357,6 +2359,32 @@ class FeatureMixin(ComputeMixin):
                 "before being able to transform data"
             )
             raise ValueError(f"Encoder {encoder} not initialized. Call featurize() first.")
+
+    @overload
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: Literal[True] = True,
+                  scaled: bool = True,
+                  verbose: bool = False) -> 'Plottable':
+        ...
+
+    @overload
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: Literal[False] = False,
+                  scaled: bool = True,
+                  verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        ...
 
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -580,6 +580,32 @@ class Plottable(Protocol):
         ...
 
     
+    @overload
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: Literal[True] = True,
+                  scaled: bool = True,
+                  verbose: bool = False) -> 'Plottable':
+        ...
+
+    @overload
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: Literal[False] = False,
+                  scaled: bool = True,
+                  verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        ...
+
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 
                   kind: str = 'nodes', 
@@ -592,6 +618,34 @@ class Plottable(Protocol):
                   verbose: bool = False) -> Union[Tuple[pd.DataFrame, pd.DataFrame], 'Plottable']:
         ...
 
+
+    @overload
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
+                    n_neighbors: int = 7,
+                    merge_policy: bool = False,
+                    sample: Optional[int] = None,
+                    return_graph: Literal[True] = True,
+                    fit_umap_embedding: bool = True,
+                    umap_transform_kwargs: Dict[str, Any] = {}
+    ) -> 'Plottable':
+        ...
+
+    @overload
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
+                    n_neighbors: int = 7,
+                    merge_policy: bool = False,
+                    sample: Optional[int] = None,
+                    return_graph: Literal[False] = False,
+                    fit_umap_embedding: bool = True,
+                    umap_transform_kwargs: Dict[str, Any] = {}
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        ...
 
     def transform_umap(self, df: pd.DataFrame,
                     y: Optional[pd.DataFrame] = None,

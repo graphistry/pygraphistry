@@ -392,9 +392,9 @@ class ClusterMixin(MIXIN_BASE):
 
             emb = None
             if umap and cols is None:
-                emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)  # type: ignore
+                emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)
             else:
-                X, y = res.transform(df, ydf, kind=kind, return_graph=False)  # type: ignore
+                X, y = res.transform(df, ydf, kind=kind, return_graph=False)
             XX = X
             if target:
                 XX = y
