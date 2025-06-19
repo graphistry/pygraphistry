@@ -1,6 +1,7 @@
 import copy
 from time import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union, cast, overload
+from typing_extensions import Literal
 from inspect import getmodule
 import warnings
 
@@ -384,6 +385,34 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
 
+    @overload
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
+                    n_neighbors: int = 7,
+                    merge_policy: bool = False,
+                    sample: Optional[int] = None,
+                    return_graph: Literal[True] = True,
+                    fit_umap_embedding: bool = True,
+                    umap_transform_kwargs: Dict[str, Any] = {}
+    ) -> 'Plottable':
+        ...
+
+    @overload
+    def transform_umap(self, df: pd.DataFrame,
+                    y: Optional[pd.DataFrame] = None,
+                    kind: GraphEntityKind = 'nodes',
+                    min_dist: Union[str, float, int] = 'auto',
+                    n_neighbors: int = 7,
+                    merge_policy: bool = False,
+                    sample: Optional[int] = None,
+                    return_graph: Literal[False] = False,
+                    fit_umap_embedding: bool = True,
+                    umap_transform_kwargs: Dict[str, Any] = {}
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        ...
+
     def transform_umap(self, df: pd.DataFrame,
                     y: Optional[pd.DataFrame] = None,
                     kind: GraphEntityKind = 'nodes',
@@ -394,7 +423,7 @@ class UMAPMixin(MIXIN_BASE):
                     return_graph: bool = True,
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
-    ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
+    ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], 'Plottable']:
         """Transforms data into UMAP embedding
         
         Args:
