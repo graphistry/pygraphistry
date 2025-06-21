@@ -38,12 +38,7 @@ logger = setup_logger(__name__)
 SSO_GET_TOKEN_ELAPSE_SECONDS = 50
 
 
-
-def get_graphistry_session() -> 'PyGraphistrySession':
-    return PyGraphistrySession()
-
-
-PyGraphistry = get_graphistry_session()
+PyGraphistry: "PyGraphistrySession" = None  # type: ignore[assignment]
 
 
 class PyGraphistrySession(object):
@@ -525,43 +520,6 @@ class PyGraphistrySession(object):
     @staticmethod
     def set_bolt_driver(driver: Optional[Any] = None) -> None:
         PyGraphistry._session.bolt_driver = bolt_util.to_bolt_driver(driver)
-
-    @staticmethod
-    def set_spanner_config(spanner_config: Optional[SpannerConfig] = None) -> None:
-        """
-        Saves the spanner config to internal Pygraphistry _config
-        :param spanner_config: dict of the project_id, instance_id and database_id
-        :type spanner_config: Optional[SpannerConfig]
-        :returns: None.
-        :rtype: None
-
-        **Example: calling set_spanner_config - all keys are required**
-                ::
-
-                    import graphistry
-                    graphistry.register(...)
-
-                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID }
-
-                    graphistry.set_spanner_config(SPANNER_CONF)
-
-        **Example: calling set_spanner_config with credentials_file (optional) - used for service accounts**
-                ::
-
-                    import graphistry
-                    graphistry.register(...)
-
-                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-
-                    graphistry.set_spanner_config(SPANNER_CONF)
-                         
-        """
-        PyGraphistry._spanner_session.config = spanner_config 
 
 
     def register(
@@ -1047,28 +1005,6 @@ class PyGraphistrySession(object):
                     g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
         """
         return Plotter().cypher(query, params)
-    
-
-    @staticmethod
-    def spanner(spanner_config: SpannerConfig) -> Plottable:
-        """
-        Set spanner configuration for this Plottable.
-        SpannerConfig
-            - "instance_id": The Spanner instance ID.
-            - "database_id": The Spanner database ID.
-            - "project_id": The GCP project ID.
-            - "credentials_file": json file API key for service accounts 
-        
-        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
-        Otherwise, project_id and the spanner login process will be used to authenticate.
-            
-        :param spanner_config: A dictionary containing the Spanner configuration. 
-        :type (SpannerConfig)
-        :return: Plottable with a Spanner connection 
-        :rtype: Plottable
-        """
-        return Plotter().spanner(spanner_config)
-
 
     @staticmethod
     def nodexl(xls_or_url: Union[str, Any], source: str = "default", engine: Optional[str] = None, verbose: bool = False) -> Plottable:
@@ -1853,6 +1789,13 @@ class PyGraphistrySession(object):
     
 
 
+    @staticmethod
+    def set_spanner_config(spanner_config: Optional[SpannerConfig] = None) -> None:
+        PyGraphistry._spanner_session.config = spanner_config 
+
+    @staticmethod
+    def spanner(spanner_config: SpannerConfig) -> Plottable:
+        return Plotter().spanner(spanner_config)
     
     @staticmethod
     def spanner_gql(query: str) -> Plottable:    
@@ -1861,6 +1804,7 @@ class PyGraphistrySession(object):
     @staticmethod
     def spanner_gql_to_df(query: str) -> pd.DataFrame:
         return Plotter(spanner_session=PyGraphistry._spanner_session).gql_to_df(query)
+
 
 
     @staticmethod
@@ -1872,17 +1816,14 @@ class PyGraphistrySession(object):
         if kusto_config is not None:
             PyGraphistry._kusto_session.config = kusto_config
         return Plotter(kusto_session=PyGraphistry._kusto_session)
-    kusto.__doc__ = Plotter().kusto_connect.__doc__
 
     @staticmethod
     def kql(query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
         return Plotter(kusto_session=PyGraphistry._kusto_session).kql(query, unwrap_nested=unwrap_nested)
-    kql.__doc__ = Plotter().kql.__doc__
 
     @staticmethod
     def kql_graph(graph_name: str, snap_name: Optional[str] = None) -> Plottable:
         return Plotter(kusto_session=PyGraphistry._kusto_session).kql_graph(graph_name, snap_name)
-    kql_graph.__doc__ = Plotter().kql_graph.__doc__
 
 
     @staticmethod
@@ -2506,7 +2447,8 @@ class PyGraphistrySession(object):
             raise Exception("Unknown Error")
 
 
-
+# Global instance of PyGraphistrySession
+PyGraphistry = PyGraphistrySession()
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
