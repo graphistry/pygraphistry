@@ -331,7 +331,7 @@ class ArrowUploader:
             logger.debug("@ArrowUploader.sso_login, out.text: %s", out.text)
             json_response = out.json()
             logger.debug("@ArrowUploader.sso_login, json_response: %s", json_response)
-            self.token = None # type: ignore[assignment]
+            self.token = None  # type: ignore[assignment]
             if not ('status' in json_response):
                 raise Exception(out.text)
             else:

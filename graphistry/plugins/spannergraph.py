@@ -52,7 +52,7 @@ class SpannerGraph:
             self._spanner_session.client = None
             self._spanner_session.database = None
 
-        _ = self.spanner_client # trigger initialization
+        _ = self.spanner_client  # trigger initialization
         return self
 
     @property

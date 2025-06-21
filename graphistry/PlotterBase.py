@@ -1691,7 +1691,7 @@ class PlotterBase(Plottable):
             assert uploader is not None
             if skip_upload:
                 return uploader
-            uploader.token = PyGraphistry.api_token() # type: ignore[assignment]
+            uploader.token = PyGraphistry.api_token()  # type: ignore[assignment]
             uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
             uploader.maybe_post_share_link(self)
             info = {

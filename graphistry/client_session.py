@@ -51,7 +51,7 @@ class ClientSession:
         self.personal_key_secret: Optional[str] = None
 
         # NOTE: Still used as a global, perhaps use a session pattern
-        self.encode_textual_batch_size: Optional[int] = None # encode_textual.batch_size
+        self.encode_textual_batch_size: Optional[int] = None  # encode_textual.batch_size
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self.bolt_driver: Optional[Any] = None
@@ -66,9 +66,11 @@ def use_global_session() -> ClientSession:
 T = TypeVar("T")
 
 @overload
-def get_from_env(name: str, expected_type: Type[T]) -> Optional[T]: ...
+def get_from_env(name: str, expected_type: Type[T]) -> Optional[T]:
+    ...
 @overload  # when a *non-None* default is supplied, return is not Optional
-def get_from_env(name: str, expected_type: Type[T], default: T) -> T: ...
+def get_from_env(name: str, expected_type: Type[T], default: T) -> T:
+    ...
 
 def get_from_env(
     name: str,

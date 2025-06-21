@@ -790,4 +790,3 @@ class Plottable(Protocol):
                     umap_transform_kwargs: Dict[str, Any] = {}
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], 'Plottable']:
         ...
-

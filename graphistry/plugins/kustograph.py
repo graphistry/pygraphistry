@@ -66,7 +66,7 @@ class KustoGraph:
             self._kusto_session.client = None
             self._kusto_session.database = None
 
-        _ = self.kusto_client # trigger initialization
+        _ = self.kusto_client  # trigger initialization
         return self
 
     @property

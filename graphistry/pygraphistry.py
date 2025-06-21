@@ -102,9 +102,10 @@ class PyGraphistrySession(object):
             org_name = PyGraphistry.org_name()
 
         if PyGraphistry._session.store_token_creds_in_memory:
-            relogin = lambda: PyGraphistry.login(
-                username, password, None, fail_silent
-            )
+            def relogin() -> str:
+                return PyGraphistry.login(
+                    username, password, None, fail_silent
+                )
             PyGraphistry.relogin = relogin
 
         PyGraphistry._is_authenticated = False
@@ -133,9 +134,10 @@ class PyGraphistrySession(object):
         By default, must be reinvoked within 24hr."""
 
         if PyGraphistry._session.store_token_creds_in_memory:
-            relogin = lambda: PyGraphistry.pkey_login(
-                personal_key_id, personal_key_secret, org_name if org_name else PyGraphistry.org_name(), fail_silent
-            )
+            def relogin() -> str:
+                return PyGraphistry.pkey_login(
+                    personal_key_id, personal_key_secret, org_name if org_name else PyGraphistry.org_name(), fail_silent
+                )
             PyGraphistry.relogin = relogin
 
         PyGraphistry._is_authenticated = False
