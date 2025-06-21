@@ -220,7 +220,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None):
     return iframe + scrollbug_workaround
 
 
-def fingerprint():
+def fingerprint() -> str:
     md5 = hashlib.md5()
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]

@@ -6,11 +6,11 @@ import unittest
 
 import gc
 import graphistry
+from graphistry.pygraphistry import PyGraphistry
 import os
 import logging
 import numpy as np
 import pandas as pd
-from graphistry.config import config
 from graphistry.feature_utils import remove_internal_namespace_if_present
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
@@ -737,11 +737,11 @@ class TestCUMLMethods(TestUMAPMethods):
 
     @classmethod
     def setup_class(cls: Any) -> None:
-        config.set('encode_textual.batch_size', 8)
+        PyGraphistry._session.encode_textual_batch_size = 8
 
     @classmethod
     def teardown_class(cls: Any) -> None:
-        config.unset('encode_textual.batch_size')
+        PyGraphistry._session.encode_textual_batch_size = None
 
     @pytest.mark.skipif(
         not has_dependancy or not has_cuml,

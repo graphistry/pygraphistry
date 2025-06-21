@@ -21,7 +21,7 @@ from typing import (
 from typing_extensions import Literal
 
 from graphistry.compute.ComputeMixin import ComputeMixin
-from graphistry.config import config as graphistry_config
+from graphistry.client_session import use_global_session
 from graphistry.features import ScalerType
 from graphistry.models.compute.features import (
     GraphEntityKind,
@@ -801,7 +801,7 @@ def encode_textual(
             # else: already has org/model format, use as-is
             
             model = SentenceTransformer(model_name)
-            batch_size = graphistry_config.get('encode_textual.batch_size')
+            batch_size = use_global_session().encode_textual_batch_size
             embeddings = model.encode(res.values, **({'batch_size': batch_size} if batch_size is not None else {}))
             transformed_columns = _get_sentence_transformer_headers(
                 embeddings, text_cols

@@ -9,12 +9,14 @@ from .embed_utils import HeterographEmbedModuleMixin
 from .text_utils import SearchToGraphMixin
 from .compute.conditional import ConditionalMixin
 from .compute.cluster import ClusterMixin
-
+from .plugins.kustograph import KustoGraph
+from .plugins.spannergraph import SpannerGraph
 
 # NOTE: Cooperative mixins must call:
 #       super().__init__(*a, **kw) in their __init__ method
 #       to pass along args/kwargs to the next mixin in the chain
 class Plotter(
+    KustoGraph, SpannerGraph,
     CosmosMixin, NeptuneMixin,
     HeterographEmbedModuleMixin,
     SearchToGraphMixin,
