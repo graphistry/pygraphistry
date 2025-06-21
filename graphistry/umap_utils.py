@@ -393,6 +393,7 @@ class UMAPMixin(MIXIN_BASE):
                     n_neighbors: int = 7,
                     merge_policy: bool = False,
                     sample: Optional[int] = None,
+                    *,
                     return_graph: Literal[True] = True,
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
@@ -407,7 +408,8 @@ class UMAPMixin(MIXIN_BASE):
                     n_neighbors: int = 7,
                     merge_policy: bool = False,
                     sample: Optional[int] = None,
-                    return_graph: Literal[False] = False,
+                    *,
+                    return_graph: Literal[False],
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -420,6 +422,7 @@ class UMAPMixin(MIXIN_BASE):
                     n_neighbors: int = 7,
                     merge_policy: bool = False,
                     sample: Optional[int] = None,
+                    *,
                     return_graph: bool = True,
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
