@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Breaking
 * Plottable is now a Protocol
 * py.typed added, type checking active on PyGraphistry!
+* transform() and transform_umap() now require some parameters to be keyword-only
 
 ## [0.38.0 - 2025-06-17]
 

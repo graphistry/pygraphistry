@@ -2368,6 +2368,7 @@ class FeatureMixin(ComputeMixin):
                   n_neighbors: int = 7,
                   merge_policy: bool = False,
                   sample: Optional[int] = None, 
+                  *,
                   return_graph: Literal[True] = True,
                   scaled: bool = True,
                   verbose: bool = False) -> 'Plottable':
@@ -2381,7 +2382,8 @@ class FeatureMixin(ComputeMixin):
                   n_neighbors: int = 7,
                   merge_policy: bool = False,
                   sample: Optional[int] = None, 
-                  return_graph: Literal[False] = False,
+                  *,
+                  return_graph: Literal[False],
                   scaled: bool = True,
                   verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
         ...
@@ -2393,6 +2395,7 @@ class FeatureMixin(ComputeMixin):
                   n_neighbors: int = 7,
                   merge_policy: bool = False,
                   sample: Optional[int] = None, 
+                  *,
                   return_graph: bool = True,
                   scaled: bool = True,
                   verbose: bool = False) -> Union[Tuple[pd.DataFrame, pd.DataFrame], 'Plottable']:
