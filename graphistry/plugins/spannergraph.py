@@ -4,7 +4,6 @@ from typing import Any, List, Dict, Optional, TYPE_CHECKING
 
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.pygraphistry import PyGraphistry
 from graphistry.util import setup_logger
 from graphistry.plugins_types.spanner_types import (
     SpannerConfig,
@@ -237,6 +236,7 @@ class SpannerGraph:
                     g.plot()
      
         """
+        from graphistry.pygraphistry import PyGraphistry
         g = self if isinstance(self, Plottable) else PyGraphistry.bind()
         query_result = self._gql(query)
 

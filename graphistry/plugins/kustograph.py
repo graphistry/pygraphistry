@@ -9,7 +9,6 @@ else:
 
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from graphistry.pygraphistry import PyGraphistry
 from graphistry.plugins_types.kusto_types import KustoConfig, KustoConnectionError, KustoQueryResult, KustoSession
 
 logger = setup_logger(__name__)
@@ -173,6 +172,7 @@ class KustoGraph:
             ::
                 g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
         """
+        from graphistry.pygraphistry import PyGraphistry
         g = self if isinstance(self, Plottable) else PyGraphistry.bind()
 
         if snap_name:
