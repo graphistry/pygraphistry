@@ -2332,11 +2332,10 @@ class PyGraphistrySession(object):
             return None
 
         # setter, use switch_org instead
-        if PyGraphistry._session.org_name is not None:
-            try:
-                PyGraphistry.switch_org(value.strip())
-            except:
-                raise Exception("Failed to switch organization")
+        try:
+            PyGraphistry.switch_org(value.strip())
+        except:
+            raise Exception("Failed to switch organization")
 
     @staticmethod
     def idp_name(value: Optional[str] = None):
