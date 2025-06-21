@@ -11,7 +11,7 @@ from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 from graphistry.plugins_types.kusto_types import KustoConfig
 from graphistry.plugins_types.spanner_types import SpannerConfig
-from graphistry.privacy import Mode as PrivacyMode
+from graphistry.privacy import Mode as PrivacyMode, Privacy
 from graphistry.Engine import EngineAbstract
 from graphistry.utils.json import JSONVal
 
@@ -75,6 +75,7 @@ class Plottable(Protocol):
     _height : int
     _render : RenderModesConcrete
     _url_params : dict
+    _privacy : Optional[Privacy]
     _name : Optional[str]
     _description : Optional[str]
     _style : Optional[dict]
@@ -157,13 +158,137 @@ class Plottable(Protocol):
 
     def addStyle(
         self,
-        fg: Dict[str, Any],
+        fg: Optional[Dict[str, Any]] = None,
+        bg: Optional[Dict[str, Any]] = None,
+        page: Optional[Dict[str, Any]] = None,
+        logo: Optional[Dict[str, Any]] = None,
+    ) -> 'Plottable':
+        ...
+
+    def style(
+        self,
+        fg: Optional[Dict[str, Any]] = None,
         bg: Optional[Dict[str, Any]] = None,
         page: Optional[Dict[str, Any]] = None,
         logo: Optional[Dict[str, Any]] = None,
     ) -> 'Plottable':
         ...
     
+    def encode_point_color(
+        self,
+        column: str,
+        palette: Optional[List[str]] = ...,
+        as_categorical: Optional[bool] = ...,
+        as_continuous: Optional[bool] = ...,
+        categorical_mapping: Optional[Dict[Any, Any]] = ...,
+        default_mapping: Optional[str] = ...,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> "Plottable":
+        ...
+    
+    def encode_edge_color(
+        self,
+        column: str,
+        palette: Optional[List[str]] = ...,
+        as_categorical: Optional[bool] = ...,
+        as_continuous: Optional[bool] = ...,
+        categorical_mapping: Optional[Dict[Any, Any]] = ...,
+        default_mapping: Optional[str] = ...,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> "Plottable":
+        ...
+
+    def encode_point_size(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = ...,
+        default_mapping: Optional[Union[int, float]] = ...,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> "Plottable":
+        ...
+
+
+    def encode_point_icon(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = ...,
+        continuous_binning: Optional[List[Any]] = ...,
+        default_mapping: Optional[str] = ...,
+        comparator: Optional[Callable[[Any, Any], int]] = ...,
+        for_default: bool = True,
+        for_current: bool = False,
+        as_text: bool = False,
+        blend_mode: Optional[str] = ...,
+        style: Optional[Dict[str, Any]] = ...,
+        border: Optional[Dict[str, Any]] = ...,
+        shape: Optional[str] = ...,
+    ) -> "Plottable":
+        ...
+
+
+    def encode_edge_icon(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = ...,
+        continuous_binning: Optional[List[Any]] = ...,
+        default_mapping: Optional[str] = ...,
+        comparator: Optional[Callable[[Any, Any], int]] = ...,
+        for_default: bool = True,
+        for_current: bool = False,
+        as_text: bool = False,
+        blend_mode: Optional[str] = ...,
+        style: Optional[Dict[str, Any]] = ...,
+        border: Optional[Dict[str, Any]] = ...,
+        shape: Optional[str] = ...,
+    ) -> "Plottable":
+        ...
+
+
+    def encode_point_badge(
+        self,
+        column: str,
+        position: str = "TopRight",
+        categorical_mapping: Optional[Dict[Any, Any]] = ...,
+        continuous_binning: Optional[List[Any]] = ...,
+        default_mapping: Optional[Any] = ...,
+        comparator: Optional[Callable[[Any, Any], int]] = ...,
+        color: Optional[str] = ...,
+        bg: Optional[str] = ...,
+        fg: Optional[str] = ...,
+        for_current: bool = False,
+        for_default: bool = True,
+        as_text: Optional[bool] = ...,
+        blend_mode: Optional[str] = ...,
+        style: Optional[Dict[str, Any]] = ...,
+        border: Optional[Dict[str, Any]] = ...,
+        shape: Optional[str] = ...,
+    ) -> "Plottable":
+        ...
+
+    def encode_edge_badge(
+        self,
+        column: str,
+        position: str = "TopRight",
+        categorical_mapping: Optional[Dict[Any, Any]] = ...,
+        continuous_binning: Optional[List[Any]] = ...,
+        default_mapping: Optional[Any] = ...,
+        comparator: Optional[Callable[[Any, Any], int]] = ...,
+        color: Optional[str] = ...,
+        bg: Optional[str] = ...,
+        fg: Optional[str] = ...,
+        for_current: bool = False,
+        for_default: bool = True,
+        as_text: Optional[bool] = ...,
+        blend_mode: Optional[str] = ...,
+        style: Optional[Dict[str, Any]] = ...,
+        border: Optional[Dict[str, Any]] = ...,
+        shape: Optional[str] = ...,
+    ) -> "Plottable":
+        ...
+
     def name(self, name: str) -> 'Plottable':
         ...
     
@@ -666,5 +791,3 @@ class Plottable(Protocol):
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], 'Plottable']:
         ...
 
-
-    

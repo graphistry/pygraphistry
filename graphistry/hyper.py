@@ -1,5 +1,6 @@
 from typing import List, Optional
 from graphistry.hyper_dask import hypergraph as hypergraph_new
+from graphistry.plugins_types.hypergraph import HypergraphResult
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -12,7 +13,7 @@ class Hypergraph(object):
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
         engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
 
-    ) -> dict:
+    ) -> HypergraphResult:
         """
             raw_events can be pd.DataFrame or cudf.DataFrame
         """

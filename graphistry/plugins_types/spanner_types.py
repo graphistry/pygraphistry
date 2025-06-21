@@ -1,5 +1,12 @@
-from typing import List, Any
+from typing import List, Any, Optional, TYPE_CHECKING
 from typing_extensions import TypedDict, NotRequired
+from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from google.cloud.spanner_dbapi.connection import Connection
+else:
+    Connection = Any
+
 
 class SpannerConnectionError(Exception):
     """Custom exception for errors related to Spanner connection."""
@@ -30,3 +37,9 @@ class SpannerConfig(TypedDict):
     instance_id: str
     database_id: str
     credentials_file: NotRequired[str]
+
+@dataclass
+class SpannerSession:
+    client: Optional[Connection] = None
+    database: Optional[str] = None
+    config: Optional[SpannerConfig] = None

@@ -1,82 +1,76 @@
-import pandas as pd
-import json
-import time
+# graphistry/plugins/spannergraph.py
+import json, time
 from typing import Any, List, Dict, Optional, TYPE_CHECKING
+
+import pandas as pd
+from graphistry.Plottable import Plottable
+from graphistry.pygraphistry import PyGraphistry
+from graphistry.util import setup_logger
+from graphistry.plugins_types.spanner_types import (
+    SpannerConfig,
+    SpannerConnectionError,
+    SpannerQueryResult,
+    SpannerSession,
+)
 
 if TYPE_CHECKING:
     from google.cloud.spanner_dbapi.connection import Connection
 else:
     Connection = Any
 
-from graphistry.pygraphistry import PyGraphistry
-from graphistry.Plottable import Plottable
-from graphistry.plugins_types.spanner_types import SpannerConfig, SpannerConnectionError, SpannerQueryResult
-from graphistry.util import setup_logger
 logger = setup_logger(__name__)
-
-
-
 
 class SpannerGraph:
     """
-    A comprehensive interface for interacting with Google Spanner Graph databases.
+    SpannerGraph is a Graphistry plugin that allows you to plot data from Spanner.
 
-    :ivar Any connection: The active connection to the Spanner database.
+    Usable stand-alone *or* as a cooperative mix-in on the Plottable.
     """
 
-    def __init__(self, connection: Connection):
-        self.connection = connection
+    _spanner_session: SpannerSession
 
+    def __init__(
+        self,
+        *args,
+        spanner_session: Optional[SpannerSession] = None,
+        **kwargs: Any,
+    ) -> None:
+        # NOTE: Cooperative Mixin initialization passes args and kwargs along
+        kwargs["spanner_session"] = spanner_session
+        super().__init__(*args, **kwargs)
+        self._spanner_session = spanner_session or SpannerSession()
 
-    @classmethod
-    def from_config(cls, spanner_config: SpannerConfig) -> "SpannerGraph":
-        """
-        Initializes the SpannerGraph instance and establishes a connection to the Spanner database.
+    def from_spanner_client(self, client: Connection, database: str) -> "SpannerGraph":
+        self._spanner_session.client = client
+        self._spanner_session.database = database
+        return self
 
-        :param graphistry: The Graphistry parent object.
-        :param instance_id: The Spanner instance ID.
-        :param database_id: The Spanner database ID.
-        """
-        from google.cloud.spanner_dbapi.connection import connect
-        
-        try:
-            instance_id = spanner_config["instance_id"]
-            database_id = spanner_config["database_id"]
-        except KeyError as e:
-            raise ValueError(f"Missing required Spanner configuration: '{e}'")
-        
-        credentials_file = spanner_config.get("credentials_file", None)
+    def spanner_connect(self, config: Optional[SpannerConfig] = None) -> "SpannerGraph":
+        if config is not None:
+            # Write back to the session, may be shared
+            self._spanner_session.config = config
+            self._spanner_session.client = None
+            self._spanner_session.database = None
 
-        try:
-            if credentials_file:
-                connection = connect(instance_id, database_id, credentials=credentials_file)
-            else:
-                project_id = spanner_config.get("project_id")
-                if not project_id:
-                    raise ValueError("Missing required Spanner configuration: 'project_id' or 'credentials_file'")
-                connection = connect(project_id, instance_id, database_id)
+        _ = self.spanner_client # trigger initialization
+        return self
 
-            logger.info("Connected to Spanner database.")
-            
-            connection.read_only = True
-            # NOTE: or connection.autocommit=True; Required to query INFORMATION_SCHEMA
-            # Otherwise: "Unsupported concurrency mode in query using INFORMATION_SCHEMA"
+    @property
+    def spanner_client(self) -> Connection:
+        if self._spanner_session.client:
+            return self._spanner_session.client
+        client = init_spanner_client(self._spanner_session)
+        self._spanner_session.client = client
+        return client
 
-            return cls(connection)
-        
-        except Exception as e:
-            raise SpannerConnectionError(f"Failed to connect to Spanner: {e}")
+    def spanner_close(self) -> None:
+        self.spanner_client.close()
+        self._spanner_session.client = None
+        self._spanner_session.database = None
 
+    # ---- Query API ---------------------------------------------------- #
 
-    def close(self) -> None:
-        """
-        Closes the connection to the Spanner database.
-        """
-        self.connection.close()
-        logger.info("Closed Spanner connection.")
-
-
-    def execute_query(self, query: str) -> SpannerQueryResult:
+    def _gql(self, query: str) -> SpannerQueryResult:
         """
         Executes a GQL query on the Spanner database.
 
@@ -90,7 +84,7 @@ class SpannerGraph:
 
         try:
             start_time = time.time()
-            cursor = self.connection.cursor()
+            cursor = self.spanner_client.cursor()
             cursor.execute(query)
             results = cursor.fetchall()
             column_names = [desc[0] for desc in cursor.description or []]  # extract column names
@@ -100,6 +94,9 @@ class SpannerGraph:
             return SpannerQueryResult(results, column_names)
         except Exception as e:
             raise RuntimeError(f"Query execution failed: {e}") from e
+
+
+    # ---- Static Helpers ------------------------------------------------ #
 
     @staticmethod
     def convert_spanner_json(data: List[Any]) -> List[Dict[str, Any]]:
@@ -186,8 +183,6 @@ class SpannerGraph:
 
         return SpannerGraph.add_type_from_label_to_df(nodes_df)
 
-
-    
     @staticmethod
     def get_edges_df(json_data: list) -> pd.DataFrame:
         """
@@ -215,17 +210,35 @@ class SpannerGraph:
         return SpannerGraph.add_type_from_label_to_df(edges_df)
 
 
-    def gql_to_graph(self, query: str, g: Plottable = PyGraphistry.bind()) -> Plottable:
-        """
-        Executes a query and constructs a Graphistry graph from the results.
+    # ---- Ergonomic API ------------------------------------------------ #
 
-        :param query: The GQL query to execute.
-        :param g: The Graphistry graph object to use.
-        :type g: Plottable
-        :return: A Graphistry graph object constructed from the query results.
-        :rtype: Plottable 
+    def gql_to_graph(self, query: str) -> Plottable:
         """
-        query_result = self.execute_query(query)
+        Submit query to google spanner database and return a df of the results 
+        
+        query can be SQL or GQL as long as table of results are returned 
+        query='SELECT * from Account limit 10000'
+        :param query: query string 
+        :type query: Str
+        :returns: Pandas DataFrame with the results of query
+        :rtype: pd.DataFrame
+
+        **Example: calling spanner_gql_to_graph
+                ::
+                    import graphistry
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+                    query='SELECT * from Account limit 10000'
+                    df = graphistry.spanner_gql_to_df(query)
+                    g.plot()
+     
+        """
+        g = self if isinstance(self, Plottable) else PyGraphistry.bind()
+        query_result = self._gql(query)
 
         # convert json result set to a list 
         query_result_list = [ query_result.data ]
@@ -237,31 +250,65 @@ class SpannerGraph:
 
         # TODO(tcook): add more error handling here if nodes or edges are empty
         return g.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
-    
 
-    def query_to_df(self, query: str) -> pd.DataFrame:
+    def gql_to_df(self, query: str) -> pd.DataFrame:
         """
-        Executes a query and returns a pandas dataframe of results
+        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
+        
+        GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
+        SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
+        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
+        query=f'''GRAPH my_graph
+        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+        :param query: GQL query string 
+        :type query: Str
+        :returns: Plottable with the results of GQL query as a graph
+        :rtype: Plottable
 
-        :param query: The query to execute.
-        :return: pandas dataframe of the query results 
-        :rtype: pd.DataFrame
+        **Example: calling spanner_gql
+                ::
+                    import graphistry
+                    # credentials_file is optional, all others are required
+                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                                     "instance_id": INSTANCE_ID, 
+                                     "database_id": DATABASE_ID, 
+                                     "credentials_file": CREDENTIALS_FILE }
+                    graphistry.register(..., spanner_config=SPANNER_CONF)
+                    query=f'''GRAPH my_graph
+                    MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+                    g = graphistry.spanner_gql(query)
+                    g.plot()
+     
         """
-        query_result = self.execute_query(query)
+        query_result = self._gql(query)
 
         # create DataFrame from json results, adding column names
         return pd.DataFrame(query_result.data, columns=query_result.column_names)
 
+def init_spanner_client(session: SpannerSession) -> "Connection":
+    """
+    Lazily establish a DB-API connection using the parameters in `session.config`.
+    """
+    if not session.config:
+        raise SpannerConnectionError("Missing Spanner config. Call `.spanner_connect()` first.")
 
-class SpannerGraphContext:
-    def __init__(self, config: Optional[SpannerConfig] = None):
-        config = config or PyGraphistry._config.get("spanner")
-        if not config:
-            raise ValueError("Missing spanner_config. Register globally with spanner_config or use with_spanner().")
-        self.spanner_graph = SpannerGraph.from_config(config)
+    from google.cloud.spanner_dbapi.connection import connect
 
-    def __enter__(self):
-        return self.spanner_graph
+    cfg = session.config
+    try:
+        creds = cfg.get("credentials_file")
+        if creds:
+            # creds controls project implicitly
+            logger.info("Connecting to Spanner instance %s", cfg["instance_id"])
+            conn = connect(cfg["instance_id"], cfg["database_id"], credentials=creds)
+        else:
+            project = cfg.get("project_id")
+            if not project:
+                raise ValueError("Need either `project_id` or `credentials_file` in SpannerConfig")
+            logger.info("Interactive login to Spanner instance %s", cfg["instance_id"])
+            conn = connect(project, cfg["instance_id"], cfg["database_id"])
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.spanner_graph.close()
+        conn.read_only = True
+        return conn
+    except Exception as exc:
+        raise SpannerConnectionError(f"Failed to connect to Spanner: {exc}") from exc
