@@ -1,10 +1,16 @@
-from typing import List
+from typing import List, Optional
 from typing_extensions import NotRequired, Literal, TypedDict
 
 Mode = Literal['private', 'organization', 'public']
 
-class Privacy(TypedDict):
-    mode: NotRequired[Mode]
-    notify: NotRequired[bool]
-    invited_users: NotRequired[List[str]]
-    message: NotRequired[str]
+ModeAction = Literal['10', '20']
+MODE_ACTION_VIEW: ModeAction = '10'
+MODE_ACTION_EDIT: ModeAction = '20'
+
+class Privacy(TypedDict, total=False):
+    mode: Optional[Mode]
+    notify: Optional[bool]
+    invited_users: Optional[List[str]]
+    message: Optional[str]
+    mode_action: Optional[ModeAction]
+    

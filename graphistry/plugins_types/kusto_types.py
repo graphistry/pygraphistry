@@ -1,5 +1,11 @@
-from typing import List, Any
+from typing import List, Any, Optional, TYPE_CHECKING
 from typing_extensions import TypedDict, NotRequired
+from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from azure.kusto.data import KustoClient
+else:
+    KustoClient = Any
 
 class KustoConnectionError(Exception):
     pass
@@ -18,3 +24,10 @@ class KustoConfig(TypedDict):
     client_id: NotRequired[str]
     client_secret: NotRequired[str]
     tenant_id: NotRequired[str]
+
+
+@dataclass
+class KustoSession:
+    client: Optional[KustoClient] = None
+    database: Optional[str] = None
+    config: Optional[KustoConfig] = None
