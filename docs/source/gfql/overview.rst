@@ -23,6 +23,7 @@ Key Features
 - **High Performance**: Optimized for both CPU and GPU execution, capable of processing billions of edges.
 - **Ease of Use**: Install via `pip` and start querying without the need for external databases.
 - **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
+- **Temporal Filtering**: Native support for datetime, date, and time predicates with timezone awareness.
 - **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
 - **Architectural Freedom**: Use GFQL with your dataframes on your local CPU/GPU, or offload to a remote GPU cluster.
 
@@ -93,6 +94,30 @@ Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
     ])
     first_hop_edges = g_2_hops._edges[ g_2_hops._edges["hop1"] == True ]
     print('Number of first-hop edges:', len(first_hop_edges))
+
+**Filter by Date/Time**
+
+Example: Find recent transactions using temporal predicates.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward
+    from graphistry.compute import gt, between
+    from datetime import datetime, date, time
+    import pandas as pd
+
+    # Find transactions after a specific date
+    recent = g.chain([
+        n(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))})
+    ])
+    
+    # Find transactions in a date range during business hours
+    business_hours_txns = g.chain([
+        n(edge_match={
+            "date": between(date(2023, 6, 1), date(2023, 6, 30)),
+            "time": between(time(9, 0), time(17, 0))
+        })
+    ])
 
 **Query for Transaction Nodes Between Risky Nodes**
 
