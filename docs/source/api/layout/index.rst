@@ -38,4 +38,5 @@ LayoutsMixin
 .. automodule:: graphistry.layouts.LayoutsMixin
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:

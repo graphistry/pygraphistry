@@ -9,6 +9,7 @@ graphviz is a popular graph visualization library that PyGraphistry can interfac
 .. automodule:: graphistry.plugins.graphviz
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
 .. rubric:: Constants

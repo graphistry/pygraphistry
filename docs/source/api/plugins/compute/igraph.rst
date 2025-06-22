@@ -9,6 +9,7 @@ igraph is a popular graph library that PyGraphistry can interface with. This all
 .. automodule:: graphistry.plugins.igraph
    :members:
    :undoc-members:
+   :inherited-members:
    :show-inheritance:
 
 .. rubric:: Constants
