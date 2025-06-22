@@ -36,7 +36,10 @@ def from_json(d: Dict[str, JSONVal]) -> ASTPredicate:
     assert d['type'] in type_to_predicate
     assert isinstance(d['type'], str)
     pred = type_to_predicate[d['type']]
+    
+    # Use default from_json method
     out = pred.from_json(d)
+    
     assert isinstance(out, ASTPredicate)
     out.validate()
     return out
