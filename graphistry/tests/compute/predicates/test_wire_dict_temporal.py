@@ -3,7 +3,7 @@
 import pandas as pd
 from datetime import time
 
-from graphistry.compute.predicates import gt, ge, between, is_in
+from graphistry.compute import gt, ge, between, is_in
 
 
 class TestWireProtocolDicts:

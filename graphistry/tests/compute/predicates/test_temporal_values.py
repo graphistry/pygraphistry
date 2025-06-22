@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date, time
 import pytz
 
-from graphistry.compute.predicates.temporal_values import (
+from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
 

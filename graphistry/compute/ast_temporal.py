@@ -1,18 +1,21 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, date, time
-from typing import Dict, Any
+from typing import Dict, Any, Union, TYPE_CHECKING
 import pandas as pd
-from dateutil import parser as date_parser
-import pytz
+from dateutil import parser as date_parser  # type: ignore[import]
+import pytz  # type: ignore[import]
 
 from graphistry.utils.json import JSONVal
+
+if TYPE_CHECKING:
+    from ..models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
 
 
 class TemporalValue(ABC):
     """Base class for temporal values with tagging support"""
     
     @abstractmethod
-    def to_json(self) -> Dict[str, JSONVal]:
+    def to_json(self) -> 'TemporalWire':
         """Serialize to JSON-compatible dictionary"""
         pass
     
@@ -61,13 +64,15 @@ class DateTimeValue(TemporalValue):
         
         return pd.Timestamp(dt)
     
-    def to_json(self) -> Dict[str, JSONVal]:
+    def to_json(self) -> 'DateTimeWire':
         """Return dict for tagged temporal value"""
-        return {
+        from ..models.gfql.types.temporal import DateTimeWire
+        result: DateTimeWire = {
             "type": "datetime",
             "value": self.value,
             "timezone": self.timezone
         }
+        return result
     
     def as_pandas_value(self) -> pd.Timestamp:
         return self._parsed
@@ -89,12 +94,14 @@ class DateValue(TemporalValue):
         """Parse date string in ISO format (YYYY-MM-DD)"""
         return date_parser.isoparse(value).date()
     
-    def to_json(self) -> Dict[str, JSONVal]:
+    def to_json(self) -> 'DateWire':
         """Return dict for tagged temporal value"""
-        return {
+        from ..models.gfql.types.temporal import DateWire
+        result: DateWire = {
             "type": "date",
             "value": self.value
         }
+        return result
     
     def as_pandas_value(self) -> pd.Timestamp:
         # Convert date to pandas Timestamp at midnight
@@ -123,12 +130,14 @@ class TimeValue(TemporalValue):
             # Extract time from full datetime
             return date_parser.isoparse(value).time()
     
-    def to_json(self) -> Dict[str, JSONVal]:
+    def to_json(self) -> 'TimeWire':
         """Return dict for tagged temporal value"""
-        return {
+        from ..models.gfql.types.temporal import TimeWire
+        result: TimeWire = {
             "type": "time", 
             "value": self.value
         }
+        return result
     
     def as_pandas_value(self) -> time:
         return self._parsed

@@ -8,7 +8,7 @@ from graphistry import n, e_forward
 from graphistry.compute import gt, lt, between
 from graphistry.compute.ast import ASTNode, ASTEdge
 from graphistry.compute.chain import Chain
-from graphistry.compute.predicates.temporal_values import DateTimeValue, DateValue, TimeValue
+from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TimeValue
 
 
 class TestTemporalASTIntegration:

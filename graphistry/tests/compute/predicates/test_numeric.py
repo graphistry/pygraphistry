@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from datetime import datetime, date, time
 from graphistry.compute.predicates.comparison import GT, gt, LT, lt, GE, ge, LE, le, EQ, eq, NE, ne, Between, between
-from graphistry.compute.predicates.temporal_values import DateTimeValue, DateValue, TimeValue
+from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TimeValue
 
 def test_gt():
     # Test numeric GT (existing test)
@@ -180,8 +180,8 @@ def test_temporal_error_cases():
     with pytest.raises(TypeError, match="same type"):
         between_pred.validate()
     
-    # Test unknown temporal type
-    with pytest.raises(ValueError, match="Unknown temporal type"):
+    # Test unknown temporal type - should fail as unsupported type
+    with pytest.raises(TypeError, match="Unsupported type"):
         gt({"type": "duration", "value": "P1D"})
 
 def test_timezone_handling():

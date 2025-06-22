@@ -1,8 +1,16 @@
-# GFQL Wire Protocol Examples
+# Temporal Predicates Wire Protocol Reference
 
-This document shows how GFQL predicates serialize to JSON, including examples with different data types.
+This document provides a comprehensive reference for how temporal predicates serialize to JSON in the GFQL wire protocol. The wire protocol enables interoperability between Python and other systems.
 
-**Note**: Wire protocol dictionaries can be used directly in the Python API:
+## Overview
+
+The wire protocol uses tagged dictionaries to preserve type information during JSON serialization. This enables:
+- Cross-language compatibility
+- Configuration-driven predicate creation
+- Network transport of queries
+- Storage of predicate definitions
+
+**Key Concept**: Wire protocol dictionaries can be used directly in the Python API:
 
 ```python
 # These are equivalent:
@@ -424,13 +432,63 @@ reconstructed_query = Chain.from_json(received_data)
 result = g.chain(reconstructed_query.queries)
 ```
 
+## Wire Protocol Structure
+
+### Temporal Value Types
+
+All temporal values in the wire protocol follow this pattern:
+
+```typescript
+// DateTime with timezone
+interface DateTimeWire {
+    type: "datetime";
+    value: string;      // ISO 8601 format
+    timezone?: string;  // IANA timezone (default: "UTC")
+}
+
+// Date only
+interface DateWire {
+    type: "date";
+    value: string;      // YYYY-MM-DD format
+}
+
+// Time only  
+interface TimeWire {
+    type: "time";
+    value: string;      // HH:MM:SS[.ffffff] format
+}
+```
+
+### Predicate Structure
+
+Predicates containing temporal values serialize as:
+
+```typescript
+interface TemporalPredicate {
+    type: "GT" | "LT" | "GE" | "LE" | "EQ" | "NE";
+    val: DateTimeWire | DateWire | TimeWire;
+}
+
+interface BetweenPredicate {
+    type: "Between";
+    lower: DateTimeWire | DateWire | TimeWire;
+    upper: DateTimeWire | DateWire | TimeWire;
+    inclusive: boolean;
+}
+
+interface IsInPredicate {
+    type: "IsIn";
+    options: Array<DateTimeWire | DateWire | TimeWire>;
+}
+```
+
 ## Key Points
 
 1. **Type Safety**: Raw strings are rejected in the Python API to avoid ambiguity
 2. **Automatic Conversion**: Python datetime objects are automatically converted to appropriate temporal values
 3. **Timezone Preservation**: Timezone information is preserved through serialization
 4. **Tagged Format**: JSON uses tagged dictionaries to preserve type information
-5. **Backward Compatibility**: Numeric predicates still work with numeric values
+5. **Direct Usage**: Wire protocol dicts can be passed directly to Python predicates
 
 ## Error Handling
 

@@ -146,7 +146,7 @@ def test_temporal_values_api():
     }
     
     # Factory method
-    from graphistry.compute.predicates.temporal_values import temporal_value_from_json
+    from graphistry.compute.ast_temporal import temporal_value_from_json
     dt_val2 = temporal_value_from_json({
         "type": "datetime",
         "value": "2023-01-01T12:00:00",
