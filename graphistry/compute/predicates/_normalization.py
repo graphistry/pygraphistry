@@ -1,14 +1,46 @@
 """Internal normalization utilities - NOT PUBLIC API"""
 
-from typing import Any
+from typing import Union, TypeVar, overload, Dict, Any
 from datetime import datetime, date, time
 import pandas as pd
 import numpy as np
 
 from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
+from ._types import NumericValueType, TemporalInputType, TaggedDict
+
+# Output types for comparison normalization
+ComparisonValueType = Union[NumericValueType, TemporalValue]
+
+# Input type for comparison values
+ComparisonInputType = Union[NumericValueType, TemporalInputType, TaggedDict, TemporalValue]
 
 
-def normalize_comparison_value(val: Any, class_name: str) -> Any:
+@overload
+def normalize_comparison_value(val: NumericValueType, class_name: str) -> NumericValueType:
+    ...
+
+@overload
+def normalize_comparison_value(val: Union[pd.Timestamp, datetime], class_name: str) -> DateTimeValue:
+    ...
+
+@overload
+def normalize_comparison_value(val: date, class_name: str) -> DateValue:
+    ...
+
+@overload  
+def normalize_comparison_value(val: time, class_name: str) -> TimeValue:
+    ...
+
+@overload
+def normalize_comparison_value(val: TaggedDict, class_name: str) -> TemporalValue:
+    ...
+
+@overload
+def normalize_comparison_value(val: TemporalValue, class_name: str) -> TemporalValue:
+    ...
+
+
+def normalize_comparison_value(val: ComparisonInputType, class_name: str) -> ComparisonValueType:
     """
     Normalize values for comparison predicates (GT, LT, etc.)
     Internal use only - maintains exact behavior of original code
@@ -54,7 +86,38 @@ def normalize_comparison_value(val: Any, class_name: str) -> Any:
         raise TypeError(f"Unsupported type for {class_name}: {type(val)}")
 
 
-def normalize_isin_value(val: Any) -> Any:
+# Types for IsIn normalization
+BasicType = Union[int, float, str, np.number, None]
+IsInOutputType = Union[BasicType, pd.Timestamp, date, time, Dict[str, Any]]
+IsInInputType = Union[BasicType, TemporalInputType, TaggedDict, TemporalValue, Dict[str, Any]]
+
+
+@overload
+def normalize_isin_value(val: BasicType) -> BasicType:
+    ...
+
+@overload
+def normalize_isin_value(val: pd.Timestamp) -> pd.Timestamp:
+    ...
+
+@overload
+def normalize_isin_value(val: Union[datetime, date]) -> pd.Timestamp:
+    ...
+
+@overload
+def normalize_isin_value(val: time) -> time:
+    ...
+
+@overload
+def normalize_isin_value(val: TemporalValue) -> Union[pd.Timestamp, date, time]:
+    ...
+
+@overload
+def normalize_isin_value(val: Dict[str, Any]) -> Union[pd.Timestamp, date, time, Dict[str, Any]]:
+    ...
+
+
+def normalize_isin_value(val: IsInInputType) -> IsInOutputType:
     """
     Normalize values for IsIn predicate
     Internal use only - maintains exact behavior of original code

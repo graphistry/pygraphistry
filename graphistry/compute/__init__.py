@@ -25,7 +25,7 @@ from .predicates.temporal_values import (
     TimeValue,
     temporal_value_from_json
 )
-from .predicates.numeric import (
+from .predicates.comparison import (
     gt, GT,
     lt, LT,
     ge, GE,

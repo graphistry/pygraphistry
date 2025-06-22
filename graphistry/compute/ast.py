@@ -27,7 +27,7 @@ from .predicates.temporal import (
     is_year_end, IsYearEnd,
     is_leap_year, IsLeapYear
 )
-from .predicates.numeric import (
+from .predicates.comparison import (
     gt, GT,
     lt, LT,
     ge, GE,
