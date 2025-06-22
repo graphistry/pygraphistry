@@ -156,7 +156,7 @@ class TestFilterByDictTemporal:
         import pytz
         
         utc = pytz.UTC
-        eastern = pytz.timezone('US/Eastern')
+        # eastern = pytz.timezone('US/Eastern')  # Not used
         
         # Create timezone-aware data
         nodes_df = pd.DataFrame({
