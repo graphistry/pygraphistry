@@ -40,6 +40,15 @@ The following table lists the available operators, their descriptions, and examp
      - Between ``lower`` and ``upper`` (inclusive).
      - ``n({ "age": between(18, 65) })``
 
+.. note::
+   All numeric comparison operators (``gt``, ``lt``, ``ge``, ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
+   
+   - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
+   - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
+   - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
+   
+   See :doc:`/gfql/temporal_predicates` for detailed temporal filtering guide.
+
 **Categorical Operators**
 
 .. list-table::

@@ -19,3 +19,4 @@ See also:
    combo
    quick
    predicates/quick
+   temporal_predicates
