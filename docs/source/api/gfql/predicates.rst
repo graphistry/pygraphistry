@@ -53,12 +53,3 @@ Temporal
    :undoc-members:
    :show-inheritance:
    :noindex:
-
-Temporal Values
----------------
-
-.. automodule:: graphistry.compute.predicates.temporal_values
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
