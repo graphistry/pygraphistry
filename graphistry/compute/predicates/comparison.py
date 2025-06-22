@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union, TYPE_CHECKING
+from typing import Dict, Union, TYPE_CHECKING
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
@@ -7,6 +7,8 @@ from .ASTPredicate import ASTPredicate
 from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
 from ...models.gfql.coercions.temporal import to_ast
 from ...models.gfql.types.guards import is_native_numeric, is_any_temporal, is_string
+from ...models.gfql.types.predicates import ComparisonInput, BetweenBoundInput
+from ...utils.json import JSONVal
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
@@ -16,10 +18,10 @@ if TYPE_CHECKING:
 class ComparisonPredicate(ASTPredicate):
     """Base class for comparison predicates that support both numeric and temporal values"""
     
-    def __init__(self, val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> None:
+    def __init__(self, val: ComparisonInput) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: Any) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue]:
         """Convert various input types to internal representation"""
         # Comparison predicates need:
         # - Numerics as-is
@@ -121,7 +123,7 @@ class ComparisonPredicate(ASTPredicate):
         if validate:
             self.validate()
         
-        result: Dict[str, Any] = {"type": self.__class__.__name__}
+        result: Dict[str, JSONVal] = {"type": self.__class__.__name__}
         
         if isinstance(self.val, TemporalValue):
             # to_json() returns a dict, not a string
@@ -150,7 +152,7 @@ class GT(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def gt(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> GT:
+def gt(val: ComparisonInput) -> GT:
     """
     Return whether a given value is greater than a threshold
     """
@@ -166,7 +168,7 @@ class LT(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def lt(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> LT:
+def lt(val: ComparisonInput) -> LT:
     """
     Return whether a given value is less than a threshold
     """
@@ -182,7 +184,7 @@ class GE(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def ge(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> GE:
+def ge(val: ComparisonInput) -> GE:
     """
     Return whether a given value is greater than or equal to a threshold
     """
@@ -198,7 +200,7 @@ class LE(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def le(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> LE:
+def le(val: ComparisonInput) -> LE:
     """
     Return whether a given value is less than or equal to a threshold
     """
@@ -214,7 +216,7 @@ class EQ(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def eq(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> EQ:
+def eq(val: ComparisonInput) -> EQ:
     """
     Return whether a given value is equal to a threshold
     """
@@ -230,21 +232,21 @@ class NE(ComparisonPredicate):
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def ne(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> NE:
+def ne(val: ComparisonInput) -> NE:
     """
     Return whether a given value is not equal to a threshold
     """
     return NE(val)
 
 class Between(ASTPredicate):
-    def __init__(self, lower: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
-                 upper: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+    def __init__(self, lower: BetweenBoundInput, 
+                 upper: BetweenBoundInput, 
                  inclusive: bool = True) -> None:
         self.lower = self._normalize_value(lower)
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
     
-    def _normalize_value(self, val: Any) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue]:
         """Convert various input types to internal representation"""
         # Same normalization as ComparisonPredicate
         if is_native_numeric(val):
@@ -322,8 +324,8 @@ class Between(ASTPredicate):
             
         return result
 
-def between(lower: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
-            upper: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+def between(lower: BetweenBoundInput, 
+            upper: BetweenBoundInput, 
             inclusive: bool = True) -> Between:
     """
     Return whether a given value is between a lower and upper threshold

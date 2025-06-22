@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Dict
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
@@ -8,24 +8,30 @@ from .ASTPredicate import ASTPredicate
 from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
 from ...models.gfql.coercions.temporal import to_native
 from ...models.gfql.types.guards import is_basic_scalar, is_any_temporal
+from ...models.gfql.types.predicates import IsInElementInput
 from graphistry.compute.typing import SeriesT
 
 
 class IsIn(ASTPredicate):
-    def __init__(self, options: List[Any]) -> None:
+    def __init__(self, options: List[IsInElementInput]) -> None:
         self.options = self._normalize_options(options)
     
-    def _normalize_options(self, options: List[Any]) -> List[Any]:
-        """Normalize options list to handle temporal values"""
+    def _normalize_options(self, options: List[IsInElementInput]) -> List[Any]:
+        """Normalize options list to handle temporal values
+        
+        Returns List[Any] because normalized values include pandas types
+        and other hashable types for membership testing.
+        """
         normalized = []
         for val in options:
             normalized.append(self._normalize_value(val))
         return normalized
     
-    def _normalize_value(self, val: Any) -> Any:
+    def _normalize_value(self, val: IsInElementInput) -> Any:
         """Convert various input types to internal representation
         
-        Returns Any because IsIn accepts any hashable type for membership testing.
+        Returns Any because IsIn accepts any hashable type for membership testing,
+        including normalized pandas types.
         """
         # IsIn predicate needs:
         # - Basic scalars (including strings) as-is
@@ -116,5 +122,5 @@ class IsIn(ASTPredicate):
         }
 
 
-def is_in(options: List[Any]) -> IsIn:
+def is_in(options: List[IsInElementInput]) -> IsIn:
     return IsIn(options)
