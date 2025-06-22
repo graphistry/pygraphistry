@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
+from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING, cast
 import os, pandas as pd
 from .Plottable import Plottable
 try:
@@ -381,17 +381,21 @@ def resultset_to_g_structured_item(
 
 DROP_QUERY = 'g.V().drop()'
 
-class GremlinMixin(MIXIN_BASE):
+class GremlinMixin(Plottable):
     """
     Universal Gremlin<>pandas/graphistry functionality across Gremlin connectors
     
     Currently serializes queries as strings instead of bytecode in order to support cosmosdb
     """
 
-    _reconnect_gremlin : Optional[Callable[['GremlinMixin'], 'GremlinMixin']] = None
+    _reconnect_gremlin : Optional[Callable[[Plottable], Plottable]] = None
     _gremlin_client : Optional[Client]
 
     def __init__(self, *args, gremlin_client: Optional[Client] = None, **kwargs):
+        # NOTE: Cooperative constructor passes along all args/kwargs for other mixins
+        kwargs['gremlin_client'] = gremlin_client
+        super().__init__(*args, **kwargs)
+
         if gremlin_client is not None:
             self._gremlin_client = gremlin_client
 
@@ -437,7 +441,7 @@ class GremlinMixin(MIXIN_BASE):
         self._gremlin_client = gremlin_client
         return self
 
-    def connect(self):
+    def connect(self) -> Plottable:
         """
         Use previously provided credentials to connect. Disconnect any preexisting clients.
         """
@@ -668,7 +672,7 @@ class GremlinMixin(MIXIN_BASE):
         node_id = g._node
         if node_id is None:
             node_id = 'id'
-            g = g.bind(node=node_id)
+            g = cast('GremlinMixin', g.bind(node=node_id))
         if nodes_df is None:
             edges_df = g._edges
             if g._edges is None:
@@ -739,18 +743,11 @@ class GremlinMixin(MIXIN_BASE):
         return g2
 
 
-if TYPE_CHECKING:
-    COSMOS_BASE = GremlinMixin
-    NEPTUNE_BASE = GremlinMixin
-else:
-    COSMOS_BASE = object
-    NEPTUNE_BASE = object
 
+class NeptuneMixin(GremlinMixin):
 
-class NeptuneMixin(NEPTUNE_BASE):
-
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def neptune(
         self,
@@ -864,16 +861,16 @@ class NeptuneMixin(NEPTUNE_BASE):
 
             return self
 
-        self._reconnect_gremlin : Optional[Callable[[NeptuneMixin], NeptuneMixin]] = connect  # type: ignore
+        self._reconnect_gremlin = connect  # type: ignore
 
         return self
 
 
 
-class CosmosMixin(COSMOS_BASE):
+class CosmosMixin(GremlinMixin):
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def cosmos(
         self,
@@ -925,7 +922,7 @@ class CosmosMixin(COSMOS_BASE):
                 message_serializer=GraphSONSerializersV2d0())
             return self
 
-        self._reconnect_gremlin : Optional[Callable[[CosmosMixin], CosmosMixin]] = connect  # type: ignore
+        self._reconnect_gremlin = connect  # type: ignore
 
         if gremlin_client is None:
             if self._reconnect_gremlin is None:

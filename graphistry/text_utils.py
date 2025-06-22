@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from inspect import getmodule
 from logging import getLogger
 import pandas as pd
@@ -17,8 +17,8 @@ logger = getLogger(__name__)
 
 
 class SearchToGraphMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def assert_fitted(self):
         # assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
@@ -213,7 +213,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('SearchToGraphMixin', self.bind())
 
         edf = edges = res._edges
         # print('shape of edges', edf.shape)
