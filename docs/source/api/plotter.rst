@@ -18,17 +18,19 @@ Plotter Class
    :inherited-members:
    :show-inheritance:
 
-Plottable Interface
+
+PlotterBase Class
 ----------------------
-.. automodule:: graphistry.Plottable
+.. automodule:: graphistry.PlotterBase
    :members:
    :undoc-members:
    :inherited-members:
    :show-inheritance:
 
-PlotterBase Class
+
+Plottable Interface
 ----------------------
-.. automodule:: graphistry.PlotterBase
+.. automodule:: graphistry.Plottable
    :members:
    :undoc-members:
    :inherited-members:

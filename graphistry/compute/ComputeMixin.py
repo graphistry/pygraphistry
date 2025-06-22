@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-from typing import Any, List, Union, TYPE_CHECKING
+from typing import Any, List, Union
 from inspect import getmodule
 
 from graphistry.Engine import Engine, EngineAbstract
@@ -21,17 +21,12 @@ from .filter_by_dict import (
 
 logger = setup_logger(__name__)
 
-if TYPE_CHECKING:
-    MIXIN_BASE = Plottable
-else:
-    MIXIN_BASE = object
 
-
-class ComputeMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs):
-        pass
-
-
+class ComputeMixin(Plottable):
+    
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+    
     def to_cudf(self) -> 'Plottable':
         """
         Convert to GPU mode by converting any defined nodes and edges to cudf dataframes

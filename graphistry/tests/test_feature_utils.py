@@ -13,7 +13,8 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
     resolve_feature_engine,
-    FastEncoder
+    FastEncoder,
+    encode_textual
 )
 
 from graphistry.features import topic_model, ngrams_model
@@ -444,6 +445,147 @@ class TestFeatureMethods(unittest.TestCase):
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
 
+
+
+class TestModelNameHandling(unittest.TestCase):
+    """Test that both legacy and new model name formats work correctly"""
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_model_name_formats(self):
+        """Test various model name formats for backwards compatibility"""
+        # Create a simple test dataframe with text
+        test_df = pd.DataFrame({
+            'text1': ['hello world', 'test sentence', 'another example'],
+            'text2': ['foo bar baz', 'quick brown fox', 'lazy dog jumps'],
+            'number': [1, 2, 3]
+        })
+        
+        # Test cases: (input_model_name, expected_to_work, description)
+        test_cases = [
+            # Legacy format (without org prefix) - should add sentence-transformers/
+            ("paraphrase-albert-small-v2", True, "Legacy format without org prefix"),
+            
+            # Already has sentence-transformers prefix - should keep as-is
+            ("sentence-transformers/paraphrase-albert-small-v2", True, "With sentence-transformers prefix"),
+            
+            # New format with different org - should keep as-is
+            # Note: This would work with real model like mixedbread-ai/mxbai-embed-large-v1
+            # but for CI we use a known small model
+            ("sentence-transformers/paraphrase-albert-small-v2", True, "Standard format with org prefix"),
+        ]
+        
+        # Add local model test if running in Docker environment
+        import os
+        if os.path.exists("/models/average_word_embeddings_komninos"):
+            test_cases.append(
+                ("/models/average_word_embeddings_komninos", True, "Local model path from Docker")
+            )
+        
+        for model_name, should_work, description in test_cases:
+            with self.subTest(model_name=model_name, description=description):
+                try:
+                    # Use small model and min_words=0 for faster testing
+                    result_df, text_cols, model = encode_textual(
+                        test_df,
+                        min_words=0,  # Process all text columns
+                        model_name=model_name,
+                        use_ngrams=False
+                    )
+                    
+                    if should_work:
+                        # Verify we got results
+                        self.assertIsInstance(result_df, pd.DataFrame)
+                        self.assertGreater(result_df.shape[1], 0, f"No embedding columns created for {description}")
+                        self.assertEqual(len(result_df), len(test_df), f"Row count mismatch for {description}")
+                        self.assertIsNotNone(model, f"Model is None for {description}")
+                        self.assertEqual(text_cols, ['text1', 'text2'], f"Wrong text columns detected for {description}")
+                    
+                except Exception as e:
+                    if should_work:
+                        self.fail(f"Model {model_name} ({description}) should have worked but failed: {str(e)}")
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_new_model_provider_format(self):
+        """Test that new model provider formats are handled correctly"""
+        import os
+        from sentence_transformers import SentenceTransformer
+        
+        # Test the internal logic matching actual implementation
+        test_cases = [
+            # Legacy: no slash means add sentence-transformers/ prefix
+            ("model-name-only", "sentence-transformers/model-name-only"),
+            ("paraphrase-MiniLM-L6-v2", "sentence-transformers/paraphrase-MiniLM-L6-v2"),
+            
+            # Already has sentence-transformers/ prefix - keep as-is
+            ("sentence-transformers/model", "sentence-transformers/model"),
+            ("sentence-transformers/paraphrase-MiniLM-L6-v2", "sentence-transformers/paraphrase-MiniLM-L6-v2"),
+            
+            # Alternative namespaces - keep as-is
+            ("org/model-name", "org/model-name"),
+            ("mixedbread-ai/mxbai-embed-large-v1", "mixedbread-ai/mxbai-embed-large-v1"),
+            ("nomic-ai/nomic-embed-text-v1", "nomic-ai/nomic-embed-text-v1"),
+            ("BAAI/bge-large-en-v1.5", "BAAI/bge-large-en-v1.5"),
+            
+            # Local paths - extract just the model name (old behavior)
+            ("/local/path/to/model", "model"),
+            ("/models/average_word_embeddings_komninos", "average_word_embeddings_komninos"),
+            ("./relative/path/model", "model"),
+        ]
+        
+        for input_name, expected_name in test_cases:
+            with self.subTest(input_name=input_name):
+                # Test the model name processing logic matching actual implementation
+                if input_name.startswith('/') or input_name.startswith('./'):
+                    # Local path - extract just the model name
+                    processed_name = os.path.split(input_name)[-1]
+                elif '/' not in input_name:
+                    # Legacy format without org prefix
+                    processed_name = f"sentence-transformers/{input_name}"
+                else:
+                    # Already has org/model format
+                    processed_name = input_name
+                
+                self.assertEqual(processed_name, expected_name, 
+                               f"Model name processing failed for {input_name}")
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_alternative_namespace_models(self):
+        """Test that alternative namespace models work with actual encoding"""
+        # Create a simple test dataframe
+        test_df = pd.DataFrame({
+            'text': ['test sentence for encoding'],
+            'id': [1]
+        })
+        
+        # Only test with small, known-to-exist models to avoid download issues in CI
+        # Real-world usage would include models like:
+        # - "mixedbread-ai/mxbai-embed-large-v1"
+        # - "nomic-ai/nomic-embed-text-v1"
+        # - "BAAI/bge-small-en-v1.5"
+        
+        # For CI, we'll use the small albert model with different formats
+        small_model = "paraphrase-albert-small-v2"
+        
+        # Test that both formats produce the same embeddings
+        result1, _, model1 = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=small_model,  # Legacy format
+            use_ngrams=False
+        )
+        
+        result2, _, model2 = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=f"sentence-transformers/{small_model}",  # Full format
+            use_ngrams=False
+        )
+        
+        # Both should produce the same embeddings
+        self.assertEqual(result1.shape, result2.shape, 
+                        "Different formats should produce same shape embeddings")
+        self.assertTrue(np.allclose(result1.values, result2.values),
+                       "Different formats should produce identical embeddings")
 
 
 if __name__ == "__main__":

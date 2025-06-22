@@ -49,7 +49,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     return df[hits]
 
 
-def filter_nodes_by_dict(self: Plottable, filter_dict: dict, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
+def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
     filter nodes to those that match all values in filter_dict
     """
@@ -57,7 +57,7 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: dict, engine: Union[Engin
     return self.nodes(nodes2)
 
 
-def filter_edges_by_dict(self: Plottable, filter_dict: dict, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
+def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
     filter edges to those that match all values in filter_dict
     """

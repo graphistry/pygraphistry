@@ -6,7 +6,6 @@ ComputeMixin module
 .. automodule:: graphistry.compute.ComputeMixin
    :members:
    :undoc-members:
-   :inherited-members:
    :show-inheritance:
 
 Collapse
