@@ -2,6 +2,14 @@
 
 This document demonstrates how temporal predicates work in both the Python API and the wire protocol (JSON serialization).
 
+**Important**: Wire protocol dictionaries can be used directly in the Python API, allowing seamless integration between programmatic and JSON-based configurations:
+
+```python
+# These are equivalent:
+pred1 = gt(pd.Timestamp("2023-01-01"))
+pred2 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
+```
+
 ## 1. DateTime Comparisons
 
 ### Python API

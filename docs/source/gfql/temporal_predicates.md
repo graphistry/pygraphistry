@@ -117,22 +117,42 @@ complex_filter = g.chain([
 ])
 ```
 
-### Using Tagged Dictionaries
+### Using Wire Protocol Dictionaries Directly
 
-For JSON serialization or programmatic predicate creation:
+You can pass wire protocol dictionaries directly to predicates, which is useful for programmatic predicate creation or when working with JSON configurations:
 
 ```python
-# Create temporal predicate using tagged dictionary
-temporal_dict = {
-    "type": "datetime",
-    "value": "2023-01-01T12:00:00",
-    "timezone": "UTC"
-}
-
+# Pass wire protocol dictionaries directly
 filter_with_dict = g.chain([
-    n(filter_dict={"timestamp": gt(temporal_dict)})
+    n(filter_dict={"timestamp": gt({
+        "type": "datetime",
+        "value": "2023-01-01T12:00:00",
+        "timezone": "UTC"
+    })})
+])
+
+# Works with all temporal predicates
+date_range_filter = g.chain([
+    n(filter_dict={"event_date": between(
+        {"type": "date", "value": "2023-01-01"},
+        {"type": "date", "value": "2023-12-31"}
+    )})
+])
+
+# And with is_in for multiple values
+time_filter = g.chain([
+    n(filter_dict={"event_time": is_in([
+        {"type": "time", "value": "09:00:00"},
+        {"type": "time", "value": "12:00:00"},
+        {"type": "time", "value": "17:00:00"}
+    ])})
 ])
 ```
+
+This is the same format used by the wire protocol, making it easy to:
+- Store predicate configurations in JSON files
+- Build predicates programmatically from external data sources
+- Share predicate definitions between Python and other systems
 
 ### Temporal Predicates in Multi-Hop Queries
 
