@@ -14,17 +14,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-* **GFQL Predicates**: Add comprehensive datetime/temporal value support
-  * New temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for type-safe datetime handling
-  * Extended comparison predicates (GT, LT, GE, LE, EQ, NE, Between) to support temporal values
-  * Extended `IsIn` predicate to support temporal values in lists
-  * Support for timezone-aware datetime comparisons
-  * JSON serialization/deserialization for temporal values with tagged format
-  * Reject ambiguous string dates in favor of explicit temporal types
+* GFQL: Comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and `is_in` now support datetime, date, and time values with timezone awareness
 
 ### Changed
 
-* **GFQL Predicates**: Export temporal value classes from `graphistry.compute` and `graphistry.compute.predicates` modules
+* GFQL: Temporal value classes (`DateTimeValue`, `DateValue`, `TimeValue`) are now exported from `graphistry.compute`
 
 ### Internal
 

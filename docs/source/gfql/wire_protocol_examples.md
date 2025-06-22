@@ -1,13 +1,14 @@
-# GFQL Temporal Predicates: Python API and Wire Protocol Examples
+# GFQL Wire Protocol Examples
 
-This document demonstrates how temporal predicates work in both the Python API and the wire protocol (JSON serialization).
+This document shows how GFQL predicates serialize to JSON, including examples with different data types.
 
-**Important**: Wire protocol dictionaries can be used directly in the Python API, allowing seamless integration between programmatic and JSON-based configurations:
+**Note**: Wire protocol dictionaries can be used directly in the Python API:
 
 ```python
 # These are equivalent:
-pred1 = gt(pd.Timestamp("2023-01-01"))
-pred2 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
+pred1 = gt(100)
+pred2 = gt(pd.Timestamp("2023-01-01"))
+pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
 ```
 
 ## 1. DateTime Comparisons
