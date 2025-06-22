@@ -2,12 +2,45 @@
 
 GFQL predicates support filtering by datetime, date, and time values. This guide covers common patterns and gotchas when working with temporal data.
 
-## Supported Types
+## Required Imports
 
+```python
+# Core imports
+import graphistry
+from graphistry import n, e_forward, e_reverse, e_undirected
+
+# Temporal predicates
+from graphistry.compute import (
+    gt, lt, ge, le, eq, ne, between, is_in,
+    DateTimeValue, DateValue, TimeValue
+)
+
+# Standard datetime types
+import pandas as pd
+from datetime import datetime, date, time, timedelta
+import pytz  # For timezone support
+```
+
+## Supported Types and Standards
+
+### Native Python/Pandas Types
 Comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and `is_in` work with:
-- `datetime` / `pd.Timestamp` - Full datetime with optional timezone
-- `date` - Date only (year, month, day)
-- `time` - Time only (hour, minute, second)
+- **`datetime` / `pd.Timestamp`** - Full datetime with optional timezone (ISO 8601 format)
+- **`date`** - Date only (year, month, day)
+- **`time`** - Time only (hour, minute, second, microsecond)
+
+### Standards Compliance
+- **ISO 8601**: All datetime strings follow ISO 8601 format (e.g., "2023-01-01T12:00:00Z")
+- **IANA Timezones**: Timezone names follow IANA Time Zone Database (e.g., "US/Eastern", "UTC")
+- **RFC 3339**: Compatible with RFC 3339 for internet timestamps
+
+### Wire Protocol Types
+For JSON serialization and cross-system compatibility:
+- **DateTimeWire**: `{"type": "datetime", "value": "ISO-8601-string", "timezone": "IANA-timezone"}`
+- **DateWire**: `{"type": "date", "value": "YYYY-MM-DD"}`
+- **TimeWire**: `{"type": "time", "value": "HH:MM:SS[.ffffff]"}`
+
+Note: The `timezone` field is optional for DateTimeWire and defaults to "UTC" if omitted.
 
 ## Basic Usage
 
@@ -235,6 +268,33 @@ time_filter = g.chain([
 
 4. **JSON Serialization**: When serializing queries, temporal values are automatically converted to tagged dictionaries that preserve type and timezone information.
 
+## Unsupported Features
+
+### Duration/Interval Support
+Currently, PyGraphistry does not support duration or interval types (e.g., ISO 8601 durations like "P1D" or "PT2H"). For duration-based queries:
+
+```python
+# Instead of duration literals, calculate explicit timestamps
+from datetime import datetime, timedelta
+
+# Find events within last 7 days
+now = datetime.now()
+week_ago = now - timedelta(days=7)
+recent_events = g.chain([
+    n(filter_dict={"timestamp": gt(pd.Timestamp(week_ago))})
+])
+
+# For recurring intervals, use multiple conditions
+business_days = g.chain([
+    n(filter_dict={
+        "timestamp": between(
+            pd.Timestamp("2023-01-01"),
+            pd.Timestamp("2023-12-31")
+        )
+    })
+])
+```
+
 ## Common Patterns
 
 ### Filter Recent Data
@@ -289,5 +349,5 @@ good_filter = gt(pd.Timestamp("2023-01-01"))  # Do this instead
 ## See Also
 
 - [GFQL Predicates API Reference](../api/gfql/predicates.rst)
-- [GFQL Chain Operations](./chain.md)
-- [Temporal Predicates](../api/gfql/predicates.rst#temporal)
+- [GFQL Chain Operations](chain.rst)
+- [Wire Protocol Reference](wire_protocol_examples.md)

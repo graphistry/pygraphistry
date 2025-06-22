@@ -4,8 +4,9 @@ import numpy as np
 from datetime import datetime, date, time
 
 from .ASTPredicate import ASTPredicate
-from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
-from ._normalization import normalize_comparison_value
+from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
+from ...models.gfql.coercions.temporal import to_ast
+from ...models.gfql.types.guards import is_native_numeric, is_any_temporal, is_string
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
@@ -18,9 +19,24 @@ class ComparisonPredicate(ASTPredicate):
     def __init__(self, val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: Any) -> Any:
+    def _normalize_value(self, val: Any) -> Union[int, float, np.number, TemporalValue]:
         """Convert various input types to internal representation"""
-        return normalize_comparison_value(val)
+        # Comparison predicates need:
+        # - Numerics as-is
+        # - Temporals as AST objects (for timezone handling)
+        # - Strings rejected (ambiguous)
+        if is_native_numeric(val):
+            return val
+        elif is_any_temporal(val):
+            return to_ast(val)
+        elif is_string(val):
+            raise ValueError(
+                f"Raw string '{val}' is ambiguous. Use:\n"
+                f"  - pd.Timestamp('{val}') for datetime\n"
+                f"  - {{'type': 'datetime', 'value': '{val}'}} for explicit type"
+            )
+        else:
+            raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
     
     def _temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue, op: str) -> SeriesT:
         """Handle temporal comparisons with proper type handling"""
@@ -228,9 +244,21 @@ class Between(ASTPredicate):
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
     
-    def _normalize_value(self, val: Any) -> Any:
+    def _normalize_value(self, val: Any) -> Union[int, float, np.number, TemporalValue]:
         """Convert various input types to internal representation"""
-        return normalize_comparison_value(val)
+        # Same normalization as ComparisonPredicate
+        if is_native_numeric(val):
+            return val
+        elif is_any_temporal(val):
+            return to_ast(val)
+        elif is_string(val):
+            raise ValueError(
+                f"Raw string '{val}' is ambiguous. Use:\n"
+                f"  - pd.Timestamp('{val}') for datetime\n"
+                f"  - {{'type': 'datetime', 'value': '{val}'}} for explicit type"
+            )
+        else:
+            raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if both bounds are same type

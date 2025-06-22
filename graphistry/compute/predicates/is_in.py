@@ -5,8 +5,9 @@ from datetime import datetime, date, time
 
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
-from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
-from ._normalization import normalize_isin_value
+from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
+from ...models.gfql.coercions.temporal import to_native
+from ...models.gfql.types.guards import is_basic_scalar, is_any_temporal
 from graphistry.compute.typing import SeriesT
 
 
@@ -22,8 +23,21 @@ class IsIn(ASTPredicate):
         return normalized
     
     def _normalize_value(self, val: Any) -> Any:
-        """Convert various input types to internal representation"""
-        return normalize_isin_value(val)
+        """Convert various input types to internal representation
+        
+        Returns Any because IsIn accepts any hashable type for membership testing.
+        """
+        # IsIn predicate needs:
+        # - Basic scalars (including strings) as-is
+        # - Temporals as native/pandas types (for .isin() method)
+        # - Everything else passes through
+        if is_basic_scalar(val):
+            return val
+        elif is_any_temporal(val):
+            return to_native(val)
+        else:
+            # Everything else passes through (including dicts)
+            return val
     
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if we have any temporal values in options
