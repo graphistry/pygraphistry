@@ -1,115 +1,378 @@
-from typing import Any, Union
+from typing import Any, Union, TYPE_CHECKING
 import pandas as pd
+import numpy as np
+from datetime import datetime, date, time
 
 from .ASTPredicate import ASTPredicate
+from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
 from graphistry.compute.typing import SeriesT
 
+if TYPE_CHECKING:
+    pass
 
-class NumericASTPredicate(ASTPredicate):
-    def __init__(self, val: Union[int, float]) -> None:
-        self.val = val
 
+class ComparisonPredicate(ASTPredicate):
+    """Base class for comparison predicates that support both numeric and temporal values"""
+    
+    def __init__(self, val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> None:
+        self.val = self._normalize_value(val)
+    
+    def _normalize_value(self, val: Any) -> Any:
+        """Convert various input types to internal representation"""
+        # Numeric types (existing behavior)
+        if isinstance(val, (int, float, np.number)):
+            return val
+        
+        # Native temporal types (new)
+        elif isinstance(val, pd.Timestamp):
+            return DateTimeValue.from_pandas_timestamp(val)
+        elif isinstance(val, datetime):
+            return DateTimeValue.from_datetime(val)
+        elif isinstance(val, date):
+            return DateValue.from_date(val)
+        elif isinstance(val, time):
+            return TimeValue.from_time(val)
+        
+        # Tagged dict (for JSON deserialization)
+        elif isinstance(val, dict) and "type" in val:
+            if val["type"] == "datetime":
+                return DateTimeValue(val["value"], val.get("timezone", "UTC"))
+            elif val["type"] == "date":
+                return DateValue(val["value"])
+            elif val["type"] == "time":
+                return TimeValue(val["value"])
+            else:
+                raise ValueError(f"Unknown temporal type: {val['type']}")
+        
+        # Already a temporal value
+        elif isinstance(val, TemporalValue):
+            return val
+        
+        # Reject raw strings as ambiguous
+        elif isinstance(val, str):
+            raise ValueError(
+                f"Raw string '{val}' is ambiguous. Use:\n"
+                f"  - {self.__class__.__name__.lower()}(pd.Timestamp('{val}')) for datetime\n"
+                f"  - {self.__class__.__name__.lower()}({{'type': 'datetime', 'value': '{val}'}})) for explicit type"
+            )
+        
+        else:
+            raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
+    
+    def _temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue, op: str) -> SeriesT:
+        """Handle temporal comparisons with proper type handling"""
+        if isinstance(temporal_val, DateTimeValue):
+            # Normalize series to target timezone for comparison
+            if hasattr(s, 'dt'):
+                if s.dt.tz is None:
+                    s_tz = s.dt.tz_localize('UTC').dt.tz_convert(temporal_val.timezone)
+                else:
+                    s_tz = s.dt.tz_convert(temporal_val.timezone)
+            else:
+                s_tz = s  # type: ignore
+            
+            if op == '>':
+                return s_tz > temporal_val.as_pandas_value()
+            elif op == '<':
+                return s_tz < temporal_val.as_pandas_value()
+            elif op == '>=':
+                return s_tz >= temporal_val.as_pandas_value()
+            elif op == '<=':
+                return s_tz <= temporal_val.as_pandas_value()
+            elif op == '==':
+                return s_tz == temporal_val.as_pandas_value()
+            elif op == '!=':
+                return s_tz != temporal_val.as_pandas_value()
+        
+        elif isinstance(temporal_val, DateValue):
+            # Extract date from datetime series if needed
+            if hasattr(s, 'dt'):
+                s_date = s.dt.date
+            else:
+                s_date = s
+            
+            parsed_val = temporal_val._parsed
+            if op == '>':
+                return s_date > parsed_val
+            elif op == '<':
+                return s_date < parsed_val
+            elif op == '>=':
+                return s_date >= parsed_val
+            elif op == '<=':
+                return s_date <= parsed_val
+            elif op == '==':
+                return s_date == parsed_val
+            elif op == '!=':
+                return s_date != parsed_val
+        
+        elif isinstance(temporal_val, TimeValue):
+            # Extract time from datetime series if needed
+            if hasattr(s, 'dt'):
+                s_time = s.dt.time
+            else:
+                s_time = s
+            
+            parsed_val = temporal_val._parsed
+            if op == '>':
+                return s_time > parsed_val
+            elif op == '<':
+                return s_time < parsed_val
+            elif op == '>=':
+                return s_time >= parsed_val
+            elif op == '<=':
+                return s_time <= parsed_val
+            elif op == '==':
+                return s_time == parsed_val
+            elif op == '!=':
+                return s_time != parsed_val
+        
+        raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
+    
     def validate(self) -> None:
-        assert isinstance(self.val, (int, float))
+        """Validate both numeric and temporal values"""
+        if isinstance(self.val, (int, float)):
+            pass  # Numeric values are always valid
+        elif isinstance(self.val, TemporalValue):
+            pass  # Temporal values validated on construction
+        else:
+            raise TypeError(f"Invalid value type: {type(self.val)}")
+    
+    def to_json(self, validate=True) -> dict:
+        """Serialize maintaining backward compatibility"""
+        if validate:
+            self.validate()
+        
+        result = {"type": self.__class__.__name__}
+        
+        if isinstance(self.val, TemporalValue):
+            # to_json() returns a dict, not a string
+            val_dict = self.val.to_json()
+            result["val"] = val_dict
+        else:
+            result["val"] = self.val
+        
+        return result
+
+
+# For backward compatibility - keep but deprecated
+class NumericASTPredicate(ComparisonPredicate):
+    """Deprecated: Use ComparisonPredicate instead"""
+    pass
 
 ###
 
-class GT(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class GT(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s > self.val
+        """Greater than comparison"""
+        if isinstance(self.val, (int, float)):
+            return s > self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '>')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def gt(val: float) -> GT:
+def gt(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> GT:
     """
     Return whether a given value is greater than a threshold
     """
     return GT(val)
 
-class LT(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class LT(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s < self.val
+        """Less than comparison"""
+        if isinstance(self.val, (int, float)):
+            return s < self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '<')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def lt(val: float) -> LT:
+def lt(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> LT:
     """
     Return whether a given value is less than a threshold
     """
     return LT(val)
 
-class GE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class GE(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s >= self.val
+        """Greater than or equal comparison"""
+        if isinstance(self.val, (int, float)):
+            return s >= self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '>=')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def ge(val: float) -> GE:
+def ge(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> GE:
     """
     Return whether a given value is greater than or equal to a threshold
     """
     return GE(val)
 
-class LE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class LE(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s <= self.val
+        """Less than or equal comparison"""
+        if isinstance(self.val, (int, float)):
+            return s <= self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '<=')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def le(val: float) -> LE:
+def le(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> LE:
     """
     Return whether a given value is less than or equal to a threshold
     """
     return LE(val)
 
-class EQ(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class EQ(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s == self.val
+        """Equal comparison"""
+        if isinstance(self.val, (int, float)):
+            return s == self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '==')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def eq(val: float) -> EQ:
+def eq(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> EQ:
     """
     Return whether a given value is equal to a threshold
     """
     return EQ(val)
 
-class NE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
+class NE(ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s != self.val
+        """Not equal comparison"""
+        if isinstance(self.val, (int, float)):
+            return s != self.val
+        elif isinstance(self.val, TemporalValue):
+            return self._temporal_comparison(s, self.val, '!=')
+        else:
+            raise TypeError(f"Unexpected value type: {type(self.val)}")
 
-def ne(val: float) -> NE:
+def ne(val: Union[int, float, pd.Timestamp, datetime, date, time, dict]) -> NE:
     """
     Return whether a given value is not equal to a threshold
     """
     return NE(val)
 
 class Between(ASTPredicate):
-    def __init__(self, lower: float, upper: float, inclusive: bool = True) -> None:
-        self.lower = lower
-        self.upper = upper
+    def __init__(self, lower: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+                 upper: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+                 inclusive: bool = True) -> None:
+        self.lower = self._normalize_value(lower)
+        self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
+    
+    def _normalize_value(self, val: Any) -> Any:
+        """Convert various input types to internal representation"""
+        # Use same logic as ComparisonPredicate
+        # Numeric types
+        if isinstance(val, (int, float, np.number)):
+            return val
+        
+        # Native temporal types
+        elif isinstance(val, pd.Timestamp):
+            return DateTimeValue.from_pandas_timestamp(val)
+        elif isinstance(val, datetime):
+            return DateTimeValue.from_datetime(val)
+        elif isinstance(val, date):
+            return DateValue.from_date(val)
+        elif isinstance(val, time):
+            return TimeValue.from_time(val)
+        
+        # Tagged dict
+        elif isinstance(val, dict) and "type" in val:
+            if val["type"] == "datetime":
+                return DateTimeValue(val["value"], val.get("timezone", "UTC"))
+            elif val["type"] == "date":
+                return DateValue(val["value"])
+            elif val["type"] == "time":
+                return TimeValue(val["value"])
+            else:
+                raise ValueError(f"Unknown temporal type: {val['type']}")
+        
+        # Already a temporal value
+        elif isinstance(val, TemporalValue):
+            return val
+        
+        # Reject raw strings
+        elif isinstance(val, str):
+            raise ValueError(
+                f"Raw string '{val}' is ambiguous. Use:\\n"
+                f"  - between(pd.Timestamp('{val}'), ...) for datetime\\n"
+                f"  - between({{'type': 'datetime', 'value': '{val}'}}), ...) for explicit type"
+            )
+        
+        else:
+            raise TypeError(f"Unsupported type for Between: {type(val)}")
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        if self.inclusive:
-            return (s >= self.lower) & (s <= self.upper)
+        # Check if both bounds are same type
+        lower_is_numeric = isinstance(self.lower, (int, float))
+        upper_is_numeric = isinstance(self.upper, (int, float))
+        lower_is_temporal = isinstance(self.lower, TemporalValue)
+        upper_is_temporal = isinstance(self.upper, TemporalValue)
+        
+        if lower_is_numeric and upper_is_numeric:
+            # Numeric comparison
+            if self.inclusive:
+                return (s >= self.lower) & (s <= self.upper)
+            else:
+                return (s > self.lower) & (s < self.upper)
+        
+        elif lower_is_temporal and upper_is_temporal:
+            # Temporal comparison
+            # Create comparison predicates and use them
+            ge_pred = GE(self.lower)
+            le_pred = LE(self.upper)
+            gt_pred = GT(self.lower)
+            lt_pred = LT(self.upper)
+            
+            if self.inclusive:
+                return ge_pred(s) & le_pred(s)
+            else:
+                return gt_pred(s) & lt_pred(s)
+        
         else:
-            return (s > self.lower) & (s < self.upper)
+            raise TypeError("Between requires both bounds to be same type (numeric or temporal)")
         
     def validate(self) -> None:
-        assert isinstance(self.lower, (int, float))
-        assert isinstance(self.upper, (int, float))
+        # Check types match
+        lower_is_numeric = isinstance(self.lower, (int, float))
+        upper_is_numeric = isinstance(self.upper, (int, float))
+        lower_is_temporal = isinstance(self.lower, TemporalValue)
+        upper_is_temporal = isinstance(self.upper, TemporalValue)
+        
+        if not ((lower_is_numeric and upper_is_numeric) or (lower_is_temporal and upper_is_temporal)):
+            raise TypeError("Between requires both bounds to be same type")
+        
         assert isinstance(self.inclusive, bool)
+    
+    def to_json(self, validate=True) -> dict:
+        """Serialize maintaining backward compatibility"""
+        if validate:
+            self.validate()
+        
+        result = {"type": self.__class__.__name__, "inclusive": self.inclusive}
+        
+        # Serialize lower/upper based on type
+        if isinstance(self.lower, TemporalValue):
+            result["lower"] = self.lower.to_json()
+        else:
+            result["lower"] = self.lower
+            
+        if isinstance(self.upper, TemporalValue):
+            result["upper"] = self.upper.to_json()
+        else:
+            result["upper"] = self.upper
+            
+        return result
 
-def between(lower: float, upper: float, inclusive: bool = True) -> Between:
+def between(lower: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+            upper: Union[int, float, pd.Timestamp, datetime, date, time, dict], 
+            inclusive: bool = True) -> Between:
     """
     Return whether a given value is between a lower and upper threshold
     """
