@@ -2,8 +2,16 @@
 import json
 from typing import Any, Dict, List, Union
 
-
-JSONVal = Union[None, bool, str, float, int, List['JSONVal'], Dict[str, 'JSONVal']]
+# Forward reference to avoid cyclic definition issues
+JSONVal = Union[
+    None, 
+    bool, 
+    str, 
+    float, 
+    int, 
+    List[Any],  # Using Any instead of JSONVal to avoid cyclic reference
+    Dict[str, Any]  # Using Any instead of JSONVal to avoid cyclic reference
+]
 
 
 def is_json_serializable(data):

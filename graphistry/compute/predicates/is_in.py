@@ -94,7 +94,7 @@ class IsIn(ASTPredicate):
             self.validate()
         
         # Convert temporal values back to tagged dicts for serialization
-        json_options = []
+        json_options: List[Any] = []
         for opt in self.options:
             if isinstance(opt, pd.Timestamp):
                 # Convert back to tagged dict

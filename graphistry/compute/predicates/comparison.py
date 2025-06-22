@@ -1,4 +1,4 @@
-from typing import Dict, Union, TYPE_CHECKING
+from typing import Dict, Union, TYPE_CHECKING, cast
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
@@ -30,7 +30,9 @@ class ComparisonPredicate(ASTPredicate):
         if is_native_numeric(val):
             return val
         elif is_any_temporal(val):
-            return to_ast(val)
+            # to_ast always returns TemporalValue for valid temporal inputs
+            temporal_val = to_ast(val)
+            return temporal_val
         elif is_string(val):
             raise ValueError(
                 f"Raw string '{val}' is ambiguous. Use:\n"
@@ -128,9 +130,9 @@ class ComparisonPredicate(ASTPredicate):
         if isinstance(self.val, TemporalValue):
             # to_json() returns a dict, not a string
             val_dict = self.val.to_json()
-            result["val"] = val_dict
+            result["val"] = cast(JSONVal, val_dict)
         else:
-            result["val"] = self.val
+            result["val"] = cast(JSONVal, self.val)
         
         return result
 
@@ -252,7 +254,9 @@ class Between(ASTPredicate):
         if is_native_numeric(val):
             return val
         elif is_any_temporal(val):
-            return to_ast(val)
+            # to_ast always returns TemporalValue for valid temporal inputs
+            temporal_val = to_ast(val)
+            return temporal_val
         elif is_string(val):
             raise ValueError(
                 f"Raw string '{val}' is ambiguous. Use:\n"
@@ -309,18 +313,18 @@ class Between(ASTPredicate):
         if validate:
             self.validate()
         
-        result = {"type": self.__class__.__name__, "inclusive": self.inclusive}
+        result: Dict[str, JSONVal] = {"type": self.__class__.__name__, "inclusive": self.inclusive}
         
         # Serialize lower/upper based on type
         if isinstance(self.lower, TemporalValue):
-            result["lower"] = self.lower.to_json()
+            result["lower"] = cast(JSONVal, self.lower.to_json())
         else:
-            result["lower"] = self.lower
+            result["lower"] = cast(JSONVal, self.lower)
             
         if isinstance(self.upper, TemporalValue):
-            result["upper"] = self.upper.to_json()
+            result["upper"] = cast(JSONVal, self.upper.to_json())
         else:
-            result["upper"] = self.upper
+            result["upper"] = cast(JSONVal, self.upper)
             
         return result
 
