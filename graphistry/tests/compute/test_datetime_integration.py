@@ -109,7 +109,7 @@ def test_json_serialization_roundtrip():
     assert json_data['type'] == 'GT'
     
     # Deserialize and verify it still works
-    from graphistry.compute.predicates.numeric import GT
+    from graphistry.compute.predicates.comparison import GT
     pred2 = GT.from_json(json_data)
     
     # Test on data
