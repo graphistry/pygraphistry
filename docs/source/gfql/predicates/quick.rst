@@ -47,7 +47,7 @@ The following table lists the available operators, their descriptions, and examp
    - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
    - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
    
-   See :doc:`/gfql/temporal_predicates` for detailed temporal filtering guide.
+   See :doc:`/gfql/datetime_filtering` for datetime filtering examples.
 
 **Categorical Operators**
 

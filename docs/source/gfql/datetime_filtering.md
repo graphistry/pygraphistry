@@ -1,10 +1,13 @@
-# Temporal Predicates in GFQL
+# Working with Dates and Times
 
-PyGraphistry's GFQL (Graph Frame Query Language) provides comprehensive support for filtering graph data based on temporal (date/time) values. This guide covers how to use temporal predicates for datetime filtering in your graph queries.
+GFQL predicates support filtering by datetime, date, and time values. This guide covers common patterns and gotchas when working with temporal data.
 
-## Overview
+## Supported Types
 
-Temporal predicates allow you to filter nodes and edges based on datetime, date, or time values. All comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and the `is_in` predicate support temporal values.
+Comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and `is_in` work with:
+- `datetime` / `pd.Timestamp` - Full datetime with optional timezone
+- `date` - Date only (year, month, day)
+- `time` - Time only (hour, minute, second)
 
 ## Basic Usage
 

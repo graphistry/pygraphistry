@@ -23,7 +23,6 @@ Key Features
 - **High Performance**: Optimized for both CPU and GPU execution, capable of processing billions of edges.
 - **Ease of Use**: Install via `pip` and start querying without the need for external databases.
 - **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
-- **Temporal Filtering**: Native support for datetime, date, and time predicates with timezone awareness.
 - **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
 - **Architectural Freedom**: Use GFQL with your dataframes on your local CPU/GPU, or offload to a remote GPU cluster.
 
