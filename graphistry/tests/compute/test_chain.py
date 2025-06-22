@@ -5,7 +5,7 @@ import pytest
 from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward
 from graphistry.compute.chain import Chain
 from graphistry.compute.predicates.is_in import IsIn, is_in
-from graphistry.compute.predicates.numeric import gt
+from graphistry.compute.predicates.comparison import gt
 from graphistry.tests.test_compute import CGFull
 
 

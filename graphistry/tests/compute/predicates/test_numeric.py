@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 from datetime import datetime, date, time
-from graphistry.compute.predicates.numeric import GT, gt, LT, lt, GE, ge, LE, le, EQ, eq, NE, ne, Between, between
+from graphistry.compute.predicates.comparison import GT, gt, LT, lt, GE, ge, LE, le, EQ, eq, NE, ne, Between, between
 from graphistry.compute.predicates.temporal_values import DateTimeValue, DateValue, TimeValue
 
 def test_gt():
