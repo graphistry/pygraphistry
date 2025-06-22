@@ -4,7 +4,15 @@ Type detection utilities
 Clear functions to check what kind of type a value is.
 """
 
-from typing import Any
+from typing import Any, TYPE_CHECKING, Union, Dict
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeGuard
+else:
+    try:
+        from typing import TypeGuard
+    except ImportError:
+        TypeGuard = bool
 from datetime import datetime, date, time
 import pandas as pd
 import numpy as np

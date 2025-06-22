@@ -33,7 +33,6 @@ IsInElementInput = Union[
     BasicScalar,        # Includes strings and None
     NativeTemporal,     # Python datetime types  
     TemporalWire,       # Wire format temporal
-    Dict[str, Any],     # Arbitrary dicts can pass through
 ]
 
 # Between predicate - each bound follows comparison rules
