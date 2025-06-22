@@ -1,0 +1,63 @@
+# Configuration for notebook testing
+# This file defines which notebooks to test and any special configurations
+
+# Notebooks to skip (e.g., those requiring special setup or credentials)
+skip_notebooks:
+  - "**/private_*.ipynb"
+  - "**/manual_*.ipynb"
+  - "**/scratch_*.ipynb"
+  - "demos/more_examples/graphistry_features/sharing_tutorial.ipynb"  # Requires API keys
+
+# Notebooks requiring longer timeout (in seconds)
+long_running_notebooks:
+  timeout: 600
+  patterns:
+    - "**/advanced-*.ipynb"
+    - "**/large-data-*.ipynb"
+    - "demos/ai/**/*.ipynb"
+
+# GPU-only notebooks
+gpu_only_notebooks:
+  - "**/gpu_*.ipynb"
+  - "**/cuda_*.ipynb"
+  - "demos/more_examples/graphistry_features/encodings-gpu.ipynb"
+
+# Test groups for selective testing
+test_groups:
+  quick:
+    description: "Quick smoke tests - basic functionality"
+    patterns:
+      - "demos/more_examples/graphistry_features/edge-weights.ipynb"
+      - "demos/more_examples/graphistry_features/encodings-colors.ipynb"
+      - "demos/more_examples/graphistry_features/encodings-sizes.ipynb"
+    timeout: 120
+  
+  core:
+    description: "Core functionality tests"
+    patterns:
+      - "demos/more_examples/graphistry_features/*.ipynb"
+      - "demos/upload_csv_miniapp.ipynb"
+    exclude:
+      - "**/sharing_*.ipynb"
+      - "**/external_*.ipynb"
+    timeout: 300
+  
+  ai:
+    description: "AI and ML features"
+    patterns:
+      - "demos/ai/**/*.ipynb"
+      - "demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb"
+    timeout: 600
+  
+  all:
+    description: "All notebooks except explicitly skipped"
+    patterns:
+      - "demos/**/*.ipynb"
+    timeout: 300
+
+# Environment variables to set for all notebook tests
+environment:
+  GRAPHISTRY_PROTOCOL: "http"
+  GRAPHISTRY_SERVER: "localhost"
+  GRAPHISTRY_API_KEY: "test_key"
+  JUPYTER_PLATFORM_DIRS: "1"

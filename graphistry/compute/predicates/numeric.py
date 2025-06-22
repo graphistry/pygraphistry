@@ -1,4 +1,4 @@
-from typing import Any, Union, TYPE_CHECKING
+from typing import Any, Dict, Union, TYPE_CHECKING
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
@@ -91,19 +91,19 @@ class ComparisonPredicate(ASTPredicate):
             else:
                 s_date = s
             
-            parsed_val = temporal_val._parsed
+            parsed_date = temporal_val._parsed
             if op == '>':
-                return s_date > parsed_val
+                return s_date > parsed_date
             elif op == '<':
-                return s_date < parsed_val
+                return s_date < parsed_date
             elif op == '>=':
-                return s_date >= parsed_val
+                return s_date >= parsed_date
             elif op == '<=':
-                return s_date <= parsed_val
+                return s_date <= parsed_date
             elif op == '==':
-                return s_date == parsed_val
+                return s_date == parsed_date
             elif op == '!=':
-                return s_date != parsed_val
+                return s_date != parsed_date
         
         elif isinstance(temporal_val, TimeValue):
             # Extract time from datetime series if needed
@@ -112,19 +112,19 @@ class ComparisonPredicate(ASTPredicate):
             else:
                 s_time = s
             
-            parsed_val = temporal_val._parsed
+            parsed_time = temporal_val._parsed
             if op == '>':
-                return s_time > parsed_val
+                return s_time > parsed_time
             elif op == '<':
-                return s_time < parsed_val
+                return s_time < parsed_time
             elif op == '>=':
-                return s_time >= parsed_val
+                return s_time >= parsed_time
             elif op == '<=':
-                return s_time <= parsed_val
+                return s_time <= parsed_time
             elif op == '==':
-                return s_time == parsed_val
+                return s_time == parsed_time
             elif op == '!=':
-                return s_time != parsed_val
+                return s_time != parsed_time
         
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
     
@@ -142,7 +142,7 @@ class ComparisonPredicate(ASTPredicate):
         if validate:
             self.validate()
         
-        result = {"type": self.__class__.__name__}
+        result: Dict[str, Any] = {"type": self.__class__.__name__}
         
         if isinstance(self.val, TemporalValue):
             # to_json() returns a dict, not a string
