@@ -6,6 +6,7 @@ from datetime import datetime, date, time
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
 from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
+from ._normalization import normalize_isin_value
 from graphistry.compute.typing import SeriesT
 
 
@@ -22,43 +23,7 @@ class IsIn(ASTPredicate):
     
     def _normalize_value(self, val: Any) -> Any:
         """Convert various input types to internal representation"""
-        # Pass through basic types unchanged
-        if isinstance(val, (int, float, str, np.number, type(None))):
-            return val
-        
-        # Native temporal types
-        elif isinstance(val, pd.Timestamp):
-            return val
-        elif isinstance(val, datetime):
-            return pd.Timestamp(val)
-        elif isinstance(val, date):
-            return pd.Timestamp(val)
-        elif isinstance(val, time):
-            # For time-only values, keep as time object
-            return val
-        
-        # Tagged dict (for JSON deserialization)
-        elif isinstance(val, dict) and "type" in val:
-            if val["type"] == "datetime":
-                dt_val = DateTimeValue(val["value"], val.get("timezone", "UTC"))
-                return dt_val.as_pandas_value()
-            elif val["type"] == "date":
-                date_val = DateValue(val["value"])
-                return date_val.as_pandas_value()
-            elif val["type"] == "time":
-                time_val = TimeValue(val["value"])
-                return time_val.as_pandas_value()
-            else:
-                # Non-temporal dict, pass through
-                return val
-        
-        # Already a temporal value
-        elif isinstance(val, TemporalValue):
-            return val.as_pandas_value()
-        
-        # Everything else passes through
-        else:
-            return val
+        return normalize_isin_value(val)
     
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if we have any temporal values in options

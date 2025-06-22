@@ -5,6 +5,7 @@ from datetime import datetime, date, time
 
 from .ASTPredicate import ASTPredicate
 from .temporal_values import TemporalValue, DateTimeValue, DateValue, TimeValue
+from ._normalization import normalize_comparison_value
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
@@ -19,45 +20,7 @@ class ComparisonPredicate(ASTPredicate):
     
     def _normalize_value(self, val: Any) -> Any:
         """Convert various input types to internal representation"""
-        # Numeric types (existing behavior)
-        if isinstance(val, (int, float, np.number)):
-            return val
-        
-        # Native temporal types (new)
-        elif isinstance(val, pd.Timestamp):
-            return DateTimeValue.from_pandas_timestamp(val)
-        elif isinstance(val, datetime):
-            return DateTimeValue.from_datetime(val)
-        elif isinstance(val, date):
-            return DateValue.from_date(val)
-        elif isinstance(val, time):
-            return TimeValue.from_time(val)
-        
-        # Tagged dict (for JSON deserialization)
-        elif isinstance(val, dict) and "type" in val:
-            if val["type"] == "datetime":
-                return DateTimeValue(val["value"], val.get("timezone", "UTC"))
-            elif val["type"] == "date":
-                return DateValue(val["value"])
-            elif val["type"] == "time":
-                return TimeValue(val["value"])
-            else:
-                raise ValueError(f"Unknown temporal type: {val['type']}")
-        
-        # Already a temporal value
-        elif isinstance(val, TemporalValue):
-            return val
-        
-        # Reject raw strings as ambiguous
-        elif isinstance(val, str):
-            raise ValueError(
-                f"Raw string '{val}' is ambiguous. Use:\n"
-                f"  - {self.__class__.__name__.lower()}(pd.Timestamp('{val}')) for datetime\n"
-                f"  - {self.__class__.__name__.lower()}({{'type': 'datetime', 'value': '{val}'}})) for explicit type"
-            )
-        
-        else:
-            raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
+        return normalize_comparison_value(val, self.__class__.__name__)
     
     def _temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue, op: str) -> SeriesT:
         """Handle temporal comparisons with proper type handling"""
@@ -267,46 +230,7 @@ class Between(ASTPredicate):
     
     def _normalize_value(self, val: Any) -> Any:
         """Convert various input types to internal representation"""
-        # Use same logic as ComparisonPredicate
-        # Numeric types
-        if isinstance(val, (int, float, np.number)):
-            return val
-        
-        # Native temporal types
-        elif isinstance(val, pd.Timestamp):
-            return DateTimeValue.from_pandas_timestamp(val)
-        elif isinstance(val, datetime):
-            return DateTimeValue.from_datetime(val)
-        elif isinstance(val, date):
-            return DateValue.from_date(val)
-        elif isinstance(val, time):
-            return TimeValue.from_time(val)
-        
-        # Tagged dict
-        elif isinstance(val, dict) and "type" in val:
-            if val["type"] == "datetime":
-                return DateTimeValue(val["value"], val.get("timezone", "UTC"))
-            elif val["type"] == "date":
-                return DateValue(val["value"])
-            elif val["type"] == "time":
-                return TimeValue(val["value"])
-            else:
-                raise ValueError(f"Unknown temporal type: {val['type']}")
-        
-        # Already a temporal value
-        elif isinstance(val, TemporalValue):
-            return val
-        
-        # Reject raw strings
-        elif isinstance(val, str):
-            raise ValueError(
-                f"Raw string '{val}' is ambiguous. Use:\\n"
-                f"  - between(pd.Timestamp('{val}'), ...) for datetime\\n"
-                f"  - between({{'type': 'datetime', 'value': '{val}'}}), ...) for explicit type"
-            )
-        
-        else:
-            raise TypeError(f"Unsupported type for Between: {type(val)}")
+        return normalize_comparison_value(val, self.__class__.__name__)
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if both bounds are same type
