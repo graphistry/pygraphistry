@@ -20,7 +20,7 @@ class ComparisonPredicate(ASTPredicate):
     
     def _normalize_value(self, val: Any) -> Any:
         """Convert various input types to internal representation"""
-        return normalize_comparison_value(val, self.__class__.__name__)
+        return normalize_comparison_value(val)
     
     def _temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue, op: str) -> SeriesT:
         """Handle temporal comparisons with proper type handling"""
@@ -230,7 +230,7 @@ class Between(ASTPredicate):
     
     def _normalize_value(self, val: Any) -> Any:
         """Convert various input types to internal representation"""
-        return normalize_comparison_value(val, self.__class__.__name__)
+        return normalize_comparison_value(val)
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if both bounds are same type

@@ -16,31 +16,31 @@ ComparisonInputType = Union[NumericValueType, TemporalInputType, TaggedDict, Tem
 
 
 @overload
-def normalize_comparison_value(val: NumericValueType, class_name: str) -> NumericValueType:
+def normalize_comparison_value(val: NumericValueType) -> NumericValueType:
     ...
 
 @overload
-def normalize_comparison_value(val: Union[pd.Timestamp, datetime], class_name: str) -> DateTimeValue:
+def normalize_comparison_value(val: Union[pd.Timestamp, datetime]) -> DateTimeValue:
     ...
 
 @overload
-def normalize_comparison_value(val: date, class_name: str) -> DateValue:
+def normalize_comparison_value(val: date) -> DateValue:
     ...
 
 @overload  
-def normalize_comparison_value(val: time, class_name: str) -> TimeValue:
+def normalize_comparison_value(val: time) -> TimeValue:
     ...
 
 @overload
-def normalize_comparison_value(val: TaggedDict, class_name: str) -> TemporalValue:
+def normalize_comparison_value(val: TaggedDict) -> TemporalValue:
     ...
 
 @overload
-def normalize_comparison_value(val: TemporalValue, class_name: str) -> TemporalValue:
+def normalize_comparison_value(val: TemporalValue) -> TemporalValue:
     ...
 
 
-def normalize_comparison_value(val: ComparisonInputType, class_name: str) -> ComparisonValueType:
+def normalize_comparison_value(val: ComparisonInputType) -> ComparisonValueType:
     """
     Normalize values for comparison predicates (GT, LT, etc.)
     Internal use only - maintains exact behavior of original code
@@ -62,7 +62,9 @@ def normalize_comparison_value(val: ComparisonInputType, class_name: str) -> Com
     # Tagged dict (for JSON deserialization)
     elif isinstance(val, dict) and "type" in val:
         if val["type"] == "datetime":
-            return DateTimeValue(val["value"], val.get("timezone", "UTC"))
+            timezone = val.get("timezone", "UTC")
+            assert isinstance(timezone, str)
+            return DateTimeValue(val["value"], timezone)
         elif val["type"] == "date":
             return DateValue(val["value"])
         elif val["type"] == "time":
@@ -78,12 +80,12 @@ def normalize_comparison_value(val: ComparisonInputType, class_name: str) -> Com
     elif isinstance(val, str):
         raise ValueError(
             f"Raw string '{val}' is ambiguous. Use:\n"
-            f"  - {class_name.lower()}(pd.Timestamp('{val}')) for datetime\n"
-            f"  - {class_name.lower()}({{'type': 'datetime', 'value': '{val}'}})) for explicit type"
+            f"  - pd.Timestamp('{val}') for datetime\n"
+            f"  - {{'type': 'datetime', 'value': '{val}'}} for explicit type"
         )
     
     else:
-        raise TypeError(f"Unsupported type for {class_name}: {type(val)}")
+        raise TypeError(f"Unsupported type for comparison: {type(val)}")
 
 
 # Types for IsIn normalization
@@ -100,8 +102,12 @@ def normalize_isin_value(val: BasicType) -> BasicType:
 def normalize_isin_value(val: pd.Timestamp) -> pd.Timestamp:
     ...
 
+@overload 
+def normalize_isin_value(val: date) -> pd.Timestamp:
+    ...
+
 @overload
-def normalize_isin_value(val: Union[datetime, date]) -> pd.Timestamp:
+def normalize_isin_value(val: datetime) -> pd.Timestamp:
     ...
 
 @overload
@@ -140,7 +146,9 @@ def normalize_isin_value(val: IsInInputType) -> IsInOutputType:
     # Tagged dict (for JSON deserialization)
     elif isinstance(val, dict) and "type" in val:
         if val["type"] == "datetime":
-            dt_val = DateTimeValue(val["value"], val.get("timezone", "UTC"))
+            timezone = val.get("timezone", "UTC")
+            assert isinstance(timezone, str)
+            dt_val = DateTimeValue(val["value"], timezone)
             return dt_val.as_pandas_value()
         elif val["type"] == "date":
             date_val = DateValue(val["value"])
