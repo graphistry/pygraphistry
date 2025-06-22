@@ -15,16 +15,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * GFQL: Comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and `is_in` now support datetime, date, and time values with timezone awareness
+* GFQL: New temporal value classes (`DateTimeValue`, `DateValue`, `TimeValue`) in `graphistry.compute.ast_temporal` for AST representation
+* GFQL: New wire protocol types for temporal values (`DateTimeWire`, `DateWire`, `TimeWire`) with JSON serialization
+* GFQL: Type guards for temporal value validation (`is_temporal_wire`, `is_datetime_wire`, etc.)
 
 ### Changed
 
-* GFQL: Temporal value classes (`DateTimeValue`, `DateValue`, `TimeValue`) are now exported from `graphistry.compute`
+* GFQL: Predicates now use proper type annotations (`ComparisonInput`, `IsInElementInput`, `BetweenBoundInput`) instead of `Any`
+* GFQL: Temporal coercion functions moved to `graphistry.models.gfql.coercions.temporal`
+* GFQL: Comparison predicates moved from `numeric.py` to `comparison.py` (more accurate module name)
+
+### Fixed
+
+* GFQL: Type checking now properly validates predicate inputs without requiring type ignores
+* GFQL: Import errors in tests after temporal value module reorganization
 
 ### Internal
 
 * Remove unused imports across predicate modules
-* Rename `numeric.py` to `comparison.py` for predicate module (more accurate name)
-* Add proper type annotations for predicate normalization functions
+* Extract shared predicate normalization logic to reduce code duplication
+* Add comprehensive temporal predicate tests including timezone handling and edge cases
 
 ## [0.38.0 - 2025-06-17]
 
