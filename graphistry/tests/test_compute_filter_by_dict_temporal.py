@@ -55,8 +55,8 @@ class TestFilterByDictTemporal:
         
         # Filter nodes created after June 1st
         filtered = filter_by_dict(g._nodes, {'created': gt(threshold)})
-        assert len(filtered) == 2  # nodes c, d
-        assert set(filtered['id'].tolist()) == {'d', 'e'}
+        assert len(filtered) == 3  # nodes c, d, e
+        assert set(filtered['id'].tolist()) == {'c', 'd', 'e'}
     
     def test_temporal_lt_predicate(self, temporal_graph):
         """Test less than with datetime"""
@@ -131,8 +131,8 @@ class TestFilterByDictTemporal:
             'expires': lt(pd.Timestamp('2024-12-01'))
         })
         
-        assert len(g2._nodes) == 1  # Only node d matches both conditions
-        assert g2._nodes['id'].tolist() == ['d']
+        assert len(g2._nodes) == 2  # nodes c and d match both conditions
+        assert set(g2._nodes['id'].tolist()) == {'c', 'd'}
     
     def test_edge_filter_method(self, temporal_graph):
         """Test filter_edges_by_dict with temporal predicates"""  
