@@ -257,10 +257,10 @@ Temporal predicates include validation to prevent common errors:
 
 ```python
 # This will raise an error - strings are ambiguous
-# bad_filter = gt("2023-01-01")  # ❌ Don't do this
+# bad_filter = gt("2023-01-01")  # Don't do this
 
 # Instead, be explicit
-good_filter = gt(pd.Timestamp("2023-01-01"))  # ✅ Do this
+good_filter = gt(pd.Timestamp("2023-01-01"))  # Do this instead
 ```
 
 ## See Also
