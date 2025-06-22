@@ -5,6 +5,26 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [Development]
+
+### Added
+
+* **GFQL Predicates**: Add comprehensive datetime/temporal value support
+  * New temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for type-safe datetime handling
+  * Extended comparison predicates (GT, LT, GE, LE, EQ, NE, Between) to support temporal values
+  * Extended `IsIn` predicate to support temporal values in lists
+  * Support for timezone-aware datetime comparisons
+  * JSON serialization/deserialization for temporal values with tagged format
+  * Reject ambiguous string dates in favor of explicit temporal types
+
+### Changed
+
+* **GFQL Predicates**: Export temporal value classes from `graphistry.compute` and `graphistry.compute.predicates` modules
+
+### Internal
+
+* Remove unused imports across predicate modules
+
 ## [0.37.0 - 2025-06-05]
 
 ### Fixed
