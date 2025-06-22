@@ -68,3 +68,21 @@ services:
       - "8888:8888"
     volumes:
       - ../jupyter_dev:/home/jovyan/jupyter_dev
+
+  test-notebooks:
+    << : *production_opts
+    image: graphistry/test-notebooks:${DOCKER_TAG:-latest}
+    build:
+      << : *build_kwargs
+      context: ..
+      dockerfile: ./docker/test-notebooks.Dockerfile
+      cache_from:
+        - graphistry/test-notebooks:${DOCKER_TAG:-latest}
+    container_name: "test-notebooks"
+    environment:
+      - TEST_TYPE=${TEST_TYPE:-nbval}
+      - NOTEBOOK_PATH=${NOTEBOOK_PATH:-demos}
+      - TIMEOUT=${TIMEOUT:-300}
+      - PARALLEL=${PARALLEL:-auto}
+    volumes:
+      - ..:/opt/pygraphistry
