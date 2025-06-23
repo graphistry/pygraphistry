@@ -493,19 +493,19 @@ interface IsInPredicate {
 ## Error Handling
 
 ```python
-# This will raise an error - ambiguous string
+# Raw strings raise ValueError
 try:
-    bad_filter = n(filter_dict={"date": gt("2023-01-01")})
+    filter_raw = n(filter_dict={"date": gt("2023-01-01")})
 except ValueError as e:
     print(e)
     # Output: Raw string '2023-01-01' is ambiguous. Use:
     #   - gt(pd.Timestamp('2023-01-01')) for datetime
-    #   - gt({'type': 'datetime', 'value': '2023-01-01'}) for explicit type
+    #   - gt({'type': 'datetime', 'value': '2023-01-01T00:00:00'}) for explicit type
 
-# Correct approaches
-good_filter1 = n(filter_dict={"date": gt(pd.Timestamp("2023-01-01"))})
-good_filter2 = n(filter_dict={"date": gt(datetime(2023, 1, 1))})
-good_filter3 = n(filter_dict={"date": gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})})
+# Valid approaches
+filter1 = n(filter_dict={"date": gt(pd.Timestamp("2023-01-01"))})
+filter2 = n(filter_dict={"date": gt(datetime(2023, 1, 1))})
+filter3 = n(filter_dict={"date": gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})})
 ```
 
 ## Performance Considerations
