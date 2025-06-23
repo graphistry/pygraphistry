@@ -29,6 +29,7 @@ dev_extras = {
     'docs': [
       'docutils==0.21.2',
       'ipython==8.28',
+      'ipykernel==6.29.5',  # For notebook execution validation
       'Jinja2==3.1.4',
       'myst-parser==4.0.0',
       'nbsphinx==0.9.5',
