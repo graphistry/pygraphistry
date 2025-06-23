@@ -12,10 +12,8 @@ from ...utils.json import JSONVal
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
-    # More specific series types for type checking
-    DatetimeSeriesT = pd.Series[pd.Timestamp]
-    DateSeriesT = pd.Series[date]
-    TimeSeriesT = pd.Series[time]
+    # Note: pd.Series[T] syntax not supported in Python 3.8
+    pass
 
 
 class ComparisonPredicate(ASTPredicate):
