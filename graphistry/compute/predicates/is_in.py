@@ -58,8 +58,9 @@ class IsIn(ASTPredicate):
         elif is_any_temporal(val):
             return to_native(val)
         else:
-            # Everything else passes through (including dicts)
-            return val
+            # At this point, val should only be wire format dicts that aren't temporal
+            # Since is_any_temporal catches TemporalValue, we can safely cast
+            return val  # type: ignore[return-value]
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if we have any temporal values in options
