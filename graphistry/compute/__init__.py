@@ -18,7 +18,14 @@ from .predicates.temporal import (
     is_year_end, IsYearEnd,
     is_leap_year, IsLeapYear
 )
-from .predicates.numeric import (
+from .ast_temporal import (
+    TemporalValue,
+    DateTimeValue,
+    DateValue,
+    TimeValue,
+    temporal_value_from_json
+)
+from .predicates.comparison import (
     gt, GT,
     lt, LT,
     ge, GE,
