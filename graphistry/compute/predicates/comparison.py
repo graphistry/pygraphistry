@@ -249,6 +249,10 @@ class Between(ASTPredicate):
     def __init__(self, lower: BetweenBoundInput, 
                  upper: BetweenBoundInput, 
                  inclusive: bool = True) -> None:
+        # Store original inputs for creating sub-predicates
+        self.lower_input = lower
+        self.upper_input = upper
+        # Store normalized values for type checking
         self.lower = self._normalize_value(lower)
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
@@ -287,11 +291,11 @@ class Between(ASTPredicate):
         
         elif lower_is_temporal and upper_is_temporal:
             # Temporal comparison
-            # Create comparison predicates and use them
-            ge_pred = GE(self.lower)
-            le_pred = LE(self.upper)
-            gt_pred = GT(self.lower)
-            lt_pred = LT(self.upper)
+            # Create comparison predicates using original inputs
+            ge_pred = GE(self.lower_input)
+            le_pred = LE(self.upper_input)
+            gt_pred = GT(self.lower_input)
+            lt_pred = LT(self.upper_input)
             
             if self.inclusive:
                 return ge_pred(s) & le_pred(s)

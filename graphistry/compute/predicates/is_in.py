@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from .types import NormalizedIsInElement, NormalizedScalar, NormalizedNumeric
 import pandas as pd
 import numpy as np
@@ -93,13 +93,18 @@ class IsIn(ASTPredicate):
         # (temporal values are converted to pandas types which are serializable)
         try:
             # Create a test list with JSON-compatible versions
-            json_test = []
+            from typing import Any
+            json_test: List[Any] = []
             for opt in self.options:
                 if isinstance(opt, pd.Timestamp):
                     json_test.append(opt.isoformat())
                 elif isinstance(opt, (date, time)):
                     json_test.append(str(opt))
+                elif isinstance(opt, dict):
+                    # Handle wire format temporal types
+                    json_test.append(opt)
                 else:
+                    # Handle numeric, string, None types
                     json_test.append(opt)
             assert_json_serializable(json_test)
         except Exception as e:
