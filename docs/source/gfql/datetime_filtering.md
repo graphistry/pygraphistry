@@ -25,20 +25,18 @@ import pytz  # For timezone support
 
 ### Supported Python Types
 
-Use Python/Pandas datetime objects, not raw strings:
-
-- [`pd.Timestamp`](https://pandas.pydata.org/docs/reference/api/pandas.Timestamp.html) - Recommended for datetime values
+- [`pd.Timestamp`](https://pandas.pydata.org/docs/reference/api/pandas.Timestamp.html) - Pandas timestamp
 - [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime) - Python datetime
 - [`date`](https://docs.python.org/3/library/datetime.html#datetime.date) - Date only (no time)
 - [`time`](https://docs.python.org/3/library/datetime.html#datetime.time) - Time only (no date)
 
 ```python
-# Good - use datetime objects
+# Use datetime objects
 gt(pd.Timestamp("2023-01-01 12:00:00"))
 between(datetime(2023, 1, 1), datetime(2023, 12, 31))
 
-# Bad - raw strings will raise ValueError
-gt("2023-01-01")  # ❌ Don't do this
+# Strings raise ValueError
+gt("2023-01-01")  # ValueError
 ```
 
 ### Creating from Strings
