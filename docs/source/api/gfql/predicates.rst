@@ -57,7 +57,7 @@ Temporal
 Temporal Values
 ---------------
 
-.. automodule:: graphistry.compute.predicates.temporal_values
+.. automodule:: graphistry.compute.ast_temporal
    :members:
    :undoc-members:
    :show-inheritance:
