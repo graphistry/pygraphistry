@@ -128,23 +128,31 @@ def test_is_in_with_tagged_dict():
 
 
 def test_is_in_mixed_types():
-    """Test IsIn with mixed temporal and non-temporal values"""
+    """Test IsIn rejects mixed temporal and numeric values"""
     dt = datetime(2023, 1, 1)
-    pred = is_in(["hello", 42, dt, None])
     
-    # Test with mixed series
-    s = pd.Series(["hello", 42, pd.Timestamp(dt), None, "world"])
+    # Should raise error for temporal + numeric mix
+    with pytest.raises(ValueError, match="Cannot mix temporal and numeric"):
+        is_in([42, dt])
+    
+    # But temporal + strings should work
+    pred = is_in(["hello", dt, None])
+    s = pd.Series(["hello", pd.Timestamp(dt), None, "world"])
     result = pred(s)
-    assert result.tolist() == [True, True, True, True, False]
+    assert result.tolist() == [True, True, True, False]
 
 
 def test_is_in_validation():
     """Test IsIn validation with temporal values"""
     dt = datetime(2023, 1, 1)
-    pred = is_in([dt, "test", 123])
     
-    # Should not raise during validation
+    # Test with temporal + strings (should work)
+    pred = is_in([dt, "test", None])
     pred.validate()
+    
+    # Test with just numeric (should work)
+    pred2 = is_in([123, 456.7])
+    pred2.validate()
 
 
 def test_is_in_json_serialization_with_temporal():

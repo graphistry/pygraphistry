@@ -1,4 +1,4 @@
-from typing import Dict, Union, TYPE_CHECKING, cast
+from typing import Union, TYPE_CHECKING, Literal, Dict, cast
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
@@ -7,7 +7,7 @@ from .ASTPredicate import ASTPredicate
 from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
 from ...models.gfql.coercions.temporal import to_ast
 from ...models.gfql.types.guards import is_native_numeric, is_any_temporal, is_string
-from ...models.gfql.types.predicates import ComparisonInput, BetweenBoundInput
+from graphistry.models.gfql.types.predicates import ComparisonInput, BetweenBoundInput
 from ...utils.json import JSONVal
 from graphistry.compute.typing import SeriesT
 
@@ -42,7 +42,12 @@ class ComparisonPredicate(ASTPredicate):
         else:
             raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
     
-    def _temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue, op: str) -> SeriesT:
+    def _temporal_comparison(
+        self, 
+        s: SeriesT, 
+        temporal_val: TemporalValue, 
+        op: Literal["gt", "lt", "ge", "le", "eq", "ne"]
+    ) -> SeriesT:
         """Handle temporal comparisons with proper type handling"""
         if isinstance(temporal_val, DateTimeValue):
             # Normalize series to target timezone for comparison
@@ -54,17 +59,17 @@ class ComparisonPredicate(ASTPredicate):
             else:
                 s_tz = s  # type: ignore
             
-            if op == '>':
+            if op == 'gt':
                 return s_tz > temporal_val.as_pandas_value()
-            elif op == '<':
+            elif op == 'lt':
                 return s_tz < temporal_val.as_pandas_value()
-            elif op == '>=':
+            elif op == 'ge':
                 return s_tz >= temporal_val.as_pandas_value()
-            elif op == '<=':
+            elif op == 'le':
                 return s_tz <= temporal_val.as_pandas_value()
-            elif op == '==':
+            elif op == 'eq':
                 return s_tz == temporal_val.as_pandas_value()
-            elif op == '!=':
+            elif op == 'ne':
                 return s_tz != temporal_val.as_pandas_value()
         
         elif isinstance(temporal_val, DateValue):
@@ -75,17 +80,17 @@ class ComparisonPredicate(ASTPredicate):
                 s_date = s
             
             parsed_date = temporal_val._parsed
-            if op == '>':
+            if op == 'gt':
                 return s_date > parsed_date
-            elif op == '<':
+            elif op == 'lt':
                 return s_date < parsed_date
-            elif op == '>=':
+            elif op == 'ge':
                 return s_date >= parsed_date
-            elif op == '<=':
+            elif op == 'le':
                 return s_date <= parsed_date
-            elif op == '==':
+            elif op == 'eq':
                 return s_date == parsed_date
-            elif op == '!=':
+            elif op == 'ne':
                 return s_date != parsed_date
         
         elif isinstance(temporal_val, TimeValue):
@@ -96,17 +101,17 @@ class ComparisonPredicate(ASTPredicate):
                 s_time = s
             
             parsed_time = temporal_val._parsed
-            if op == '>':
+            if op == 'gt':
                 return s_time > parsed_time
-            elif op == '<':
+            elif op == 'lt':
                 return s_time < parsed_time
-            elif op == '>=':
+            elif op == 'ge':
                 return s_time >= parsed_time
-            elif op == '<=':
+            elif op == 'le':
                 return s_time <= parsed_time
-            elif op == '==':
+            elif op == 'eq':
                 return s_time == parsed_time
-            elif op == '!=':
+            elif op == 'ne':
                 return s_time != parsed_time
         
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
@@ -150,7 +155,7 @@ class GT(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s > self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '>')
+            return self._temporal_comparison(s, self.val, 'gt')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
@@ -166,7 +171,7 @@ class LT(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s < self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '<')
+            return self._temporal_comparison(s, self.val, 'lt')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
@@ -182,7 +187,7 @@ class GE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s >= self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '>=')
+            return self._temporal_comparison(s, self.val, 'ge')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
@@ -198,7 +203,7 @@ class LE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s <= self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '<=')
+            return self._temporal_comparison(s, self.val, 'le')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
@@ -214,7 +219,7 @@ class EQ(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s == self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '==')
+            return self._temporal_comparison(s, self.val, 'eq')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
@@ -230,7 +235,7 @@ class NE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s != self.val
         elif isinstance(self.val, TemporalValue):
-            return self._temporal_comparison(s, self.val, '!=')
+            return self._temporal_comparison(s, self.val, 'ne')
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 

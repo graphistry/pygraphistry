@@ -41,7 +41,7 @@ class DateWire(TypedDict):
 
 class TimeWire(TypedDict):
     """Wire format for time only"""
-    type: Literal["time"] 
+    type: Literal["time"]
     value: str  # ISO 8601 time (HH:MM:SS[.ffffff])
 
 

@@ -1,38 +1,54 @@
-from typing import Any, List, Dict
+from typing import List
+from .types import NormalizedIsInElement, NormalizedScalar, NormalizedNumeric
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, time
 
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
-from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
+# Temporal value classes imported for type checking only
 from ...models.gfql.coercions.temporal import to_native
 from ...models.gfql.types.guards import is_basic_scalar, is_any_temporal
-from ...models.gfql.types.predicates import IsInElementInput
+from graphistry.models.gfql.types.predicates import IsInElementInput
+from graphistry.models.gfql.types.temporal import TemporalWire
 from graphistry.compute.typing import SeriesT
 
 
 class IsIn(ASTPredicate):
     def __init__(self, options: List[IsInElementInput]) -> None:
         self.options = self._normalize_options(options)
-    
-    def _normalize_options(self, options: List[IsInElementInput]) -> List[Any]:
-        """Normalize options list to handle temporal values
-        
-        Returns List[Any] because normalized values include pandas types
-        and other hashable types for membership testing.
-        """
+
+    def _normalize_options(
+        self, options: List[IsInElementInput]
+    ) -> List['NormalizedIsInElement']:
+        """Normalize options list to handle temporal values"""
         normalized = []
+        has_temporal = False
+        has_numeric = False
+
         for val in options:
-            normalized.append(self._normalize_value(val))
+            norm_val = self._normalize_value(val)
+            normalized.append(norm_val)
+
+            # Track types for validation
+            if isinstance(norm_val, (pd.Timestamp, date, time)):
+                has_temporal = True
+            elif isinstance(norm_val, (int, float, np.number)):
+                has_numeric = True
+
+        # Validate no mixing of temporal and numeric types
+        if has_temporal and has_numeric:
+            raise ValueError(
+                "Cannot mix temporal and numeric values in is_in. "
+                "Found both temporal and numeric values."
+            )
+
         return normalized
-    
-    def _normalize_value(self, val: IsInElementInput) -> Any:
-        """Convert various input types to internal representation
-        
-        Returns Any because IsIn accepts any hashable type for membership testing,
-        including normalized pandas types.
-        """
+
+    def _normalize_value(
+        self, val: IsInElementInput
+    ) -> 'NormalizedIsInElement':
+        """Convert various input types to internal representation"""
         # IsIn predicate needs:
         # - Basic scalars (including strings) as-is
         # - Temporals as native/pandas types (for .isin() method)
@@ -44,22 +60,23 @@ class IsIn(ASTPredicate):
         else:
             # Everything else passes through (including dicts)
             return val
-    
+
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if we have any temporal values in options
         has_temporal = any(
-            isinstance(opt, (pd.Timestamp, date, time)) 
+            isinstance(opt, (pd.Timestamp, date, time))
             for opt in self.options
         )
-        
+
         if has_temporal and hasattr(s, 'dt'):
             # For datetime series with time-only values in options,
             # we need special handling
             time_opts = [opt for opt in self.options if isinstance(opt, time)]
-            other_opts = [opt for opt in self.options if not isinstance(opt, time)]
-            
+            other_opts = [
+                opt for opt in self.options if not isinstance(opt, time)
+            ]
+
             if time_opts:
-                # Check time component
                 time_matches = s.dt.time.isin(time_opts)
                 if other_opts:
                     # Also check other values
@@ -67,12 +84,12 @@ class IsIn(ASTPredicate):
                     return time_matches | other_matches
                 else:
                     return time_matches
-        
+
         return s.isin(self.options)
-    
+
     def validate(self) -> None:
         assert isinstance(self.options, list)
-        # Check that normalized options are still JSON serializable
+        # Check normalized options are JSON serializable
         # (temporal values are converted to pandas types which are serializable)
         try:
             # Create a test list with JSON-compatible versions
@@ -92,30 +109,35 @@ class IsIn(ASTPredicate):
         """Override to handle temporal values in options"""
         if validate:
             self.validate()
-        
-        # Convert temporal values back to tagged dicts for serialization
+
+        # Convert temporal values back to tagged dicts
+        from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
+        from typing import Any
         json_options: List[Any] = []
         for opt in self.options:
             if isinstance(opt, pd.Timestamp):
                 # Convert back to tagged dict
-                json_options.append({
+                datetime_wire: DateTimeWire = {
                     "type": "datetime",
                     "value": opt.isoformat(),
                     "timezone": str(opt.tz) if opt.tz else "UTC"
-                })
+                }
+                json_options.append(datetime_wire)
             elif isinstance(opt, date) and not isinstance(opt, datetime):
-                json_options.append({
+                date_wire: DateWire = {
                     "type": "date",
                     "value": opt.isoformat()
-                })
+                }
+                json_options.append(date_wire)
             elif isinstance(opt, time):
-                json_options.append({
+                time_wire: TimeWire = {
                     "type": "time",
                     "value": opt.isoformat()
-                })
+                }
+                json_options.append(time_wire)
             else:
                 json_options.append(opt)
-        
+
         return {
             'type': self.__class__.__name__,
             'options': json_options

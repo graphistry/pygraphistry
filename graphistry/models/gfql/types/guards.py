@@ -4,7 +4,7 @@ Type detection utilities
 Clear functions to check what kind of type a value is.
 """
 
-from typing import Any, TYPE_CHECKING, Union, Dict
+from typing import Any, TYPE_CHECKING, Union
 
 # Python 3.10+ has TypeGuard in typing module
 try:
@@ -48,9 +48,13 @@ def is_wire_temporal(val: Any) -> TypeGuard[TemporalWire]:
     )
 
 
-def is_any_temporal(val: Any) -> TypeGuard[Union[NativeTemporal, TemporalValue, TemporalWire]]:
+def is_any_temporal(
+    val: Any
+) -> TypeGuard[Union[NativeTemporal, TemporalValue, TemporalWire]]:
     """Check if value is any kind of temporal (native, AST, or wire)"""
-    return is_native_temporal(val) or is_ast_temporal(val) or is_wire_temporal(val)
+    return (
+        is_native_temporal(val) or is_ast_temporal(val) or is_wire_temporal(val)
+    )
 
 
 # ============= Numeric Detection =============

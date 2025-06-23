@@ -8,22 +8,23 @@ from typing import Union
 from datetime import datetime, date, time
 import pandas as pd
 
-from ....compute.ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
-from ..types.temporal import (
-    NativeTemporal, NativeDateTime, NativeDate, NativeTime,
-    TemporalWire, DateTimeWire, DateWire, TimeWire
+from ....compute.ast_temporal import (
+    TemporalValue, DateTimeValue, DateValue, TimeValue
 )
+from ..types.temporal import NativeTemporal, TemporalWire
 
 
 # ============= To AST Transforms =============
 
 
-def to_ast(val: Union[NativeTemporal, TemporalWire, TemporalValue]) -> TemporalValue:
+def to_ast(
+    val: Union[NativeTemporal, TemporalWire, TemporalValue]
+) -> TemporalValue:
     """Convert any temporal representation to AST (TemporalValue)"""
     # Already AST
     if isinstance(val, TemporalValue):
         return val
-    
+
     # From native
     elif isinstance(val, pd.Timestamp):
         return DateTimeValue.from_pandas_timestamp(val)
@@ -33,7 +34,7 @@ def to_ast(val: Union[NativeTemporal, TemporalWire, TemporalValue]) -> TemporalV
         return DateValue.from_date(val)
     elif isinstance(val, time):
         return TimeValue.from_time(val)
-    
+
     # From wire
     elif isinstance(val, dict) and "type" in val:
         if val["type"] == "datetime":
@@ -46,7 +47,7 @@ def to_ast(val: Union[NativeTemporal, TemporalWire, TemporalValue]) -> TemporalV
             return TimeValue(val["value"])
         else:
             raise ValueError(f"Unknown temporal wire type: {val['type']}")
-    
+
     else:
         raise TypeError(f"Cannot convert {type(val)} to AST temporal")
 
@@ -54,27 +55,29 @@ def to_ast(val: Union[NativeTemporal, TemporalWire, TemporalValue]) -> TemporalV
 # ============= To Native Transforms =============
 
 
-def to_native(val: Union[NativeTemporal, TemporalWire, TemporalValue]) -> Union[pd.Timestamp, time]:
+def to_native(
+    val: Union[NativeTemporal, TemporalWire, TemporalValue]
+) -> Union[pd.Timestamp, time]:
     """Convert any temporal representation to native Python/Pandas type"""
     # Already native pandas
     if isinstance(val, pd.Timestamp):
         return val
-    
+
     # Native Python to pandas
     elif isinstance(val, (datetime, date)):
         return pd.Timestamp(val)
     elif isinstance(val, time):
         return val  # time stays as time
-    
+
     # From AST
     elif isinstance(val, TemporalValue):
         return val.as_pandas_value()
-    
+
     # From wire (via AST)
     elif isinstance(val, dict) and "type" in val:
         ast_val = to_ast(val)
         return ast_val.as_pandas_value()
-    
+
     else:
         raise TypeError(f"Cannot convert {type(val)} to native temporal")
 
@@ -87,7 +90,7 @@ def to_wire(val: Union[NativeTemporal, TemporalValue]) -> TemporalWire:
     # From AST
     if isinstance(val, TemporalValue):
         return val.to_json()
-    
+
     # From native (via AST)
     else:
         ast_val = to_ast(val)

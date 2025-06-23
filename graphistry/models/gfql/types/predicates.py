@@ -2,10 +2,11 @@
 Type definitions for GFQL predicate inputs
 
 Defines what types users can pass to predicates.
-Implementation details (like what gets stored internally) belong in compute/predicates.
+Implementation details (like what gets stored internally)
+belong in compute/predicates.
 """
 
-from typing import Union, Any, Dict
+from typing import Union
 import numpy as np
 
 from .temporal import NativeTemporal, TemporalWire
@@ -31,7 +32,7 @@ ComparisonInput = Union[
 # IsIn predicate - permissive, allows strings and arbitrary values
 IsInElementInput = Union[
     BasicScalar,        # Includes strings and None
-    NativeTemporal,     # Python datetime types  
+    NativeTemporal,     # Python datetime types
     TemporalWire,       # Wire format temporal
 ]
 

@@ -97,7 +97,7 @@ def lazy_embed_import():
         from dgl.dataloading import GraphDataLoader
         import torch.nn.functional as F
         from graphistry.networks import HeteroEmbed
-        from tqdm import trange  # type: ignore[import]
+        from tqdm import trange
         return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
     except ModuleNotFoundError:
         return False, None, None, None, None, None, None, None
