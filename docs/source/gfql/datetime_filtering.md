@@ -29,13 +29,17 @@ import pytz  # For timezone support
 - [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime) - Python datetime
 - [`date`](https://docs.python.org/3/library/datetime.html#datetime.date) - Date only (no time)
 - [`time`](https://docs.python.org/3/library/datetime.html#datetime.time) - Time only (no date)
+- Wire protocol dicts - For ISO strings and JSON compatibility
 
 ```python
 # Use datetime objects
 gt(pd.Timestamp("2023-01-01 12:00:00"))
 between(datetime(2023, 1, 1), datetime(2023, 12, 31))
 
-# Strings raise ValueError
+# Wire protocol dicts accept ISO strings
+gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
+
+# Raw strings raise ValueError
 gt("2023-01-01")  # ValueError
 ```
 
