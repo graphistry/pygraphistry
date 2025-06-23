@@ -2420,14 +2420,18 @@ class PlotterBase(Plottable):
         
         GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
         SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
-        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
-        query=f'''GRAPH my_graph
-        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.
+        
+        Example query::
+        
+            query=f'''GRAPH my_graph
+            MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+        
         :param query: GQL query string 
         :type query: Str
         :returns: Plottable with the results of GQL query as a graph
         :rtype: Plottable
-        **Example: calling spanner_gql_to_g
+        **Example: calling spanner_gql_to_g**
                 ::
                     import graphistry
                     # credentials_file is optional, all others are required
@@ -2452,13 +2456,17 @@ class PlotterBase(Plottable):
         """
         Submit query to google spanner database and return a df of the results 
         
-        query can be SQL or GQL as long as table of results are returned 
-        query='SELECT * from Account limit 10000'
+        query can be SQL or GQL as long as table of results are returned.
+        
+        Example query::
+        
+            query='SELECT * from Account limit 10000'
+        
         :param query: query string 
         :type query: Str
         :returns: Pandas DataFrame with the results of query
         :rtype: pd.DataFrame
-        **Example: calling spanner_query_to_df
+        **Example: calling spanner_query_to_df**
                 ::
                     import graphistry
                     # credentials_file is optional, all others are required
@@ -2469,7 +2477,7 @@ class PlotterBase(Plottable):
                     graphistry.register(..., spanner_config=SPANNER_CONF)
                     query='SELECT * from Account limit 10000'
                     df = graphistry.spanner_query_to_df(query)
-                    g.plot()
+                    # df now contains the query results
      
         """
         from .plugins.spannergraph import SpannerGraphContext
