@@ -15,11 +15,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for explicit temporal types
   * Wire protocol support for JSON serialization of temporal predicates
   * Comprehensive documentation: datetime filtering guide, wire protocol reference, and examples notebook
+* Documentation build improvements:
+  * Added notebook CI testing infrastructure for validating example notebooks
+  * Structure validation ensures notebooks have required fields (execution_count)
+  * Optional execution validation to verify notebooks run without errors
+  * Currently validates temporal_predicates.ipynb and layout_tree.ipynb
 
 ### Breaking
 * Plottable is now a Protocol
 * py.typed added, type checking active on PyGraphistry!
 * transform() and transform_umap() now require some parameters to be keyword-only
+
+### Fixed
+* Fixed PlotterBase.py docstring formatting for spanner and kusto methods
+* Fixed temporal_predicates.ipynb notebook structure (removed outputs from markdown cells)
 
 ## [0.38.0 - 2025-06-17]
 
