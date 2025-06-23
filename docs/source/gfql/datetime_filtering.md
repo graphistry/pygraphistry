@@ -23,16 +23,39 @@ import pytz  # For timezone support
 
 ## Supported Types and Standards
 
-### Native Python/Pandas Types
-Comparison predicates (`gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`) and `is_in` work with:
-- **`datetime` / `pd.Timestamp`** - Full datetime with optional timezone (ISO 8601 format)
-- **`date`** - Date only (year, month, day)
-- **`time`** - Time only (hour, minute, second, microsecond)
+### Supported Python Types
 
-### Standards Compliance
-- **ISO 8601**: All datetime strings follow ISO 8601 format (e.g., "2023-01-01T12:00:00Z")
-- **IANA Timezones**: Timezone names follow IANA Time Zone Database (e.g., "US/Eastern", "UTC")
-- **RFC 3339**: Compatible with RFC 3339 for internet timestamps
+Use Python/Pandas datetime objects, not raw strings:
+
+- [`pd.Timestamp`](https://pandas.pydata.org/docs/reference/api/pandas.Timestamp.html) - Recommended for datetime values
+- [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime) - Python datetime
+- [`date`](https://docs.python.org/3/library/datetime.html#datetime.date) - Date only (no time)
+- [`time`](https://docs.python.org/3/library/datetime.html#datetime.time) - Time only (no date)
+
+```python
+# Good - use datetime objects
+gt(pd.Timestamp("2023-01-01 12:00:00"))
+between(datetime(2023, 1, 1), datetime(2023, 12, 31))
+
+# Bad - raw strings will raise ValueError
+gt("2023-01-01")  # ❌ Don't do this
+```
+
+### Creating from Strings
+
+```python
+# Timestamps
+pd.Timestamp("2023-01-01T12:00:00Z")  # UTC
+pd.Timestamp("2023-01-01 12:00:00")   # Naive
+
+# Date/Time objects
+date.fromisoformat("2023-01-01")      # date(2023, 1, 1)
+time.fromisoformat("14:30:00")        # time(14, 30, 0)
+```
+
+### Standards
+- [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) datetime strings: `"2023-01-01T12:00:00Z"`
+- [IANA timezone](https://www.iana.org/time-zones) names: `"US/Eastern"`, `"UTC"`
 
 ### Wire Protocol Types
 For JSON serialization and cross-system compatibility:
@@ -115,24 +138,19 @@ business_hours = g.chain([
 
 ## Timezone Support
 
-Temporal predicates fully support timezone-aware datetime comparisons:
-
 ```python
 import pytz
 
-# Create timezone-aware timestamp
+# Timezone-aware filtering
 eastern = pytz.timezone('US/Eastern')
-utc = pytz.UTC
-
-# Filter with timezone-aware datetime
 tz_aware_filter = g.chain([
     n(filter_dict={
         "timestamp": gt(pd.Timestamp("2023-01-01 12:00:00", tz=eastern))
     })
 ])
-
-# Comparisons automatically handle timezone conversions
 ```
+
+Comparisons automatically handle timezone conversions.
 
 ## Advanced Usage
 
@@ -336,18 +354,14 @@ q1_2023 = g.chain([
 
 ## Error Handling
 
-Temporal predicates include validation to prevent common errors:
-
 ```python
-# This will raise an error - strings are ambiguous
-# bad_filter = gt("2023-01-01")  # Don't do this
-
-# Instead, be explicit
-good_filter = gt(pd.Timestamp("2023-01-01"))  # Do this instead
+# Strings raise ValueError - always use datetime objects
+gt("2023-01-01")                # ❌ ValueError
+gt(pd.Timestamp("2023-01-01"))  # ✓ Correct
 ```
 
 ## See Also
 
 - [GFQL Predicates API Reference](../api/gfql/predicates.rst)
-- [GFQL Chain Operations](chain.rst)
+- [GFQL Chain Operations](../api/gfql/chain.rst)
 - [Wire Protocol Reference](wire_protocol_examples.md)
