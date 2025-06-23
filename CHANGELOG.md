@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * GFQL temporal predicates and type system for date/time comparisons
-  * Support for datetime, date, and time comparisons with operators: `gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`
+  * Support for datetime, date, and time comparisons with operators: `gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`, `is_in`
   * Proper timezone handling for datetime comparisons
   * Type-safe temporal value handling with TypeGuard annotations
 
