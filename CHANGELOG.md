@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL temporal predicates and type system for date/time comparisons
+  * Support for datetime, date, and time comparisons in predicates
+  * Proper timezone handling for datetime comparisons
+  * Type-safe temporal value handling with TypeGuard annotations
+
 ### Breaking
 * Plottable is now a Protocol
 * py.typed added, type checking active on PyGraphistry!
