@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Any, List, Union
 from .types import NormalizedIsInElement, NormalizedScalar, NormalizedNumeric
 import pandas as pd
 import numpy as np
@@ -10,7 +10,7 @@ from .ASTPredicate import ASTPredicate
 from ...models.gfql.coercions.temporal import to_native
 from ...models.gfql.types.guards import is_basic_scalar, is_any_temporal
 from graphistry.models.gfql.types.predicates import IsInElementInput
-from graphistry.models.gfql.types.temporal import TemporalWire
+from graphistry.models.gfql.types.temporal import TemporalWire, DateTimeWire, DateWire, TimeWire
 from graphistry.compute.typing import SeriesT
 
 
@@ -94,7 +94,6 @@ class IsIn(ASTPredicate):
         # (temporal values are converted to pandas types which are serializable)
         try:
             # Create a test list with JSON-compatible versions
-            from typing import Any
             json_test: List[Any] = []
             for opt in self.options:
                 if isinstance(opt, pd.Timestamp):
@@ -117,8 +116,6 @@ class IsIn(ASTPredicate):
             self.validate()
 
         # Convert temporal values back to tagged dicts
-        from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
-        from typing import Any
         json_options: List[Any] = []
         for opt in self.options:
             if isinstance(opt, pd.Timestamp):
