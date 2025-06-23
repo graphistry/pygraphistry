@@ -6,11 +6,14 @@ Implementation details (like what gets stored internally)
 belong in compute/predicates.
 """
 
-from typing import Union
+from typing import Union, TYPE_CHECKING
 import numpy as np
 
 from .temporal import NativeTemporal, TemporalWire
 from .numeric import NativeNumeric
+
+if TYPE_CHECKING:
+    from graphistry.compute.ast_temporal import TemporalValue
 
 
 # ============= Basic Types =============
@@ -27,6 +30,7 @@ ComparisonInput = Union[
     NativeNumeric,      # Python int, float, np.number
     NativeTemporal,     # Python datetime, date, time, pd.Timestamp
     TemporalWire,       # Wire format: {"type": "datetime", ...}
+    "TemporalValue",    # AST temporal values
 ]
 
 # IsIn predicate - permissive, allows strings and arbitrary values
@@ -34,6 +38,7 @@ IsInElementInput = Union[
     BasicScalar,        # Includes strings and None
     NativeTemporal,     # Python datetime types
     TemporalWire,       # Wire format temporal
+    "TemporalValue",    # AST temporal values
 ]
 
 # Between predicate - each bound follows comparison rules
