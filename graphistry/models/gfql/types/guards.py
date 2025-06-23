@@ -8,9 +8,10 @@ from typing import Any, TYPE_CHECKING, Union
 
 # Python 3.10+ has TypeGuard in typing module, older versions need typing_extensions
 if TYPE_CHECKING:
-    try:
+    import sys
+    if sys.version_info >= (3, 10):
         from typing import TypeGuard
-    except ImportError:
+    else:
         from typing_extensions import TypeGuard
 from datetime import datetime, date, time
 import pandas as pd
