@@ -29,6 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY docs/docker/build-docs.sh /build-docs.sh
 COPY docs/source /docs/source
 COPY demos /docs/source/demos
+COPY docs/test_notebooks /docs/test_notebooks
 COPY README.md /docs/source/README.md
 COPY ARCHITECTURE.md /docs/source/ARCHITECTURE.md
 COPY CONTRIBUTING.md /docs/source/CONTRIBUTING.md

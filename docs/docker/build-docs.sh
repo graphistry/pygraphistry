@@ -44,7 +44,7 @@ esac
 
 # Validate notebooks after building docs
 NOTEBOOKS_TO_VALIDATE=(
-    "/docs/source/demos/test_graphistry_import.ipynb"
+    "/docs/test_notebooks/test_graphistry_import.ipynb"
 )
 
 for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do
