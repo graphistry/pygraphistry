@@ -342,6 +342,8 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Test building docs
+      env:
+        VALIDATE_NOTEBOOK_EXECUTION: 1
       run: |
         cd docs && ./ci.sh
 

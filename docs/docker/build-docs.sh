@@ -1,5 +1,49 @@
-#!/bin/sh
+#!/bin/bash
 set -ex
+
+# Validate notebooks before building docs
+NOTEBOOKS_TO_VALIDATE=(
+    "/docs/source/demos/more_examples/graphistry_features/layout_tree.ipynb"
+)
+
+for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do
+if [ -f "$notebook" ]; then
+    echo "Validating $(basename $notebook) structure..."
+    python3 -c "
+import json
+import sys
+
+notebook_path = '$notebook'
+with open(notebook_path, 'r') as f:
+    nb = json.load(f)
+
+# Check for missing execution_count in code cells
+errors = []
+for i, cell in enumerate(nb['cells']):
+    if cell.get('cell_type') == 'code' and 'execution_count' not in cell:
+        errors.append(f'Cell {i} missing execution_count')
+
+if errors:
+    print('Notebook validation errors:')
+    for err in errors:
+        print(f'  {err}')
+    sys.exit(1)
+else:
+    print('Notebook structure validation passed')
+"
+    
+    # Optionally execute notebook to verify it runs without errors
+    if [ "${VALIDATE_NOTEBOOK_EXECUTION:-0}" = "1" ]; then
+        echo "Executing $(basename $notebook) to verify it runs..."
+        python3 -m nbconvert --to notebook --execute \
+            --ExecutePreprocessor.timeout=600 \
+            --output /tmp/executed_notebook.ipynb \
+            "$notebook" && \
+        rm -f /tmp/executed_notebook.ipynb && \
+        echo "$(basename $notebook) execution completed successfully"
+    fi
+fi
+done
 
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html

@@ -16,9 +16,10 @@ RUN --mount=type=cache,target=/var/cache/apt \
 # Step 2: Copy project files needed for pip install (setup.py, setup.cfg, versioneer.py, README.md)
 COPY ../../setup.py ../../setup.cfg ../../versioneer.py ../../README.md ./
 
-# Step 3: Install the project dependencies with pip, including docs extras
+# Step 3: Install the project dependencies with pip, including docs extras and register kernel
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install -e .[docs]
+    python3 -m pip install -e .[docs] && \
+    python3 -m ipykernel install --sys-prefix --name python3
 
 # Step 4: Copy the graphistry source files into the container
 COPY ../../graphistry /graphistry

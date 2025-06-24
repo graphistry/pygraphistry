@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * py.typed added, type checking active on PyGraphistry!
 * transform() and transform_umap() now require some parameters to be keyword-only
 
+### Added
+* CI: Enable notebook validation in GitHub Actions to ensure documentation notebooks remain executable
+
 ### Fixed
 * Fix Sphinx documentation build errors in docstrings for kusto and spanner methods
 * Fix toctree references to use correct file names without extensions
