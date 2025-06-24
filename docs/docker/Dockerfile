@@ -16,19 +16,20 @@ RUN --mount=type=cache,target=/var/cache/apt \
 # Step 2: Copy project files needed for pip install (setup.py, setup.cfg, versioneer.py, README.md)
 COPY ../../setup.py ../../setup.cfg ../../versioneer.py ../../README.md ./
 
-# Step 3: Install the project dependencies with pip, including docs extras and register kernel
+# Step 3: Copy the graphistry source files into the container BEFORE pip install
+COPY ../../graphistry /docs/graphistry
+
+# Step 4: Install the project dependencies with pip, including docs extras and register kernel
+# Install graphistry in editable mode so it's available for notebook execution
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e .[docs] && \
     python3 -m ipykernel install --sys-prefix --name python3
-
-# Step 4: Copy the graphistry source files into the container
-COPY ../../graphistry /graphistry
-ENV PYTHONPATH="/graphistry:${PYTHONPATH}"
 
 # Step 5: Copy the build script into the container
 COPY docs/docker/build-docs.sh /build-docs.sh
 COPY docs/source /docs/source
 COPY demos /docs/source/demos
+COPY docs/test_notebooks /docs/test_notebooks
 COPY README.md /docs/source/README.md
 COPY ARCHITECTURE.md /docs/source/ARCHITECTURE.md
 COPY CONTRIBUTING.md /docs/source/CONTRIBUTING.md
