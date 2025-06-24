@@ -225,8 +225,14 @@ class TestKustoMocked:
         """Test Kusto client creation without real credentials."""
         mock_client = Mock()
         mock_response = Mock()
-        mock_response.primary_results = [Mock()]
-        mock_response.primary_results[0].to_dataframe.return_value = pd.DataFrame({'result': [1, 2, 3]})
+        
+        # Create a mock result that has the proper structure
+        mock_result = Mock()
+        mock_result.rows = [[1], [2], [3]]  # Each row is a list
+        mock_result.columns = [Mock(column_name='result', column_type='int')]
+        
+        # primary_results should be an iterable containing result objects
+        mock_response.primary_results = [mock_result]
         
         mock_client_class.return_value = mock_client
         mock_client.execute.return_value = mock_response

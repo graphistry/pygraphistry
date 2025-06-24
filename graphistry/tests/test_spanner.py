@@ -137,10 +137,11 @@ class TestSpannerMocked:
             database_id="test-database"
         )
         
-        # Mock a query execution
-        with patch('graphistry.plugins.spanner.SpannerMixin.spanner_client', return_value=mock_connection):
-            df = g_client.spanner_gql_to_df("SELECT 'test' as test_col")
-            
-            assert isinstance(df, pd.DataFrame)
-            assert len(df) == 1
-            assert 'test_col' in df.columns
+        # Ensure the mock connection is used by setting it directly
+        g_client.session.spanner._client = mock_connection
+        
+        df = g_client.spanner_gql_to_df("SELECT 'test' as test_col")
+        
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 1
+        assert 'test_col' in df.columns
