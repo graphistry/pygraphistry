@@ -1,11 +1,10 @@
 """Type definitions for predicates"""
-from typing import Union, Literal
-import pandas as pd
+from typing import Literal, Union
+from datetime import date, datetime, time
 import numpy as np
-from datetime import datetime, date, time
+import pandas as pd
 
-# Import temporal wire types
-from ...models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
+from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
 
 # Normalized types after processing inputs
 NormalizedNumeric = Union[int, float, np.number]

@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.38.3 - 2025-06-24]
+
+### Fixed
+* Fix relative imports in GFQL modules that broke pip install (#681)
+  * Replace all `..` relative imports with absolute `graphistry.` imports
+  * Add missing `__init__.py` files in `graphistry.models.gfql` subdirectories
+  * Add lint check in `bin/lint.sh` to prevent future relative imports
+  * Add Docker-based pip install test to CI pipeline
+
 ## [0.38.2 - 2025-06-24]
 
 ### Added

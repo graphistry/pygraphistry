@@ -5,6 +5,9 @@ Clear functions to check what kind of type a value is.
 """
 
 from typing import Any, TYPE_CHECKING, Union
+from datetime import date, datetime, time
+import numpy as np
+import pandas as pd
 
 # Python 3.10+ has TypeGuard in typing module, older versions need typing_extensions
 if TYPE_CHECKING:
@@ -13,13 +16,10 @@ if TYPE_CHECKING:
         from typing import TypeGuard
     else:
         from typing_extensions import TypeGuard
-from datetime import datetime, date, time
-import pandas as pd
-import numpy as np
 
-from ....compute.ast_temporal import TemporalValue
-from .temporal import NativeTemporal, TemporalWire
+from graphistry.compute.ast_temporal import TemporalValue
 from .numeric import NativeNumeric
+from .temporal import NativeTemporal, TemporalWire
 
 
 # ============= Temporal Detection =============

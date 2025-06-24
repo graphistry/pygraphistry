@@ -1,21 +1,19 @@
+from typing import Any, Dict, Union
 from abc import ABC, abstractmethod
-from datetime import datetime, date, time
-from typing import Dict, Any, Union, TYPE_CHECKING
-import pandas as pd
+from datetime import date, datetime, time
 from dateutil import parser as date_parser  # type: ignore[import]
+import pandas as pd
 import pytz  # type: ignore[import]
 
+from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
 from graphistry.utils.json import JSONVal
-
-if TYPE_CHECKING:
-    from ..models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
 
 
 class TemporalValue(ABC):
     """Base class for temporal values with tagging support"""
     
     @abstractmethod
-    def to_json(self) -> 'TemporalWire':
+    def to_json(self) -> TemporalWire:
         """Serialize to JSON-compatible dictionary"""
         pass
     
@@ -64,9 +62,8 @@ class DateTimeValue(TemporalValue):
         
         return pd.Timestamp(dt)
     
-    def to_json(self) -> 'DateTimeWire':
+    def to_json(self) -> DateTimeWire:
         """Return dict for tagged temporal value"""
-        from ..models.gfql.types.temporal import DateTimeWire
         result: DateTimeWire = {
             "type": "datetime",
             "value": self.value,
@@ -94,9 +91,8 @@ class DateValue(TemporalValue):
         """Parse date string in ISO format (YYYY-MM-DD)"""
         return date_parser.isoparse(value).date()
     
-    def to_json(self) -> 'DateWire':
+    def to_json(self) -> DateWire:
         """Return dict for tagged temporal value"""
-        from ..models.gfql.types.temporal import DateWire
         result: DateWire = {
             "type": "date",
             "value": self.value
@@ -130,9 +126,8 @@ class TimeValue(TemporalValue):
             # Extract time from full datetime
             return date_parser.isoparse(value).time()
     
-    def to_json(self) -> 'TimeWire':
+    def to_json(self) -> TimeWire:
         """Return dict for tagged temporal value"""
-        from ..models.gfql.types.temporal import TimeWire
         result: TimeWire = {
             "type": "time", 
             "value": self.value

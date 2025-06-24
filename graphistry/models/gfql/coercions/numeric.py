@@ -8,7 +8,7 @@ but this provides a consistent interface.
 from typing import Union
 import numpy as np
 
-from ..types.numeric import NativeNumeric
+from graphistry.models.gfql.types.numeric import NativeNumeric
 
 
 def to_native(val: NativeNumeric) -> NativeNumeric:
