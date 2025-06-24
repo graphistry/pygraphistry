@@ -60,30 +60,16 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
-    - name: Minimal tests
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-minimal.sh
-
-
-  test-pip-install:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
-
-    steps:
-
-    - name: Checkout repo
-      uses: actions/checkout@v3
-
-    - name: Test pip install
+    - name: Test pip install (Docker)
       env:
         PYTHON_VERSION: ${{ matrix.python-version }}
       run: |
         ./docker/test-pip-install.sh
+
+    - name: Minimal tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-minimal.sh
 
 
   test-core-python:
