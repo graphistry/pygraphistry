@@ -358,8 +358,8 @@ q1_2023 = g.chain([
 
 ```python
 # Strings raise ValueError - always use datetime objects
-gt("2023-01-01")                # ❌ ValueError
-gt(pd.Timestamp("2023-01-01"))  # ✓ Correct
+gt("2023-01-01")                # ValueError: Raw string not allowed
+gt(pd.Timestamp("2023-01-01"))  # Correct: Use pandas Timestamp
 ```
 
 ## See Also
