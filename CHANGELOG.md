@@ -12,6 +12,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * py.typed added, type checking active on PyGraphistry!
 * transform() and transform_umap() now require some parameters to be keyword-only
 
+### Fixed
+* Fix Sphinx documentation build errors in docstrings for kusto and spanner methods
+* Fix toctree references to use correct file names without extensions
+* Remove inherited members from PyTorch nn.Module in RGCN documentation to avoid formatting conflicts
+
 ## [0.38.0 - 2025-06-17]
 
 ### Changed

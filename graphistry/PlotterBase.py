@@ -1030,7 +1030,8 @@ class PlotterBase(Plottable):
         :rtype: Plotter
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
 
@@ -1045,7 +1046,8 @@ class PlotterBase(Plottable):
                 g.plot()
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
 
@@ -1059,7 +1061,8 @@ class PlotterBase(Plottable):
 
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
 
@@ -1127,7 +1130,8 @@ class PlotterBase(Plottable):
         :rtype: Plotter
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
@@ -1137,7 +1141,8 @@ class PlotterBase(Plottable):
                     .plot()
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
@@ -1147,7 +1152,8 @@ class PlotterBase(Plottable):
                     .plot()
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
@@ -1156,7 +1162,8 @@ class PlotterBase(Plottable):
                     .plot()
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
@@ -1165,7 +1172,8 @@ class PlotterBase(Plottable):
                     .plot()
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
 
@@ -1635,7 +1643,8 @@ class PlotterBase(Plottable):
         Uses current bindings. Defaults to treating edges as directed.
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 g = graphistry.bind()
@@ -1671,7 +1680,8 @@ class PlotterBase(Plottable):
         Deprecated in favor of `.from_igraph()`
 
         **Example**
-            ::
+        
+        ::
 
                 import graphistry
                 g = graphistry.bind()
@@ -2187,18 +2197,20 @@ class PlotterBase(Plottable):
     def spanner(self: Plottable, spanner_config: SpannerConfig) -> Plottable:
         """
         Set spanner configuration for this Plottable.
-        SpannerConfig
-            - "instance_id": The Spanner instance ID.
-            - "database_id": The Spanner database ID.
-            - "project_id": The GCP project ID.
-            - "credentials_file": json file API key for service accounts 
+        
+        SpannerConfig contains:
+        
+        - "instance_id": The Spanner instance ID.
+        - "database_id": The Spanner database ID.
+        - "project_id": The GCP project ID.
+        - "credentials_file": json file API key for service accounts
         
         If credentials_file is provided, it will be used to authenticate with the Spanner instance.
         Otherwise, project_id and the spanner login process will be used to authenticate.
-            
-        :param spanner_config: A dictionary containing the Spanner configuration. 
-        :type (SpannerConfig)
-        :return: Plottable with a Spanner connection 
+        
+        :param spanner_config: A dictionary containing the Spanner configuration.
+        :type spanner_config: SpannerConfig
+        :return: Plottable with a Spanner connection
         :rtype: Plottable
         """
         self._spanner_config = spanner_config
@@ -2208,17 +2220,21 @@ class PlotterBase(Plottable):
     def kusto(self: Plottable, kusto_config: KustoConfig) -> Plottable:
         """
         Set kusto configuration for this Plottable.
-        KustoConfig
+        
+        KustoConfig:
             - "cluster": The Kusto cluster name.
             - "database": The Kusto database name.
-          For AAD authentication:
+            
+        For AAD authentication:
             - "client_id": The Kusto client ID.
             - "client_secret": The Kusto client secret.
             - "tenant_id": The Kusto tenant ID.
-          Otherwise: process will use web browser to authenticate.
-        :param kusto_config: A dictionary containing the Kusto configuration. 
-        :type (KustoConfig)
-        :returns: Plottable with a Kusto connection 
+            
+        Otherwise: process will use web browser to authenticate.
+        
+        :param kusto_config: A dictionary containing the Kusto configuration.
+        :type kusto_config: KustoConfig
+        :returns: Plottable with a Kusto connection
         :rtype: Plottable
         """
         self._kusto_config = kusto_config
@@ -2404,43 +2420,47 @@ class PlotterBase(Plottable):
             graph = bolt_statement.graph()
             edges = bolt_graph_to_edges_dataframe(graph)
             nodes = bolt_graph_to_nodes_dataframe(graph)
-        return res\
-            .bind(
-                node=node_id_key,
-                source=start_node_id_key,
-                destination=end_node_id_key
-            )\
+        return res.bind(
+            node=node_id_key,
+            source=start_node_id_key,
+            destination=end_node_id_key
+        )\
             .nodes(nodes)\
             .edges(edges)
     
 
     def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:
         """
-        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
+        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated
         
         GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
         SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
-        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
+        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.
+        
         query=f'''GRAPH my_graph
         MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-        :param query: GQL query string 
-        :type query: Str
+        
+        :param query: GQL query string
+        :type query: str
         :returns: Plottable with the results of GQL query as a graph
         :rtype: Plottable
-        **Example: calling spanner_gql_to_g
-                ::
-                    import graphistry
-                    # credentials_file is optional, all others are required
-                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-                    graphistry.register(..., spanner_config=SPANNER_CONF)
-                    query=f'''GRAPH my_graph
-                    MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-                    g = graphistry.spanner_gql_to_g(query)
-                    g.plot()
-     
+        
+        **Example: calling spanner_gql_to_g**
+        
+        ::
+        
+            import graphistry
+            # credentials_file is optional, all others are required
+            SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                             "instance_id": INSTANCE_ID, 
+                             "database_id": DATABASE_ID, 
+                             "credentials_file": CREDENTIALS_FILE }
+            graphistry.register(..., spanner_config=SPANNER_CONF)
+            query=f'''GRAPH my_graph
+            MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
+            g = graphistry.spanner_gql_to_g(query)
+            g.plot()
+        
         """
         from .plugins.spannergraph import SpannerGraphContext
         res = copy.copy(self)
@@ -2450,27 +2470,31 @@ class PlotterBase(Plottable):
 
     def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
         """
-        Submit query to google spanner database and return a df of the results 
+        Submit query to google spanner database and return a df of the results
         
-        query can be SQL or GQL as long as table of results are returned 
+        query can be SQL or GQL as long as table of results are returned
         query='SELECT * from Account limit 10000'
-        :param query: query string 
-        :type query: Str
+        
+        :param query: query string
+        :type query: str
         :returns: Pandas DataFrame with the results of query
         :rtype: pd.DataFrame
-        **Example: calling spanner_query_to_df
-                ::
-                    import graphistry
-                    # credentials_file is optional, all others are required
-                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-                    graphistry.register(..., spanner_config=SPANNER_CONF)
-                    query='SELECT * from Account limit 10000'
-                    df = graphistry.spanner_query_to_df(query)
-                    g.plot()
-     
+        
+        **Example: calling spanner_query_to_df**
+        
+        ::
+        
+            import graphistry
+            # credentials_file is optional, all others are required
+            SPANNER_CONF = { "project_id":  PROJECT_ID,                 
+                             "instance_id": INSTANCE_ID, 
+                             "database_id": DATABASE_ID, 
+                             "credentials_file": CREDENTIALS_FILE }
+            graphistry.register(..., spanner_config=SPANNER_CONF)
+            query='SELECT * from Account limit 10000'
+            df = graphistry.spanner_query_to_df(query)
+            g.plot()
+        
         """
         from .plugins.spannergraph import SpannerGraphContext
         with SpannerGraphContext(self._spanner_config) as sg:
@@ -2485,17 +2509,18 @@ class PlotterBase(Plottable):
         unwrap_nested
         -------------
         Controls auto-flattening of *dynamic* (JSON) columns:
-        • True  - always try to flatten, raise if it fails  
-        • None  - default heuristic: flatten only if table looks nested  
-        • False - leave results untouched  
+        * True  - always try to flatten, raise if it fails
+        * None  - default heuristic: flatten only if table looks nested
+        * False - leave results untouched
         :param query: Kusto query string
-        :type  query: str
+        :type query: str
         :param unwrap_nested: flatten strategy above
-        :type  unwrap_nested: bool | None
+        :type unwrap_nested: bool | None
         :returns: list of Pandas DataFrames
-        :rtype:  List[pd.DataFrame]
+        :rtype: List[pd.DataFrame]
         **Example**
-            ::
+        
+        ::
                 frames = graphistry.kusto_query("StormEvents | take 100")
                 df = frames[0]
         """
@@ -2509,13 +2534,14 @@ class PlotterBase(Plottable):
         Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
         **edges**, then binds them to *self*.
         :param graph_name: name of Kusto graph entity
-        :type  graph_name: str
+        :type graph_name: str
         :param snap_name: optional snapshot/version
-        :type  snap_name: str | None
+        :type snap_name: str | None
         :returns: Plottable ready for `.plot()` or further transforms
-        :rtype:  Plottable
+        :rtype: Plottable
         **Example**
-            ::
+        
+        ::
                 g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
         """
         from .plugins.kustograph import KustoGraphContext
