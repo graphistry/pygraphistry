@@ -3,7 +3,6 @@ set -ex
 
 # Validate notebooks before building docs
 NOTEBOOKS_TO_VALIDATE=(
-    "/docs/source/demos/gfql/temporal_predicates.ipynb"
     "/docs/source/demos/more_examples/graphistry_features/layout_tree.ipynb"
 )
 
