@@ -1,15 +1,20 @@
 import os
-from typing import Any, Optional, Type, TypeVar, Union, overload, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Iterator
-from typing_extensions import deprecated
+from dataclasses import is_dataclass, replace
+from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator
 from functools import lru_cache
 import json
+from typing_extensions import deprecated
 
 from graphistry.privacy import Privacy
 from . import util
-from .plugins_types.spanner_types import SpannerSession
-from .plugins_types.kusto_types import KustoSession
+from .plugins_types.spanner_types import SpannerConfig
+from .plugins_types.kusto_types import KustoConfig
 
 
+
+ApiVersion = Literal[1, 3]
+
+ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
 config_paths = [
     os.path.join("/etc/graphistry", ".pygraphistry"),
@@ -17,15 +22,11 @@ config_paths = [
     os.environ.get("PYGRAPHISTRY_CONFIG", ""),  # user-override path
 ]
 
-ApiVersion = Literal[1, 3]
-
-ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
 class ClientSession:
-
     def __init__(self) -> None:
         self._is_authenticated: bool = False
-        self._tag = util.fingerprint()
+        self._tag = util.fingerprint()  # NOTE: Should this be unique per PyGraphistry.client()?
 
         self.api_key: Optional[str] = get_from_env(ENV_GRAPHISTRY_API_KEY, str)
         self.api_token: Optional[str] = get_from_env("GRAPHISTRY_API_TOKEN", str)
@@ -35,7 +36,7 @@ class ClientSession:
         if env_api_version is None:
             env_api_version = 1
         elif env_api_version not in [1, 3]:
-            raise ValueError("Expected API version to be 1, 3, instead got (likely from GRAPHISTRY_API_VERSION): %s" % env_api_version)
+            raise ValueError("Expected API version to be 1, 3, instead got (likely from API_VERSION): %s" % env_api_version)
         self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
@@ -44,7 +45,6 @@ class ClientSession:
         self.client_protocol_hostname: Optional[str] = get_from_env("GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME", str)
         self.certificate_validation: bool = get_from_env("GRAPHISTRY_CERTIFICATE_VALIDATION", bool, True)
         self.store_token_creds_in_memory: bool = get_from_env("GRAPHISTRY_STORE_CREDS_IN_MEMORY", bool, True)
-        self.privacy: Optional[Privacy] = None
         self.login_type: Optional[str] = None
         self.org_name: Optional[str] = None
 
@@ -58,16 +58,45 @@ class ClientSession:
         # NOTE: Still used as a global, perhaps use a session pattern
         self.encode_textual_batch_size: Optional[int] = None  # encode_textual.batch_size
 
-        # TODO: Migrate to a pattern like Kusto or Spanner
-        self.bolt_driver: Optional[Any] = None
-        
+        self.privacy: Optional[Privacy] = None
+
         # Plugin sessions
-        self.kusto: KustoSession = KustoSession()
-        self.spanner: SpannerSession = SpannerSession()
+        # NOTE: These are dataclasses, so we shallow copy them
+        self.kusto: Optional[KustoConfig] = None
+        self.spanner: Optional[SpannerConfig] = None
+
+        # TODO: Migrate to a pattern like Kusto or Spanner
+        self._bolt_driver: Optional[Any] = None
+
+    def copy(self) -> "ClientSession":
+        """
+        Create a copy of this ClientSession.
+
+        Copies dicts and plugin sessions, but not their values.
+        That way if a connection is created before the copy, it will be shared.
+        """
+        
+        # NOTE: This is potentially fragile,
+        # TODO: Adopt a more robust configuration pattern, perhaps with a library
+        #       @lmeyerov likes: https://docs.dask.org/en/latest/configuration.html
+        clone = ClientSession.__new__(ClientSession)
+
+        for k, v in self.__dict__.items():
+            if isinstance(v, dict):
+                clone.__dict__[k] = v.copy()
+            elif is_dataclass(v) and not isinstance(v, type):
+                clone.__dict__[k] = replace(v)
+            else:
+                clone.__dict__[k] = v
+
+        return cast(ClientSession, clone)
 
     # NOTE: For backwards compatibility    
     def as_proxy(self) -> MutableMapping[str, Any]:
         return SessionProxy(self)
+
+
+
 
 
 class DatasetInfo(TypedDict):
@@ -77,8 +106,8 @@ class DatasetInfo(TypedDict):
 
 
 
-class SessionManagerProtocol(Protocol):
-    _session: ClientSession
+class AuthManagerProtocol(Protocol):
+    session: ClientSession
 
     def _etl1(self, dataset: Any) -> DatasetInfo:
         ...
@@ -99,7 +128,7 @@ class SessionManagerProtocol(Protocol):
 @deprecated("Use the session pattern instead")
 def use_global_session() -> ClientSession:
     from .pygraphistry import PyGraphistry
-    return PyGraphistry._session
+    return PyGraphistry.session
 
 
 T = TypeVar("T")

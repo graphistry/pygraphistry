@@ -9,11 +9,10 @@ from graphistry.models.compute.umap import UMAPEngineConcrete
 from graphistry.models.compute.features import GraphEntityKind
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
-from graphistry.plugins_types.kusto_types import KustoConfig
-from graphistry.plugins_types.spanner_types import SpannerConfig
 from graphistry.privacy import Mode as PrivacyMode, Privacy
 from graphistry.Engine import EngineAbstract
 from graphistry.utils.json import JSONVal
+from graphistry.client_session import ClientSession, AuthManagerProtocol
 
 if TYPE_CHECKING:
     try:
@@ -47,6 +46,8 @@ RENDER_MODE_VALUES: Set[RenderModes] = set(["auto", "g", "url", "ipython", "data
 
 @runtime_checkable
 class Plottable(Protocol):
+    session: ClientSession
+    _pygraphistry: AuthManagerProtocol
 
     _edges : Any
     _nodes : Any
@@ -83,9 +84,6 @@ class Plottable(Protocol):
     _bolt_driver : Any
     _tigergraph : Any
 
-    _spanner_config: Optional[SpannerConfig]
-    _kusto_config: Optional[KustoConfig]
-    
     _dataset_id: Optional[str]
     _url: Optional[str]
     _nodes_file_id: Optional[str]

@@ -35,7 +35,8 @@ from graphistry.utils.lazy_import import (
 )
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
-from .util import setup_logger, check_set_memoize
+from .util import setup_logger
+from .utils.plottable_memoize import check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level

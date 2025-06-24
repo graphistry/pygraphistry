@@ -1,3 +1,5 @@
+from typing import Optional
+
 from .PlotterBase import PlotterBase
 from .compute.ComputeMixin import ComputeMixin 
 from .gremlin import CosmosMixin, NeptuneMixin
@@ -9,14 +11,14 @@ from .embed_utils import HeterographEmbedModuleMixin
 from .text_utils import SearchToGraphMixin
 from .compute.conditional import ConditionalMixin
 from .compute.cluster import ClusterMixin
-from .plugins.kustograph import KustoGraph
-from .plugins.spannergraph import SpannerGraph
-
+from .plugins.kusto import KustoMixin
+from .plugins.spanner import SpannerMixin
+from .client_session import AuthManagerProtocol
 # NOTE: Cooperative mixins must call:
 #       super().__init__(*a, **kw) in their __init__ method
 #       to pass along args/kwargs to the next mixin in the chain
 class Plotter(
-    KustoGraph, SpannerGraph,
+    KustoMixin, SpannerMixin,
     CosmosMixin, NeptuneMixin,
     HeterographEmbedModuleMixin,
     SearchToGraphMixin,
@@ -51,3 +53,10 @@ class Plotter(
         All attributes are inherited from the mixins and base classes.
 
     """
+
+    def __init__(self, *args, pygraphistry: Optional[AuthManagerProtocol] = None, **kwargs) -> None:
+        from .pygraphistry import PyGraphistry
+        self._pygraphistry = pygraphistry or PyGraphistry
+        self.session = self._pygraphistry.session
+
+        super().__init__(*args, **kwargs)

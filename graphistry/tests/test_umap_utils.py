@@ -737,11 +737,11 @@ class TestCUMLMethods(TestUMAPMethods):
 
     @classmethod
     def setup_class(cls: Any) -> None:
-        PyGraphistry._session.encode_textual_batch_size = 8
+        PyGraphistry.session.encode_textual_batch_size = 8
 
     @classmethod
     def teardown_class(cls: Any) -> None:
-        PyGraphistry._session.encode_textual_batch_size = None
+        PyGraphistry.session.encode_textual_batch_size = None
 
     @pytest.mark.skipif(
         not has_dependancy or not has_cuml,

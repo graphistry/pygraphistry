@@ -4,14 +4,11 @@ from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
-import warnings
 
 from graphistry.privacy import Privacy, Mode
-from graphistry.client_session import ClientSession, SessionManagerProtocol, DatasetInfo
+from graphistry.client_session import ClientSession, AuthManagerProtocol
 
 from .constants import SRC, DST, NODE
-from .plugins_types.kusto_types import KustoConfig
-from .plugins_types.spanner_types import SpannerConfig
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
 from .plugins.graphviz import layout_graphviz
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
@@ -119,20 +116,12 @@ class PlotterBase(Plottable):
         cache_coercion_helper.cache_clear()
 
 
+    _pygraphistry: AuthManagerProtocol
+    session: ClientSession
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # NOTE: set _session for any mixins to use in their __init__
         super().__init__(*args, **kwargs)
-
-        # Use late import to avoid circular dependency
-        pygraphistry = kwargs.get('pygraphistry_session', None)
-        if pygraphistry is None:
-            from .pygraphistry import PyGraphistry
-            pygraphistry = PyGraphistry
-
-            if self is PyGraphistry:
-                # NOTE: This may use global session when that isn't desired.
-                warnings.warn("Plotter initialized without pygraphistry_session, falling back to global PyGraphistry", UserWarning)
-        self._pygraphistry: SessionManagerProtocol = pygraphistry
-        self._session: ClientSession = self._pygraphistry._session
 
         # Bindings
         self._edges : Any = None
@@ -182,9 +171,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
-        self._kusto_config : Optional[KustoConfig] = None
-        self._spanner_config : Optional[SpannerConfig] = None
-        
+
         # feature engineering
         self._node_embedding = None
         self._node_encoder = None
@@ -1521,8 +1508,8 @@ class PlotterBase(Plottable):
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
         """
         if v is not None:
-            self._session.hostname = v
-        return self._session.hostname
+            self.session.hostname = v
+        return self.session.hostname
     
     def protocol(self, v: Optional[str] = None) -> str:
         """
@@ -1531,8 +1518,8 @@ class PlotterBase(Plottable):
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
         """
         if v is not None:
-            self._session.protocol = v
-        return self._session.protocol
+            self.session.protocol = v
+        return self.session.protocol
     
     def client_protocol_hostname(self, v: Optional[str] = None) -> str:
         """
@@ -1543,8 +1530,8 @@ class PlotterBase(Plottable):
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.        
         """
         if v is not None:
-            self._session.client_protocol_hostname = v
-        return self._session.client_protocol_hostname or f"{self.protocol()}://{self.server()}"
+            self.session.client_protocol_hostname = v
+        return self.session.client_protocol_hostname or f"{self.protocol()}://{self.server()}"
     
     def base_url_server(self, v: Optional[str] = None) -> str:
         return "%s://%s" % (self.protocol(), self.server())
@@ -1671,7 +1658,7 @@ class PlotterBase(Plottable):
                     .plot(es)
 
         """
-        logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self._session.org_name))
+        logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
 
         if graph is None:
             if self._edges is None:
@@ -1685,23 +1672,23 @@ class PlotterBase(Plottable):
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
-        logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self._session.org_name))
+        logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
         dataset: Union[ArrowUploader, Dict[str, Any], None] = None
-        if self._session.api_version == 1:
+        if self.session.api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
             info = self._pygraphistry._etl1(dataset)
-        elif self._session.api_version == 3:
-            logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self._session.org_name))
+        elif self.session.api_version == 3:
+            logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
             self._pygraphistry.refresh()
-            logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self._session.org_name))
+            logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
             uploader = dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
             assert uploader is not None
             if skip_upload:
                 return uploader
-            uploader.token = self._session.api_token  # type: ignore[assignment]
+            uploader.token = self.session.api_token  # type: ignore[assignment]
             uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
             uploader.maybe_post_share_link(self)
             info = {
@@ -1711,8 +1698,8 @@ class PlotterBase(Plottable):
             }
 
         viz_url = self._pygraphistry._viz_url(info, self._url_params)
-        cfg_client_protocol_hostname = self._session.client_protocol_hostname
-        full_url = ('%s:%s' % (self._session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
+        cfg_client_protocol_hostname = self.session.client_protocol_hostname
+        full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
         render_mode = resolve_render_mode(self, render)
         if render_mode == "url":
@@ -2270,7 +2257,7 @@ class PlotterBase(Plottable):
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
-        dataset: Dict[str, Any] = {'name': self._session.dataset_prefix + name,
+        dataset: Dict[str, Any] = {'name': self.session.dataset_prefix + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
@@ -2282,13 +2269,13 @@ class PlotterBase(Plottable):
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
-            client_session=self._session,
-            server_base_path=self._session.protocol + '://' + self._session.hostname,
+            client_session=self.session,
+            server_base_path=self.session.protocol + '://' + self.session.hostname,
             edges=edges, nodes=nodes,
             name=name, description=description,
             metadata={
-                'usertag': self._session._tag,
-                'key': self._session.api_key,
+                'usertag': self.session._tag,
+                'key': self.session.api_key,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
@@ -2304,30 +2291,7 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._bolt_driver = to_bolt_driver(driver)
         return res
-    
 
-    def spanner(self: Plottable, spanner_config: SpannerConfig) -> Plottable:
-        """
-        Set spanner configuration for this Plottable.
-        
-        SpannerConfig contains:
-        
-        - "instance_id": The Spanner instance ID.
-        - "database_id": The Spanner database ID.
-        - "project_id": The GCP project ID.
-        - "credentials_file": json file API key for service accounts
-        
-        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
-        Otherwise, project_id and the spanner login process will be used to authenticate.
-        
-        :param spanner_config: A dictionary containing the Spanner configuration.
-        :type spanner_config: SpannerConfig
-        :return: Plottable with a Spanner connection
-        :rtype: Plottable
-        """
-        self._spanner_config = spanner_config
-        return self
-    
 
     def infer_labels(self):
         """
@@ -2498,7 +2462,7 @@ class PlotterBase(Plottable):
         """
 
         res = copy.copy(self)
-        driver = self._bolt_driver or self._session.bolt_driver
+        driver = self._bolt_driver or self.session._bolt_driver
         if driver is None:
             raise ValueError("BOLT connection information not provided. Must first call graphistry.register(bolt=...) or g.bolt(...).")
         with driver.session() as session:

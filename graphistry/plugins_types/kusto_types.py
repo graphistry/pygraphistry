@@ -18,16 +18,12 @@ class KustoQueryResult:
         self.column_types = column_types
 
 
-class KustoConfig(TypedDict):
-    cluster: str
-    database: str
-    client_id: NotRequired[str]
-    client_secret: NotRequired[str]
-    tenant_id: NotRequired[str]
-
-
 @dataclass
-class KustoSession:
-    client: Optional[KustoClient] = None
-    database: Optional[str] = None
-    config: Optional[KustoConfig] = None
+class KustoConfig:
+    database: str
+    cluster: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+    _client: Optional[KustoClient] = None

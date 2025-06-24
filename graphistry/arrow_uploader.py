@@ -39,7 +39,7 @@ class ArrowUploader:
         # in pygraphistry.py the client session is set from the caller
         if client_session is None:
             from .pygraphistry import PyGraphistry
-            client_session = PyGraphistry._session
+            client_session = PyGraphistry.session
 
         self._client_session = client_session
         
@@ -287,12 +287,12 @@ class ArrowUploader:
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
-                if PyGraphistry._session.org_name is not None:
-                    PyGraphistry._session.org_name = None
+                if PyGraphistry.session.org_name is not None:
+                    PyGraphistry.session.org_name = None
             else:
-                if PyGraphistry._session.org_name is not None:
-                    logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry._session.org_name)
-                PyGraphistry._session.org_name = logged_in_org_name 
+                if PyGraphistry.session.org_name is not None:
+                    logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry.session.org_name)
+                PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
