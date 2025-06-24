@@ -1,17 +1,16 @@
 from typing import Any, List, Union
-from .types import NormalizedIsInElement, NormalizedScalar, NormalizedNumeric
+from datetime import datetime, date, time
 import pandas as pd
 import numpy as np
-from datetime import datetime, date, time
 
 from graphistry.utils.json import assert_json_serializable
-from .ASTPredicate import ASTPredicate
-# Temporal value classes imported for type checking only
 from graphistry.models.gfql.coercions.temporal import to_native
 from graphistry.models.gfql.types.guards import is_basic_scalar, is_any_temporal
 from graphistry.models.gfql.types.predicates import IsInElementInput
 from graphistry.models.gfql.types.temporal import TemporalWire, DateTimeWire, DateWire, TimeWire
 from graphistry.compute.typing import SeriesT
+from .ASTPredicate import ASTPredicate
+from .types import NormalizedIsInElement, NormalizedScalar, NormalizedNumeric
 
 
 class IsIn(ASTPredicate):

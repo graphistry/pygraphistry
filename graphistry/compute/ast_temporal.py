@@ -1,6 +1,6 @@
+from typing import Dict, Any, Union
 from abc import ABC, abstractmethod
 from datetime import datetime, date, time
-from typing import Dict, Any, Union
 import pandas as pd
 from dateutil import parser as date_parser  # type: ignore[import]
 import pytz  # type: ignore[import]
