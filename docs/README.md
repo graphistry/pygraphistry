@@ -62,6 +62,8 @@ Sphinx in strict mode:
 
 CI runs `html.sh` and checks for warnings and errors. If there are any, it will fail the build.
 
+Notebook validation is enabled by default. To disable: `VALIDATE_NOTEBOOK_EXECUTION=0 ./ci.sh`
+
 ## Develop
 
 - Edit the `demo/` notebooks, `graphistry/` Python code, and `docs/source` .rst files

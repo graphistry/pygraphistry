@@ -1,6 +1,9 @@
 #!/bin/bash
 set -ex
 
+# Debug: Check if graphistry is importable
+python3 -c "import sys; print('Python path:', sys.path); import graphistry; print('Graphistry imported successfully from:', graphistry.__file__)" || echo "WARNING: Cannot import graphistry"
+
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
 }

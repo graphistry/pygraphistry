@@ -13,7 +13,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * transform() and transform_umap() now require some parameters to be keyword-only
 
 ### Added
-* CI: Enable notebook validation in GitHub Actions to ensure documentation notebooks remain executable
+* CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
+* CI: Run notebook validation after doc generation for faster error detection
 
 ### Fixed
 * Fix Sphinx documentation build errors in docstrings for kusto and spanner methods
