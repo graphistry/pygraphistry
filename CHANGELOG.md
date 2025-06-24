@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.38.2 - 2025-06-24]
+
 ### Added
 * GFQL temporal predicates and type system for date/time comparisons
   * Support for datetime, date, and time comparisons with operators: `gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`, `is_in`
@@ -15,18 +17,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for explicit temporal types
   * Wire protocol support for JSON serialization of temporal predicates
   * Comprehensive documentation: datetime filtering guide, wire protocol reference, and examples notebook
-* CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
-* CI: Run notebook validation after doc generation for faster error detection
+
+## [0.38.1 - 2025-06-24]
 
 ### Breaking
 * Plottable is now a Protocol
 * py.typed added, type checking active on PyGraphistry!
 * transform() and transform_umap() now require some parameters to be keyword-only
 
+### Added
+* CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
+* CI: Run notebook validation after doc generation for faster error detection
+
 ### Fixed
 * Fix Sphinx documentation build errors in docstrings for kusto and spanner methods
 * Fix toctree references to use correct file names without extensions
 * Remove inherited members from PyTorch nn.Module in RGCN documentation to avoid formatting conflicts
+* Fix Unicode characters in datetime_filtering.md for LaTeX compatibility
 
 ## [0.38.0 - 2025-06-17]
 
