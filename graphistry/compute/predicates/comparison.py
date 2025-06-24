@@ -4,11 +4,11 @@ import numpy as np
 from datetime import datetime, date, time
 
 from .ASTPredicate import ASTPredicate
-from ..ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
-from ...models.gfql.coercions.temporal import to_ast
-from ...models.gfql.types.guards import is_native_numeric, is_any_temporal, is_string
+from graphistry.compute.ast_temporal import TemporalValue, DateTimeValue, DateValue, TimeValue
+from graphistry.models.gfql.coercions.temporal import to_ast
+from graphistry.models.gfql.types.guards import is_native_numeric, is_any_temporal, is_string
 from graphistry.models.gfql.types.predicates import ComparisonInput, BetweenBoundInput
-from ...utils.json import JSONVal
+from graphistry.utils.json import JSONVal
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:

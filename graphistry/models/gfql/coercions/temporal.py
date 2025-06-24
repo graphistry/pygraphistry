@@ -8,10 +8,10 @@ from typing import Union
 from datetime import datetime, date, time
 import pandas as pd
 
-from ....compute.ast_temporal import (
+from graphistry.compute.ast_temporal import (
     TemporalValue, DateTimeValue, DateValue, TimeValue
 )
-from ..types.temporal import NativeTemporal, TemporalWire
+from graphistry.models.gfql.types.temporal import NativeTemporal, TemporalWire
 
 
 # ============= To AST Transforms =============

@@ -7,8 +7,8 @@ from datetime import datetime, date, time
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
 # Temporal value classes imported for type checking only
-from ...models.gfql.coercions.temporal import to_native
-from ...models.gfql.types.guards import is_basic_scalar, is_any_temporal
+from graphistry.models.gfql.coercions.temporal import to_native
+from graphistry.models.gfql.types.guards import is_basic_scalar, is_any_temporal
 from graphistry.models.gfql.types.predicates import IsInElementInput
 from graphistry.models.gfql.types.temporal import TemporalWire, DateTimeWire, DateWire, TimeWire
 from graphistry.compute.typing import SeriesT

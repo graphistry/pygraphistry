@@ -17,7 +17,7 @@ from datetime import datetime, date, time
 import pandas as pd
 import numpy as np
 
-from ....compute.ast_temporal import TemporalValue
+from graphistry.compute.ast_temporal import TemporalValue
 from .temporal import NativeTemporal, TemporalWire
 from .numeric import NativeNumeric
 

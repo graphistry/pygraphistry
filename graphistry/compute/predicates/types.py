@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime, date, time
 
 # Import temporal wire types
-from ...models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
+from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
 
 # Normalized types after processing inputs
 NormalizedNumeric = Union[int, float, np.number]
