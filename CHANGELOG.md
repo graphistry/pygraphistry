@@ -7,12 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
-## [0.38.1 - 2025-06-24]
-
-### Breaking
-* Plottable is now a Protocol
-* py.typed added, type checking active on PyGraphistry!
-* transform() and transform_umap() now require some parameters to be keyword-only
+## [0.38.2 - 2025-06-24]
 
 ### Added
 * GFQL temporal predicates and type system for date/time comparisons
@@ -22,6 +17,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for explicit temporal types
   * Wire protocol support for JSON serialization of temporal predicates
   * Comprehensive documentation: datetime filtering guide, wire protocol reference, and examples notebook
+
+## [0.38.1 - 2025-06-24]
+
+### Breaking
+* Plottable is now a Protocol
+* py.typed added, type checking active on PyGraphistry!
+* transform() and transform_umap() now require some parameters to be keyword-only
+
+### Added
 * CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
 * CI: Run notebook validation after doc generation for faster error detection
 
