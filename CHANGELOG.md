@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Support for datetime, date, and time comparisons with operators: `gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`, `is_in`
   * Proper timezone handling for datetime comparisons
   * Type-safe temporal value handling with TypeGuard annotations
+  * Temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for explicit temporal types
+  * Wire protocol support for JSON serialization of temporal predicates
+  * Comprehensive documentation: datetime filtering guide, wire protocol reference, and examples notebook
 * CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
 * CI: Run notebook validation after doc generation for faster error detection
 
