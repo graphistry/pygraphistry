@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 * Fix relative imports in GFQL modules that broke pip install
 * Add lint check to prevent future relative imports with '..'
+* Fix missing `__init__.py` files in `graphistry.models.gfql` subdirectories that prevented module discovery
+* Add CI test to verify pip install works correctly across Python versions
 
 ## [0.38.2 - 2025-06-24]
 
