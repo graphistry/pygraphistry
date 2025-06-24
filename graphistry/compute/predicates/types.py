@@ -1,8 +1,8 @@
 """Type definitions for predicates"""
-from typing import Union, Literal
-from datetime import datetime, date, time
-import pandas as pd
+from typing import Literal, Union
+from datetime import date, datetime, time
 import numpy as np
+import pandas as pd
 
 from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
 
