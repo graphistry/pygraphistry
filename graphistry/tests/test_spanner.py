@@ -5,6 +5,13 @@ import pandas as pd
 from unittest.mock import Mock, patch
 import graphistry
 
+# Check if google module is available
+try:
+    import google.cloud.spanner_dbapi
+    HAS_GOOGLE_MODULE = True
+except ImportError:
+    HAS_GOOGLE_MODULE = False
+
 SPANNER_PROJECT_ID = os.getenv("SPANNER_PROJECT_ID")
 SPANNER_INSTANCE_ID = os.getenv("SPANNER_INSTANCE_ID")
 SPANNER_DATABASE_ID = os.getenv("SPANNER_DATABASE_ID")
@@ -70,6 +77,7 @@ class TestSpannerIntegration:
         assert df['age'].iloc[0] == 30
         assert df['role'].iloc[0] == 'Engineer'
 
+    @pytest.mark.skipif(not HAS_GOOGLE_MODULE, reason="Google module not installed")
     def test_spanner_from_client(self):
         """Test creating Spanner client from existing connection."""
         with patch('google.cloud.spanner_dbapi.connect') as mock_connect:
@@ -120,6 +128,7 @@ class TestSpannerIntegration:
 class TestSpannerMocked:
     """Test Spanner functionality with mocked dependencies when credentials not available."""
     
+    @pytest.mark.skipif(not HAS_GOOGLE_MODULE, reason="Google module not installed")
     @patch('google.cloud.spanner_dbapi.connect')
     def test_spanner_client_creation_mocked(self, mock_connect):
         """Test Spanner client creation without real credentials."""

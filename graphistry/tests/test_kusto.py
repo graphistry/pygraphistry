@@ -4,6 +4,13 @@ import pandas as pd
 from unittest.mock import Mock, patch, PropertyMock
 import graphistry
 
+# Check if azure module is available
+try:
+    import azure.kusto.data
+    HAS_AZURE_MODULE = True
+except ImportError:
+    HAS_AZURE_MODULE = False
+
 
 KUSTO_CLUSTER_URI = os.getenv("KUSTO_CLUSTER_URI")
 KUSTO_DATABASE = os.getenv("KUSTO_DATABASE")
@@ -102,6 +109,7 @@ class TestKustoIntegration:
         assert g._destination == 'destination'
         assert len(df) == 3
 
+    @pytest.mark.skipif(not HAS_AZURE_MODULE, reason="Azure module not installed")
     def test_kusto_from_client(self):
         """Test creating Kusto client from credentials."""
         with patch('azure.kusto.data.KustoClient') as mock_client_class:
@@ -220,6 +228,7 @@ class TestKustoMocked:
         HAS_KUSTO_CREDENTIALS,
         reason="Skip mocked tests when real credentials are available"
     )
+    @pytest.mark.skipif(not HAS_AZURE_MODULE, reason="Azure module not installed")
     @patch('azure.kusto.data.KustoClient')
     def test_kusto_client_creation_mocked(self, mock_client_class):
         """Test Kusto client creation without real credentials."""
