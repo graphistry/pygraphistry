@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.38.3 - 2025-06-24]
+
+### Fixed
+* Fix relative imports in GFQL modules that broke pip install
+* Add lint check to prevent future relative imports with '..'
+
 ## [0.38.2 - 2025-06-24]
 
 ### Added
