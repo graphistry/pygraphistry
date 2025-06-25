@@ -17,8 +17,6 @@ class ArrowUploader:
 
     def __init__(
         self,
-        *,
-        client_session: Optional[ClientSession] = None,
         server_base_path: str = "http://nginx",
         view_base_path: str = "http://localhost",
         name: Optional[str] = None,
@@ -34,6 +32,7 @@ class ArrowUploader:
         metadata: Optional[Dict[str, Any]] = None,
         certificate_validation: bool = True,
         org_name: Optional[str] = None,
+        client_session: Optional[ClientSession] = None,
     ) -> None:
         # NOTE: The global is used in standalone tests
         # in pygraphistry.py the client session is set from the caller

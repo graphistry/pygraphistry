@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal
+from graphistry.Plottable import Plottable
 from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
@@ -1752,6 +1753,18 @@ class PyGraphistryClient(AuthManagerProtocol):
             new_client.session = self.session.copy()
         return new_client
 
+    def set_client(self, plotter: Plotter) -> Plotter:
+        """Set the client for a plotter.
+
+        :param plotter: Plotter to set the client for
+        :type plotter: Plotter
+        :returns: Plotter with the client set
+        :rtype: Plotter
+        """
+        plotter._pygraphistry = self
+        plotter.session = self.session
+        return plotter
+
     def _plotter(self) -> Plotter:
         """Create a new Plotter instance with this session injected.
         
@@ -2484,6 +2497,7 @@ name = PyGraphistry.name
 description = PyGraphistry.description
 bind = PyGraphistry.bind
 client = PyGraphistry.client
+set_client = PyGraphistry.set_client
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 pipe = PyGraphistry.pipe
