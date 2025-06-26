@@ -1392,7 +1392,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def privacy(self, mode: Optional[Mode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None):
+    def privacy(self, mode: Optional[Mode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None) -> Plottable:
         """Set local sharing mode
 
         :param mode: Either "private", "public", or inherit from global privacy()
