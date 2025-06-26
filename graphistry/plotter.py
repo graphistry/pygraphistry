@@ -48,6 +48,8 @@ class Plotter(
         - :py:class:`graphistry.gremlin.GremlinMixin`: Provides Gremlin query support for graph databases.
         - :py:class:`graphistry.gremlin.CosmosMixin`: Integrates with Azure Cosmos DB.
         - :py:class:`graphistry.gremlin.NeptuneMixin`: Integrates with AWS Neptune DB.
+        - :py:class:`graphistry.plugins.kusto.KustoMixin`: Integrates with Azure Kusto DB.
+        - :py:class:`graphistry.plugins.spanner.SpannerMixin`: Integrates with Google Spanner DB.
 
     Attributes:
         All attributes are inherited from the mixins and base classes.

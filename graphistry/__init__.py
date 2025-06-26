@@ -15,7 +15,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     description,
     bind,
     client,
-    set_client,
+    set_client_for,
     style,
     addStyle,
     edges,

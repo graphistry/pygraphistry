@@ -559,8 +559,6 @@ class PyGraphistryClient(AuthManagerProtocol):
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
         :type bolt: Union[dict, Any]
-        :param spanner_config: Spanner connection information. Named constructor arguments for instantiating a spanner client
-        :type spanner_config: Union[dict, Any]
         :param protocol: Protocol used to contact visualization server, defaults to "https".
         :type protocol: Optional[str]
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
@@ -1753,7 +1751,7 @@ class PyGraphistryClient(AuthManagerProtocol):
             new_client.session = self.session.copy()
         return new_client
 
-    def set_client(self, plotter: Plotter) -> Plotter:
+    def set_client_for(self, plotter: Plotter) -> Plotter:
         """Set the client for a plotter.
 
         :param plotter: Plotter to set the client for
@@ -2497,7 +2495,7 @@ name = PyGraphistry.name
 description = PyGraphistry.description
 bind = PyGraphistry.bind
 client = PyGraphistry.client
-set_client = PyGraphistry.set_client
+set_client_for = PyGraphistry.set_client_for
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 pipe = PyGraphistry.pipe
