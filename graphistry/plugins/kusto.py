@@ -106,7 +106,9 @@ class KustoMixin(Plottable):
                 # Use with Graphistry
                 g = graphistry.kusto_from_client(kusto_client, "MyDatabase")
         """
-        self.kusto_close()
+        # Don't close the client if it's the same one
+        if self.session.kusto is not None and client is not self.session.kusto._client:
+            self.kusto_close()
         self.session.kusto = KustoConfig(
             cluster="unkown cluster kusto_from_client",
             database=database,

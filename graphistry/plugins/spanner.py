@@ -92,7 +92,9 @@ class SpannerMixin(Plottable):
                 # Use with Graphistry
                 g = graphistry.spanner_from_client(database)
         """
-        self.spanner_close()
+        # Don't close the client if it's the same one
+        if self.session.spanner is not None and client is not self.session.spanner._client:
+            self.spanner_close()
         self.session.spanner = SpannerConfig(_client=client)
         self.session.spanner.validate()
         return self
