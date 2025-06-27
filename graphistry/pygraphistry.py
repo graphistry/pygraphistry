@@ -1832,13 +1832,17 @@ class PyGraphistryClient(AuthManagerProtocol):
         return cast(Plotter, self._plotter().spanner_from_client(client))
     spanner_from_client.__doc__ = Plotter.spanner_from_client.__doc__
 
+    def spanner_close(self) -> None:
+        self._plotter().spanner_close()
+    spanner_close.__doc__ = Plotter.spanner_close.__doc__
+
     def spanner_gql(self, query: str) -> Plotter:    
-        return cast(Plotter, self._plotter().gql(query))
-    spanner_gql.__doc__ = Plotter.gql.__doc__
+        return cast(Plotter, self._plotter().spanner_gql(query))
+    spanner_gql.__doc__ = Plotter.spanner_gql.__doc__
 
     def spanner_gql_to_df(self, query: str) -> pd.DataFrame:
-        return self._plotter().gql_to_df(query)
-    spanner_gql_to_df.__doc__ = Plotter.gql_to_df.__doc__
+        return self._plotter().spanner_gql_to_df(query)
+    spanner_gql_to_df.__doc__ = Plotter.spanner_gql_to_df.__doc__
 
     # ---- Kusto API ---------------------------------------------------- #
 
@@ -1857,6 +1861,10 @@ class PyGraphistryClient(AuthManagerProtocol):
     def kusto_from_client(self, client: Any, database: str = "NetDefaultDB") -> Plotter:
         return cast(Plotter, self._plotter().kusto_from_client(client, database))
     kusto_from_client.__doc__ = Plotter.kusto_from_client.__doc__
+
+    def kusto_close(self) -> None:
+        self._plotter().kusto_close()
+    kusto_close.__doc__ = Plotter.kusto_close.__doc__
 
     @overload
     def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[False] = False) -> List[pd.DataFrame]:

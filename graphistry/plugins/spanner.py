@@ -136,7 +136,7 @@ class SpannerMixin(Plottable):
 
     # ---- Query API ---------------------------------------------------- #
 
-    def _gql(self, query: str) -> SpannerQueryResult:
+    def _spanner_gql(self, query: str) -> SpannerQueryResult:
         """Execute a GQL query on the Spanner database.
         
         Internal method for executing Graph Query Language (GQL) queries on
@@ -294,7 +294,7 @@ class SpannerMixin(Plottable):
 
     # ---- Ergonomic API ------------------------------------------------ #
 
-    def gql(self, query: str) -> Plottable:
+    def spanner_gql(self, query: str) -> Plottable:
         """Execute GQL path query and return graph visualization.
         
         Executes a Graph Query Language (GQL) path query on the configured Spanner
@@ -326,7 +326,7 @@ class SpannerMixin(Plottable):
                 g = graphistry.spanner_gql(query)
                 g.plot()
         """
-        query_result = self._gql(query)
+        query_result = self._spanner_gql(query)
 
         # convert json result set to a list 
         query_result_list = [ query_result.data ]
@@ -339,7 +339,7 @@ class SpannerMixin(Plottable):
         # TODO(tcook): add more error handling here if nodes or edges are empty
         return self.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')  # type: ignore
 
-    def gql_to_df(self, query: str) -> pd.DataFrame:
+    def spanner_gql_to_df(self, query: str) -> pd.DataFrame:
         """Execute GQL/SQL query and return results as DataFrame.
         
         Executes a Graph Query Language (GQL) or SQL query on the configured Spanner
@@ -379,7 +379,7 @@ class SpannerMixin(Plottable):
                 query = "SELECT * FROM Account WHERE type = 'checking' LIMIT 1000"
                 df = graphistry.spanner_gql_to_df(query)
         """
-        query_result = self._gql(query)
+        query_result = self._spanner_gql(query)
 
         # create DataFrame from json results, adding column names
         return pd.DataFrame(query_result.data, columns=query_result.column_names)

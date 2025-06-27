@@ -5,7 +5,7 @@ import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
-from graphistry.privacy import Privacy, Mode
+from graphistry.privacy import Privacy, Mode, ModeAction
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 
 from .constants import SRC, DST, NODE
@@ -1392,7 +1392,14 @@ class PlotterBase(Plottable):
         return res
 
 
-    def privacy(self, mode: Optional[Mode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None) -> Plottable:
+    def privacy(
+        self, 
+        mode: Optional[Mode] = None, 
+        notify: Optional[bool] = None, 
+        invited_users: Optional[List[str]] = None, 
+        message: Optional[str] = None,
+        mode_action: Optional[ModeAction] = None
+    ) -> Plottable:
         """Set local sharing mode
 
         :param mode: Either "private", "public", or inherit from global privacy()
@@ -1403,6 +1410,8 @@ class PlotterBase(Plottable):
         :type invited_users: Optional[List]
         :param message: Email to send when notify=True
         :type message': Optioanl[str]
+        :param mode_action: Action to take when mode is changed, defaults to global privacy()
+        :type mode_action: Optional[ModeAction]
 
         Requires an account with sharing capabilities.
 
@@ -1499,6 +1508,8 @@ class PlotterBase(Plottable):
             res._privacy['invited_users'] = invited_users
         if message is not None:
             res._privacy['message'] = message
+        if mode_action is not None:
+            res._privacy['mode_action'] = mode_action
         return res
 
     def server(self, v: Optional[str] = None) -> str:
