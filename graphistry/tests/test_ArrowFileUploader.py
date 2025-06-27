@@ -3,10 +3,11 @@ import pandas as pd, pyarrow as pa, unittest
 from graphistry.arrow_uploader import ArrowUploader
 from graphistry.ArrowFileUploader import (
     ArrowFileUploader,
-    DF_TO_FILE_ID_CACHE,
     MemoizedFileUpload,
-    WrappedTable,
-    cache_arr,
+    _ID_CACHE,
+    _SIG_CACHE,
+    _CACHE_LOCK,
+    _compute_signature,
 )
 
 # TODO mock requests for testing actual effectful code
@@ -19,7 +20,12 @@ class TestArrowFileUploader_Core(unittest.TestCase):
 
         arr = pa.Table.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
 
-        # avoid directly holding references
-        DF_TO_FILE_ID_CACHE[cache_arr(WrappedTable(arr))] = MemoizedFileUpload("a", "b")
+        # Manually populate the cache with test data
+        with _CACHE_LOCK:
+            obj_id = id(arr)
+            sig = _compute_signature(arr)
+            memo = MemoizedFileUpload("a", sig, {"test": "output"})
+            _ID_CACHE[obj_id] = memo
+            _SIG_CACHE[sig] = memo
 
-        assert afu.create_and_post_file(arr) == ("a", "b")
+        assert afu.create_and_post_file(arr) == ("a", {"test": "output"})
