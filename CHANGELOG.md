@@ -11,8 +11,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * Multi-tenant support: `graphistry.client()` and `graphistry.set_client_for()`
-  * Global interface `PyGraphistry` class => Global `PyGraphistryClient` instance
-  * `graphistry.client()` creates an independent `PyGraphistryClient` instance
+  * Global interface `PyGraphistry` class => Global `GraphistryClient` instance
+  * `graphistry.client()` creates an independent `GraphistryClient` instance
 * Type annotations added, especially in PlotterBase.py, arrow_uploader.py, and pygraphistry.py
 
 ### Changed
