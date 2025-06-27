@@ -1,18 +1,9 @@
-import logging
 import pandas as pd
-from typing import Any, List, Union, TYPE_CHECKING
-from typing_extensions import Literal
 
-from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 
 logger = setup_logger("compute.conditional")
-
-if TYPE_CHECKING:
-    MIXIN_BASE = Plottable
-else:
-    MIXIN_BASE = object
 
 
 # ############################################################################
@@ -56,7 +47,7 @@ def probs(x, given, df: pd.DataFrame, how='index'):
         return res.T
     return res
 
-class ConditionalMixin(MIXIN_BASE):
+class ConditionalMixin(Plottable):
     
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)

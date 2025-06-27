@@ -1,5 +1,12 @@
-from typing import List, Any
-from typing_extensions import TypedDict, NotRequired
+from typing import List, Any, Optional, TYPE_CHECKING
+from dataclasses import dataclass
+import os
+
+if TYPE_CHECKING:
+    from google.cloud.spanner_dbapi.connection import Connection
+else:
+    Connection = Any
+
 
 class SpannerConnectionError(Exception):
     """Custom exception for errors related to Spanner connection."""
@@ -25,8 +32,28 @@ class SpannerQueryResult:
         self.column_names = column_names
 
 
-class SpannerConfig(TypedDict):
-    project_id: NotRequired[str]
-    instance_id: str
-    database_id: str
-    credentials_file: NotRequired[str]
+@dataclass
+class SpannerConfig:
+    project_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    database_id: Optional[str] = None
+    credentials_file: Optional[str] = None
+
+    _client: Optional[Connection] = None
+
+    def validate(self) -> None:
+        if self._client is not None:
+            return
+        missing = []
+        if not self.instance_id:
+            missing.append("instance_id")
+        if not self.database_id:
+            missing.append("database_id")
+        if missing:
+            raise ValueError(f"SpannerConfig missing required field(s): {', '.join(missing)}")
+
+        if self.project_id is None and self.credentials_file is None:
+            raise ValueError("SpannerConfig requires `project_id` or `credentials_file`.")
+
+        if self.credentials_file is not None and not os.path.isfile(self.credentials_file):
+            raise FileNotFoundError(f"Credentials file not found: {self.credentials_file}")

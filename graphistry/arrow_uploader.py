@@ -1,9 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import io, pyarrow as pa, requests, sys
 
-from graphistry.privacy import Mode, Privacy
+from graphistry.privacy import Mode, Privacy, ModeAction
 
+from .client_session import ClientSession
 from .ArrowFileUploader import ArrowFileUploader
 
 from .exceptions import TokenExpireException
@@ -13,6 +14,53 @@ from .util import setup_logger
 logger = setup_logger(__name__)
 
 class ArrowUploader:
+
+    def __init__(
+        self,
+        server_base_path: str = "http://nginx",
+        view_base_path: str = "http://localhost",
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        edges: Optional[pa.Table] = None,
+        nodes: Optional[pa.Table] = None,
+        node_encodings: Optional[Dict[str, Any]] = None,
+        edge_encodings: Optional[Dict[str, Any]] = None,
+        token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        nodes_file_id: Optional[str] = None,
+        edges_file_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        certificate_validation: bool = True,
+        org_name: Optional[str] = None,
+        client_session: Optional[ClientSession] = None,
+    ) -> None:
+        # NOTE: The global is used in standalone tests
+        # in pygraphistry.py the client session is set from the caller
+        if client_session is None:
+            from .pygraphistry import PyGraphistry
+            client_session = PyGraphistry.session
+
+        self._client_session = client_session
+        
+        self.__name = name
+        self.__description = description
+        self.__server_base_path = server_base_path
+        self.__view_base_path = view_base_path
+        self.__token = token
+        self.__dataset_id = dataset_id
+        self.__nodes_file_id = nodes_file_id
+        self.__edges_file_id = edges_file_id
+        self.__edges = edges
+        self.__nodes = nodes
+        self.__node_encodings = node_encodings
+        self.__edge_encodings = edge_encodings
+        self.__metadata = metadata
+        self.__certificate_validation = certificate_validation
+        self.__org_name = org_name or self._client_session.org_name
+
+        self.sso_auth_url: Optional[str] = None
+
+        logger.debug("2. @ArrowUploader.__init__: After set self.org_name: %s, self.__org_name : %s", self.org_name, self.__org_name)
     
     @property
     def token(self) -> str:
@@ -21,7 +69,7 @@ class ArrowUploader:
         return self.__token
 
     @token.setter
-    def token(self, token: str):
+    def token(self, token: Optional[str]):
         self.__token = token
 
     @property
@@ -30,7 +78,7 @@ class ArrowUploader:
 
     @org_name.setter
     def org_name(self, org_name: str) -> None:
-        self.__org_name: Optional[str] = org_name
+        self.__org_name = org_name
 
     @property
     def dataset_id(self) -> str:
@@ -176,46 +224,6 @@ class ArrowUploader:
     ########################################################################3
 
 
-    def __init__(self, 
-            server_base_path='http://nginx', view_base_path='http://localhost',
-            name = None,
-            description = None,
-            edges: Optional[pa.Table] = None, nodes: Optional[pa.Table] = None,
-            node_encodings = None, edge_encodings = None,
-            token = None, dataset_id = None, nodes_file_id = None, edges_file_id = None,
-            metadata = None,
-            certificate_validation = True, 
-            org_name: Optional[str] = None):
-
-        self.__name = name
-        self.__description = description
-        self.__server_base_path = server_base_path
-        self.__view_base_path = view_base_path
-        self.__token = token
-        self.__dataset_id = dataset_id
-        self.__nodes_file_id = nodes_file_id
-        self.__edges_file_id = edges_file_id
-        self.__edges = edges
-        self.__nodes = nodes
-        self.__node_encodings = node_encodings
-        self.__edge_encodings = edge_encodings
-        self.__metadata = metadata
-        self.__certificate_validation = certificate_validation
-        self.__org_name = org_name if org_name else None
-
-        if org_name:
-            self.__org_name = org_name
-        else:
-            # check current org_name
-            from .pygraphistry import PyGraphistry
-            if 'org_name' in PyGraphistry._config:
-                logger.debug("@ArrowUploader.__init__: There is an org_name : %s", PyGraphistry._config['org_name'])
-                self.__org_name = PyGraphistry._config['org_name']
-            else:
-                self.__org_name = None
-
-        logger.debug("2. @ArrowUploader.__init__: After set self.org_name: %s, self.__org_name : %s", self.org_name, self.__org_name)
-
 
     def login(self, username, password, org_name=None):
         # base_path = self.server_base_path
@@ -232,7 +240,7 @@ class ArrowUploader:
 
         return self._handle_login_response(out, org_name)
 
-    def pkey_login(self, personal_key_id, personal_key_secret, org_name=None):
+    def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None) -> 'ArrowUploader':
         # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
         json_data = {}
         if org_name:
@@ -249,7 +257,7 @@ class ArrowUploader:
         log_requests_error(out)
         return self._handle_login_response(out, org_name)
 
-    def _handle_login_response(self, out, org_name):
+    def _handle_login_response(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
         from .pygraphistry import PyGraphistry
         json_response = None
         try:
@@ -278,12 +286,12 @@ class ArrowUploader:
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
-                if 'org_name' in PyGraphistry._config:
-                    del PyGraphistry._config['org_name']
+                if PyGraphistry.session.org_name is not None:
+                    PyGraphistry.session.org_name = None
             else:
-                if org_name in PyGraphistry._config:
-                    logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry._config['org_name'])
-                PyGraphistry._config['org_name'] = logged_in_org_name 
+                if PyGraphistry.session.org_name is not None:
+                    logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry.session.org_name)
+                PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
@@ -293,7 +301,7 @@ class ArrowUploader:
 
         return self
 
-    def sso_login(self, org_name=None, idp_name=None):
+    def sso_login(self, org_name: Optional[str] = None, idp_name: Optional[str] = None) -> 'ArrowUploader':
         """
         Koa, 04 May 2022    Get SSO login auth_url or token
         """
@@ -322,7 +330,7 @@ class ArrowUploader:
             logger.debug("@ArrowUploader.sso_login, out.text: %s", out.text)
             json_response = out.json()
             logger.debug("@ArrowUploader.sso_login, json_response: %s", json_response)
-            self.token = None
+            self.token = None  # type: ignore[assignment]
             if not ('status' in json_response):
                 raise Exception(out.text)
             else:
@@ -592,29 +600,28 @@ class ArrowUploader:
         mode: Optional[Mode] = None,
         notify: Optional[bool] = None,
         invited_users: Optional[List[str]] = None,
-        mode_action: Optional[str] = None,
+        mode_action: Optional[ModeAction] = None,
         message: Optional[str] = None
     ):
         """
         Cascade:
             - local (passed in)
-            - global
+            - session
             - hard-coded
         """
 
-        from .pygraphistry import PyGraphistry
-        global_privacy = PyGraphistry._config['privacy']
-        if global_privacy is not None:
+        session_privacy = self._client_session.privacy
+        if session_privacy is not None:
             if mode is None:
-                mode = global_privacy['mode']
+                mode = session_privacy.get('mode')
             if notify is None:
-                notify = global_privacy['notify']
+                notify = session_privacy.get('notify')
             if invited_users is None:
-                invited_users = global_privacy['invited_users']
+                invited_users = session_privacy.get('invited_users')
             if mode_action is None:
-                mode_action = global_privacy['mode_action']
+                mode_action = session_privacy.get('mode_action')
             if message is None:
-                message = global_privacy['message']
+                message = session_privacy.get('message')
 
         if mode is None:
             mode = 'private'
@@ -748,9 +755,9 @@ class ArrowUploader:
             Skip if never called .privacy()
             Return True/False based on whether called
         """
-        from .pygraphistry import PyGraphistry
-        logger.debug('Privacy: global (%s), local (%s)', PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
-        if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
+        session_privacy = self._client_session.privacy
+        logger.debug('Privacy: global (%s), local (%s)', session_privacy or 'None', g._privacy or 'None')
+        if session_privacy is not None or g._privacy is not None:
             self.post_share_link(self.dataset_id, 'dataset', g._privacy)
             return True
 

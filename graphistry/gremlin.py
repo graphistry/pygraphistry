@@ -18,13 +18,6 @@ except:
 from .util import setup_logger
 logger = setup_logger(__name__)
 
-
-if TYPE_CHECKING:
-    MIXIN_BASE = Plottable
-else:
-    MIXIN_BASE = object
-
-
 def clean_str(v):
     if isinstance(v, str):
         return v.replace('"', r'\"')

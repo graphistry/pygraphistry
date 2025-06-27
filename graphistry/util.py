@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any
 import hashlib
 import logging
 import os
@@ -12,7 +12,6 @@ import warnings
 from functools import lru_cache
 
 from graphistry.models.ModelDict import ModelDict
-from graphistry.Plottable import Plottable
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
@@ -131,46 +130,7 @@ def hash_memoize(v: Any) -> str:
     return hashlib.sha256(hash_memoize_helper(v).encode("utf-8")).hexdigest()
 
 
-def check_set_memoize(
-    g: Plottable, metadata, attribute: str, name: str = "", memoize: bool = True
-) -> Union[bool, Any]:
-    """
-    Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
-    for the fact that it must have `attribute`. If they have not changed, will return memoized version,
-    if False, will continue with whatever pipeline it is in front.
-    """
 
-    logger = setup_logger(f"{__name__}.memoization")
-
-    if not memoize:
-        logger.debug("Memoization disabled")
-        return False
-
-    hashed = None
-    weakref = getattr(g, attribute)
-    try:
-        hashed = hash_memoize(dict(data=metadata))
-    except TypeError:
-        logger.warning(
-            f"! Failed {name} speedup attempt. Continuing without memoization speedups."
-        )
-    try:
-        if hashed in weakref:
-            logger.debug(f"{name} memoization hit: %s", hashed)
-            return weakref[hashed].v
-        else:
-            logger.debug(
-                f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
-            )
-    except:
-        logger.debug(f"Failed to hash {name} kwargs", exc_info=True)
-        pass
-
-    if memoize and (hashed is not None):
-        w = WeakValueWrapper(g)
-        cache_coercion(hashed, w)
-        weakref[hashed] = w
-    return False
 
 
 def make_iframe(url, height, extra_html="", override_html_style=None):
@@ -220,7 +180,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None):
     return iframe + scrollbug_workaround
 
 
-def fingerprint():
+def fingerprint() -> str:
     md5 = hashlib.md5()
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]

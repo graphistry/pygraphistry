@@ -20,9 +20,9 @@ from . import constants as config
 from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, XSymbolic, YSymbolic,
                             resolve_feature_engine)
-from .PlotterBase import Plottable, WeakValueDictionary, PlotterBase
-from .util import check_set_memoize, setup_logger
-
+from .PlotterBase import Plottable, PlotterBase
+from .util import setup_logger
+from .utils.plottable_memoize import check_set_memoize
 
 logger = setup_logger(__name__)
 
@@ -64,19 +64,21 @@ def is_legacy_cuml():
         return False
 
 
-def resolve_umap_engine(
-    engine: UMAPEngine,
-) -> UMAPEngineConcrete:
+def resolve_umap_engine(engine: UMAPEngine) -> UMAPEngineConcrete:
     
     if engine in umap_engine_values:
         return engine  # type: ignore
-    if engine in ["auto"]:
-        has_cuml_dependancy_, _, _ = lazy_cuml_import()
+    if engine == 'auto':
+        has_cuml_dependancy_, cuml_msg, _ = lazy_cuml_import()
         if has_cuml_dependancy_:
             return 'cuml'
-        has_umap_dependancy_, _, _ = lazy_umap_import()
+        has_umap_dependancy_, umap_msg, _ = lazy_umap_import()
         if has_umap_dependancy_:
             return 'umap_learn'
+        
+        raise ValueError(
+            f"No UMAP engine available: '{cuml_msg}' AND '{umap_msg}'"
+        )
 
     raise ValueError(
         f'engine expected to be "auto", '
