@@ -1,6 +1,6 @@
 import time
 import pandas as pd
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union, overload, Literal
 
 if TYPE_CHECKING:
     from azure.kusto.data import KustoClient
@@ -171,24 +171,58 @@ class KustoMixin(Plottable):
         """
         self.kusto_client.execute(self._kusto_config.database, ".show tables")
 
+    @overload
     def kql(
         self,
         query: str,
         *,
-        unwrap_nested: Optional[bool] = True
+        unwrap_nested: Optional[bool] = None,
+        single_table: Literal[False] = False
     ) -> List[pd.DataFrame]:
+        ...
+    
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        unwrap_nested: Optional[bool] = None,
+        single_table: Literal[True]
+    ) -> pd.DataFrame:
+        ...
+    
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        unwrap_nested: Optional[bool] = None,
+        single_table: bool = True
+    ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        ...
+    
+    def kql(
+        self,
+        query: str,
+        *,
+        unwrap_nested: Optional[bool] = None,
+        single_table: bool = True
+    ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
         """Execute KQL query and return result tables as DataFrames.
         
         Submits a Kusto Query Language (KQL) query to Azure Data Explorer and returns
-        the results as a list of pandas DataFrames. Since Kusto queries can return
-        multiple result tables, a list is always returned.
+        the results. By default, expects a single table result and returns it as a DataFrame.
+        If multiple tables are returned, only the first is returned with a warning.
+        Set single_table=False to always get a list of all result tables.
         
         :param query: KQL query string to execute
         :type query: str
         :param unwrap_nested: Strategy for handling nested/dynamic columns
         :type unwrap_nested: Optional[bool]
-        :returns: List of DataFrames containing query results
-        :rtype: List[pd.DataFrame]
+        :param single_table: If True, return single DataFrame (first table if multiple); if False, return list
+        :type single_table: bool
+        :returns: Single DataFrame if single_table=True, else list of DataFrames
+        :rtype: Union[pd.DataFrame, List[pd.DataFrame]]
         
         **unwrap_nested semantics:**
         
@@ -196,7 +230,7 @@ class KustoMixin(Plottable):
         - **None**: Use heuristic - unwrap if the first result looks nested
         - **False**: Never attempt to unwrap nested columns
         
-        **Example: Basic security query**
+        **Example: Basic security query (single table mode)**
             ::
             
                 import graphistry
@@ -210,9 +244,16 @@ class KustoMixin(Plottable):
                 | take 1000
                 '''
                 
-                frames = g.kql(query)
-                df = frames[0]  # Most queries return single table
+                # Single table mode returns DataFrame directly (default)
+                df = g.kql(query)
                 print(f"Found {len(df)} logon events")
+                
+        **Example: Get all tables as list**
+            ::
+            
+                # Always get a list of all tables
+                dfs = g.kql(query, single_table=False)
+                df = dfs[0]
                 
         **Example: Multi-table query**
             ::
@@ -222,12 +263,18 @@ class KustoMixin(Plottable):
                 Heartbeat | take 5
                 '''
                 
-                frames = g.kql(query)
+                # With single_table=True (default), returns first table with warning
+                df = g.kql(query)  # Returns SecurityEvent data, warns about multiple tables
+                
+                # With single_table=False, returns all tables
+                frames = g.kql(query, single_table=False)
                 security_df = frames[0]
                 heartbeat_df = frames[1]
         """
         results = self._kql(query)
         if not results:
+            if single_table:
+                raise ValueError("Query returned no results")
             return []
 
         dfs: List[pd.DataFrame] = []
@@ -253,6 +300,12 @@ class KustoMixin(Plottable):
             else:
                 dfs.append(pd.DataFrame(result.data, columns=result.column_names))
 
+        # Auto-unbox single table result if requested
+        if single_table:
+            if len(dfs) > 1:
+                logger.warning("Query returned multiple tables, returning first table")
+            return dfs[0]
+            
         return dfs
 
 

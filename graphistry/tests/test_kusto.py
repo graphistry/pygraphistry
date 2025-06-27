@@ -61,14 +61,21 @@ class TestKustoIntegration:
             tenant_id=KUSTO_TENANT_ID
         )
         
-        # Test simple print query
+        # Test simple print query with single_table=True (default behavior)
         query = "print hello='Hello World'"
-        frames = graphistry.kql(query)
+        df = graphistry.kql(query)
         
-        # Verify the dataframe list was returned
-        assert isinstance(frames, list)
-        assert len(frames) == 1
-        df = frames[0]
+        # Verify a single dataframe was returned
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 1
+        assert 'hello' in df.columns
+        assert df['hello'].iloc[0] == 'Hello World'
+        
+        # Test with single_table=False
+        dfs = graphistry.kql(query, single_table=False)
+        assert isinstance(dfs, list)
+        assert len(dfs) == 1
+        df = dfs[0]
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 1
         assert 'hello' in df.columns
@@ -96,9 +103,9 @@ class TestKustoIntegration:
         ]
         """
         
-        frames = graphistry.kql(query)
-        assert len(frames) == 1
-        df = frames[0]
+        # Test single_table behavior (default)
+        df = graphistry.kql(query)
+        assert isinstance(df, pd.DataFrame)
         
         # Create graph from the results
         g = graphistry.bind(source='source', destination='destination').edges(df)
@@ -162,10 +169,7 @@ class TestKustoIntegration:
         # Test query with dynamic columns
         query = TEST_QUERIES[2]  # datatable with metadata
         
-        frames = graphistry.kql(query)
-        assert isinstance(frames, list)
-        assert len(frames) == 1
-        df = frames[0]
+        df = graphistry.kql(query)
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 4
         assert 'user' in df.columns
@@ -180,7 +184,7 @@ class TestKustoIntegration:
         reason="Kusto credentials not configured"
     )
     def test_kql_multiple_tables(self):
-        """Test KQL query returning multiple tables."""
+        """Test KQL query returning multiple tables always returns list."""
         # Configure with real credentials
         graphistry.configure_kusto(
             cluster=KUSTO_CLUSTER_URI,
@@ -193,12 +197,17 @@ class TestKustoIntegration:
         # Query that returns two tables
         query = "print x=1, y=2; print a='foo', b='bar'"
         
-        frames = graphistry.kql(query)
-        assert isinstance(frames, list)
-        assert len(frames) == 2
+        # Multiple tables with single_table=True returns first table with warning
+        df = graphistry.kql(query)
+        assert isinstance(df, pd.DataFrame)
+        
+        # Test with single_table=False to get all tables
+        dfs = graphistry.kql(query, single_table=False)
+        assert isinstance(dfs, list)
+        assert len(dfs) == 2
         
         # First table
-        df1 = frames[0]
+        df1 = dfs[0]
         assert isinstance(df1, pd.DataFrame)
         assert 'x' in df1.columns
         assert 'y' in df1.columns
@@ -206,7 +215,7 @@ class TestKustoIntegration:
         assert df1['y'].iloc[0] == 2
         
         # Second table
-        df2 = frames[1]
+        df2 = dfs[1]
         assert isinstance(df2, pd.DataFrame)
         assert 'a' in df2.columns
         assert 'b' in df2.columns
@@ -224,10 +233,6 @@ class TestKustoIntegration:
 class TestKustoMocked:
     """Test Kusto functionality with mocked dependencies when credentials not available."""
     
-    @pytest.mark.skipif(
-        HAS_KUSTO_CREDENTIALS,
-        reason="Skip mocked tests when real credentials are available"
-    )
     @pytest.mark.skipif(not HAS_AZURE_MODULE, reason="Azure module not installed")
     @patch('azure.kusto.data.KustoClient')
     def test_kusto_client_creation_mocked(self, mock_client_class):
@@ -259,10 +264,15 @@ class TestKustoMocked:
         with patch('graphistry.plugins.kusto.KustoMixin.kusto_client', new_callable=PropertyMock) as mock_client_prop:
             mock_client_prop.return_value = mock_client
             
-            frames = graphistry.kql("print 'test'")
+            # Test single_table behavior (default)
+            df = graphistry.kql("print 'test'")
+            assert isinstance(df, pd.DataFrame)
+            assert len(df) == 3
             
-            assert isinstance(frames, list)
-            assert len(frames) == 1
-            df = frames[0]
+            # Test with single_table=False
+            dfs = graphistry.kql("print 'test'", single_table=False)
+            assert isinstance(dfs, list)
+            assert len(dfs) == 1
+            df = dfs[0]
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 3

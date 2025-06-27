@@ -1,6 +1,5 @@
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from typing_extensions import Literal
-from graphistry.Plottable import Plottable
 from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
@@ -1859,8 +1858,20 @@ class PyGraphistryClient(AuthManagerProtocol):
         return cast(Plotter, self._plotter().kusto_from_client(client, database))
     kusto_from_client.__doc__ = Plotter.kusto_from_client.__doc__
 
-    def kql(self, query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
-        return self._plotter().kql(query, unwrap_nested=unwrap_nested)
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[False] = False) -> List[pd.DataFrame]:
+        ...
+    
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[True]) -> pd.DataFrame:
+        ...
+    
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: bool = True) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        ...
+    
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: bool = True) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        return self._plotter().kql(query, unwrap_nested=unwrap_nested, single_table=single_table)
     kql.__doc__ = Plotter.kql.__doc__
 
     def kusto_graph(self, graph_name: str, snap_name: Optional[str] = None) -> Plotter:
