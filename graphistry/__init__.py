@@ -55,7 +55,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry,
-    PyGraphistryClient,
+    GraphistryClient,
     from_igraph,
     from_cugraph
 )

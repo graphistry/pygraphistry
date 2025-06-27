@@ -1,6 +1,6 @@
 import pytest
 import graphistry
-from graphistry.pygraphistry import PyGraphistryClient, PyGraphistry
+from graphistry.pygraphistry import GraphistryClient, PyGraphistry
 
 import pandas as pd
 
@@ -51,7 +51,7 @@ class TestClientSession:
         global_session = PyGraphistry.session
 
         client = graphistry.client()
-        assert isinstance(client, PyGraphistryClient)
+        assert isinstance(client, GraphistryClient)
 
         # Set client session state directly  
         client.session.api_key = "client_key"

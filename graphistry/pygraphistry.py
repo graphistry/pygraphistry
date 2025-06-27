@@ -36,10 +36,10 @@ SSO_GET_TOKEN_ELAPSE_SECONDS = 50
 
 _client_mode_enabled = False
 _is_client_mode_warned = False
-PyGraphistry: "PyGraphistryClient" = None  # type: ignore[assignment]
+PyGraphistry: "GraphistryClient" = None  # type: ignore[assignment]
 
 
-class PyGraphistryClient(AuthManagerProtocol):
+class GraphistryClient(AuthManagerProtocol):
 
     def __init__(self) -> None:
         self.session = ClientSession()
@@ -529,7 +529,7 @@ class PyGraphistryClient(AuthManagerProtocol):
         is_sso_login: Optional[bool] = False,
         sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS,
         sso_opt_into_type: Optional[Literal["display", "browser"]] = None
-    ) -> "PyGraphistryClient":
+    ) -> "GraphistryClient":
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -1714,7 +1714,7 @@ class PyGraphistryClient(AuthManagerProtocol):
             dataset_id=dataset_id
         ))
 
-    def client(self, inherit: bool = False) -> 'PyGraphistryClient':
+    def client(self, inherit: bool = False) -> 'GraphistryClient':
         """Create a new client instance with isolated session state.
         
         This allows for multi-tenant usage where each client has its own authentication
@@ -1722,8 +1722,8 @@ class PyGraphistryClient(AuthManagerProtocol):
         
         :param inherit: Whether to inherit session state
         :type inherit: bool
-        :returns: New PyGraphistryClient instance with copied configuration
-        :rtype: PyGraphistryClient
+        :returns: New GraphistryClient instance with copied configuration
+        :rtype: GraphistryClient
         
         **Example: Multi-tenant usage**
             ::
@@ -1745,7 +1745,7 @@ class PyGraphistryClient(AuthManagerProtocol):
         """
         global _client_mode_enabled
         _client_mode_enabled = True
-        new_client = PyGraphistryClient()
+        new_client = GraphistryClient()
         if inherit:
             new_client.session = self.session.copy()
         return new_client
@@ -1823,7 +1823,7 @@ class PyGraphistryClient(AuthManagerProtocol):
         database_id: str,
         project_id: Optional[str] = None,
         credentials_file: Optional[str] = None
-    ) -> "PyGraphistryClient":
+    ) -> "GraphistryClient":
         self._plotter().configure_spanner(instance_id, database_id, project_id, credentials_file)
         return self
     configure_spanner.__doc__ = Plotter.configure_spanner.__doc__
@@ -1853,7 +1853,7 @@ class PyGraphistryClient(AuthManagerProtocol):
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
         tenant_id: Optional[str] = None,
-    ) -> "PyGraphistryClient":
+    ) -> "GraphistryClient":
         self._plotter().configure_kusto(cluster, database, client_id, client_secret, tenant_id)
         return self
     configure_kusto.__doc__ = Plotter.configure_kusto.__doc__
@@ -2485,7 +2485,7 @@ class PyGraphistryClient(AuthManagerProtocol):
 
 
 # Create the global PyGraphistry instance
-PyGraphistry = PyGraphistryClient()
+PyGraphistry = GraphistryClient()
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
