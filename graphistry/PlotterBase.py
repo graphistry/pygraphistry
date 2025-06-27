@@ -1,7 +1,7 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
 from graphistry.render.resolve_render_mode import resolve_render_mode
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, threading
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
@@ -102,17 +102,20 @@ class PlotterBase(Plottable):
     _defaultEdgeSourceId = SRC
     _defaultEdgeDestinationId = DST
     
+    # Thread-safe global caches with lock protection
+    _cache_lock = threading.RLock()
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
     _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
 
     def reset_caches(self): 
-        """Reset memoization caches"""
-        self._pd_hash_to_arrow.clear()
-        self._cudf_hash_to_arrow.clear()
-        self._umap_param_to_g.clear()
-        self._feat_param_to_g.clear()
+        """Reset memoization caches (thread-safe)"""
+        with PlotterBase._cache_lock:
+            self._pd_hash_to_arrow.clear()
+            self._cudf_hash_to_arrow.clear()
+            self._umap_param_to_g.clear()
+            self._feat_param_to_g.clear()
         cache_coercion_helper.cache_clear()
 
 
@@ -2150,11 +2153,12 @@ class PlotterBase(Plottable):
                                 'to hashable types like strings.')
 
                 try:
-                    if hashed in PlotterBase._pd_hash_to_arrow:
-                        logger.debug('pd->arrow memoization hit: %s', hashed)
-                        return PlotterBase._pd_hash_to_arrow[hashed].v
-                    else:
-                        logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
+                    with PlotterBase._cache_lock:
+                        if hashed in PlotterBase._pd_hash_to_arrow:
+                            logger.debug('pd->arrow memoization hit: %s', hashed)
+                            return PlotterBase._pd_hash_to_arrow[hashed].v
+                        else:
+                            logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash pdf', exc_info=True)
                     1
@@ -2164,7 +2168,8 @@ class PlotterBase(Plottable):
             if memoize and (hashed is not None):
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
-                PlotterBase._pd_hash_to_arrow[hashed] = w
+                with PlotterBase._cache_lock:
+                    PlotterBase._pd_hash_to_arrow[hashed] = w
 
             return out
 
@@ -2178,11 +2183,12 @@ class PlotterBase(Plottable):
                     + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
                 )
                 try:
-                    if hashed in PlotterBase._cudf_hash_to_arrow:
-                        logger.debug('cudf->arrow memoization hit: %s', hashed)
-                        return PlotterBase._cudf_hash_to_arrow[hashed].v
-                    else:
-                        logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
+                    with PlotterBase._cache_lock:
+                        if hashed in PlotterBase._cudf_hash_to_arrow:
+                            logger.debug('cudf->arrow memoization hit: %s', hashed)
+                            return PlotterBase._cudf_hash_to_arrow[hashed].v
+                        else:
+                            logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash cudf', exc_info=True)
                     1
@@ -2192,7 +2198,8 @@ class PlotterBase(Plottable):
             if memoize:
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
-                PlotterBase._cudf_hash_to_arrow[hashed] = w
+                with PlotterBase._cache_lock:
+                    PlotterBase._cudf_hash_to_arrow[hashed] = w
 
             return out
         

@@ -50,7 +50,9 @@ def setup_logger(name='', verbose=VERBOSE, fullpath=TRACE):
 # #####################################
 # Caching utils
 
+import threading
 _cache_coercion_val = None
+_cache_coercion_lock = threading.RLock()
 
 
 @lru_cache(maxsize=CACHE_COERCION_SIZE)
@@ -62,12 +64,13 @@ def cache_coercion(k, v):
     """
     Holds references to last 100 used coercions
     Use with weak key/value dictionaries for actual lookups
+    Thread-safe with lock protection to prevent global variable race conditions
     """
     global _cache_coercion_val
-    _cache_coercion_val = v
-
-    out = cache_coercion_helper(k)
-    _cache_coercion_val = None
+    with _cache_coercion_lock:
+        _cache_coercion_val = v
+        out = cache_coercion_helper(k)
+        _cache_coercion_val = None
     return out
 
 

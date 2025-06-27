@@ -17,6 +17,9 @@ def check_set_memoize(
         logger.debug("Memoization disabled")
         return False
 
+    # Import PlotterBase to access the shared cache lock
+    from graphistry.PlotterBase import PlotterBase
+    
     hashed = None
     weakref = getattr(g, attribute)
     try:
@@ -26,13 +29,14 @@ def check_set_memoize(
             f"! Failed {name} speedup attempt. Continuing without memoization speedups."
         )
     try:
-        if hashed in weakref:
-            logger.debug(f"{name} memoization hit: %s", hashed)
-            return weakref[hashed].v
-        else:
-            logger.debug(
-                f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
-            )
+        with PlotterBase._cache_lock:
+            if hashed in weakref:
+                logger.debug(f"{name} memoization hit: %s", hashed)
+                return weakref[hashed].v
+            else:
+                logger.debug(
+                    f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
+                )
     except:
         logger.debug(f"Failed to hash {name} kwargs", exc_info=True)
         pass
@@ -40,5 +44,6 @@ def check_set_memoize(
     if memoize and (hashed is not None):
         w = WeakValueWrapper(g)
         cache_coercion(hashed, w)
-        weakref[hashed] = w
+        with PlotterBase._cache_lock:
+            weakref[hashed] = w
     return False
