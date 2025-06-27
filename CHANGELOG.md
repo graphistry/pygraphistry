@@ -21,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Renamed `spannergraph.py` to `spanner.py` for consistency
   * Improved configuration handling and error messages
 * Enhanced test coverage with new tests for client_session, kusto, and spanner modules
+* `ArrowFileUploader` no longer keeps refs to the last 100 uploaded tables, uses a better output cache strategy
 
 ### Breaking 🔥
 * Plugin module renames: `graphistry.plugins.kustograph` → `graphistry.plugins.kusto` and `graphistry.plugins.spannergraph` → `graphistry.plugins.spanner`

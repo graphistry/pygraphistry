@@ -1,19 +1,29 @@
-import pyarrow as pa, requests, sys
+import sys, threading, weakref, hashlib
 from functools import lru_cache
-from typing import Any, Tuple, Optional
-from weakref import WeakKeyDictionary
+from typing import Any, Tuple, Optional, Dict
+
+import pyarrow as pa
+import requests
 
 from graphistry.utils.requests import log_requests_error
 from .util import setup_logger
+
 logger = setup_logger(__name__)
 
+class MemoizedFileUpload:
+    __slots__ = ("file_id", "arrow_hash", "output")
 
-# WrappedTable -> {'file_id': str, 'output': dict}
-DF_TO_FILE_ID_CACHE : WeakKeyDictionary = WeakKeyDictionary()
-"""
-NOTE: Will switch to pa.Table -> ... when RAPIDS upgrades from pyarrow, 
-     which adds weakref support
-"""
+    def __init__(self, file_id: str, arrow_hash: int, output: dict):
+        self.file_id = file_id
+        self.arrow_hash = arrow_hash
+        self.output = output
+
+
+_ID_CACHE: Dict[int, "MemoizedFileUpload"] = {}
+_SIG_CACHE: Dict[int, "MemoizedFileUpload"] = {}
+
+_CACHE_LOCK = threading.RLock()
+
 
 class ArrowFileUploader():
     """
@@ -50,10 +60,9 @@ class ArrowFileUploader():
 
     uploader : Any = None  # ArrowUploader, circular
 
-    def __init__(self, uploader):  # ArrowUploader
+    def __init__(self, uploader) -> None:
         self.uploader = uploader
 
-    ###
 
     def create_file(self, file_opts: dict = {}) -> str:
         """
@@ -63,7 +72,6 @@ class ArrowFileUploader():
               - file_type: 'arrow'
 
             See File REST API for file_opts
-
         """
 
         tok = self.uploader.token
@@ -109,72 +117,114 @@ class ArrowFileUploader():
 
         try:
             out = res.json()
-            logger.debug('Server upload file response: %s', out)
-            if not out['is_valid']:
-                if out['is_uploaded']:
-                    raise RuntimeError("Uploaded file contents but cannot parse (file_id still valid), see errors", out['errors'])
+            logger.debug("Server upload file response: %s", out)
+            if not out["is_valid"]:
+                if out["is_uploaded"]:
+                    raise RuntimeError(
+                        "Uploaded file contents but cannot parse "
+                        "(file_id still valid), see errors",
+                        out["errors"],
+                    )
                 else:
-                    raise RuntimeError("Erased uploaded file contents upon failure (file_id still valid), see errors", out['errors'])
+                    raise RuntimeError(
+                        "Erased uploaded file contents upon failure "
+                        "(file_id still valid), see errors",
+                        out["errors"],
+                    )
             return out
         except Exception as e:
-            logger.error('Failed uploading file: %s', res.text, exc_info=True)
+            logger.error("Failed uploading file: %s", res.text, exc_info=True)
             raise e
 
     ###
 
     def create_and_post_file(
-        self, arr: pa.Table, file_id: Optional[str] = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True
+        self,
+        arr: pa.Table,
+        file_id: Optional[str] = None,
+        file_opts: dict = {},
+        upload_url_opts: str = "erase=true",
+        memoize: bool = True,
     ) -> Tuple[str, dict]:
         """
-            Create file and upload data for it.
+        Create a new file (unless `file_id` supplied) and upload `arr`.
 
-            Default upload_url_opts='erase=true' throws exceptions on parse errors and deletes upload.
+        If `memoize` is True (default):
 
-            Default memoize=True skips uploading 'arr' when previously uploaded in current session
-
-            See File REST API for file_opts (file create) and upload_url_opts (file upload)
+        * Returns a cached `(file_id, output)` when either
+          * the exact same `pa.Table` object was uploaded earlier, or
+          * any other `pa.Table` with identical **schema+metadata+columns**
+            was uploaded earlier.
         """
 
+        sig = 0  # default to no memoization
         if memoize:
-            #FIXME if pa.Table was hashable, could do direct set/get map
-            wrapped_table : WrappedTable
-            val : MemoizedFileUpload
-            for wrapped_table, val in DF_TO_FILE_ID_CACHE.items():
-                if wrapped_table.arr is arr:
-                    logger.debug('arrow->file_id memoization hit: %s', val.file_id)
-                    return val.file_id, val.output
-            logger.debug('arrow->file_id memoization miss (of %s)', len(DF_TO_FILE_ID_CACHE))
+            obj_id = id(arr)
+            sig = _compute_signature(arr)
+            with _CACHE_LOCK:
+                cached = _ID_CACHE.get(obj_id) or _SIG_CACHE.get(sig)
+                if cached:
+                    logger.debug(
+                        "Memoization hit (id=%s, sig=%s) → %s", obj_id, sig, cached.file_id
+                    )
+                    return cached.file_id, cached.output
+            logger.debug("Memoization miss (cache size=%s)", len(_ID_CACHE))
 
+        # Fresh upload
         if file_id is None:
             file_id = self.create_file(file_opts)
 
         resp = self.post_arrow(arr, file_id, upload_url_opts)
-        out = MemoizedFileUpload(file_id, resp)
+        memo = MemoizedFileUpload(file_id, sig, resp)
 
         if memoize:
-            wrapped = WrappedTable(arr)
-            cache_arr(wrapped)
-            DF_TO_FILE_ID_CACHE[wrapped] = out
-            logger.debug('Memoized arrow->file_id %s', file_id)
+            _memoize(arr, memo)
+
+        return memo.file_id, memo.output
+
+
+
+def _compute_signature(table: pa.Table) -> int:
+    """
+    Pure structural hash: schema, metadata, column order.
+    Avoids storing the table itself.
+    """
+    schema_str = str(table.schema)
+    meta_items = tuple(sorted((table.schema.metadata or {}).items()))
+    col_names = tuple(table.column_names)
+    # 64‑bit stable hash via sha1 → int
+    sig_bytes = (
+        schema_str.encode()
+        + b"|"
+        + str(meta_items).encode()
+        + b"|"
+        + str(col_names).encode()
+    )
+    return int.from_bytes(hashlib.sha1(sig_bytes).digest()[:8], "big", signed=False)
+
+
+def _evict_id_cache(obj_id: int):
+    """
+    Called when the pa.Table is garbage-collected.
+    Removes the cache entries to prevent collisions.
+    """
+    with _CACHE_LOCK:
+        memo = _ID_CACHE.pop(obj_id, None)
+        if memo:
+            _SIG_CACHE.pop(memo.arrow_hash, None)
         
-        return out.file_id, out.output
 
-@lru_cache(maxsize=100)
-def cache_arr(arr):
+
+def _memoize(table: pa.Table, memo: "MemoizedFileUpload"):
     """
-        Hold reference to most recent memoization entries
-        Hack until RAPIDS supports Arrow 2.0, when pa.Table becomes weakly referenceable
+    Store both identity and value cache entries, and register GC evict hook.
     """
-    return arr
+    obj_id = id(table)
+    sig = _compute_signature(table)
 
-class WrappedTable():
-    arr : pa.Table
-    def __init__(self, arr: pa.Table):
-        self.arr = arr
-
-class MemoizedFileUpload():    
-    file_id: str
-    output: dict
-    def __init__(self, file_id: str, output: dict):
-        self.file_id = file_id
-        self.output = output
+    with _CACHE_LOCK:
+        if obj_id not in _ID_CACHE:
+            _ID_CACHE[obj_id] = memo
+            _SIG_CACHE[sig] = memo
+            weakref.finalize(table, _evict_id_cache, obj_id)
+        logger.debug("Memoized: id=%s, sig=%s → %s", obj_id, sig, memo.file_id)
