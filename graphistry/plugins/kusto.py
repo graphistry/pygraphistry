@@ -177,7 +177,7 @@ class KustoMixin(Plottable):
         query: str,
         *,
         unwrap_nested: Optional[bool] = None,
-        single_table: Literal[False] = False
+        single_table: Literal[True] = True
     ) -> List[pd.DataFrame]:
         ...
     
@@ -187,7 +187,7 @@ class KustoMixin(Plottable):
         query: str,
         *,
         unwrap_nested: Optional[bool] = None,
-        single_table: Literal[True]
+        single_table: Literal[False]
     ) -> pd.DataFrame:
         ...
     

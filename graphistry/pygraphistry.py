@@ -6,7 +6,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 
@@ -1720,6 +1720,10 @@ class GraphistryClient(AuthManagerProtocol):
         This allows for multi-tenant usage where each client has its own authentication
         and configuration state, separate from the global PyGraphistry instance.
         
+        **Thread Safety**: Each client is designed for single-threaded use. For concurrent
+        operations, create separate client instances per thread. Each plot() call may
+        trigger token refresh operations, making shared client access unsafe.
+        
         :param inherit: Whether to inherit session state
         :type inherit: bool
         :returns: New GraphistryClient instance with copied configuration
@@ -1742,6 +1746,26 @@ class GraphistryClient(AuthManagerProtocol):
                 # Each client maintains separate authentication
                 g1.plot()  # Uses client1's credentials
                 g2.plot()  # Uses client2's credentials
+        
+        **Example: Thread-safe usage**
+            ::
+            
+                from concurrent.futures import ThreadPoolExecutor
+                import graphistry
+                
+                def worker_thread(user_data):
+                    username, password, data = user_data
+                    
+                    # Create fresh client per thread
+                    client = graphistry.client()
+                    client.register(api=3, username=username, password=password)
+                    
+                    g = client.bind(source='src', destination='dst')
+                    return g.plot()
+                
+                # Safe concurrent execution
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    results = executor.map(worker_thread, user_data_list)
         """
         global _client_mode_enabled
         _client_mode_enabled = True
@@ -1758,9 +1782,10 @@ class GraphistryClient(AuthManagerProtocol):
         :returns: Plotter with the client set
         :rtype: Plotter
         """
-        plotter._pygraphistry = self
-        plotter.session = self.session
-        return plotter
+        res = copy.copy(plotter)
+        res._pygraphistry = self
+        res.session = self.session
+        return res
 
     def _plotter(self) -> Plotter:
         """Create a new Plotter instance with this session injected.
@@ -1867,11 +1892,11 @@ class GraphistryClient(AuthManagerProtocol):
     kusto_close.__doc__ = Plotter.kusto_close.__doc__
 
     @overload
-    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[False] = False) -> List[pd.DataFrame]:
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[True] = True) -> pd.DataFrame:
         ...
     
     @overload
-    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[True]) -> pd.DataFrame:
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[False]) -> List[pd.DataFrame]:
         ...
     
     @overload
