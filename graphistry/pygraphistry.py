@@ -16,7 +16,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -269,7 +269,8 @@ class GraphistryClient(AuthManagerProtocol):
             if token:
                 # set org_name to sso org
                 self.session.org_name = org_name
-
+                # finish, set back to None
+                self.session.sso_state = None
                 print("Successfully logged in")
                 return self.api_token()
             else:
@@ -302,6 +303,9 @@ class GraphistryClient(AuthManagerProtocol):
         token = None
         # get token from API using state
         state = self.sso_state()
+        if state is None:
+            raise SsoStateInvalidException("[SSO] Invalid SSO state: NoneType encountered")
+
         # print("_sso_get_token : {}".format(state))
         arrow_uploader = ArrowUploader(
             client_session=self.session,
@@ -2417,8 +2421,7 @@ class GraphistryClient(AuthManagerProtocol):
             return None
 
         # setter
-        if self.session.idp_name is not None:
-            self.session.idp_name = value.strip()
+        self.session.idp_name = value.strip()
 
 
     def sso_state(self, value: Optional[str] = None):
@@ -2431,8 +2434,7 @@ class GraphistryClient(AuthManagerProtocol):
             return None
 
         # setter
-        if self.session.sso_state is not None:
-            self.session.sso_state = value.strip()
+        self.session.sso_state = value.strip()
 
     def scene_settings(self, 
         menu: Optional[bool] = None,
@@ -2453,7 +2455,6 @@ class GraphistryClient(AuthManagerProtocol):
             point_opacity
         )
 
-
     def personal_key_id(self, value: Optional[str] = None):
         """Set or get the personal_key_id when register.
         """
@@ -2464,8 +2465,7 @@ class GraphistryClient(AuthManagerProtocol):
             return None
 
         # setter
-        if self.session.personal_key_id is not None:
-            self.session.personal_key_id = value.strip()
+        self.session.personal_key_id = value.strip()
 
     def personal_key_secret(self, value: Optional[str] = None):
         """Set or get the personal_key_secret when register.
@@ -2477,8 +2477,7 @@ class GraphistryClient(AuthManagerProtocol):
             return None
 
         # setter
-        if self.session.personal_key_secret is not None:
-            self.session.personal_key_secret = value.strip()
+        self.session.personal_key_secret = value.strip()
 
     def switch_org(self, value: str):
         # print(self._switch_org_url(value))
