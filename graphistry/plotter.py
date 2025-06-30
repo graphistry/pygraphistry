@@ -1,4 +1,5 @@
 from typing import Optional
+import warnings
 
 from .PlotterBase import PlotterBase
 from .compute.ComputeMixin import ComputeMixin 
@@ -54,11 +55,34 @@ class Plotter(
     Attributes:
         All attributes are inherited from the mixins and base classes.
 
+
+    Session Binding:
+        A Plottable's state is tied to the client used to create it through two attributes:
+        - _pygraphistry: Reference to the GraphistryClient that created this plottable
+        - session: Reference to the client's session (self._pygraphistry.session)
+        
+        This binding ensures that authentication state, server configuration, and other
+        session-specific settings are preserved when plotting. The session reference is
+        particularly important during plot() operations where token refresh may occur.
+    
+    Concurrency:
+        Each plottable inherits the concurrency constraints of its parent client. A plottable
+        should only be used within the same concurrency context as the client that created it.
+        
+        To transfer a plottable between clients, use client.set_client_for(plottable).
     """
 
     def __init__(self, *args, pygraphistry: Optional[AuthManagerProtocol] = None, **kwargs) -> None:
         from .pygraphistry import PyGraphistry
-        self._pygraphistry = pygraphistry or PyGraphistry
+        if pygraphistry is None:
+            warnings.warn(
+                "Initializing Plotter without PyGraphistryClient,"
+                "defaulting to global PyGraphistry instance.",
+                UserWarning
+            )
+            self._pygraphistry = PyGraphistry
+        else:
+            self._pygraphistry = pygraphistry
         self.session = self._pygraphistry.session
 
         super().__init__(*args, **kwargs)

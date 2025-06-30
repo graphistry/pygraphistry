@@ -40,6 +40,26 @@ PyGraphistry: "GraphistryClient" = None  # type: ignore[assignment]
 
 
 class GraphistryClient(AuthManagerProtocol):
+    """
+    Main Graphistry client class for API interactions.
+    
+    Session Management:
+    The GraphistryClient manages authentication and state through a ClientSession object.
+    On plot(), the ArrowUploader manages user auth token refresh on that ClientSession.
+    
+    Concurrency:
+    Methods are the concurrency boundary. The global PyGraphistry instance uses shared
+    session state, so it's not safe for concurrent use across threads. For concurrent
+    or multi-tenant scenarios, create separate client instances using graphistry.client().
+    
+    Each client has its own isolated session (self.session) that tracks:
+    - Authentication tokens and refresh state
+    - Server configuration (hostname, protocol, API version)
+    - Organization and privacy settings
+    - SSO and personal key authentication state
+
+    See: Plotter, for session management in plottables.
+    """
 
     def __init__(self) -> None:
         self.session = ClientSession()

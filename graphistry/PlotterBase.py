@@ -120,7 +120,7 @@ class PlotterBase(Plottable):
     session: ClientSession
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        # NOTE: set _session for any mixins to use in their __init__
+        # NOTE: See plotter initialization for session bindings & concurrency notes.
         super().__init__(*args, **kwargs)
 
         # Bindings

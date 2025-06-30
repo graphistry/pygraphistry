@@ -24,6 +24,27 @@ config_paths = [
 
 
 class ClientSession:
+    """
+    Holds all configuration and authentication state for a Graphistry client.
+    
+    Session Isolation:
+    Each GraphistryClient instance maintains its own ClientSession, providing
+    isolation for concurrent and multi-tenant use cases. The session tracks:
+    
+    - Authentication state (tokens, API keys, SSO state)
+    - Server configuration (hostname, protocol, API version)
+    - Organization and privacy settings
+    - Plugin configurations (Kusto, Spanner, etc.)
+    
+    Thread Safety:
+    A ClientSession instance should only be used within a single concurrency
+    context (thread, async task, etc.). For multi-threaded applications, create
+    separate client instances for each thread.
+    
+    Token Management:
+    Authentication tokens may be refreshed during plot() operations. The session
+    maintains the current token state and handles refresh automatically.
+    """
     def __init__(self) -> None:
         self._is_authenticated: bool = False
         self._tag = util.fingerprint()  # NOTE: Should this be unique per PyGraphistry.client()?
