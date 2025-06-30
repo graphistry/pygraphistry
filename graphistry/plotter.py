@@ -58,8 +58,10 @@ class Plotter(
 
     Session Binding:
         A Plottable's state is tied to the client used to create it through two attributes:
-        - _pygraphistry: Reference to the GraphistryClient that created this plottable
-        - session: Reference to the client's session (self._pygraphistry.session)
+          - _pygraphistry: Reference to the GraphistryClient that created this plottable
+          - session: Reference to the client's session (self._pygraphistry.session)
+
+        See: :py:class:`graphistry.pygraphistry.GraphistryClient` for more details.
         
         This binding ensures that authentication state, server configuration, and other
         session-specific settings are preserved when plotting. The session reference is

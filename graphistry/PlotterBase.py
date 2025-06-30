@@ -2131,7 +2131,7 @@ class PlotterBase(Plottable):
         logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
         if table is None:
-            return table
+            return None
 
         if isinstance(table, pa.Table):
             #TODO: should we hash just in case there's an older-identity hash match?

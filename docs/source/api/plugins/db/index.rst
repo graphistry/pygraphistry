@@ -9,4 +9,6 @@ PyGraphistry supports a variety of data providers natively. Many systems not lis
 
    cosmos
    gremlin
+   kusto
    neptune
+   spanner
