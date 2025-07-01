@@ -1,6 +1,6 @@
 from typing import Any
 import warnings
-from graphistry .util import setup_logger, check_set_memoize
+from graphistry .util import setup_logger
 logger = setup_logger(__name__)
 
 

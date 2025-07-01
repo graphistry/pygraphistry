@@ -128,6 +128,8 @@ nitpick_ignore = [
     ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
     ('py:class', 'graphistry.plugins.igraph.from_igraph'),
     ('py:class', 'graphistry.plugins.igraph.layout_igraph'),
+    ('py:class', 'graphistry.plugins.kusto.KustoMixin'),
+    ('py:class', 'graphistry.plugins.spanner.SpannerMixin'),
     ('py:data', 'graphistry.plugins_types.cugraph_types.CuGraphKind'),
     ('py:data', 'graphistry.plugins_types.graphviz_types.EdgeAttr'),
     ('py:data', 'graphistry.plugins_types.graphviz_types.EDGE_ATTRS'),

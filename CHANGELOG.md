@@ -7,6 +7,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* Multi-tenant support: `graphistry.client()` and `graphistry.set_client_for()`
+  * Global interface `PyGraphistry` class => Global `GraphistryClient` instance
+  * `graphistry.client()` creates an independent `GraphistryClient` instance
+* Type annotations added, especially in PlotterBase.py, arrow_uploader.py, and pygraphistry.py
+
+### Changed
+* Refactored Kusto and Spanner plugins:
+  * Renamed `kustograph.py` to `kusto.py` for consistency
+  * Renamed `spannergraph.py` to `spanner.py` for consistency
+  * Improved configuration handling and error messages
+* Enhanced test coverage with new tests for client_session, kusto, and spanner modules
+
+### Breaking 🔥
+* Plugin module renames: `graphistry.plugins.kustograph` → `graphistry.plugins.kusto` and `graphistry.plugins.spannergraph` → `graphistry.plugins.spanner`
+* Configuration for `Spanner` now uses `g.configure_spanner(...)` instead of `g.register(spanner_config={...})`
+* Configuration for `Kusto` now uses `g.configure_kusto(...)` instead of `g.register(kusto_config={...})`
+
 ## [0.38.3 - 2025-06-24]
 
 ### Fixed

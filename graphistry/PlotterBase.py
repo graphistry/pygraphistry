@@ -1,16 +1,14 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
-from graphistry.privacy import Privacy, Mode
-
+from graphistry.privacy import Privacy, Mode, ModeAction
+from graphistry.client_session import ClientSession, AuthManagerProtocol
 
 from .constants import SRC, DST, NODE
-from .plugins_types.kusto_types import KustoConfig
-from .plugins_types.spanner_types import SpannerConfig
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
 from .plugins.graphviz import layout_graphviz
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
@@ -118,7 +116,11 @@ class PlotterBase(Plottable):
         cache_coercion_helper.cache_clear()
 
 
+    _pygraphistry: AuthManagerProtocol
+    session: ClientSession
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # NOTE: See plotter initialization for session bindings & concurrency notes.
         super().__init__(*args, **kwargs)
 
         # Bindings
@@ -169,9 +171,7 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : Any = None
         self._tigergraph : Any = None
-        self._kusto_config : Optional[KustoConfig] = None
-        self._spanner_config : Optional[SpannerConfig] = None
-        
+
         # feature engineering
         self._node_embedding = None
         self._node_encoder = None
@@ -250,7 +250,13 @@ class PlotterBase(Plottable):
         else:
             return str(rep)
 
-    def addStyle(self, fg=None, bg=None, page=None, logo=None):
+    def addStyle(
+        self,
+        fg: Optional[Dict[str, Any]] = None,
+        bg: Optional[Dict[str, Any]] = None,
+        page: Optional[Dict[str, Any]] = None,
+        logo: Optional[Dict[str, Any]] = None,
+    ) -> 'Plottable':
         """Set general visual styles
         
         See .bind() and .settings(url_params={}) for additional styling options, and style() for another way to set the same attributes.
@@ -314,7 +320,13 @@ class PlotterBase(Plottable):
         
 
 
-    def style(self, fg=None, bg=None, page=None, logo=None):
+    def style(
+        self,
+        fg: Optional[Dict[str, Any]] = None,
+        bg: Optional[Dict[str, Any]] = None,
+        page: Optional[Dict[str, Any]] = None,
+        logo: Optional[Dict[str, Any]] = None,
+    ) -> 'Plottable':
         """Set general visual styles
         
         See .bind() and .settings(url_params={}) for additional styling options, and addStyle() for another way to set the same attributes.
@@ -415,9 +427,17 @@ class PlotterBase(Plottable):
         return out
 
 
-    def encode_point_color(self, column,
-            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+    def encode_point_color(
+        self,
+        column: str,
+        palette: Optional[List[str]] = None,
+        as_categorical: Optional[bool] = None,
+        as_continuous: Optional[bool] = None,
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
         """Set point color with more control than bind()
 
         :param column: Data column name
@@ -476,9 +496,17 @@ class PlotterBase(Plottable):
             for_default=for_default, for_current=for_current)
 
 
-    def encode_edge_color(self, column,
-            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+    def encode_edge_color(
+        self,
+        column: str,
+        palette: Optional[List[str]] = None,
+        as_categorical: Optional[bool] = None,
+        as_continuous: Optional[bool] = None,
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
         """Set edge color with more control than bind()
 
         :param column: Data column name
@@ -516,9 +544,14 @@ class PlotterBase(Plottable):
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
-    def encode_point_size(self, column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+    def encode_point_size(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
         """Set point size with more control than bind()
 
         :param column: Data column name
@@ -556,11 +589,21 @@ class PlotterBase(Plottable):
             for_default=for_default, for_current=for_current)
 
 
-    def encode_point_icon(self, column,
-            categorical_mapping=None, continuous_binning=None, default_mapping=None,
-            comparator=None,
-            for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None, shape=None):
+    def encode_point_icon(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        default_mapping: Optional[str] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+        as_text: bool = False,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
@@ -623,11 +666,21 @@ class PlotterBase(Plottable):
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
-    def encode_edge_icon(self, column,
-            categorical_mapping=None, continuous_binning=None, default_mapping=None,
-            comparator=None,
-            for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None, shape=None):
+    def encode_edge_icon(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        default_mapping: Optional[str] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+        as_text: bool = False,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
         """Set edge icon with more control than bind() Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
@@ -681,12 +734,25 @@ class PlotterBase(Plottable):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
-    def encode_point_badge(self, column, position='TopRight',
-            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None,
-            for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None, shape=None):
-
+    def encode_point_badge(
+        self,
+        column: str,
+        position: str = 'TopRight',
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        default_mapping: Optional[Any] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        color: Optional[str] = None,
+        bg: Optional[str] = None,
+        fg: Optional[str] = None,
+        for_current: bool = False,
+        for_default: bool = True,
+        as_text: Optional[bool] = None,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
         return self.__encode_badge('point', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
             color=color, bg=bg, fg=fg,
@@ -694,11 +760,25 @@ class PlotterBase(Plottable):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
-    def encode_edge_badge(self, column, position='TopRight',
-            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None,
-            for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+    def encode_edge_badge(
+        self,
+        column: str,
+        position: str = 'TopRight',
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        default_mapping: Optional[Any] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        color: Optional[str] = None,
+        bg: Optional[str] = None,
+        fg: Optional[str] = None,
+        for_current: bool = False,
+        for_default: bool = True,
+        as_text: Optional[bool] = None,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
 
         return self.__encode_badge('edge', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
@@ -706,12 +786,26 @@ class PlotterBase(Plottable):
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
-    def __encode_badge(self, graph_type, column, position='TopRight',
-            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None,
-            for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None, shape=None):
-
+    def __encode_badge(
+        self,
+        graph_type: str,
+        column: str,
+        position: str = "TopRight",
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        default_mapping: Optional[Any] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        color: Optional[str] = None,
+        bg: Optional[str] = None,
+        fg: Optional[str] = None,
+        for_current: bool = False,
+        for_default: bool = True,
+        as_text: Optional[bool] = None,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
         return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
             column,
             as_categorical=not (categorical_mapping is None),
@@ -725,21 +819,31 @@ class PlotterBase(Plottable):
             color=color, bg=bg, fg=fg, shape=shape)
 
 
-    def __encode(self, graph_type, feature, feature_binding,  # noqa: C901
-            column,
-            palette=None,
-            as_categorical=None, as_continuous=None,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False,
-            as_text=None, blend_mode=None, style=None, border=None,
-            continuous_binning=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None, shape=None):
-
-        if for_default is None:
-            for_default = True
-        if for_current is None:
-            for_current = False
-
+    def __encode(
+        self,
+        graph_type: str,
+        feature: str,
+        feature_binding: str,
+        column: str,
+        palette: Optional[List[str]] = None,
+        as_categorical: Optional[bool] = None,
+        as_continuous: Optional[bool] = None,
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        default_mapping: Optional[Any] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+        as_text: Optional[bool] = None,
+        blend_mode: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
+        border: Optional[Dict[str, Any]] = None,
+        continuous_binning: Optional[List[Any]] = None,
+        comparator: Optional[Callable[[Any, Any], int]] = None,
+        color: Optional[str] = None,
+        bg: Optional[str] = None,
+        fg: Optional[str] = None,
+        shape: Optional[str] = None,
+    ) -> Plottable:
+        
         #TODO check set to api=3?
 
         if not (graph_type in ['point', 'edge']):
@@ -1288,7 +1392,14 @@ class PlotterBase(Plottable):
         return res
 
 
-    def privacy(self, mode: Optional[Mode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None):
+    def privacy(
+        self, 
+        mode: Optional[Mode] = None, 
+        notify: Optional[bool] = None, 
+        invited_users: Optional[List[str]] = None, 
+        message: Optional[str] = None,
+        mode_action: Optional[ModeAction] = None
+    ) -> Plottable:
         """Set local sharing mode
 
         :param mode: Either "private", "public", or inherit from global privacy()
@@ -1299,6 +1410,8 @@ class PlotterBase(Plottable):
         :type invited_users: Optional[List]
         :param message: Email to send when notify=True
         :type message': Optioanl[str]
+        :param mode_action: Action to take when mode is changed, defaults to global privacy()
+        :type mode_action: Optional[ModeAction]
 
         Requires an account with sharing capabilities.
 
@@ -1395,6 +1508,8 @@ class PlotterBase(Plottable):
             res._privacy['invited_users'] = invited_users
         if message is not None:
             res._privacy['message'] = message
+        if mode_action is not None:
+            res._privacy['mode_action'] = mode_action
         return res
 
     def server(self, v: Optional[str] = None) -> str:
@@ -1403,10 +1518,9 @@ class PlotterBase(Plottable):
 
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
         """
-        from .pygraphistry import PyGraphistry
         if v is not None:
-            PyGraphistry._config['server'] = v
-        return PyGraphistry._config['server']
+            self.session.hostname = v
+        return self.session.hostname
     
     def protocol(self, v: Optional[str] = None) -> str:
         """
@@ -1414,10 +1528,9 @@ class PlotterBase(Plottable):
 
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.
         """
-        from .pygraphistry import PyGraphistry
         if v is not None:
-            PyGraphistry._config['protocol'] = v
-        return PyGraphistry._config['protocol']
+            self.session.protocol = v
+        return self.session.protocol
     
     def client_protocol_hostname(self, v: Optional[str] = None) -> str:
         """
@@ -1427,18 +1540,15 @@ class PlotterBase(Plottable):
 
         Note that sets are global as PyGraphistry._config entries, so be careful in multi-user environments.        
         """
-        from .pygraphistry import PyGraphistry
         if v is not None:
-            PyGraphistry._config['client_protocol_hostname'] = v
-        return PyGraphistry._config['client_protocol_hostname']
+            self.session.client_protocol_hostname = v
+        return self.session.client_protocol_hostname or f"{self.protocol()}://{self.server()}"
     
     def base_url_server(self, v: Optional[str] = None) -> str:
-        from .pygraphistry import PyGraphistry
-        return "%s://%s" % (PyGraphistry.protocol(), PyGraphistry.server())
+        return "%s://%s" % (self.protocol(), self.server())
     
     def base_url_client(self, v: Optional[str] = None) -> str:
-        from .pygraphistry import PyGraphistry
-        return PyGraphistry.client_protocol_hostname()
+        return self.client_protocol_hostname()
 
     def upload(
         self,
@@ -1483,14 +1593,19 @@ class PlotterBase(Plottable):
 
     def plot(
         self,
-        graph=None,
-        nodes=None,
-        name=None,
-        description=None,
+        graph: Optional[Any] = None,
+        nodes: Optional[Any] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
         render: Optional[Union[bool, RenderModes]] = "auto",
-        skip_upload=False, as_files=False, memoize=True, erase_files_on_fail=True,
-        extra_html="", override_html_style=None, validate: bool = True
-    ):  # noqa: C901
+        skip_upload: bool = False,
+        as_files: bool = False,
+        memoize: bool = True,
+        erase_files_on_fail: bool = True,
+        extra_html: str = "",
+        override_html_style: Optional[str] = None,
+        validate: bool = True
+    ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -1554,8 +1669,7 @@ class PlotterBase(Plottable):
                     .plot(es)
 
         """
-        from .pygraphistry import PyGraphistry
-        logger.debug("1. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+        logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
 
         if graph is None:
             if self._edges is None:
@@ -1569,36 +1683,34 @@ class PlotterBase(Plottable):
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
-        # from .pygraphistry import PyGraphistry
-        api_version = PyGraphistry.api_version()
-        logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
-        dataset: Optional[ArrowUploader] = None
-        if api_version == 1:
+        logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+        dataset: Union[ArrowUploader, Dict[str, Any], None] = None
+        if self.session.api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
-            info = PyGraphistry._etl1(dataset)
-        elif api_version == 3:
-            logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
-            PyGraphistry.refresh()
-            logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+            info = self._pygraphistry._etl1(dataset)
+        elif self.session.api_version == 3:
+            logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+            self._pygraphistry.refresh()
+            logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-            dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
-            assert dataset is not None
+            uploader = dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
+            assert uploader is not None
             if skip_upload:
-                return dataset
-            dataset.token = PyGraphistry.api_token()
-            dataset.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
-            dataset.maybe_post_share_link(self)
+                return uploader
+            uploader.token = self.session.api_token  # type: ignore[assignment]
+            uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
+            uploader.maybe_post_share_link(self)
             info = {
-                'name': dataset.dataset_id,
+                'name': uploader.dataset_id,
                 'type': 'arrow',
                 'viztoken': str(uuid.uuid4())
             }
 
-        viz_url = PyGraphistry._viz_url(info, self._url_params)
-        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
-        full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
+        viz_url = self._pygraphistry._viz_url(info, self._url_params)
+        cfg_client_protocol_hostname = self.session.client_protocol_hostname
+        full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
         render_mode = resolve_render_mode(self, render)
         if render_mode == "url":
@@ -1616,16 +1728,16 @@ class PlotterBase(Plottable):
             g = self.bind()
             g._name = name
             g._description = description
-            if dataset is not None:
-                g._dataset_id = dataset.dataset_id
+            if uploader is not None:
+                g._dataset_id = uploader.dataset_id
                 if as_files:
-                    assert isinstance(dataset, ArrowUploader)
+                    assert isinstance(uploader, ArrowUploader)
                     try:
-                        g._nodes_file_id = dataset.nodes_file_id
+                        g._nodes_file_id = uploader.nodes_file_id
                     except:
                         # tolerate undefined
                         g._nodes_file_id = None
-                    g._edges_file_id = dataset.edges_file_id
+                    g._edges_file_id = uploader.edges_file_id
                 g._url = full_url
             return g
         else:
@@ -1864,16 +1976,16 @@ class PlotterBase(Plottable):
         assert isinstance(out, ArrowUploader)
         return out
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True) -> Union[ArrowUploader, Dict[str, Any]] :
 
-        g = self
+        g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
             try:
-                g = self.infer_labels()
+                g = cast(PlotterBase, self.infer_labels())
             except:
                 1
 
-        if isinstance(graph, pd.core.frame.DataFrame) \
+        if isinstance(graph, pd.DataFrame) \
                 or isinstance(graph, pa.Table) \
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
@@ -1900,7 +2012,7 @@ class PlotterBase(Plottable):
         except ImportError:
             pass
 
-        error('Expected Pandas/Arrow/cuDF/Spark dataframe(s) or igraph/NetworkX graph.')
+        raise ValueError('Expected Pandas/Arrow/cuDF/Spark dataframe(s) or igraph/NetworkX graph.')
 
 
     # Sanitize node/edge dataframe by
@@ -2019,7 +2131,7 @@ class PlotterBase(Plottable):
         logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
         if table is None:
-            return table
+            return None
 
         if isinstance(table, pa.Table):
             #TODO: should we hash just in case there's an older-identity hash match?
@@ -2106,7 +2218,7 @@ class PlotterBase(Plottable):
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):  # noqa: C901
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 
         logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
             mode, memoize, name, description, type(edges), type(nodes))
@@ -2141,9 +2253,7 @@ class PlotterBase(Plottable):
 
 
     # Main helper for creating ETL1 payload
-    def _make_json_dataset(self, edges, nodes, name):
-
-        from .pygraphistry import PyGraphistry
+    def _make_json_dataset(self, edges, nodes, name) -> Dict[str, Any]:
 
         def flatten_categorical(df):
             # Avoid cat_col.where(...)-related exceptions
@@ -2158,7 +2268,7 @@ class PlotterBase(Plottable):
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
-        dataset = {'name': PyGraphistry._config['dataset_prefix'] + name,
+        dataset: Dict[str, Any] = {'name': self.session.dataset_prefix + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
@@ -2167,22 +2277,22 @@ class PlotterBase(Plottable):
         return dataset
 
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
-        from .pygraphistry import PyGraphistry
         au : ArrowUploader = ArrowUploader(
-            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+            client_session=self.session,
+            server_base_path=self.session.protocol + '://' + self.session.hostname,
             edges=edges, nodes=nodes,
             name=name, description=description,
             metadata={
-                'usertag': PyGraphistry._tag,
-                'key': PyGraphistry.api_key(),
+                'usertag': self.session._tag,
+                'key': self.session.api_key,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
                 **(metadata or {})
             },
-            certificate_validation=PyGraphistry.certificate_validation())
+            certificate_validation=self._pygraphistry.certificate_validation())
 
         au.edge_encodings = au.g_to_edge_encodings(self)
         au.node_encodings = au.g_to_node_encodings(self)
@@ -2192,54 +2302,7 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._bolt_driver = to_bolt_driver(driver)
         return res
-    
 
-    def spanner(self: Plottable, spanner_config: SpannerConfig) -> Plottable:
-        """
-        Set spanner configuration for this Plottable.
-        
-        SpannerConfig contains:
-        
-        - "instance_id": The Spanner instance ID.
-        - "database_id": The Spanner database ID.
-        - "project_id": The GCP project ID.
-        - "credentials_file": json file API key for service accounts
-        
-        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
-        Otherwise, project_id and the spanner login process will be used to authenticate.
-        
-        :param spanner_config: A dictionary containing the Spanner configuration.
-        :type spanner_config: SpannerConfig
-        :return: Plottable with a Spanner connection
-        :rtype: Plottable
-        """
-        self._spanner_config = spanner_config
-        return self
-
-
-    def kusto(self: Plottable, kusto_config: KustoConfig) -> Plottable:
-        """
-        Set kusto configuration for this Plottable.
-        
-        KustoConfig:
-            - "cluster": The Kusto cluster name.
-            - "database": The Kusto database name.
-            
-        For AAD authentication:
-            - "client_id": The Kusto client ID.
-            - "client_secret": The Kusto client secret.
-            - "tenant_id": The Kusto tenant ID.
-            
-        Otherwise: process will use web browser to authenticate.
-        
-        :param kusto_config: A dictionary containing the Kusto configuration.
-        :type kusto_config: KustoConfig
-        :returns: Plottable with a Kusto connection
-        :rtype: Plottable
-        """
-        self._kusto_config = kusto_config
-        return self
-    
 
     def infer_labels(self):
         """
@@ -2409,10 +2472,8 @@ class PlotterBase(Plottable):
         
         """
 
-        from .pygraphistry import PyGraphistry
-
         res = copy.copy(self)
-        driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
+        driver = self._bolt_driver or self.session._bolt_driver
         if driver is None:
             raise ValueError("BOLT connection information not provided. Must first call graphistry.register(bolt=...) or g.bolt(...).")
         with driver.session() as session:
@@ -2427,127 +2488,7 @@ class PlotterBase(Plottable):
         )\
             .nodes(nodes)\
             .edges(edges)
-    
 
-    def spanner_gql_to_g(self: Plottable, query: str) -> Plottable:
-        """
-        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated
-        
-        GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
-        SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
-        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.
-        
-        query=f'''GRAPH my_graph
-        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-        
-        :param query: GQL query string
-        :type query: str
-        :returns: Plottable with the results of GQL query as a graph
-        :rtype: Plottable
-        
-        **Example: calling spanner_gql_to_g**
-        
-        ::
-        
-            import graphistry
-            # credentials_file is optional, all others are required
-            SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                             "instance_id": INSTANCE_ID, 
-                             "database_id": DATABASE_ID, 
-                             "credentials_file": CREDENTIALS_FILE }
-            graphistry.register(..., spanner_config=SPANNER_CONF)
-            query=f'''GRAPH my_graph
-            MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-            g = graphistry.spanner_gql_to_g(query)
-            g.plot()
-        
-        """
-        from .plugins.spannergraph import SpannerGraphContext
-        res = copy.copy(self)
-        with SpannerGraphContext(res._spanner_config) as sg:
-            return sg.gql_to_graph(query, g=res)
-
-
-    def spanner_query_to_df(self: Plottable, query: str) -> pd.DataFrame:
-        """
-        Submit query to google spanner database and return a df of the results
-        
-        query can be SQL or GQL as long as table of results are returned
-        query='SELECT * from Account limit 10000'
-        
-        :param query: query string
-        :type query: str
-        :returns: Pandas DataFrame with the results of query
-        :rtype: pd.DataFrame
-        
-        **Example: calling spanner_query_to_df**
-        
-        ::
-        
-            import graphistry
-            # credentials_file is optional, all others are required
-            SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                             "instance_id": INSTANCE_ID, 
-                             "database_id": DATABASE_ID, 
-                             "credentials_file": CREDENTIALS_FILE }
-            graphistry.register(..., spanner_config=SPANNER_CONF)
-            query='SELECT * from Account limit 10000'
-            df = graphistry.spanner_query_to_df(query)
-            g.plot()
-        
-        """
-        from .plugins.spannergraph import SpannerGraphContext
-        with SpannerGraphContext(self._spanner_config) as sg:
-            return sg.query_to_df(query)
-
-
-    def kusto_query(self: Plottable, query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
-        """
-        Submit a Kusto/Azure Data Explorer *query* and return result tables.
-        Because a Kusto request may emit multiple tables, a **list of
-        DataFrames** is always returned; most queries yield a single entry.
-        unwrap_nested
-        -------------
-        Controls auto-flattening of *dynamic* (JSON) columns:
-        * True  - always try to flatten, raise if it fails
-        * None  - default heuristic: flatten only if table looks nested
-        * False - leave results untouched
-        :param query: Kusto query string
-        :type query: str
-        :param unwrap_nested: flatten strategy above
-        :type unwrap_nested: bool | None
-        :returns: list of Pandas DataFrames
-        :rtype: List[pd.DataFrame]
-        **Example**
-        
-        ::
-                frames = graphistry.kusto_query("StormEvents | take 100")
-                df = frames[0]
-        """
-        from .plugins.kustograph import KustoGraphContext
-        with KustoGraphContext(self._kusto_config) as kg:
-            return kg.query(query, unwrap_nested=unwrap_nested)
-
-    def kusto_query_graph(self: Plottable, graph_name: str, snap_name: Optional[str] = None) -> Plottable:
-        """
-        Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
-        Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
-        **edges**, then binds them to *self*.
-        :param graph_name: name of Kusto graph entity
-        :type graph_name: str
-        :param snap_name: optional snapshot/version
-        :type snap_name: str | None
-        :returns: Plottable ready for `.plot()` or further transforms
-        :rtype: Plottable
-        **Example**
-        
-        ::
-                g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
-        """
-        from .plugins.kustograph import KustoGraphContext
-        with KustoGraphContext(self._kusto_config) as kg:
-            return kg.query_graph(graph_name, snap_name, g=self)
-        
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
         
@@ -2558,14 +2499,14 @@ class PlotterBase(Plottable):
 
 
     def tigergraph(self,
-            protocol = 'http',
-            server = 'localhost',
-            web_port = 14240,
-            api_port = 9000,
-            db = None,
-            user = 'tigergraph',
-            pwd = 'tigergraph',
-            verbose = False):
+            protocol: str = 'http',
+            server: str = 'localhost',
+            web_port: int = 14240,
+            api_port: int = 9000,
+            db: Optional[str] = None,
+            user: str = 'tigergraph',
+            pwd: str = 'tigergraph',
+            verbose: bool = False) -> 'Plottable':
         """Register Tigergraph connection setting defaults
     
         :param protocol: Protocol used to contact the database.

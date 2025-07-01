@@ -1,24 +1,22 @@
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from typing_extensions import Literal
-from graphistry.Plottable import Plottable
-from graphistry.privacy import Mode, Privacy
+from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
-from graphistry.plugins_types.spanner_types import SpannerConfig
-from graphistry.plugins_types.kusto_types import KustoConfig
+from graphistry.plugins_types.hypergraph import HypergraphResult
+from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 
-from .arrow_uploader import ArrowUploader
-from .ArrowFileUploader import ArrowFileUploader
+from .arrow_uploader import ArrowUploader, ArrowFileUploader
 
 from . import util
 from . import bolt_util
 from .plotter import Plotter
-from .util import in_databricks, setup_logger, in_ipython, make_iframe
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException
+from .util import in_databricks, setup_logger, in_ipython
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -36,176 +34,172 @@ logger = setup_logger(__name__)
 
 SSO_GET_TOKEN_ELAPSE_SECONDS = 50
 
-EnvVarNames = {
-    "api_key": "GRAPHISTRY_API_KEY",
-    #'api_token': 'GRAPHISTRY_API_TOKEN',
-    #'username': 'GRAPHISTRY_USERNAME',
-    #'password': 'GRAPHISTRY_PASSWORD',
-    "api_version": "GRAPHISTRY_API_VERSION",
-    "dataset_prefix": "GRAPHISTRY_DATASET_PREFIX",
-    "hostname": "GRAPHISTRY_HOSTNAME",
-    "protocol": "GRAPHISTRY_PROTOCOL",
-    "client_protocol_hostname": "GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME",
-    "certificate_validation": "GRAPHISTRY_CERTIFICATE_VALIDATION",
-    "store_token_creds_in_memory": "GRAPHISTRY_STORE_CREDS_IN_MEMORY",
-}
-
-config_paths = [
-    os.path.join("/etc/graphistry", ".pygraphistry"),
-    os.path.join(os.path.expanduser("~"), ".pygraphistry"),
-    os.environ.get("PYGRAPHISTRY_CONFIG", ""),
-]
-
-default_config = {
-    "api_key": None,  # Dummy key
-    "api_token": None,
-    "api_token_refresh_ms": None,
-    "api_version": 1,
-    "dataset_prefix": "PyGraphistry/",
-    "hostname": "hub.graphistry.com",
-    "protocol": "https",
-    "client_protocol_hostname": None,
-    "certificate_validation": True,
-    "store_token_creds_in_memory": True,
-    # Do not call API when all None
-    "privacy": cast(Optional[Privacy], None),
-    "login_type": None
-}
+_client_mode_enabled = False
+_is_client_mode_warned = False
+PyGraphistry: "GraphistryClient" = None  # type: ignore[assignment]
 
 
-def _get_initial_config():
-    config = default_config.copy()
-    for path in config_paths:
-        try:
-            with open(path) as config_file:
-                config.update(json.load(config_file))
-        except ValueError as e:
-            util.warn("Syntax error in %s, skipping. (%s)" % (path, e))
-            pass
-        except IOError:
-            pass
+class GraphistryClient(AuthManagerProtocol):
+    """
+    Build graphs and authenticate for remote visualization.
 
-    env_config = {k: os.environ.get(v) for k, v in EnvVarNames.items()}
-    env_override = {k: v for k, v in env_config.items() if v is not None}
-    config.update(env_override)
-    if not config["certificate_validation"]:
-        requests.packages.urllib3.disable_warnings()
-    return config
+    **Example:**
+        ::
 
+            import graphistry
 
-def strtobool(val: Any) -> bool:
-    val = str(val).lower()
-    if val in ('y', 'yes', 't', 'true', 'on', '1'):
-        return True
-    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
-        return False
-    else:
-        raise ValueError("invalid truth value %r" % (val,))
+            # Register to the singleton GraphistryClient
+            graphistry.register(...)
 
-class PyGraphistry(object):
-    _config = _get_initial_config()
-    _tag = util.fingerprint()
-    _is_authenticated = False
+            # Create a :py:class:`graphistry.plotter.Plotter`
+            g = graphistry.bind(nodes=df_nodes, edges=df_edges)
 
-    @staticmethod
-    def authenticate():
+            g.plot()
+
+    
+    Session Management:
+    The GraphistryClient manages authentication and state through a ClientSession object.
+    On plot(), the ArrowUploader manages user auth token refresh on that ClientSession.
+    
+    Concurrency:
+    Methods are the concurrency boundary. The global PyGraphistry instance uses shared
+    session state, so it's not safe for concurrent use across threads. For concurrent
+    or multi-tenant scenarios, create separate client instances using graphistry.client().
+
+    Multiple clients:
+        ::
+
+            import graphistry
+            # Create independent client instances
+            alice_g = graphistry.client()
+            alice_g.register(api=3, username='alice', password='pw')
+
+            bob_g = graphistry.client()
+            bob_g.register(api=3, username='bob', password='pw')
+    
+
+    Each client has its own isolated session (self.session) that tracks:
+    - Authentication tokens and refresh state
+    - Server configuration (hostname, protocol, API version)
+    - Organization and privacy settings
+    - SSO and personal key authentication state
+
+    See::py:class:`graphistry.plotter.Plotter`, for session management in plottables.
+    """
+
+    def __init__(self) -> None:
+        self.session = ClientSession()
+        self._config = self.session.as_proxy()
+
+    # NOTE: For backwards compatibility
+    # NOTE: GAK uses _is_authenticated and _config["api_token"]
+    # https://github.com/search?q=repo%3Agraphistry%2Fgraph-app-kit%20PyGraphistry&type=code
+    @property
+    def _is_authenticated(self) -> bool:
+        return self.session._is_authenticated
+    
+    @_is_authenticated.setter
+    def _is_authenticated(self, value: bool) -> None:
+        self.session._is_authenticated = value
+
+    def authenticate(self) -> None:
         """Authenticate via already provided configuration (api=1,2).
         This is called once automatically per session when uploading and rendering a visualization.
         In api=3, if token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
         In that case, note that a manual .login() is still required every 24hr by default.
         """
 
-        if PyGraphistry.api_version() == 3:
-            if not (PyGraphistry.api_token() is None):
-                PyGraphistry.refresh()
+        if self.api_version() == 3:
+            if not (self.api_token() is None):
+                self.refresh()
         else:
-            key = PyGraphistry.api_key()
+            key = self.api_key()
             # Mocks may set to True, so bypass in that case
-            if (key is None) and (PyGraphistry._is_authenticated is False):
+            if (key is None) and (self.session._is_authenticated is False):
                 util.error(
                     "In api=1 mode, API key not set explicitly in `register()` or available at "
-                    + EnvVarNames["api_key"]  # noqa: W503
+                    + ENV_GRAPHISTRY_API_KEY
                 )
-            if not PyGraphistry._is_authenticated:
-                PyGraphistry._check_key_and_version()
-                PyGraphistry._is_authenticated = True
+            if not self.session._is_authenticated:
+                self._check_key_and_version()
+                self.session._is_authenticated = True
 
-    @staticmethod
-    def __reset_token_creds_in_memory():
+    def __reset_token_creds_in_memory(self) -> None:
         """Reset the token and creds in memory, used when switching hosts, switching register method"""
 
-        PyGraphistry._config["api_key"] = None
-        PyGraphistry._is_authenticated = False
+        self.session.api_key = None
+        self.session._is_authenticated = False
 
 
 
     @staticmethod
-    def not_implemented_thunk():
+    def not_implemented_thunk() -> str:
         raise Exception("Must call login() first")
 
-    relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
+    relogin: Callable[[], str] = not_implemented_thunk  # Will be updated after class initialization
 
-    @staticmethod
-    def login(username, password, org_name=None, fail_silent=False):
+    def login(self, username: str, password: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
-        logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
+        logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, self.org_name()))
 
         if not org_name:
-            org_name = PyGraphistry.org_name()
+            org_name = self.org_name()
 
-        if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.login(
-                username, password, None, fail_silent
-            )
+        if self.session.store_token_creds_in_memory:
+            def relogin():
+                return self.login(username, password, None, fail_silent)
+            self.relogin = relogin
 
-        PyGraphistry._is_authenticated = False
+        self.session._is_authenticated = False
         token = (
             ArrowUploader(
-                server_base_path=PyGraphistry.protocol()
+                client_session=self.session,
+                server_base_path=self.protocol()
                 + "://"                     # noqa: W503
-                + PyGraphistry.server(),    # noqa: W503
-                certificate_validation=PyGraphistry.certificate_validation(),
+                + self.server(),    # noqa: W503
+                certificate_validation=self.certificate_validation(),
             )
             .login(username, password, org_name)
             .token
         )
 
-        logger.debug("@PyGraphistry login After ArrowUploader.login: org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
+        logger.debug("@PyGraphistry login After ArrowUploader.login: org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, self.org_name()))
 
-        PyGraphistry.api_token(token)
-        PyGraphistry._is_authenticated = True
+        self.api_token(token)
+        self.session._is_authenticated = True
 
-        return PyGraphistry.api_token()
+        return token
 
-    @staticmethod
-    def pkey_login(personal_key_id, personal_key_secret, org_name=None, fail_silent=False):
+    def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
         """Authenticate with personal key/secret and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
-        if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.pkey_login(
-                personal_key_id, personal_key_secret, org_name if org_name else PyGraphistry.org_name(), fail_silent
-            )
+        if self.session.store_token_creds_in_memory:
+            def relogin():
+                return self.pkey_login(
+                    personal_key_id, personal_key_secret, org_name if org_name else self.org_name(), fail_silent
+                )
+            self.relogin = relogin
 
-        PyGraphistry._is_authenticated = False
+        self.session._is_authenticated = False
         token = (
             ArrowUploader(
-                server_base_path=PyGraphistry.protocol()
+                client_session=self.session,
+                server_base_path=self.protocol()
                 + "://"                     # noqa: W503
-                + PyGraphistry.server(),    # noqa: W503
-                certificate_validation=PyGraphistry.certificate_validation(),
+                + self.server(),    # noqa: W503
+                certificate_validation=self.certificate_validation(),
             )
             .pkey_login(personal_key_id, personal_key_secret, org_name)
             .token
         )
-        PyGraphistry.api_token(token)
-        PyGraphistry._is_authenticated = True
+        self.api_token(token)
+        self.session._is_authenticated = True
 
-        return PyGraphistry.api_token()
+        return token
 
-    @staticmethod
-    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, sso_opt_into_type=None):
+    def sso_login(self, org_name: Optional[str] = None, idp_name: Optional[str] = None, sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS, sso_opt_into_type: Optional[Literal["display", "browser"]] = None) -> str:
         """Authenticate with SSO and set token for reuse (api=3).
 
         :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
@@ -222,39 +216,42 @@ class PyGraphistry(object):
         SSO Login logic.
 
         """
-        if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
+        if self.session.store_token_creds_in_memory:
+            self.relogin = lambda: self.sso_login(
                 org_name, idp_name, sso_timeout, sso_opt_into_type
             )
 
-        PyGraphistry._is_authenticated = False
+        self.session._is_authenticated = False
         arrow_uploader = ArrowUploader(
-            server_base_path=PyGraphistry.protocol()
+            client_session=self.session,
+            server_base_path=self.protocol()
             + "://"                     # noqa: W503
-            + PyGraphistry.server(),    # noqa: W503
-            certificate_validation=PyGraphistry.certificate_validation(),
+            + self.server(),    # noqa: W503
+            certificate_validation=self.certificate_validation(),
         ).sso_login(org_name, idp_name)
         try:
             # print(f"@sso_login - arrow_uploader.token: {arrow_uploader.token}")
-            if arrow_uploader.token:
-                PyGraphistry.api_token(arrow_uploader.token)
-                PyGraphistry._is_authenticated = True
-                arrow_uploader.token = None
-                return PyGraphistry.api_token()
+            token = arrow_uploader.token
+            if not token:
+                raise ValueError("ArrowUploader.sso_login returned no token")
+            self.api_token(token)
+            self.session._is_authenticated = True
+            arrow_uploader.token = None  # type: ignore[assignment]
+            return token
+
         except (Exception, TokenExpireException) as e:  # required to log on
 
             logger.debug(f"@sso_login - arrow_uploader.sso_state: {arrow_uploader.sso_state}")
-            PyGraphistry.sso_state(arrow_uploader.sso_state)
+            self.sso_state(arrow_uploader.sso_state)
 
             auth_url = arrow_uploader.sso_auth_url
 
             if auth_url:
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+                self._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
                 return auth_url
             raise e
 
-    @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
+    def _handle_auth_url(self, auth_url: str, sso_timeout: Optional[int], sso_opt_into_type: Optional[Literal["display", "browser"]]) -> Optional[str]:
         """Internal function to handle what to do with the auth_url
            based on the client mode python/ipython console or notebook.
 
@@ -271,8 +268,8 @@ class PyGraphistry(object):
 
         """
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
-            # from IPython.core.display import HTML
-            from IPython.display import display, HTML
+            from IPython.core.display import HTML
+            from IPython.display import display
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
             print("Please click the above URL to open browser to login")
             print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
@@ -295,14 +292,15 @@ class PyGraphistry(object):
             token = None
 
             while True:
-                token, org_name = PyGraphistry._sso_get_token()
+                token, org_name = self._sso_get_token()
                 try:
                     if not token:
                         if elapsed_time % 10 == 1:
                             count_down = "Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1)
                             print(count_down)
-                            from IPython.display import display, HTML
-                            display(HTML(f'<strong>{count_down}</string>'))
+                            from IPython.core.display import HTML
+                            from IPython.display import display
+                            display(HTML(f'<strong>{count_down}</strong>'))
                         time.sleep(1)
                         elapsed_time = elapsed_time + 1
                         if elapsed_time > sso_timeout:
@@ -316,10 +314,11 @@ class PyGraphistry(object):
                     token = None
             if token:
                 # set org_name to sso org
-                PyGraphistry._config['org_name'] = org_name
-
+                self.session.org_name = org_name
+                # finish, set back to None
+                self.session.sso_state = None
                 print("Successfully logged in")
-                return PyGraphistry.api_token()
+                return self.api_token()
             else:
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
                 return None
@@ -327,37 +326,39 @@ class PyGraphistry(object):
             # print("Start getting token ...")
             # token = None
             # for i in range(10):
-            #     token, org_name = PyGraphistry._sso_get_token()
+            #     token, org_name = self._sso_get_token()
             #     if token:
             #         # set org_name to sso org
-            #         PyGraphistry._config['org_name'] = org_name
+            #         self._config['org_name'] = org_name
             #         print("Successfully logged in")
-            #         return PyGraphistry.api_token()
+            #         return self.api_token()
             #     print("Keep trying to get token ...")
             #     time.sleep(5)
 
             print("Please run graphistry.sso_get_token() to complete the authentication")
             return None
 
-    @staticmethod
-    def sso_get_token():
+    def sso_get_token(self) -> Optional[str]:
         """ Get authentication token in SSO non-blocking mode"""
-        token, org_name = PyGraphistry._sso_get_token()
+        token, org_name = self._sso_get_token()
         # set org_name to sso org
-        PyGraphistry._config['org_name'] = org_name
+        self.session.org_name = org_name
         return token
 
-    @staticmethod
-    def _sso_get_token():
+    def _sso_get_token(self) -> Tuple[Optional[str], Optional[str]]:
         token = None
         # get token from API using state
-        state = PyGraphistry.sso_state()
+        state = self.sso_state()
+        if state is None:
+            raise SsoStateInvalidException("[SSO] Invalid SSO state: NoneType encountered")
+
         # print("_sso_get_token : {}".format(state))
         arrow_uploader = ArrowUploader(
-            server_base_path=PyGraphistry.protocol()
+            client_session=self.session,
+            server_base_path=self.protocol()
             + "://"                     # noqa: W503
-            + PyGraphistry.server(),    # noqa: W503
-            certificate_validation=PyGraphistry.certificate_validation(),
+            + self.server(),    # noqa: W503
+            certificate_validation=self.certificate_validation(),
         ).sso_get_token(state)
 
         try:
@@ -368,10 +369,10 @@ class PyGraphistry(object):
                 pass
             logger.debug("jwt token :{}".format(token))
             # print("jwt token :{}".format(token))
-            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-            # print("api_token() : {}".format(PyGraphistry.api_token()))
-            PyGraphistry._is_authenticated = True
-            token = PyGraphistry.api_token()
+            self.api_token(token or self.session.api_token)
+            # print("api_token() : {}".format(self.api_token()))
+            self.session._is_authenticated = True
+            token = self.api_token()
             # print("api_token() : {}".format(token))
             return token, org_name
         except:
@@ -379,243 +380,187 @@ class PyGraphistry(object):
             pass
         return None, None
 
-    @staticmethod
-    def refresh(token=None, fail_silent=False):
+    def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         """Use self or provided JWT token to get a fresher one. Always save new token."""
         using_self_token = token is None
-        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(PyGraphistry.org_name()))
+        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(self.org_name()))
         try:
             logger.debug("JWT refresh via token")
             if using_self_token:
-                PyGraphistry._is_authenticated = False
+                self.session._is_authenticated = False
             token = (
                 ArrowUploader(
-                    server_base_path=PyGraphistry.protocol()
+                    client_session=self.session,
+                    server_base_path=self.protocol()
                     + "://"                   # noqa: W503
-                    + PyGraphistry.server(),  # noqa: W503
-                    certificate_validation=PyGraphistry.certificate_validation(),
+                    + self.server(),  # noqa: W503
+                    certificate_validation=self.certificate_validation(),
                 )
-                .refresh(PyGraphistry.api_token() if using_self_token else token)
+                .refresh(self.api_token() if using_self_token else token)
                 .token
             )
-            PyGraphistry.api_token(token)
-            PyGraphistry._is_authenticated = True
-            return PyGraphistry.api_token()
+            self.api_token(token)
+            self.session._is_authenticated = True
+            return self.api_token()
         except Exception as e:
 
-            if PyGraphistry.store_token_creds_in_memory():
+            if self.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
                 logger.debug("2. @PyGraphistry refresh :relogin")
                 if isinstance(e, TokenExpireException):
                     print("Token is expired, you need to relogin")                    
-                return PyGraphistry.relogin()
+                return self.relogin()
 
             if not fail_silent:
                 util.error("Failed to refresh token: %s" % str(e))
                 raise e
+            return None
 
-    @staticmethod
-    def verify_token(token=None, fail_silent=False) -> bool:
+    def verify_token(self, token: Optional[str] = None, fail_silent: bool = False) -> bool:
         """Return True iff current or provided token is still valid"""
         using_self_token = token is None
         try:
             logger.debug("JWT refresh")
             if using_self_token:
-                PyGraphistry._is_authenticated = False
+                self.session._is_authenticated = False
             ok = ArrowUploader(
-                server_base_path=PyGraphistry.protocol()
+                client_session=self.session,
+                server_base_path=self.protocol()
                 + "://"                   # noqa: W503
-                + PyGraphistry.server(),  # noqa: W503
-                certificate_validation=PyGraphistry.certificate_validation(),
-            ).verify(PyGraphistry.api_token() if using_self_token else token)
+                + self.server(),  # noqa: W503
+                certificate_validation=self.certificate_validation(),
+            ).verify(self.api_token() if using_self_token else token)
             if using_self_token:
-                PyGraphistry._is_authenticated = ok
+                self.session._is_authenticated = ok
             return ok
         except Exception as e:
             if not fail_silent:
                 util.error("Failed to verify token: %s" % str(e))
             return False
 
-    @staticmethod
-    def server(value=None):
+    def server(self, value: Optional[str] = None) -> str:
         """Get the hostname of the server or set the server using hostname or aliases.
         Also set via environment variable GRAPHISTRY_HOSTNAME."""
         if value is None:
-            return PyGraphistry._config["hostname"]
+            return self.session.hostname
 
         # setter
-        shortcuts = {}
-        if value in shortcuts:
-            resolved = shortcuts[value]
-            PyGraphistry._config["hostname"] = resolved
-            util.warn("Resolving alias %s to %s" % (value, resolved))
-        else:
-            PyGraphistry._config["hostname"] = value
+        self.session.hostname = value
+        return value
 
-    @staticmethod
-    def store_token_creds_in_memory(value=None):
+    def store_token_creds_in_memory(self, value: Optional[bool] = None) -> bool:
         """Cache credentials for JWT token access. Default off due to not being safe."""
         if value is None:
-            return PyGraphistry._config["store_token_creds_in_memory"]
-        else:
-            v = bool(strtobool(value)) if isinstance(value, str) else value
-            PyGraphistry._config["store_token_creds_in_memory"] = v
+            return self.session.store_token_creds_in_memory
 
-    @staticmethod
-    def client_protocol_hostname(value=None):
+        # setter
+        v = bool(strtobool(value)) if isinstance(value, str) else value
+        self.session.store_token_creds_in_memory = v
+        return v
+
+    def client_protocol_hostname(self, value: Optional[str] = None) -> str:
         """Get/set the client protocol+hostname for when display urls (distinct from uploading).
         Also set via environment variable GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         Defaults to hostname and no protocol (reusing environment protocol)"""
 
         if value is None:
-            cfg_client_protocol_hostname = PyGraphistry._config[
-                "client_protocol_hostname"
-            ]
+            cfg_client_protocol_hostname = self.session.client_protocol_hostname
             # skip doing protocol by default to match notebook's protocol
             cph = (
-                ("//" + PyGraphistry.server())
+                ("//" + self.server())
                 if cfg_client_protocol_hostname is None
                 else cfg_client_protocol_hostname
             )
             return cph
-        else:
-            PyGraphistry._config["client_protocol_hostname"] = value
+        
+        # setter
+        self.session.client_protocol_hostname = value
+        return value
 
-    @staticmethod
-    def api_key(value=None):
+    def api_key(self, value: Optional[str] = None) -> Optional[str]:
         """Set or get the API key.
         Also set via environment variable GRAPHISTRY_API_KEY."""
 
         if value is None:
-            return PyGraphistry._config["api_key"]
+            return self.session.api_key
 
         # setter
-        if value is not PyGraphistry._config["api_key"]:
-            PyGraphistry._config["api_key"] = value.strip()
-            PyGraphistry._is_authenticated = False
+        if value is not self.session.api_key:
+            self.session.api_key = value.strip()
+            self.session._is_authenticated = False
+        return value
 
-    @staticmethod
-    def api_token(value=None):
+    def api_token(self, value: Optional[str] = None) -> Optional[str]:
         """Set or get the API token.
         Also set via environment variable GRAPHISTRY_API_TOKEN."""
 
         if value is None:
-            return PyGraphistry._config["api_token"]
+            return self.session.api_token
 
         # setter
-        if value is not PyGraphistry._config["api_token"]:
-            PyGraphistry._config["api_token"] = value.strip()
-            PyGraphistry._is_authenticated = False
+        if value is not self.session.api_token:
+            self.session.api_token = value.strip()
+            self.session._is_authenticated = False
+        return value
 
-    @staticmethod
-    def api_token_refresh_ms(value=None):
-        """Set or get the API token refresh interval in milliseconds.
-        None and 0 interpreted as no refreshing."""
+    # @staticmethod
+    # def api_token_refresh_ms(value=None):
+    #     """Set or get the API token refresh interval in milliseconds.
+    #     None and 0 interpreted as no refreshing."""
 
-        if value is None:
-            return PyGraphistry._config["api_token_refresh_ms"]
+    #     if value is None:
+    #         return PyGraphistry._config["api_token_refresh_ms"]
 
-        # setter
-        if value is not PyGraphistry._config["api_token_refresh_ms"]:
-            PyGraphistry._config["api_token_refresh_ms"] = int(value)
+    #     # setter
+    #     if value is not PyGraphistry._config["api_token_refresh_ms"]:
+    #         PyGraphistry._config["api_token_refresh_ms"] = int(value)
 
-    @staticmethod
-    def protocol(value=None):
+    def protocol(self, value: Optional[str] = None) -> str:
         """Set or get the protocol ('http' or 'https').
         Set automatically when using a server alias.
         Also set via environment variable GRAPHISTRY_PROTOCOL."""
         if value is None:
-            return PyGraphistry._config["protocol"]
+            return self.session.protocol
         # setter
-        PyGraphistry._config["protocol"] = value
+        self.session.protocol = value
+        return value
 
-    @staticmethod
-    def api_version(value=None):
+    def api_version(self, value: Optional[ApiVersion] = None) -> ApiVersion:
         """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
         Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
 
-        import re
         if value is None:
-            #if set by env var, interpret
-            env_api_version = PyGraphistry._config["api_version"]
-            if isinstance(env_api_version, str):
-                if re.sub(r'\d+', '', env_api_version) == '':
-                    value = int(env_api_version)
-                else:
-                    raise ValueError("Expected API version to be 1, 3, instead got (likely from GRAPHISTRY_API_VERSION): %s" % env_api_version)
-            else:
-                value = env_api_version
+            value = self.session.api_version
 
         if value not in [1, 3]:
             raise ValueError("Expected API version to be 1, 3, instead got: %s" % value)
 
         # setter
-        PyGraphistry._config["api_version"] = value
+        self.session.api_version = value
 
         return value
 
-    @staticmethod
-    def certificate_validation(value=None):
+    def certificate_validation(self, value: Optional[bool] = None) -> bool:
         """Enable/Disable SSL certificate validation (True, False).
         Also set via environment variable GRAPHISTRY_CERTIFICATE_VALIDATION."""
         if value is None:
-            return PyGraphistry._config["certificate_validation"]
+            return self.session.certificate_validation
 
         # setter
         v = bool(strtobool(value)) if isinstance(value, str) else value
         if not v:
-            requests.packages.urllib3.disable_warnings()
-        PyGraphistry._config["certificate_validation"] = v
+            import urllib3
+            urllib3.disable_warnings()
+        self.session.certificate_validation = v
+        return v
 
-    @staticmethod
-    def set_bolt_driver(driver=None):
-        PyGraphistry._config["bolt_driver"] = bolt_util.to_bolt_driver(driver)
-
-    @staticmethod
-    def set_spanner_config(spanner_config: Optional[SpannerConfig] = None):
-        """
-        Saves the spanner config to internal Pygraphistry _config
-        :param spanner_config: dict of the project_id, instance_id and database_id
-        :type spanner_config: Optional[SpannerConfig]
-        :returns: None.
-        :rtype: None
-
-        **Example: calling set_spanner_config - all keys are required**
-                ::
-
-                    import graphistry
-                    graphistry.register(...)
-
-                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID }
-
-                    graphistry.set_spanner_config(SPANNER_CONF)
-
-        **Example: calling set_spanner_config with credentials_file (optional) - used for service accounts**
-                ::
-
-                    import graphistry
-                    graphistry.register(...)
-
-                    SPANNER_CONF = { "project_id":  PROJECT_ID, 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-
-                    graphistry.set_spanner_config(SPANNER_CONF)
-                         
-        """
-        PyGraphistry._config["spanner"] = spanner_config 
-    
-    @staticmethod
-    def set_kusto_config(kusto_config: Optional[KustoConfig]):
-        PyGraphistry._config["kusto"] = kusto_config
+    def set_bolt_driver(self, driver: Optional[Any] = None) -> None:
+        self.session._bolt_driver = bolt_util.to_bolt_driver(driver)
 
 
-    @staticmethod
     def register(
+        self,
         key: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
@@ -627,17 +572,14 @@ class PyGraphistry(object):
         api: Optional[Literal[1, 3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
-        spanner_config: Optional[SpannerConfig] = None,        
-        kusto_config: Optional[KustoConfig] = None,
-        token_refresh_ms: int = 10 * 60 * 1000,
         store_token_creds_in_memory: Optional[bool] = None,
         client_protocol_hostname: Optional[str] = None,
         org_name: Optional[str] = None,
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
-        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS,
+        sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS,
         sso_opt_into_type: Optional[Literal["display", "browser"]] = None
-    ):
+    ) -> "GraphistryClient":
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -666,8 +608,6 @@ class PyGraphistry(object):
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
         :type bolt: Union[dict, Any]
-        :param spanner_config: Spanner connection information. Named constructor arguments for instantiating a spanner client
-        :type spanner_config: Union[dict, Any]
         :param protocol: Protocol used to contact visualization server, defaults to "https".
         :type protocol: Optional[str]
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
@@ -744,58 +684,68 @@ class PyGraphistry(object):
                     graphistry.register(api=1, key="my api key")
 
         """
-        PyGraphistry.api_version(api)
-        PyGraphistry.api_token_refresh_ms(token_refresh_ms)
-        PyGraphistry.api_key(key)
-        PyGraphistry.server(server)
-        PyGraphistry.protocol(protocol)
-        PyGraphistry.client_protocol_hostname(client_protocol_hostname)
-        PyGraphistry.certificate_validation(certificate_validation)
-        PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
-        PyGraphistry.set_bolt_driver(bolt)
-        PyGraphistry.set_spanner_config(spanner_config)
-        PyGraphistry.set_kusto_config(kusto_config)
+        global _is_client_mode_warned
+        if self is PyGraphistry and _client_mode_enabled and not _is_client_mode_warned:
+            warnings.warn(
+                "Using global register() after client() has been called. "
+                "Consider using client.register() for multi-tenant applications to avoid shared state issues.",
+                UserWarning
+            )
+            _is_client_mode_warned = True
+        
+        self.session = ClientSession()  # Reset Session
+        self._config = self.session.as_proxy()  # Update config proxy to point to new session
+        
+        self.api_version(api)
+        # self.api_token_refresh_ms(token_refresh_ms)
+        self.api_key(key)
+        self.server(server)
+        self.protocol(protocol)
+        self.client_protocol_hostname(client_protocol_hostname)
+        self.certificate_validation(certificate_validation)
+        self.store_token_creds_in_memory(store_token_creds_in_memory)
+        self.set_bolt_driver(bolt)
         # Reset token creds
-        PyGraphistry.__reset_token_creds_in_memory()
+        self.__reset_token_creds_in_memory()
 
         if not (username is None) and not (password is None):
-            PyGraphistry.login(username, password, org_name)
-            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-            PyGraphistry.authenticate()
+            self.login(username, password, org_name)
+            self.api_token(token or self.session.api_token)
+            self.authenticate()
         elif (username is None and not (password is None)):
             raise Exception(MSG_REGISTER_MISSING_USERNAME)
         elif not (username is None) and password is None:
             raise Exception(MSG_REGISTER_MISSING_PASSWORD)
         elif not (personal_key_id is None) and not (personal_key_secret is None):
-            PyGraphistry.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
-            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-            PyGraphistry.authenticate()
+            self.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
+            self.api_token(token or self.session.api_token)
+            self.authenticate()
         elif personal_key_id is None and not (personal_key_secret is None):
             raise Exception(MSG_REGISTER_MISSING_PKEY_ID)
         elif not (personal_key_id is None) and personal_key_secret is None:
             raise Exception(MSG_REGISTER_MISSING_PKEY_SECRET)
         elif not (token is None):
-            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+            self.api_token(token or self.session.api_token)
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
-            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
+            self.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
+        
+        return self
 
-    @staticmethod
-    def __check_login_type_to_reset_token_creds(
+    def __check_login_type_to_reset_token_creds(self, 
             origin_login_type: str,
             new_login_type: str,
-        ):
+        ) -> None:
         if origin_login_type != new_login_type:
-            PyGraphistry.__reset_token_creds_in_memory()
+            self.__reset_token_creds_in_memory()
 
-    @staticmethod
-    def privacy(
+    def privacy(self, 
             mode: Optional[Mode] = None,
             notify: Optional[bool] = None,
             invited_users: Optional[List[str]] = None,
-            mode_action: Optional[str] = None,
+            mode_action: Optional[ModeAction] = None,
             message: Optional[str] = None
-        ):
+        ) -> None:
         """Set global default sharing mode
 
         :param mode: Either "private" or "public" or "organization"
@@ -887,7 +837,7 @@ class PyGraphistry(object):
                 g.plot()
         """
 
-        PyGraphistry._config['privacy'] = {
+        self.session.privacy = {
             'mode': mode,
             'notify': notify,
             'invited_users': invited_users,
@@ -895,8 +845,7 @@ class PyGraphistry(object):
             'message': message
         }
 
-    @staticmethod
-    def hypergraph(
+    def hypergraph(self, 
         raw_events,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
@@ -907,7 +856,7 @@ class PyGraphistry(object):
         engine: str = "pandas",
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
-    ):
+    ) -> HypergraphResult:
         """Transform a dataframe into a hypergraph.
 
         :param raw_events: Dataframe to transform (pandas or cudf).
@@ -1032,8 +981,7 @@ class PyGraphistry(object):
             chunksize=chunksize,
         )
 
-    @staticmethod
-    def infer_labels(self):
+    def infer_labels(self) -> Plotter:
         """
 
         :return: Plotter w/neo4j
@@ -1051,10 +999,9 @@ class PyGraphistry(object):
                     g.plot()
 
         """
-        return Plotter().infer_labels()
+        return cast(Plotter, self._plotter().infer_labels())
 
-    @staticmethod
-    def bolt(driver=None):
+    def bolt(self, driver=None) -> Plotter:
         """
 
         :param driver: Neo4j Driver or arguments for GraphDatabase.driver(**{...})**
@@ -1078,11 +1025,10 @@ class PyGraphistry(object):
 
                     g = graphistry.bolt(driver)
         """
-        return Plotter().bolt(driver)
+        return self._plotter().bolt(driver)
 
 
-    @staticmethod
-    def cypher(query, params={}):
+    def cypher(self, query: str, params: Dict[str, Any] = {}) -> Plotter:
         """
 
         :param query: a cypher query
@@ -1096,51 +1042,10 @@ class PyGraphistry(object):
                     import graphistry
                     g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
         """
-        return Plotter().cypher(query, params)
-    
-
-    @staticmethod
-    def spanner(spanner_config: SpannerConfig) -> Plottable:
-        """
-        Set spanner configuration for this Plottable.
-        SpannerConfig
-            - "instance_id": The Spanner instance ID.
-            - "database_id": The Spanner database ID.
-            - "project_id": The GCP project ID.
-            - "credentials_file": json file API key for service accounts 
-        
-        If credentials_file is provided, it will be used to authenticate with the Spanner instance.
-        Otherwise, project_id and the spanner login process will be used to authenticate.
-            
-        :param spanner_config: A dictionary containing the Spanner configuration. 
-        :type (SpannerConfig)
-        :return: Plottable with a Spanner connection 
-        :rtype: Plottable
-        """
-        return Plotter().spanner(spanner_config)
-
-    @staticmethod
-    def kusto(kusto_config: KustoConfig) -> Plottable:
-        """
-        Set kusto configuration for this Plottable.
-        KustoConfig
-            - "cluster": The Kusto cluster name.
-            - "database": The Kusto database name.
-          For AAD authentication:
-            - "client_id": The Kusto client ID.
-            - "client_secret": The Kusto client secret.
-            - "tenant_id": The Kusto tenant ID.
-          Otherwise: process will use web browser to authenticate.
-        :param kusto_config: A dictionary containing the Kusto configuration. 
-        :type (KustoConfig)
-        :returns: Plottable with a Kusto connection 
-        :rtype: Plottable
-        """
-        return Plotter().kusto(kusto_config)
+        return cast(Plotter, self._plotter().cypher(query, params))
 
 
-    @staticmethod
-    def nodexl(xls_or_url, source="default", engine=None, verbose=False):
+    def nodexl(self, xls_or_url: Union[str, Any], source: str = "default", engine: Optional[str] = None, verbose: bool = False) -> Plotter:
         """
 
         :param xls_or_url: file/http path string to a nodexl-generated xls, or a pandas ExcelFile() object
@@ -1153,10 +1058,9 @@ class PyGraphistry(object):
         if not (engine is None):
             print("WARNING: Engine currently ignored, please contact if critical")
 
-        return Plotter().nodexl(xls_or_url, source, engine, verbose)
+        return cast(Plotter, self._plotter().nodexl(xls_or_url, source, engine, verbose))
 
-    @staticmethod
-    def gremlin(queries: Union[str, Iterable[str]]) -> Plottable:
+    def gremlin(self, queries: Union[str, Iterable[str]]) -> Plotter:
         """Run one or more gremlin queries and get back the result as a graph object
         To support cosmosdb, sends as strings
 
@@ -1172,10 +1076,9 @@ class PyGraphistry(object):
                     .plot())
 
         """
-        return Plotter().gremlin(queries)
+        return cast(Plotter, self._plotter().gremlin(queries))
 
-    @staticmethod
-    def neptune(
+    def neptune(self, 
         NEPTUNE_READER_HOST: Optional[str] = None,
         NEPTUNE_READER_PORT: Optional[str] = None,
         NEPTUNE_READER_PROTOCOL: Optional[str] = "wss",
@@ -1236,7 +1139,7 @@ class PyGraphistry(object):
                     .fetch_nodes()  # Fetch properties for nodes
                     .plot())
         """
-        return Plotter().neptune(
+        return self._plotter().neptune(
             NEPTUNE_READER_HOST=NEPTUNE_READER_HOST,
             NEPTUNE_READER_PORT=NEPTUNE_READER_PORT,
             NEPTUNE_READER_PROTOCOL=NEPTUNE_READER_PROTOCOL,
@@ -1244,8 +1147,7 @@ class PyGraphistry(object):
             gremlin_client=gremlin_client,
         )
 
-    @staticmethod
-    def cosmos(
+    def cosmos(self, 
         COSMOS_ACCOUNT: Optional[str] = None,
         COSMOS_DB: Optional[str] = None,
         COSMOS_CONTAINER: Optional[str] = None,
@@ -1279,7 +1181,7 @@ class PyGraphistry(object):
                     .plot())
 
         """
-        return Plotter().cosmos(
+        return self._plotter().cosmos(
             COSMOS_ACCOUNT=COSMOS_ACCOUNT,
             COSMOS_DB=COSMOS_DB,
             COSMOS_CONTAINER=COSMOS_CONTAINER,
@@ -1287,8 +1189,7 @@ class PyGraphistry(object):
             gremlin_client=gremlin_client,
         )
 
-    @staticmethod
-    def gremlin_client(gremlin_client: Any = None) -> Plotter:
+    def gremlin_client(self, gremlin_client: Any = None) -> Plotter:
         """Pass in a generic gremlin python client
 
         **Example: Login and plot**
@@ -1312,35 +1213,31 @@ class PyGraphistry(object):
                     .plot())
 
         """
-        return Plotter().gremlin_client(gremlin_client=gremlin_client)
+        return self._plotter().gremlin_client(gremlin_client=gremlin_client)
 
-    @staticmethod
-    def drop_graph() -> Plotter:
+    def drop_graph(self) -> Plotter:
         """
         Remove all graph nodes and edges from the database
         """
-        return Plotter().drop_graph()
+        return self._plotter().drop_graph()
 
-    @staticmethod
-    def name(name):
+    def name(self, name: str) -> Plotter:
         """Upload name
 
         :param name: Upload name
         :type name: str"""
 
-        return Plotter().name(name)
+        return self._plotter().name(name)
 
-    @staticmethod
-    def description(description):
+    def description(self, description: str) -> Plotter:
         """Upload description
 
         :param description: Upload description
         :type description: str"""
 
-        return Plotter().description(description)
+        return self._plotter().description(description)
 
-    @staticmethod
-    def addStyle(bg=None, fg=None, logo=None, page=None):
+    def addStyle(self, bg: Optional[Dict[str, Any]] = None, fg: Optional[Dict[str, Any]] = None, logo: Optional[Dict[str, Any]] = None, page: Optional[Dict[str, Any]] = None) -> Plotter:
         """Creates a base plotter with some style settings.
 
         For parameters, see ``plotter.addStyle``.
@@ -1356,10 +1253,9 @@ class PyGraphistry(object):
                 graphistry.addStyle(bg={'color': 'black'})
         """
 
-        return Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
+        return cast(Plotter, self._plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page))
 
-    @staticmethod
-    def style(bg=None, fg=None, logo=None, page=None):
+    def style(self, bg: Optional[Dict[str, Any]] = None, fg: Optional[Dict[str, Any]] = None, logo: Optional[Dict[str, Any]] = None, page: Optional[Dict[str, Any]] = None) -> Plotter:
         """Creates a base plotter with some style settings.
 
         For parameters, see ``plotter.style``.
@@ -1375,21 +1271,20 @@ class PyGraphistry(object):
                 graphistry.style(bg={'color': 'black'})
         """
 
-        return Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
+        return cast(Plotter, self._plotter().style(bg=bg, fg=fg, logo=logo, page=page))
 
 
 
-    @staticmethod
-    def encode_point_color(
-        column,
-        palette=None,
-        as_categorical=None,
-        as_continuous=None,
-        categorical_mapping=None,
-        default_mapping=None,
-        for_default=True,
-        for_current=False,
-    ):
+    def encode_point_color(self, 
+        column: str,
+        palette: Optional[List[str]] = None,
+        as_categorical: Optional[bool] = None,
+        as_continuous: Optional[bool] = None,
+        categorical_mapping: Optional[Dict[Any, Any]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plotter:
         """Set point color with more control than bind()
 
         :param column: Data column name
@@ -1443,7 +1338,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().encode_point_color(
+        return cast(Plotter, self._plotter().encode_point_color(
             column=column,
             palette=palette,
             as_categorical=as_categorical,
@@ -1452,10 +1347,9 @@ class PyGraphistry(object):
             default_mapping=default_mapping,
             for_default=for_default,
             for_current=for_current,
-        )
+        ))
 
-    @staticmethod
-    def encode_edge_color(
+    def encode_edge_color(self, 
         column,
         palette=None,
         as_categorical=None,
@@ -1497,7 +1391,7 @@ class PyGraphistry(object):
         **Example: See encode_point_color**
         """
 
-        return Plotter().encode_edge_color(
+        return self._plotter().encode_edge_color(
             column=column,
             palette=palette,
             as_categorical=as_categorical,
@@ -1508,8 +1402,7 @@ class PyGraphistry(object):
             for_current=for_current,
         )
 
-    @staticmethod
-    def encode_point_size(
+    def encode_point_size(self, 
         column,
         categorical_mapping=None,
         default_mapping=None,
@@ -1549,7 +1442,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().encode_point_size(
+        return self._plotter().encode_point_size(
             column=column,
             categorical_mapping=categorical_mapping,
             default_mapping=default_mapping,
@@ -1557,8 +1450,7 @@ class PyGraphistry(object):
             for_current=for_current,
         )
 
-    @staticmethod
-    def encode_point_icon(
+    def encode_point_icon(self, 
         column,
         categorical_mapping=None,
         continuous_binning=None,
@@ -1628,7 +1520,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().encode_point_icon(
+        return self._plotter().encode_point_icon(
             column=column,
             categorical_mapping=categorical_mapping,
             continuous_binning=continuous_binning,
@@ -1643,8 +1535,7 @@ class PyGraphistry(object):
             shape=shape,
         )
 
-    @staticmethod
-    def encode_edge_icon(
+    def encode_edge_icon(self, 
         column,
         categorical_mapping=None,
         continuous_binning=None,
@@ -1714,7 +1605,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().encode_edge_icon(
+        return self._plotter().encode_edge_icon(
             column=column,
             categorical_mapping=categorical_mapping,
             continuous_binning=continuous_binning,
@@ -1729,8 +1620,7 @@ class PyGraphistry(object):
             shape=shape,
         )
 
-    @staticmethod
-    def encode_edge_badge(
+    def encode_edge_badge(self, 
         column,
         position="TopRight",
         categorical_mapping=None,
@@ -1749,7 +1639,7 @@ class PyGraphistry(object):
         shape=None,
     ):
 
-        return Plotter().encode_edge_badge(
+        return self._plotter().encode_edge_badge(
             column=column,
             categorical_mapping=categorical_mapping,
             continuous_binning=continuous_binning,
@@ -1767,8 +1657,7 @@ class PyGraphistry(object):
             shape=shape,
         )
 
-    @staticmethod
-    def encode_point_badge(
+    def encode_point_badge(self, 
         column,
         position="TopRight",
         categorical_mapping=None,
@@ -1787,7 +1676,7 @@ class PyGraphistry(object):
         shape=None,
     ):
 
-        return Plotter().encode_point_badge(
+        return self._plotter().encode_point_badge(
             column=column,
             categorical_mapping=categorical_mapping,
             continuous_binning=continuous_binning,
@@ -1805,31 +1694,35 @@ class PyGraphistry(object):
             shape=shape,
         )
 
-    @staticmethod
     def bind(
-        node=None,
-        source=None,
-        destination=None,
-        edge_title=None,
-        edge_label=None,
-        edge_color=None,
-        edge_weight=None,
-        edge_icon=None,
-        edge_size=None,
-        edge_opacity=None,
-        edge_source_color=None,
-        edge_destination_color=None,
-        point_title=None,
-        point_label=None,
-        point_color=None,
-        point_weight=None,
-        point_icon=None,
-        point_size=None,
-        point_opacity=None,
-        point_x=None,
-        point_y=None,
-        dataset_id=None
-    ):
+        self,
+        source: Optional[str] = None,
+        destination: Optional[str] = None,
+        node: Optional[str] = None,
+        edge: Optional[str] = None,
+        edge_title: Optional[str] = None,
+        edge_label: Optional[str] = None,
+        edge_color: Optional[str] = None,
+        edge_weight: Optional[str] = None,
+        edge_size: Optional[str] = None,
+        edge_opacity: Optional[str] = None,
+        edge_icon: Optional[str] = None,
+        edge_source_color: Optional[str] = None,
+        edge_destination_color: Optional[str] = None,
+        point_title: Optional[str] = None,
+        point_label: Optional[str] = None,
+        point_color: Optional[str] = None,
+        point_weight: Optional[str] = None,
+        point_size: Optional[str] = None,
+        point_opacity: Optional[str] = None,
+        point_icon: Optional[str] = None,
+        point_x: Optional[str] = None,
+        point_y: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        url: Optional[str] = None,
+        nodes_file_id: Optional[str] = None,
+        edges_file_id: Optional[str] = None,
+    ) -> Plotter:
         """Create a base plotter.
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
@@ -1846,7 +1739,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().bind(
+        return cast(Plotter, self._plotter().bind(
             source=source,
             destination=destination,
             node=node,
@@ -1869,19 +1762,99 @@ class PyGraphistry(object):
             point_x=point_x,
             point_y=point_y,
             dataset_id=dataset_id
-        )
+        ))
 
-    @staticmethod
-    def tigergraph(
-        protocol="http",
-        server="localhost",
-        web_port=14240,
-        api_port=9000,
-        db=None,
-        user="tigergraph",
-        pwd="tigergraph",
-        verbose=False,
-    ):
+    def client(self, inherit: bool = False) -> 'GraphistryClient':
+        """Create a new client instance with isolated session state.
+        
+        This allows for multi-tenant usage where each client has its own authentication
+        and configuration state, separate from the global PyGraphistry instance.
+        
+        **Thread Safety**: Each client is designed for single-threaded use. For concurrent
+        operations, create separate client instances per thread. Each plot() call may
+        trigger token refresh operations, making shared client access unsafe.
+        
+        :param inherit: Whether to inherit session state
+        :type inherit: bool
+        :returns: New GraphistryClient instance with copied configuration
+        :rtype: GraphistryClient
+        
+        **Example: Multi-tenant usage**
+            ::
+            
+                import graphistry
+                
+                # Create isolated clients
+                client1 = graphistry.client()
+                client1.register(api=3, username='user1', password='pass1')
+                g1 = client1.bind(source='src', destination='dst')
+                
+                client2 = graphistry.client()
+                client2.register(api=3, username='user2', password='pass2')
+                g2 = client2.bind(source='src', destination='dst')
+                
+                # Each client maintains separate authentication
+                g1.plot()  # Uses client1's credentials
+                g2.plot()  # Uses client2's credentials
+        
+        **Example: Thread-safe usage**
+            ::
+            
+                from concurrent.futures import ThreadPoolExecutor
+                import graphistry
+                
+                def worker_thread(user_data):
+                    username, password, data = user_data
+                    
+                    # Create fresh client per thread
+                    client = graphistry.client()
+                    client.register(api=3, username=username, password=password)
+                    
+                    g = client.bind(source='src', destination='dst')
+                    return g.plot()
+                
+                # Safe concurrent execution
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    results = executor.map(worker_thread, user_data_list)
+        """
+        global _client_mode_enabled
+        _client_mode_enabled = True
+        new_client = GraphistryClient()
+        if inherit:
+            new_client.session = self.session.copy()
+        return new_client
+
+    def set_client_for(self, plotter: Plotter) -> Plotter:
+        """Set the client for a plotter.
+
+        :param plotter: Plotter to set the client for
+        :type plotter: Plotter
+        :returns: Plotter with the client set
+        :rtype: Plotter
+        """
+        res = copy.copy(plotter)
+        res._pygraphistry = self
+        res.session = self.session
+        return res
+
+    def _plotter(self) -> Plotter:
+        """Create a new Plotter instance with this session injected.
+        
+        :param kwargs: Additional arguments to pass to Plotter constructor
+        :returns: Plotter instance with this session
+        """
+        return Plotter(pygraphistry=self)
+
+    def tigergraph(self, 
+        protocol: str = 'http',
+        server: str = 'localhost',
+        web_port: int = 14240,
+        api_port: int = 9000,
+        db: Optional[str] = None,
+        user: str = 'tigergraph',
+        pwd: str = 'tigergraph',
+        verbose: bool = False
+    ) -> Plotter:
         """Register Tigergraph connection setting defaults
 
         :param protocol: Protocol used to contact the database.
@@ -1912,115 +1885,86 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().tigergraph(
+        return cast(Plotter, self._plotter().tigergraph(
             protocol, server, web_port, api_port, db, user, pwd, verbose
-        )
+        ))
+
+
+    # ---- Spanner API ---------------------------------------------------- #
+
+    def configure_spanner(
+        self,
+        instance_id: str,
+        database_id: str,
+        project_id: Optional[str] = None,
+        credentials_file: Optional[str] = None
+    ) -> "GraphistryClient":
+        self._plotter().configure_spanner(instance_id, database_id, project_id, credentials_file)
+        return self
+    configure_spanner.__doc__ = Plotter.configure_spanner.__doc__
+
+    def spanner_from_client(self, client: Any) -> Plotter:
+        return cast(Plotter, self._plotter().spanner_from_client(client))
+    spanner_from_client.__doc__ = Plotter.spanner_from_client.__doc__
+
+    def spanner_close(self) -> None:
+        self._plotter().spanner_close()
+    spanner_close.__doc__ = Plotter.spanner_close.__doc__
+
+    def spanner_gql(self, query: str) -> Plotter:    
+        return cast(Plotter, self._plotter().spanner_gql(query))
+    spanner_gql.__doc__ = Plotter.spanner_gql.__doc__
+
+    def spanner_gql_to_df(self, query: str) -> pd.DataFrame:
+        return self._plotter().spanner_gql_to_df(query)
+    spanner_gql_to_df.__doc__ = Plotter.spanner_gql_to_df.__doc__
+
+    # ---- Kusto API ---------------------------------------------------- #
+
+    def configure_kusto(
+        self,
+        cluster: str,
+        database: str = "NetDefaultDB",
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> "GraphistryClient":
+        self._plotter().configure_kusto(cluster, database, client_id, client_secret, tenant_id)
+        return self
+    configure_kusto.__doc__ = Plotter.configure_kusto.__doc__
+
+    def kusto_from_client(self, client: Any, database: str = "NetDefaultDB") -> Plotter:
+        return cast(Plotter, self._plotter().kusto_from_client(client, database))
+    kusto_from_client.__doc__ = Plotter.kusto_from_client.__doc__
+
+    def kusto_close(self) -> None:
+        self._plotter().kusto_close()
+    kusto_close.__doc__ = Plotter.kusto_close.__doc__
+
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[True] = True) -> pd.DataFrame:
+        ...
     
-    @staticmethod
-    def spanner_gql_to_g(query: str) -> Plottable:    
-        """
-        Submit GQL query to google spanner graph database and return Plottable with nodes and edges populated  
-        
-        GQL must be a path query with a syntax similar to the following, it's recommended to return the path with
-        SAFE_TO_JSON(p), TO_JSON() can also be used, but not recommend. LIMIT is optional, but for large graphs with millions
-        of edges or more, it's best to filter either in the query or use LIMIT so as not to exhaust GPU memory.  
-        query=f'''GRAPH my_graph
-        MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-        :param query: GQL query string 
-        :type query: Str
-        :returns: Plottable with the results of GQL query as a graph
-        :rtype: Plottable
-        **Example: calling spanner_gql_to_g
-                ::
-                    import graphistry
-                    # credentials_file is optional, all others are required
-                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-                    graphistry.register(..., spanner_config=SPANNER_CONF)
-                    query=f'''GRAPH my_graph
-                    MATCH p = (a)-[b]->(c) LIMIT 100000 return SAFE_TO_JSON(p) as path'''
-                    g = graphistry.spanner_gql_to_g(query)
-                    g.plot()
-     
-        """
-        return Plotter().spanner_gql_to_g(query)
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: Literal[False]) -> List[pd.DataFrame]:
+        ...
+    
+    @overload
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: bool = True) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        ...
+    
+    def kql(self, query: str, *, unwrap_nested: Optional[bool] = None, single_table: bool = True) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        return self._plotter().kql(query, unwrap_nested=unwrap_nested, single_table=single_table)
+    kql.__doc__ = Plotter.kql.__doc__
 
-    @staticmethod
-    def spanner_query_to_df(query: str) -> pd.DataFrame:
-        """
-        Submit query to google spanner database and return a df of the results 
-        
-        query can be SQL or GQL as long as table of results are returned 
-        query='SELECT * from Account limit 10000'
-        :param query: query string 
-        :type query: Str
-        :returns: Pandas DataFrame with the results of query
-        :rtype: pd.DataFrame
-        **Example: calling spanner_query_to_df
-                ::
-                    import graphistry
-                    # credentials_file is optional, all others are required
-                    SPANNER_CONF = { "project_id":  PROJECT_ID,                 
-                                     "instance_id": INSTANCE_ID, 
-                                     "database_id": DATABASE_ID, 
-                                     "credentials_file": CREDENTIALS_FILE }
-                    graphistry.register(..., spanner_config=SPANNER_CONF)
-                    query='SELECT * from Account limit 10000'
-                    df = graphistry.spanner_query_to_df(query)
-                    g.plot()
-     
-        """
-        return Plotter().spanner_query_to_df(query)
-
-    @staticmethod
-    def kusto_query(query: str, unwrap_nested: Optional[bool] = None) -> List[pd.DataFrame]:
-        """
-        Submit a Kusto/Azure Data Explorer *query* and return result tables.
-        Because a Kusto request may emit multiple tables, a **list of
-        DataFrames** is always returned; most queries yield a single entry.
-        unwrap_nested
-        -------------
-        Controls auto‑flattening of *dynamic* (JSON) columns:
-        • True  – always try to flatten, raise if it fails  
-        • None  – default heuristic: flatten only if table looks nested  
-        • False – leave results untouched  
-        :param query: Kusto query string
-        :type  query: str
-        :param unwrap_nested: flatten strategy above
-        :type  unwrap_nested: bool | None
-        :returns: list of Pandas DataFrames
-        :rtype:  List[pd.DataFrame]
-        **Example**
-            ::
-                frames = graphistry.kusto_query("StormEvents | take 100")
-                df = frames[0]
-        """
-        return Plotter().kusto_query(query, unwrap_nested)
-
-    @staticmethod
-    def kusto_query_graph(graph_name: str, snap_name: Optional[str] = None) -> Plottable:
-        """
-        Fetch a Kusto *graph* (and optional *snapshot*) as a Graphistry object.
-        Under the hood: `graph(..)` + `graph-to-table` to pull **nodes** and
-        **edges**, then binds them to *self*.
-        :param graph_name: name of Kusto graph entity
-        :type  graph_name: str
-        :param snap_name: optional snapshot/version
-        :type  snap_name: str | None
-        :returns: Plottable ready for `.plot()` or further transforms
-        :rtype:  Plottable
-        **Example**
-            ::
-                g = graphistry.kusto_query_graph("HoneypotNetwork").plot()
-        """
-        return Plotter().kusto_query_graph(graph_name, snap_name)
+    def kusto_graph(self, graph_name: str, snap_name: Optional[str] = None) -> Plotter:
+        return cast(Plotter, self._plotter().kusto_graph(graph_name, snap_name))
+    kusto_graph.__doc__ = Plotter.kusto_graph.__doc__
 
 
-    @staticmethod
-    def gsql_endpoint(
-        self, method_name, args={}, bindings=None, db=None, dry_run=False
+
+    def gsql_endpoint(self, 
+        method_name, args={}, bindings=None, db=None, dry_run=False
     ):
         """Invoke Tigergraph stored procedure at a user-definend endpoint and return transformed Plottable
 
@@ -2061,10 +2005,9 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
+        return self._plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
 
-    @staticmethod
-    def gsql(query, bindings=None, dry_run=False):
+    def gsql(self, query, bindings=None, dry_run=False):
         """Run Tigergraph query in interpreted mode and return transformed Plottable
 
          :param query: Code to run
@@ -2133,10 +2076,9 @@ class PyGraphistry(object):
                      \"\"\", {'edges': 'my_edge_list'}).plot()
         """
 
-        return Plotter().gsql(query, bindings, dry_run)
+        return self._plotter().gsql(query, bindings, dry_run)
 
-    @staticmethod
-    def nodes(nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
+    def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plotter:
         """Specify the set of nodes and associated data.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -2194,12 +2136,11 @@ class PyGraphistry(object):
                     .plot()
 
         """
-        return Plotter().nodes(nodes, node, *args, **kwargs)
+        return cast(Plotter, self._plotter().nodes(nodes, node, *args, **kwargs))
 
-    @staticmethod
-    def edges(
-        edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs
-    ) -> Plottable:
+    def edges(self, 
+        edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None, *args: Any, **kwargs: Any
+    ) -> Plotter:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -2245,10 +2186,9 @@ class PyGraphistry(object):
                     .plot()
 
         """
-        return Plotter().edges(edges, source, destination, *args, **kwargs)
+        return cast(Plotter, self._plotter().edges(edges, source, destination, *args, **kwargs))
 
-    @staticmethod
-    def pipe(graph_transform: Callable, *args, **kwargs) -> Plottable:
+    def pipe(self, graph_transform: Callable, *args, **kwargs) -> Plotter:
         """Create new Plotter derived from current
 
         :param graph_transform:
@@ -2268,73 +2208,64 @@ class PyGraphistry(object):
                     .plot()
         """
 
-        return Plotter().pipe(graph_transform, *args, **kwargs)
+        return cast(Plotter, self._plotter().pipe(graph_transform, *args, **kwargs))
 
-    @staticmethod
-    def graph(ig):
+    def graph(self, ig):
 
-        return Plotter().graph(ig)
+        return self._plotter().graph(ig)
 
-    @staticmethod
-    def from_igraph(ig,
+    def from_igraph(self, ig,
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None,
         load_nodes = True, load_edges = True
     ):
-        return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
+        return self._plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
 
-    @staticmethod
-    def from_cugraph(
+    def from_cugraph(self, 
         G,
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None,
         load_nodes: bool = True, load_edges: bool = True,
         merge_if_existing: bool = True
     ):
-        return Plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
+        return self._plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
 
-    @staticmethod
-    def settings(height=None, url_params={}, render=None):
+    def settings(self, height=None, url_params={}, render=None):
 
-        return Plotter().settings(height, url_params, render)
+        return self._plotter().settings(height, url_params, render)
 
-    @staticmethod
-    def _etl_url():
-        hostname = PyGraphistry._config["hostname"]
-        protocol = PyGraphistry._config["protocol"]
+    def _etl_url(self):
+        hostname = self.session.hostname
+        protocol = self.session.protocol
         return "%s://%s/etl" % (protocol, hostname)
 
-    @staticmethod
-    def _check_url():
-        hostname = PyGraphistry._config["hostname"]
-        protocol = PyGraphistry._config["protocol"]
+    def _check_url(self):
+        hostname = self.session.hostname
+        protocol = self.session.protocol
         return "%s://%s/api/check" % (protocol, hostname)
 
-    @staticmethod
-    def _viz_url(info, url_params):
+    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = "&".join([k + "=" + str(v) for k, v in list(url_params.items())])
-        cph = PyGraphistry.client_protocol_hostname()
+        cph = self.client_protocol_hostname()
         pattern = "%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s"
         return pattern % (
             cph,
             info["name"],
             info["type"],
             info["viztoken"],
-            PyGraphistry._tag,
+            self.session._tag,
             splash_time,
             extra,
         )
 
-    @staticmethod
-    def _switch_org_url(org_name):
-        hostname = PyGraphistry._config["hostname"]
-        protocol = PyGraphistry._config["protocol"]
+    def _switch_org_url(self, org_name):
+        hostname = self.session.hostname
+        protocol = self.session.protocol
         return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
 
 
-    @staticmethod
-    def _coerce_str(v):
+    def _coerce_str(self, v):
         try:
             return str(v)
         except UnicodeDecodeError:
@@ -2344,8 +2275,7 @@ class PyGraphistry(object):
             print("x", x)
             return x
 
-    @staticmethod
-    def _get_data_file(dataset, mode):
+    def _get_data_file(self, dataset, mode):
         out_file = io.BytesIO()
         if mode == "json":
             json_dataset = None
@@ -2355,7 +2285,7 @@ class PyGraphistry(object):
                 )
             except TypeError:
                 warnings.warn("JSON: Switching from NumpyJSONEncoder to str()")
-                json_dataset = json.dumps(dataset, default=PyGraphistry._coerce_str)
+                json_dataset = json.dumps(dataset, default=self._coerce_str)
 
             with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
                 if sys.version_info < (3, 0) and isinstance(json_dataset, bytes):
@@ -2372,26 +2302,25 @@ class PyGraphistry(object):
 
         return out_file
 
-    @staticmethod
-    def _etl1(dataset):
-        PyGraphistry.authenticate()
+    def _etl1(self, dataset: Any) -> DatasetInfo:
+        self.authenticate()
 
         headers = {"Content-Encoding": "gzip", "Content-Type": "application/json"}
         params = {
-            "usertag": PyGraphistry._tag,
+            "usertag": self.session._tag,
             "agent": "pygraphistry",
             "apiversion": "1",
             "agentversion": sys.modules["graphistry"].__version__,
-            "key": PyGraphistry.api_key(),
+            "key": self.session.api_key,
         }
 
-        out_file = PyGraphistry._get_data_file(dataset, "json")
+        out_file = self._get_data_file(dataset, "json")
         response = requests.post(
-            PyGraphistry._etl_url(),
+            self._etl_url(),
             out_file.getvalue(),
             headers=headers,
             params=params,
-            verify=PyGraphistry._config["certificate_validation"],
+            verify=self.session.certificate_validation,
         )
         log_requests_error(response)
         response.raise_for_status()
@@ -2411,15 +2340,14 @@ class PyGraphistry(object):
             }
 
 
-    @staticmethod
-    def _check_key_and_version():
-        params = {"text": PyGraphistry.api_key()}
+    def _check_key_and_version(self):
+        params = {"text": self.session.api_key}
         try:
             response = requests.get(
-                PyGraphistry._check_url(),
+                self._check_url(),
                 params=params,
                 timeout=(3, 3),
-                verify=PyGraphistry._config["certificate_validation"],
+                verify=self.session.certificate_validation,
             )
             log_requests_error(response)
             response.raise_for_status()
@@ -2453,11 +2381,10 @@ class PyGraphistry(object):
         except Exception:
             util.warn(
                 "Could not contact %s. Are you connected to the Internet?"
-                % PyGraphistry._config["hostname"]
+                % self.session.hostname
             )
 
-    @staticmethod
-    def layout_settings(
+    def layout_settings(self, 
         play: Optional[int] = None,
         locked_x: Optional[bool] = None,
         locked_y: Optional[bool] = None,
@@ -2495,7 +2422,7 @@ class PyGraphistry(object):
                     .layout_settings(locked_r=True, play=2000)
                 g.plot()
         """
-        return Plotter().layout_settings(
+        return self._plotter().layout_settings(
             play,
             locked_x,
             locked_y,
@@ -2513,55 +2440,49 @@ class PyGraphistry(object):
             scaling_ratio,
         )
 
-    @staticmethod
-    def org_name(value=None):
+    def org_name(self, value: Optional[str] = None):
         """Set or get the org_name when register/login.
         """
 
         if value is None:
-            if 'org_name' in PyGraphistry._config:
-                return PyGraphistry._config['org_name']
+            if self.session.org_name is not None:
+                return self.session.org_name
             return None
 
         # setter, use switch_org instead
-        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+        value = value.strip()
+        if self.session.org_name != value:
             try:
-                PyGraphistry.switch_org(value.strip())
-                # PyGraphistry._config['org_name'] = value.strip()
+                self.switch_org(value.strip())
             except:
                 raise Exception("Failed to switch organization")
 
-    @staticmethod
-    def idp_name(value=None):
+    def idp_name(self, value: Optional[str] = None):
         """Set or get the idp_name when register/login.
         """
 
         if value is None:
-            if 'idp_name' in PyGraphistry._config:
-                return PyGraphistry._config['idp_name']
+            if self.session.idp_name is not None:
+                return self.session.idp_name
             return None
 
         # setter
-        if 'idp_name' not in PyGraphistry._config or value is not PyGraphistry._config['idp_name']:
-            PyGraphistry._config['idp_name'] = value.strip()
+        self.session.idp_name = value.strip()
 
 
-    @staticmethod
-    def sso_state(value=None):
+    def sso_state(self, value: Optional[str] = None):
         """Set or get the sso_state when register/sso login.
         """
 
         if value is None:
-            if 'sso_state' in PyGraphistry._config:
-                return PyGraphistry._config['sso_state']
+            if self.session.sso_state is not None:
+                return self.session.sso_state
             return None
 
         # setter
-        if 'sso_state' not in PyGraphistry._config or value is not PyGraphistry._config['sso_state']:
-            PyGraphistry._config['sso_state'] = value.strip()
+        self.session.sso_state = value.strip()
 
-    @staticmethod
-    def scene_settings(
+    def scene_settings(self, 
         menu: Optional[bool] = None,
         info: Optional[bool] = None,
         show_arrows: Optional[bool] = None,
@@ -2570,7 +2491,7 @@ class PyGraphistry(object):
         edge_opacity: Optional[float] = None,
         point_opacity: Optional[float] = None,
     ):
-        return Plotter().scene_settings(
+        return self._plotter().scene_settings(
             menu,
             info,
             show_arrows,
@@ -2580,55 +2501,48 @@ class PyGraphistry(object):
             point_opacity
         )
 
-
-    @staticmethod
-    def personal_key_id(value: Optional[str] = None):
+    def personal_key_id(self, value: Optional[str] = None):
         """Set or get the personal_key_id when register.
         """
 
         if value is None:
-            if 'personal_key_id' in PyGraphistry._config:
-                return PyGraphistry._config['personal_key_id']
+            if self.session.personal_key_id is not None:
+                return self.session.personal_key_id
             return None
 
         # setter
-        if 'personal_key_id' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key_id']:
-            PyGraphistry._config['personal_key_id'] = value.strip()
+        self.session.personal_key_id = value.strip()
 
-    @staticmethod
-    def personal_key_secret(value: Optional[str] = None):
+    def personal_key_secret(self, value: Optional[str] = None):
         """Set or get the personal_key_secret when register.
         """
 
         if value is None:
-            if 'personal_key_secret' in PyGraphistry._config:
-                return PyGraphistry._config['personal_key_secret']
+            if self.session.personal_key_secret is not None:
+                return self.session.personal_key_secret
             return None
 
         # setter
-        if 'personal_key_secret' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key']:
-            PyGraphistry._config['personal_key_secret'] = value.strip()
+        self.session.personal_key_secret = value.strip()
 
-    @staticmethod
-    def switch_org(value):
-        # print(PyGraphistry._switch_org_url(value))
+    def switch_org(self, value: str):
+        # print(self._switch_org_url(value))
         response = requests.post(
-            PyGraphistry._switch_org_url(value),
+            self._switch_org_url(value),
             data={'slug': value},
-            headers={'Authorization': f'Bearer {PyGraphistry.api_token()}'},
-            verify=PyGraphistry._config["certificate_validation"],
+            headers={'Authorization': f'Bearer {self.api_token()}'},
+            verify=self.session.certificate_validation,
         )
         log_requests_error(response)
-        result = PyGraphistry._handle_api_response(response)
+        result = self._handle_api_response(response)
 
         if result is True:
-            PyGraphistry._config['org_name'] = value.strip()
+            self.session.org_name = value.strip()
             logger.info("Switched to organization: {}".format(value.strip()))
         else:  # print the error message
             raise Exception(result)
 
-    @staticmethod
-    def _handle_api_response(response):
+    def _handle_api_response(self, response):
         try:
             json_response = response.json()
             if json_response.get('status', None) == 'OK':
@@ -2640,6 +2554,8 @@ class PyGraphistry(object):
             raise Exception("Unknown Error")
 
 
+# Create the global PyGraphistry instance
+PyGraphistry = GraphistryClient()
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
@@ -2666,6 +2582,9 @@ encode_edge_badge = PyGraphistry.encode_edge_badge
 infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description
+bind = PyGraphistry.bind
+client = PyGraphistry.client
+set_client_for = PyGraphistry.set_client_for
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 pipe = PyGraphistry.pipe
@@ -2676,12 +2595,14 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
-spanner = PyGraphistry.spanner
-spanner_gql_to_g = PyGraphistry.spanner_gql_to_g
-spanner_query_to_df = PyGraphistry.spanner_query_to_df
-kusto = PyGraphistry.kusto
-kusto_query = PyGraphistry.kusto_query
-kusto_query_graph = PyGraphistry.kusto_query_graph
+configure_spanner = PyGraphistry.configure_spanner
+spanner_from_client = PyGraphistry.spanner_from_client
+spanner_gql = PyGraphistry.spanner_gql
+spanner_gql_to_df = PyGraphistry.spanner_gql_to_df
+configure_kusto = PyGraphistry.configure_kusto
+kusto_from_client = PyGraphistry.kusto_from_client
+kql = PyGraphistry.kql
+kusto_graph = PyGraphistry.kusto_graph
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin
@@ -2703,13 +2624,13 @@ switch_org = PyGraphistry.switch_org
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.ndarray) and obj.ndim == 1:
-            return obj.tolist()
-        elif isinstance(obj, np.generic):
-            return obj.item()
-        elif isinstance(obj, type(pd.NaT)):
+    def default(self, o):
+        if isinstance(o, np.ndarray) and o.ndim == 1:
+            return o.tolist()
+        elif isinstance(o, np.generic):
+            return o.item()
+        elif isinstance(o, type(pd.NaT)):
             return None
-        elif isinstance(obj, datetime):
-            return obj.isoformat()
-        return json.JSONEncoder.default(self, obj)
+        elif isinstance(o, datetime):
+            return o.isoformat()
+        return json.JSONEncoder.default(self, o)

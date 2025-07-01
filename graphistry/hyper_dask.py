@@ -176,7 +176,7 @@ def format_entities_from_col(
 
     return base_as_meta_df
 
-def concat(dfs: List[DataframeLike], engine: Engine, debug=False):
+def concat(dfs: List[DataframeLike], engine: Engine, debug: bool = False) -> DataframeLike:
 
     if debug and len(dfs) > 1:
         df0 = dfs[0]
@@ -724,7 +724,7 @@ def hypergraph(
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
     debug: bool = False
-):
+) -> Hypergraph:
     """
     Internal details:
         - IDs currently strings: `${namespace(col)}${delim}${str(val)}`
