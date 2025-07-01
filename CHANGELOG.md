@@ -7,8 +7,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
-## [0.39.0 - 2025-06-25]
-
 ### Added
 * Multi-tenant support: `graphistry.client()` and `graphistry.set_client_for()`
   * Global interface `PyGraphistry` class => Global `GraphistryClient` instance
