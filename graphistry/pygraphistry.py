@@ -41,18 +41,20 @@ PyGraphistry: "GraphistryClient" = None  # type: ignore[assignment]
 
 class GraphistryClient(AuthManagerProtocol):
     """
-    Main Graphistry client class for API interactions.
+    Build graphs and authenticate for remote visualization.
 
-    ::
-        # Import the GraphistryClient singleton
-        import graphistry
+    **Example:**
+        ::
 
-        graphistry.register(...)
+            import graphistry
 
-        # Create a :py:class:`graphistry.plotter.Plotter`
-        g = graphistry.bind(nodes=df_nodes, edges=df_edges)
-        # Plot the graph
-        g.plot()
+            # Register to the singleton GraphistryClient
+            graphistry.register(...)
+
+            # Create a :py:class:`graphistry.plotter.Plotter`
+            g = graphistry.bind(nodes=df_nodes, edges=df_edges)
+
+            g.plot()
 
     
     Session Management:
@@ -64,15 +66,16 @@ class GraphistryClient(AuthManagerProtocol):
     session state, so it's not safe for concurrent use across threads. For concurrent
     or multi-tenant scenarios, create separate client instances using graphistry.client().
 
-    ::
-        import graphistry
-        
-        # Create independent client instances
-        alice_g = graphistry.client()
-        alice_g.register(api=3, username='alice', password='pw')
-        
-        bob_g = graphistry.client()
-        bob_g.register(api=3, username='bob', password='pw')
+    Multiple clients:
+        ::
+
+            import graphistry
+            # Create independent client instances
+            alice_g = graphistry.client()
+            alice_g.register(api=3, username='alice', password='pw')
+
+            bob_g = graphistry.client()
+            bob_g.register(api=3, username='bob', password='pw')
     
 
     Each client has its own isolated session (self.session) that tracks:

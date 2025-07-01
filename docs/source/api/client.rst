@@ -1,7 +1,9 @@
-Client API
-==========
+GraphistryClient
+================
 
-The GraphistryClient class is the main entry point for interacting with the Graphistry API. It manages authentication, session state, and creates graph objects (Plottables) for visualization.
+Build and visualize graphs, starting from various formats or database connections.
+
+Register with our server to upload graphs for visualization.
 
 GraphistryClient Class
 ----------------------
