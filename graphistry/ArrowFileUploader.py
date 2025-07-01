@@ -142,7 +142,7 @@ class ArrowFileUploader():
         with _CACHE_LOCK:
             bucket = _CACHE.get(md_hash)
 
-        fh = 0 # Default value for the typechecker
+        fh: Optional[int] = None
         if memoize and bucket is not None:
             fh = _hash_full_table(arr)
 
@@ -160,8 +160,9 @@ class ArrowFileUploader():
         resp = self.post_arrow(arr, file_id, upload_url_opts)
 
         if memoize:
+            fh = _hash_full_table(arr) if fh is None else fh
             with _CACHE_LOCK:
-                _CACHE.setdefault(md_hash, {})[fh] = (resp, file_id)
+                _CACHE.setdefault(md_hash, {})[fh] = (file_id, resp)
                 logger.debug("Memoised new upload (md=%s, full=%s)", md_hash, fh)
 
         return file_id, resp

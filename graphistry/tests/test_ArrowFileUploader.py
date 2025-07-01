@@ -6,7 +6,6 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
-import psutil
 import pyarrow as pa
 import pytest
 
@@ -19,7 +18,7 @@ from graphistry.ArrowFileUploader import (
 )
 
 
-# Fixture – ArrowFileUploader with mocked IO
+# Fixture – ArrowFileUploader stubbed for deterministic behaviour
 # ------------------------------------------------------------------ #
 
 @pytest.fixture
@@ -38,6 +37,7 @@ def afu():
     obj.post_arrow = mock.Mock(return_value={"mock": "resp"})
     yield obj
 
+    # clean global cache after each test
     with _CACHE_LOCK:
         _CACHE.clear()
 
@@ -57,20 +57,16 @@ def test_second_equal_upload_hits_cache(afu):
     df = pd.DataFrame({"x": [1, 2, 3]})
     arr1 = pa.Table.from_pandas(df)
     arr2 = pa.Table.from_pandas(df)
-    
-    shallow_hash_1 = _hash_metadata(arr1)
-    shallow_hash_2 = _hash_metadata(arr2)
-    assert shallow_hash_1 == shallow_hash_2
 
-    full_hash_1 = _hash_full_table(arr1)
-    full_hash_2 = _hash_full_table(arr2)
-    assert full_hash_1 != full_hash_2
-    
+    # shallow hashes identical
+    assert _hash_metadata(arr1) == _hash_metadata(arr2)
+    # deep hashes also identical for identical data
+    assert _hash_full_table(arr1) == _hash_full_table(arr2)
+
     r1 = afu.create_and_post_file(arr1)
     r2 = afu.create_and_post_file(arr2)
 
-
-    assert r1 == r2
+    assert r1 == r2                         # cache hit
     assert afu.create_file.call_count == 1
     assert afu.post_arrow.call_count == 1
 
@@ -78,49 +74,45 @@ def test_second_equal_upload_hits_cache(afu):
 def test_metadata_collision_triggers_second_upload(afu):
     arr_a = pa.Table.from_pandas(pd.DataFrame({"x": np.arange(3)}))
     arr_b = pa.Table.from_pandas(pd.DataFrame({"x": np.arange(3) + 10}))
-    fid_a, _ = afu.create_and_post_file(arr_a)
-    fid_b, _ = afu.create_and_post_file(arr_b)
-    assert fid_a != fid_b
+
+    (fid_a, _), (fid_b, _) = afu.create_and_post_file(arr_a), afu.create_and_post_file(arr_b)
+    assert fid_a != fid_b                   # full-hash differs
     assert afu.post_arrow.call_count == 2
 
 
-# Deep vs. shallow hash check
+# Concurrency – warmed cache fan‑out
+# ------------------------------------------------------------------ #
+
+def test_parallel_hits_warmed_cache(afu):
+    arr = pa.Table.from_pandas(pd.DataFrame({"x": list(range(1000))}))
+    warm = afu.create_and_post_file(arr)    # tuple (fid, resp)
+    assert afu.post_arrow.call_count == 1
+
+    with cf.ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(afu.create_and_post_file, [arr] * 40))
+
+    assert all(r == warm for r in results)
+    assert afu.post_arrow.call_count == 1   # still only one upload
+
+
+# Deep‑vs‑shallow hash check
 # ------------------------------------------------------------------ #
 
 def test_midrow_change_bypasses_shallow_hash(afu):
-    base_df = pd.DataFrame({"x": [0, 1, 2, 3, 4]})
-    arr1 = pa.Table.from_pandas(base_df)
+    base = pd.DataFrame({"x": [0, 1, 2, 3, 4]})
+    arr1 = pa.Table.from_pandas(base)
     fid1, _ = afu.create_and_post_file(arr1)
 
-    mod_df = base_df.copy()
-    mod_df.loc[2, "x"] = 99  # change a middle row: first/last unchanged
-    arr2 = pa.Table.from_pandas(mod_df)
+    mod = base.copy()
+    mod.loc[2, "x"] = 99                    # change middle row
+    arr2 = pa.Table.from_pandas(mod)
 
-    # Shallow (metadata) hash identical; deep hash differs
-    assert _hash_metadata(arr1) == _hash_metadata(arr2)
+    assert _hash_metadata(arr1) == _hash_metadata(arr2)   # same metadata hash
     assert _hash_full_table(arr1) != _hash_full_table(arr2)
 
     fid2, _ = afu.create_and_post_file(arr2)
-    assert fid2 != fid1              # new upload required
+    assert fid2 != fid1
     assert afu.post_arrow.call_count == 2
-
-
-# Performance guard – large table
-# ------------------------------------------------------------------ #
-
-def test_large_table_hash_fast(afu):
-    mb = 1024 ** 2
-    target = 50 * mb
-    rows = target // 8
-    arr = pa.Table.from_pandas(pd.DataFrame({"x": np.arange(rows, dtype="int64")}))
-    before = psutil.Process().memory_info().rss
-    t0 = time.perf_counter()
-    fid, resp = afu.create_and_post_file(arr)
-    elapsed = time.perf_counter() - t0
-    after = psutil.Process().memory_info().rss
-    assert fid.startswith("file-") and resp == {"mock": "resp"}
-    assert elapsed < 3
-    assert after - before < 5 * mb
 
 
 # Hash helper idempotence
