@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.39.0 - 2025-06-30]
+
 ### Added
 * Multi-tenant support: `graphistry.client()` and `graphistry.set_client_for()`
   * Global interface `PyGraphistry` class => Global `GraphistryClient` instance
@@ -19,12 +21,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Renamed `spannergraph.py` to `spanner.py` for consistency
   * Improved configuration handling and error messages
 * Enhanced test coverage with new tests for client_session, kusto, and spanner modules
-* `ArrowFileUploader` no longer keeps refs to the last 100 uploaded tables, uses a better output cache strategy
 
 ### Breaking 🔥
 * Plugin module renames: `graphistry.plugins.kustograph` → `graphistry.plugins.kusto` and `graphistry.plugins.spannergraph` → `graphistry.plugins.spanner`
 * Configuration for `Spanner` now uses `g.configure_spanner(...)` instead of `g.register(spanner_config={...})`
 * Configuration for `Kusto` now uses `g.configure_kusto(...)` instead of `g.register(kusto_config={...})`
+
+### Fixed
+* Fixed overzelous cache in `ArrowFileUploader`, now uses hashes to memoize uploads
 
 ## [0.38.3 - 2025-06-24]
 
