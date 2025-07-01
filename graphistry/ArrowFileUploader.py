@@ -1,5 +1,5 @@
 import sys, threading, hashlib
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Tuple
 import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 import requests
@@ -9,8 +9,8 @@ from .util import setup_logger
 
 logger = setup_logger(__name__)
 
-# metadata_hash -> { full_hash -> file_id }
-_CACHE: Dict[int, Dict[int, str]] = {}
+# metadata_hash -> { full_hash -> (response, file_id) }
+_CACHE: Dict[int, Dict[int, Tuple[str, dict]]] = {}
 _CACHE_LOCK = threading.RLock()
 _MAX_SAMPLE_COLS = 20  # cap for cheap sampling
 
@@ -91,9 +91,7 @@ class ArrowFileUploader():
         
         return out['file_id']
 
-    def _post_arrow(
-        self, arr: pa.Table, file_id: str, url_opts: str = "erase=true"
-    ) -> None:
+    def post_arrow(self, arr: pa.Table, file_id: str, url_opts: str = 'erase=true') -> dict:
         """
             Upload new data to existing file id
 
@@ -109,23 +107,15 @@ class ArrowFileUploader():
 
         try:
             out = res.json()
-            logger.debug("Server upload file response: %s", out)
-            if not out["is_valid"]:
-                if out["is_uploaded"]:
-                    raise RuntimeError(
-                        "Uploaded file contents but cannot parse "
-                        "(file_id still valid), see errors",
-                        out["errors"],
-                    )
+            logger.debug('Server upload file response: %s', out)
+            if not out['is_valid']:
+                if out['is_uploaded']:
+                    raise RuntimeError("Uploaded file contents but cannot parse (file_id still valid), see errors", out['errors'])
                 else:
-                    raise RuntimeError(
-                        "Erased uploaded file contents upon failure "
-                        "(file_id still valid), see errors",
-                        out["errors"],
-                    )
+                    raise RuntimeError("Erased uploaded file contents upon failure (file_id still valid), see errors", out['errors'])
+            return out
         except Exception as e:
-            text = res.text if res.text else str(res)
-            logger.error("Failed uploading file: %s", text, exc_info=True)
+            logger.error('Failed uploading file: %s', res.text, exc_info=True)
             raise e
 
     ###
@@ -137,7 +127,7 @@ class ArrowFileUploader():
         file_opts: dict = {},
         upload_url_opts: str = "erase=true",
         memoize: bool = True,
-    ) -> str:
+    ) -> Tuple[str, dict]:
         """
         Create a new file (unless `file_id` supplied) and upload `arr`.
 
@@ -148,35 +138,33 @@ class ArrowFileUploader():
         """
         md_hash = _hash_metadata(arr)
 
-        bucket: Optional[Dict[int, str]]
+        bucket: Optional[Dict[int, Tuple[str, dict]]]
         with _CACHE_LOCK:
             bucket = _CACHE.get(md_hash)
 
+        fh = 0 # Default value for the typechecker
         if memoize and bucket is not None:
-            # Heavy work (full hash) OUTSIDE the lock
             fh = _hash_full_table(arr)
 
             with _CACHE_LOCK:
-                file_id_cached = bucket.get(fh)
-                if file_id_cached:
+                cached = bucket.get(fh)
+                if cached:
                     logger.debug("Memoisation hit (md=%s, full=%s)", md_hash, fh)
-                    return file_id_cached
+                    return cached
 
         # Fresh upload
         if file_id is None:
             file_id = self.create_file(file_opts)
 
-        # Upload (may take time, but no global locks held)
-        self._post_arrow(arr, file_id, upload_url_opts)
+        # Upload
+        resp = self.post_arrow(arr, file_id, upload_url_opts)
 
         if memoize:
-            # Compute full hash (may already be available)
-            fh = _hash_full_table(arr)
             with _CACHE_LOCK:
-                _CACHE.setdefault(md_hash, {})[fh] = file_id
+                _CACHE.setdefault(md_hash, {})[fh] = (resp, file_id)
                 logger.debug("Memoised new upload (md=%s, full=%s)", md_hash, fh)
 
-        return file_id
+        return file_id, resp
 
 
 def _hash_metadata(table: pa.Table, max_cols: int = _MAX_SAMPLE_COLS) -> int:
