@@ -1,8 +1,7 @@
-import sys, threading, weakref, hashlib
-from functools import lru_cache
-from typing import Any, Tuple, Optional, Dict
-
+import sys, threading, hashlib
+from typing import Any, Optional, Dict
 import pyarrow as pa
+import pyarrow.ipc as pa_ipc
 import requests
 
 from graphistry.utils.requests import log_requests_error
@@ -10,19 +9,10 @@ from .util import setup_logger
 
 logger = setup_logger(__name__)
 
-class MemoizedFileUpload:
-    __slots__ = ("file_id", "arrow_hash", "output")
-
-    def __init__(self, file_id: str, arrow_hash: int, output: dict):
-        self.file_id = file_id
-        self.arrow_hash = arrow_hash
-        self.output = output
-
-
-_ID_CACHE: Dict[int, "MemoizedFileUpload"] = {}
-_SIG_CACHE: Dict[int, "MemoizedFileUpload"] = {}
-
+# metadata_hash -> { full_hash -> file_id }
+_CACHE: Dict[int, Dict[int, str]] = {}
 _CACHE_LOCK = threading.RLock()
+_MAX_SAMPLE_COLS = 20  # cap for cheap sampling
 
 
 class ArrowFileUploader():
@@ -101,7 +91,9 @@ class ArrowFileUploader():
         
         return out['file_id']
 
-    def post_arrow(self, arr: pa.Table, file_id: str, url_opts: str = 'erase=true') -> dict:
+    def _post_arrow(
+        self, arr: pa.Table, file_id: str, url_opts: str = "erase=true"
+    ) -> None:
         """
             Upload new data to existing file id
 
@@ -131,9 +123,9 @@ class ArrowFileUploader():
                         "(file_id still valid), see errors",
                         out["errors"],
                     )
-            return out
         except Exception as e:
-            logger.error("Failed uploading file: %s", res.text, exc_info=True)
+            text = res.text if res.text else str(res)
+            logger.error("Failed uploading file: %s", text, exc_info=True)
             raise e
 
     ###
@@ -145,86 +137,102 @@ class ArrowFileUploader():
         file_opts: dict = {},
         upload_url_opts: str = "erase=true",
         memoize: bool = True,
-    ) -> Tuple[str, dict]:
+    ) -> str:
         """
         Create a new file (unless `file_id` supplied) and upload `arr`.
 
         If `memoize` is True (default):
 
-        * Returns a cached `(file_id, output)` when either
-          * the exact same `pa.Table` object was uploaded earlier, or
-          * any other `pa.Table` with identical **schema+metadata+columns**
-            was uploaded earlier.
+        * Returns a cached `file_id` when there is a hash match for the table,
+          in the file_id cache.
         """
+        md_hash = _hash_metadata(arr)
 
-        sig = 0  # default to no memoization
-        if memoize:
-            obj_id = id(arr)
-            sig = _compute_signature(arr)
+        bucket: Optional[Dict[int, str]]
+        with _CACHE_LOCK:
+            bucket = _CACHE.get(md_hash)
+
+        if memoize and bucket is not None:
+            # Heavy work (full hash) OUTSIDE the lock
+            fh = _hash_full_table(arr)
+
             with _CACHE_LOCK:
-                cached = _ID_CACHE.get(obj_id) or _SIG_CACHE.get(sig)
-                if cached:
-                    logger.debug(
-                        "Memoization hit (id=%s, sig=%s) → %s", obj_id, sig, cached.file_id
-                    )
-                    return cached.file_id, cached.output
-            logger.debug("Memoization miss (cache size=%s)", len(_ID_CACHE))
+                file_id_cached = bucket.get(fh)
+                if file_id_cached:
+                    logger.debug("Memoisation hit (md=%s, full=%s)", md_hash, fh)
+                    return file_id_cached
 
         # Fresh upload
         if file_id is None:
             file_id = self.create_file(file_opts)
 
-        resp = self.post_arrow(arr, file_id, upload_url_opts)
-        memo = MemoizedFileUpload(file_id, sig, resp)
+        # Upload (may take time, but no global locks held)
+        self._post_arrow(arr, file_id, upload_url_opts)
 
         if memoize:
-            _memoize(arr, memo)
+            # Compute full hash (may already be available)
+            fh = _hash_full_table(arr)
+            with _CACHE_LOCK:
+                _CACHE.setdefault(md_hash, {})[fh] = file_id
+                logger.debug("Memoised new upload (md=%s, full=%s)", md_hash, fh)
 
-        return memo.file_id, memo.output
+        return file_id
 
 
-
-def _compute_signature(table: pa.Table) -> int:
+def _hash_metadata(table: pa.Table, max_cols: int = _MAX_SAMPLE_COLS) -> int:
     """
-    Pure structural hash: schema, metadata, column order.
-    Avoids storing the table itself.
+    Fast, approximate 64-bit digest of *shape*:
+        schema + metadata + col order + bytes + rows + sampled values
     """
+    digest = hashlib.sha256()
+
     schema_str = str(table.schema)
     meta_items = tuple(sorted((table.schema.metadata or {}).items()))
     col_names = tuple(table.column_names)
-    # 64‑bit stable hash via sha1 → int
-    sig_bytes = (
-        schema_str.encode()
-        + b"|"
-        + str(meta_items).encode()
-        + b"|"
-        + str(col_names).encode()
-    )
-    return int.from_bytes(hashlib.sha1(sig_bytes).digest()[:8], "big", signed=False)
+    num_rows = table.num_rows
+
+    # total bytes – cheap property in >=1.0, fallback otherwise
+    if hasattr(table, "nbytes"):
+        nbytes = table.nbytes
+    else:
+        nbytes = 0
+
+    digest.update(schema_str.encode())
+    digest.update(str(meta_items).encode())
+    digest.update(str(col_names).encode())
+    digest.update(str(num_rows).encode())
+    digest.update(str(nbytes).encode())
+
+    # sample first / last row values (bulk, not scalar loop)
+    if num_rows:
+        ncols = min(len(col_names), max_cols)
+        for i in range(ncols):
+            col = table.column(i)
+            try:
+                first_v = col.slice(0, 1).to_pylist()[0]
+                last_v = col.slice(num_rows - 1, 1).to_pylist()[0]
+            except Exception:
+                first_v = last_v = None
+            digest.update(str(first_v).encode())
+            digest.update(str(last_v).encode())
+
+    return int.from_bytes(digest.digest()[:8], "big", signed=False)
 
 
-def _evict_id_cache(obj_id: int):
+def _hash_full_table(table: pa.Table) -> int:
     """
-    Called when the pa.Table is garbage-collected.
-    Removes the cache entries to prevent collisions.
+    Precise 64-bit digest of the *entire* table.
     """
-    with _CACHE_LOCK:
-        memo = _ID_CACHE.pop(obj_id, None)
-        if memo:
-            _SIG_CACHE.pop(memo.arrow_hash, None)
-        
+    digest = hashlib.sha256()
 
+    # schema (captures types, nullability, field names, etc.)
+    digest.update(str(table.schema).encode())
 
-def _memoize(table: pa.Table, memo: "MemoizedFileUpload"):
-    """
-    Store both identity and value cache entries, and register GC evict hook.
-    """
-    obj_id = id(table)
-    sig = _compute_signature(table)
+    # stream all buffers
+    for column in table.columns:
+        for chunk in column.chunks:
+            for buf in chunk.buffers():
+                if buf:
+                    digest.update(buf)  # buffer protocol, zero‑copy
 
-    with _CACHE_LOCK:
-        if obj_id not in _ID_CACHE:
-            _ID_CACHE[obj_id] = memo
-            _SIG_CACHE[sig] = memo
-            weakref.finalize(table, _evict_id_cache, obj_id)
-        logger.debug("Memoized: id=%s, sig=%s → %s", obj_id, sig, memo.file_id)
+    return int.from_bytes(digest.digest()[:8], "big", signed=False)

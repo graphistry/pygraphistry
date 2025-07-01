@@ -557,11 +557,11 @@ class ArrowUploader:
                 file_opts['org_name'] = self.org_name
             upload_url_opts = 'erase=true' if erase_files_on_fail else 'erase=false'
 
-            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
+            e_file_id = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
             self.edges_file_id = e_file_id
 
             if not (self.nodes is None):
-                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts, upload_url_opts=upload_url_opts)
+                n_file_id = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts, upload_url_opts=upload_url_opts)
                 self.nodes_file_id = n_file_id
 
             self.create_dataset({
