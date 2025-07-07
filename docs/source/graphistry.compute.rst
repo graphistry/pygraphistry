@@ -7,6 +7,7 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   graphistry.compute.gfql
    graphistry.compute.predicates
 
 Submodules
@@ -92,13 +93,6 @@ graphistry.compute.conditional module
    :undoc-members:
    :show-inheritance:
 
-graphistry.compute.exceptions module
-------------------------------------
-
-.. automodule:: graphistry.compute.exceptions
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 graphistry.compute.filter\_by\_dict module
 ------------------------------------------
@@ -132,13 +126,6 @@ graphistry.compute.typing module
    :undoc-members:
    :show-inheritance:
 
-graphistry.compute.validate module
-----------------------------------
-
-.. automodule:: graphistry.compute.validate
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 Module contents
 ---------------

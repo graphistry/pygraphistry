@@ -26,7 +26,7 @@ Quick Start
 
 .. code-block:: python
 
-   from graphistry.compute.validate import validate_syntax, validate_query
+   from graphistry.compute.gfql.validate import validate_syntax, validate_query
    
    # Validate query syntax
    query = [

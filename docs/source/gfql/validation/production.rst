@@ -22,12 +22,12 @@ Seamlessly validate queries against Plottable objects:
 
 .. code-block:: python
 
-   from graphistry.compute.validate import extract_schema_from_plottable
+   from graphistry.compute.gfql.validate import extract_schema
    
    class PlottableValidator:
        def __init__(self, plottable):
            self.plottable = plottable
-           self.schema = extract_schema_from_plottable(plottable)
+           self.schema = extract_schema(plottable)
        
        def validate(self, query):
            return validate_query(

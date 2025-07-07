@@ -1,7 +1,7 @@
 """Unit tests for GFQL exceptions module."""
 
 import pytest
-from graphistry.compute.exceptions import (
+from graphistry.compute.gfql.exceptions import (
     GFQLException, GFQLValidationError, GFQLSyntaxError,
     GFQLSchemaError, GFQLSemanticError, GFQLTypeError,
     GFQLColumnNotFoundError

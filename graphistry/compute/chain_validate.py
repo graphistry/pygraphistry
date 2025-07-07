@@ -4,11 +4,11 @@ from typing import Union, List, Optional
 from graphistry.Plottable import Plottable
 from graphistry.compute.chain import chain as chain_original, Chain
 from graphistry.compute.ast import ASTObject
-from graphistry.compute.validate import (
+from graphistry.compute.gfql.validate import (
     validate_query, extract_schema, format_validation_errors,
     ValidationIssue, Schema
 )
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.exceptions import GFQLValidationError
 from graphistry.Engine import EngineAbstract
 import logging
 
@@ -54,7 +54,7 @@ def chain_with_validation(
         issues = validate_query(ops, self._nodes, self._edges)
     else:
         # Syntax validation only
-        from graphistry.compute.validate import validate_syntax
+        from graphistry.compute.gfql.validate import validate_syntax
         issues = validate_syntax(ops)
     
     # Handle validation results based on mode
@@ -104,7 +104,7 @@ def validate_chain(
     if self._nodes is not None or self._edges is not None:
         issues = validate_query(ops, self._nodes, self._edges) 
     else:
-        from graphistry.compute.validate import validate_syntax
+        from graphistry.compute.gfql.validate import validate_syntax
         issues = validate_syntax(ops)
     
     if return_issues:
