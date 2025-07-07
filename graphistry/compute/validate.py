@@ -87,7 +87,7 @@ ERROR_MESSAGES = {
     'INVALID_OPERATION': {
         'message': 'Operation at index {index} is not a valid GFQL operation',
         'suggestion': ('Use n() for nodes, '
-                      'e()/e_forward()/e_reverse() for edges')
+                       'e()/e_forward()/e_reverse() for edges')
     },
     'INVALID_FILTER_KEY': {
         'message': 'Invalid filter key format: {key}',
@@ -96,7 +96,7 @@ ERROR_MESSAGES = {
     'INVALID_HOPS': {
         'message': 'Hops must be a positive integer or None',
         'suggestion': ('Use hops=2 for specific count, '
-                      'or to_fixed_point=True for unbounded')
+                       'or to_fixed_point=True for unbounded')
     },
 
     # Schema errors
@@ -106,24 +106,26 @@ ERROR_MESSAGES = {
     },
     'TYPE_MISMATCH': {
         'message': ('Column "{column}" is {actual_type} but '
-                   'predicate expects {expected_type}'),
+                    'predicate expects {expected_type}'),
         'suggestion': 'Use appropriate predicate for {actual_type} columns'
     },
     'INVALID_PREDICATE': {
         'message': ('Predicate {predicate} cannot be used with '
-                   '{column_type} columns'),
+                    '{column_type} columns'),
         'suggestion': 'Use {suggested_predicates} for {column_type} columns'
     },
 
     # Semantic errors
     'ORPHANED_EDGE': {
         'message': 'Edge operation at index {index} not connected to nodes',
-        'suggestion': 'Add node operations before/after edge: n() -> e() -> n()'
+        'suggestion': ('Add node operations before/after edge: '
+                       'n() -> e() -> n()')
     },
     'UNBOUNDED_HOPS_WARNING': {
         'message': ('Unbounded hops (to_fixed_point=True) may be slow '
-                   'on large graphs'),
-        'suggestion': 'Consider using specific hop count for better performance'
+                    'on large graphs'),
+        'suggestion': ('Consider using specific hop count for better '
+                       'performance')
     },
     'EMPTY_CHAIN': {
         'message': 'Chain is empty',
@@ -186,7 +188,7 @@ def validate_syntax(chain: Union[Chain, List]) -> List[ValidationIssue]:
             message, suggestion = _format_error('INVALID_OPERATION', index=i)
             issues.append(ValidationIssue(
                 'error', message, operation_index=i,
-                    suggestion=suggestion, error_type='INVALID_OPERATION'))
+                suggestion=suggestion, error_type='INVALID_OPERATION'))
             continue
 
         # Validate nodes
@@ -204,8 +206,8 @@ def validate_syntax(chain: Union[Chain, List]) -> List[ValidationIssue]:
         # Validate edges
         elif isinstance(op, ASTEdge):
             # Check hops
-            if (op.hops is not None and
-                    (not isinstance(op.hops, int) or op.hops < 1)):
+            if (op.hops is not None
+                    and (not isinstance(op.hops, int) or op.hops < 1)):
                 message, suggestion = _format_error('INVALID_HOPS')
                 issues.append(ValidationIssue(
                     'error', message, operation_index=i,
@@ -259,9 +261,9 @@ def _validate_semantics(operations: List[ASTObject]) -> List[ValidationIssue]:
                     suggestion=suggestion,
                     error_type='ORPHANED_EDGE'))
             # Check if between two edges
-            elif (i > 0 and isinstance(operations[i - 1], ASTEdge) and
-                  i < len(operations) - 1 and
-                  isinstance(operations[i + 1], ASTEdge)):
+            elif (i > 0 and isinstance(operations[i - 1], ASTEdge)
+                  and i < len(operations) - 1
+                  and isinstance(operations[i + 1], ASTEdge)):
                 message, suggestion = _format_error('ORPHANED_EDGE', index=i)
                 issues.append(ValidationIssue(
                     'warning', message, operation_index=i,
@@ -272,7 +274,7 @@ def _validate_semantics(operations: List[ASTObject]) -> List[ValidationIssue]:
 
 
 def validate_schema(chain: Union[Chain, List],
-                   schema: Schema) -> List[ValidationIssue]:
+                    schema: Schema) -> List[ValidationIssue]:
     """
     Validate query against data schema.
 
@@ -307,7 +309,7 @@ def validate_schema(chain: Union[Chain, List],
 
 
 def _validate_node_schema(node: ASTNode, schema: Schema,
-                         op_index: int) -> List[ValidationIssue]:
+                          op_index: int) -> List[ValidationIssue]:
     """Validate node operation against schema."""
     issues = []
 
@@ -332,13 +334,14 @@ def _validate_node_schema(node: ASTNode, schema: Schema,
             # Check predicate type compatibility
             if isinstance(predicate, ASTPredicate):
                 col_type = schema.node_columns[col]
-                issues.extend(_validate_predicate_type(predicate, col, col_type, op_index))
+                issues.extend(_validate_predicate_type(
+                    predicate, col, col_type, op_index))
 
     return issues
 
 
 def _validate_edge_schema(edge: ASTEdge, schema: Schema,
-                         op_index: int) -> List[ValidationIssue]:
+                          op_index: int) -> List[ValidationIssue]:
     """Validate edge operation against schema."""
     issues = []
 
@@ -377,10 +380,11 @@ def _validate_edge_schema(edge: ASTEdge, schema: Schema,
                     available = list(schema.node_columns.keys())[:5]
                     if len(schema.node_columns) > 5:
                         available.append('...')
-                    message, suggestion = _format_error('COLUMN_NOT_FOUND',
-                                                      column=col,
-                                                      table='node',
-                                                      available=', '.join(available))
+                    message, suggestion = _format_error(
+                        'COLUMN_NOT_FOUND',
+                        column=col,
+                        table='node',
+                        available=', '.join(available))
                     issues.append(ValidationIssue(
                         'error', message, operation_index=op_index,
                         field=f"{filter_name}.{col}", suggestion=suggestion,
@@ -397,8 +401,8 @@ def _validate_edge_schema(edge: ASTEdge, schema: Schema,
 
 
 def _validate_predicate_type(predicate: ASTPredicate, column: str,
-                            column_type: str, op_index: int,
-                            field_prefix: str = "") -> List[ValidationIssue]:
+                             column_type: str, op_index: int,
+                             field_prefix: str = "") -> List[ValidationIssue]:
     """Validate predicate is appropriate for column type."""
     issues = []
 
@@ -419,36 +423,39 @@ def _validate_predicate_type(predicate: ASTPredicate, column: str,
     )
 
     # Check predicate compatibility
-    if (isinstance(predicate, NumericASTPredicate) and
-            type_category not in ['numeric', 'temporal']):
-        message, suggestion = _format_error('TYPE_MISMATCH',
-                                          column=column,
-                                          actual_type=column_type,
-                                          expected_type='numeric')
+    if (isinstance(predicate, NumericASTPredicate)
+            and type_category not in ['numeric', 'temporal']):
+        message, suggestion = _format_error(
+            'TYPE_MISMATCH',
+            column=column,
+            actual_type=column_type,
+            expected_type='numeric')
         issues.append(ValidationIssue(
             'error', message, operation_index=op_index,
             field=f"{field_prefix}{column}",
             suggestion=suggestion,
             error_type='TYPE_MISMATCH'))
 
-    elif (isinstance(predicate, STRING_PREDICATES) and
-          type_category != 'string'):
-        message, suggestion = _format_error('TYPE_MISMATCH',
-                                          column=column,
-                                          actual_type=column_type,
-                                          expected_type='string')
+    elif (isinstance(predicate, STRING_PREDICATES)
+          and type_category != 'string'):
+        message, suggestion = _format_error(
+            'TYPE_MISMATCH',
+            column=column,
+            actual_type=column_type,
+            expected_type='string')
         issues.append(ValidationIssue(
             'error', message, operation_index=op_index,
             field=f"{field_prefix}{column}",
             suggestion=suggestion,
             error_type='TYPE_MISMATCH'))
 
-    elif (isinstance(predicate, TEMPORAL_PREDICATES) and
-          type_category != 'temporal'):
-        message, suggestion = _format_error('TYPE_MISMATCH',
-                                          column=column,
-                                          actual_type=column_type,
-                                          expected_type='datetime')
+    elif (isinstance(predicate, TEMPORAL_PREDICATES)
+          and type_category != 'temporal'):
+        message, suggestion = _format_error(
+            'TYPE_MISMATCH',
+            column=column,
+            actual_type=column_type,
+            expected_type='datetime')
         issues.append(ValidationIssue(
             'error', message, operation_index=op_index,
             field=f"{field_prefix}{column}",
@@ -478,8 +485,9 @@ def _get_type_category(dtype_str: str) -> str:
 
 
 def validate_query(chain: Union[Chain, List],
-                  nodes_df: Optional[pd.DataFrame] = None,
-                  edges_df: Optional[pd.DataFrame] = None) -> List[ValidationIssue]:
+                   nodes_df: Optional[pd.DataFrame] = None,
+                   edges_df: Optional[pd.DataFrame] = None
+                   ) -> List[ValidationIssue]:
     """
     Combined syntax and schema validation.
 
@@ -500,7 +508,7 @@ def validate_query(chain: Union[Chain, List],
         schema_issues = validate_schema(chain, schema)
         # Merge issues, avoiding duplicates
         existing_errors = {(i.error_type, i.operation_index, i.field)
-                          for i in issues}
+                           for i in issues}
         for issue in schema_issues:
             if ((issue.error_type, issue.operation_index, issue.field)
                     not in existing_errors):
@@ -543,12 +551,12 @@ def extract_schema_from_dataframes(
     edge_columns = {}
 
     if nodes_df is not None and hasattr(nodes_df, 'dtypes'):
-        node_columns = {col: str(dtype)
-                       for col, dtype in nodes_df.dtypes.items()}
+        node_columns = {str(col): str(dtype)
+                        for col, dtype in nodes_df.dtypes.items()}
 
     if edges_df is not None and hasattr(edges_df, 'dtypes'):
-        edge_columns = {col: str(dtype)
-                       for col, dtype in edges_df.dtypes.items()}
+        edge_columns = {str(col): str(dtype)
+                        for col, dtype in edges_df.dtypes.items()}
 
     return Schema(node_columns, edge_columns)
 
@@ -588,7 +596,8 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
         for i, warning in enumerate(warnings, 1):
             lines.append(f"\n{i}. {warning.message}")
             if warning.operation_index is not None:
-                lines.append(f"   Location: Operation {warning.operation_index}")
+                lines.append(
+                    f"   Location: Operation {warning.operation_index}")
             if warning.suggestion:
                 lines.append(f"   💡 {warning.suggestion}")
 
@@ -618,7 +627,7 @@ def suggest_fixes(chain: Union[Chain, List],
     # Generate type-specific suggestions
     if 'COLUMN_NOT_FOUND' in error_types:
         missing_cols = {issue.field for issue in
-                       error_types['COLUMN_NOT_FOUND'] if issue.field}
+                        error_types['COLUMN_NOT_FOUND'] if issue.field}
         suggestions.append(
             f"Missing columns: {', '.join(missing_cols)}. "
             f"Check column names match your data.")

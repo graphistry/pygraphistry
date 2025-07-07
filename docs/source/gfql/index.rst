@@ -25,15 +25,7 @@ See also:
 
 .. toctree::
    :maxdepth: 2
-   :caption: Specifications
+   :caption: Developer Resources
 
    spec/index
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Validation Guide
-
-   validation/fundamentals
-   validation/advanced
-   validation/llm
-   validation/production
+   validation/index
