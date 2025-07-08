@@ -341,7 +341,7 @@ class KustoMixin(Plottable):
                 graph_viz.plot()
         """
         if snap_name:
-            graph_query = f'graph("{graph_name}", "{snap_name}" | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
+            graph_query = f'graph("{graph_name}", "{snap_name}") | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
         else:
             graph_query = f'graph("{graph_name}") | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
         results = self._kql(graph_query)
