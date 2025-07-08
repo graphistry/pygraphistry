@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
-## [0.38.4 - 2025-07-07]
+## [0.39.1 - 2025-07-07]
 
 ### Fixed
 * KQL: Fix Kusto syntax error: missing closing parenthesis in graph_query method (#689)
