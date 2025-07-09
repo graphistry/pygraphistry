@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Docs
+* Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
+
 ## [0.39.1 - 2025-07-07]
 
 ### Fixed
