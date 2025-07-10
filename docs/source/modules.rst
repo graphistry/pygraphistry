@@ -5,5 +5,4 @@ pygraphistry
    :maxdepth: 4
 
    graphistry
-   test_gfql_validation
    versioneer

@@ -9,6 +9,8 @@ GFQL API Reference
    ast
    chain
    edge
+   exceptions
    hop
    node
    predicates
+   validate
