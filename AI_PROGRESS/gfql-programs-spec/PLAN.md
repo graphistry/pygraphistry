@@ -2,7 +2,7 @@
 **THIS PLAN FILE**: `AI_PROGRESS/gfql-programs-spec/PLAN.md`
 **Created**: 2025-07-10 UTC
 **Current Branch if any**: dev/gfql-program
-**PRs if any**: None yet
+**PRs if any**: PR #695 - feat(gfql): GFQL Programs Spec - PRD Development
 **PR Target Branch if any**: master
 **Base branch if any**: master
 
@@ -206,50 +206,206 @@ Follow `## Step protocol`:
 Reminder, follow `## Step protocol`:
 
 #### Step 0.1: Create PR for tracking GFQL Programs Spec work
-**Status**: 🔄 IN_PROGRESS
+**Status**: ✅ DONE
 **Started**: 2025-07-10 UTC
 **Action**: Create PR from dev/gfql-program to master for tracking this PRD work
 **Success Criteria**: PR created with description of the 4-phase plan
 **Result**:
 ```
-[To be filled]
+Created PR #695: https://github.com/graphistry/pygraphistry/pull/695
+Title: feat(gfql): GFQL Programs Spec - PRD Development
+
+The PR includes:
+- Summary of 4-phase development process
+- Context about GFQL DAG composition features
+- Detailed phase descriptions
+- Test plan checklist
+
+Successfully pushed branch and created tracking PR.
 ```
 
 #### Step 1.0: Create GFQL Knowledge Base
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Read core GFQL implementation files and create lookup file with references
 **Success Criteria**: gfql_knowledge_base.md created with file:lineno:snippet references
 **Result**:
 ```
-[To be filled]
+Created comprehensive knowledge base at: AI_PROGRESS/gfql-programs-spec/gfql_knowledge_base.md
+
+Key findings:
+1. GFQL uses 3-phase algorithm: forward traversal, reverse pruning, output collection
+2. Core files analyzed:
+   - chain.py: Main execution engine with chain() method
+   - ast.py: Node/Edge AST definitions with JSON serialization
+   - predicates/: Rich filtering system (numeric, string, temporal, categorical)
+   - chain_remote.py: Wire protocol for server-side execution
+   - hop.py: Core traversal logic with wavefront expansion
+
+3. Architecture patterns: Visitor, Builder, Strategy, Memento
+4. Wire protocol: JSON-based with type-tagged operations
+5. Integration points documented for future DAG extension
+
+The knowledge base includes line-by-line references, code snippets, and architectural insights.
 ```
 
 #### Step 1.1: Analyze PyGraphistry APIs Around GFQL
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Document Wire Protocol and Python API integration points
 **Success Criteria**: Added to knowledge base with clear entry points documented
 **Result**:
 ```
-[To be filled]
+Appended "PyGraphistry API Integration" section to gfql_knowledge_base.md
+
+Key findings:
+1. Entry Points:
+   - Plottable interface: chain(), chain_remote(), chain_remote_shape()
+   - ComputeMixin provides implementation bridge
+   - Full type hints and documentation
+
+2. Wire Protocol:
+   - REST endpoint: /api/v2/etl/datasets/{dataset_id}/gfql/{output_type}
+   - JSON format with gfql_operations field
+   - Multiple output formats: JSON, CSV, Parquet
+   - Optional column subsetting and engine selection
+
+3. Integration Architecture:
+   - 5-layer design: User API → Protocol → Implementation → Execution → Transport
+   - Session-based auth with token refresh
+   - Clean interface/implementation separation
+   - Local/remote execution transparency
+
+4. Related APIs: python_remote for arbitrary code execution
+
+This provides solid foundation for DAG program extensions.
 ```
 
 #### Step 1.2: Enumerate sketch.md Features
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Create numbered list of all proposed features from sketch.md
 **Success Criteria**: Complete feature inventory for systematic analysis
+**Result**:
+```
+Enumerated features from sketch.md:
+
+1. Core DAG Composition (QueryDAG/ChainGraph)
+   - Type: "QueryDAG" for nested composition
+   - Named graph bindings with lexical scoping
+   - "ref" parameter for re-rooting operations
+   - "output" parameter to specify return binding
+   - Binding name validation: ^[a-zA-Z_][a-zA-Z0-9_-]*$
+
+2. Dotted Reference Syntax
+   - Disambiguation for nested QueryDAGs
+   - Format: "a.b.c" for hierarchical references
+   - Used in both "ref" and "output" fields
+
+3. Remote Graph Loading (RemoteGraph)
+   - Load existing graphs from Graphistry
+   - Type: "RemoteGraph" with dataset_id/graph_id
+   - Enables graph mashups without Python
+
+4. Graph Combinators
+   - Union (policies: left, right, merge_left, merge_right)
+   - Subtract
+   - Replace (policies: full, patch, extend)
+   - Intersect
+   - From (new graph from different node/edge sources)
+   - Common policies: node/edge removal strategies
+
+5. Call Operations
+   - Expose Plottable methods (umap, layout_cugraph, cypher, etc.)
+   - Type: "call" with function name and params
+   - Safelisting controls by Hub Tier
+   - Future: Louie connector integration
+
+Total: 5 major feature categories to analyze
+```
+
+#### Step 1.3: Meta-step - Generate Feature Analysis Steps
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
+**Action**: Based on Step 1.2 results, dynamically create Steps 1.3.1 through 1.3.N for each feature
+**Success Criteria**: New steps added to plan for each enumerated feature
+**Result**:
+```
+Generated 5 feature analysis steps (1.3.1 through 1.3.5) for:
+1. Core DAG Composition
+2. Dotted Reference Syntax  
+3. Remote Graph Loading
+4. Graph Combinators
+5. Call Operations
+
+Each step includes 3 sub-steps for comprehensive analysis.
+```
+
+#### Step 1.3.1: Feature Analysis - Core DAG Composition (QueryDAG/ChainGraph)
+**Status**: 📝 TODO
+**Started**: 
+**Action**: Analyze DAG composition feature and its relationship to current Chain architecture
+**Success Criteria**: Document implementation approach, risks, and improvements
+**Sub-steps**:
+- 1.3.1.1: Analyze how DAG composition relates to current Chain architecture
+- 1.3.1.2: Identify implementation challenges and dependencies
+- 1.3.1.3: Critical review (bugs/risks/improvements)
 **Result**:
 ```
 [To be filled]
 ```
 
-#### Step 1.3: Meta-step - Generate Feature Analysis Steps
+#### Step 1.3.2: Feature Analysis - Dotted Reference Syntax
 **Status**: 📝 TODO
 **Started**: 
-**Action**: Based on Step 1.2 results, dynamically create Steps 1.3.1 through 1.3.N for each feature
-**Success Criteria**: New steps added to plan for each enumerated feature
+**Action**: Analyze dotted reference syntax for disambiguation
+**Success Criteria**: Document scoping rules, edge cases, and implementation strategy
+**Sub-steps**:
+- 1.3.2.1: Analyze lexical scoping and reference resolution
+- 1.3.2.2: Identify ambiguity edge cases
+- 1.3.2.3: Critical review (bugs/risks/improvements)
+**Result**:
+```
+[To be filled]
+```
+
+#### Step 1.3.3: Feature Analysis - Remote Graph Loading (RemoteGraph)
+**Status**: 📝 TODO
+**Started**: 
+**Action**: Analyze remote graph loading feature
+**Success Criteria**: Document security, performance, and integration considerations
+**Sub-steps**:
+- 1.3.3.1: Analyze relationship to current dataset loading mechanisms
+- 1.3.3.2: Security and authentication considerations
+- 1.3.3.3: Critical review (network/caching/error handling)
+**Result**:
+```
+[To be filled]
+```
+
+#### Step 1.3.4: Feature Analysis - Graph Combinators
+**Status**: 📝 TODO
+**Started**: 
+**Action**: Analyze graph combinator operations
+**Success Criteria**: Document policy system, memory efficiency, and API design
+**Sub-steps**:
+- 1.3.4.1: Map to existing graph operations in PyGraphistry
+- 1.3.4.2: Policy system design review
+- 1.3.4.3: Critical review (edge cases/memory/consistency)
+**Result**:
+```
+[To be filled]
+```
+
+#### Step 1.3.5: Feature Analysis - Call Operations
+**Status**: 📝 TODO
+**Started**: 
+**Action**: Analyze call operations for Plottable methods
+**Success Criteria**: Document method inventory, security model, and extensibility
+**Sub-steps**:
+- 1.3.5.1: Inventory of Plottable methods to expose
+- 1.3.5.2: Safelisting and security model
+- 1.3.5.3: Critical review (compatibility/validation/extensibility)
 **Result**:
 ```
 [To be filled]
