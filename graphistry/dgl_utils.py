@@ -53,8 +53,8 @@ logger = setup_logger(name=__name__)
 
 def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # type: ignore
     """
-        Converts X, y to torch tensors compatible with ndata/edata of DGL graph
-    _________________________________________________________________________
+    Converts X, y to torch tensors compatible with ndata/edata of DGL graph
+    
     :param X_enc: DataFrame Matrix of Values for Model Matrix
     :param y_enc: DataFrame Matrix of Values for Target
     :return: Dictionary of torch encoded arrays
@@ -100,16 +100,17 @@ def get_available_devices():
 def reindex_edgelist(df, src, dst):
     """Since DGL needs integer contiguous node labels, this relabels as pre-processing step
 
-    :eg
+    Example::
+    
         df, ordered_nodes_dict = reindex_edgelist(df, 'to_node', 'from_node')
-        creates new columns given by config.SRC and config.DST
+        # creates new columns given by config.SRC and config.DST
+        
     :param df: edge dataFrame
     :param src: source column of dataframe
     :param dst: destination column of dataframe
-
-    :returns
-        df, pandas DataFrame with new edges.
-        ordered_nodes_dict, dict ordered from most common src and dst nodes.
+    :return: Tuple of (df, ordered_nodes_dict) where:
+        - df: pandas DataFrame with new edges
+        - ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
     srclist = df[src]
     dstlist = df[dst]
@@ -173,17 +174,20 @@ def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: Optional[str] = None, device: str = "cpu"
 ) -> Tuple["dgl.DGLGraph", "scipy.sparse.coo_matrix", Dict]:
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
-    :eg
+    
+    Example::
+    
         g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')
+        
     :param df: DataFrame with source and destination and optionally weight column
     :param src: source column of DataFrame for coo matrix
     :param dst: destination column of DataFrame for coo matrix
     :param weight_col: optional weight column when constructing coo matrix
     :param device: whether to put dgl graph on cpu or gpu
-    :return
-        g: dgl graph
-        sp_mat: sparse scipy matrix
-        ordered_nodes_dict: dict ordered from most common src and dst nodes
+    :return: Tuple of (g, sp_mat, ordered_nodes_dict) where:
+        - g: dgl graph
+        - sp_mat: sparse scipy matrix
+        - ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
     _, _, dgl = lazy_dgl_import()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
