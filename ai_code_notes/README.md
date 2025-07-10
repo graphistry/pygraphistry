@@ -136,6 +136,35 @@ When adding a new guide:
 - **USER_TESTING_PLAYBOOK.md** [TODO]: AI-driven testing workflows
 - **Load when**: Starting new tasks, creating commits, fixing code quality issues
 
+## 📚 Documentation Building
+
+### Quick Commands
+```bash
+# Build HTML docs only (fastest)
+cd docs && ./html.sh
+
+# Full CI-like build with Docker
+cd docs && ./ci.sh
+
+# Build without notebook validation
+cd docs && VALIDATE_NOTEBOOK_EXECUTION=0 ./ci.sh
+
+# Build specific format
+cd docs && DOCS_FORMAT=html ./ci.sh
+```
+
+### Architecture
+- **Sphinx**: Main doc generator with MyST for Markdown support
+- **nbsphinx**: Converts notebooks to docs (execution disabled by default)
+- **Docker**: Consistent build environment using `sphinxdoc/sphinx:8.0.2`
+- **Validation**: Strict mode (`-W`), notebook structure checks, optional execution
+
+### Key Paths
+- `docs/source/`: Sphinx source files (.rst, .md)
+- `demos/`: Notebooks mounted to docs build
+- `docs/docker/build-docs.sh`: CI validation script
+- `docs/test_notebooks/`: Test-specific notebooks
+
 ## 🧪 Testing Quick Reference
 
 ### Docker Commands (Recommended)

@@ -45,7 +45,7 @@ esac
 # Validate notebooks after building docs
 NOTEBOOKS_TO_VALIDATE=(
     "/docs/test_notebooks/test_graphistry_import.ipynb"
-    "/demos/gfql/temporal_predicates.ipynb"
+    "/docs/source/demos/gfql/temporal_predicates.ipynb"
 )
 
 for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do
