@@ -1,12 +1,10 @@
 """Test script for GFQL validation helpers."""
 
 import pandas as pd
-import sys
-sys.path.insert(0, '.')
 
 from graphistry import edges, nodes
 from graphistry.compute.ast import n, e_forward, e_reverse
-from graphistry.compute.validate import (
+from graphistry.compute.gfql.validate import (
     validate_syntax, validate_schema, validate_query,
     extract_schema_from_dataframes, format_validation_errors,
     Schema, ValidationIssue
