@@ -33,10 +33,10 @@ def chain_with_validation(
         ops: List of operations or Chain object
         engine: Engine to use
         validate: Whether to perform validation
-        validate_mode: How to handle validation issues:
-            - 'warn': Log warnings but continue (default)
-            - 'error': Raise exception on first error
-            - 'silent': Collect issues but don't log/raise
+        validate_mode: How to handle validation issues -
+            'warn' (Log warnings but continue - default),
+            'error' (Raise exception on first error),
+            'silent' (Collect issues but don't log/raise)
         validate_schema: Whether to validate against data schema if available
         
     Returns:
