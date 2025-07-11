@@ -342,8 +342,8 @@ Each step includes 3 sub-steps for comprehensive analysis.
 ```
 
 #### Step 1.3.1: Feature Analysis - Core DAG Composition (QueryDAG/ChainGraph)
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Analyze DAG composition feature and its relationship to current Chain architecture
 **Success Criteria**: Document implementation approach, risks, and improvements
 **Sub-steps**:
@@ -352,12 +352,29 @@ Each step includes 3 sub-steps for comprehensive analysis.
 - 1.3.1.3: Critical review (bugs/risks/improvements)
 **Result**:
 ```
-[To be filled]
+Created feature_analysis_dag_composition.md with comprehensive analysis.
+
+Key findings:
+1. Architecture: QueryDAG extends linear chains to DAG with named bindings & lexical scoping
+   - Reuses: AST, execution engine, remote execution, Plottable interface
+   - New: QueryDAG AST node, reference resolver, execution context
+
+2. Challenges:
+   - Wire protocol: New message types, backward compatibility required
+   - Performance: Memory management for bindings, parallel execution opportunities
+   - Security: Resource limits, access control for remote graphs
+
+3. Critical Review:
+   - Risks: Circular references, resource exhaustion, name collisions
+   - Improvements: Lazy evaluation, query optimization, type system
+   - Priority: MVP focus on basic DAG execution with backward compatibility
+
+4. Implementation roadmap: 4 phases over 6-8 weeks total
 ```
 
 #### Step 1.3.2: Feature Analysis - Dotted Reference Syntax
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Analyze dotted reference syntax for disambiguation
 **Success Criteria**: Document scoping rules, edge cases, and implementation strategy
 **Sub-steps**:
@@ -366,12 +383,34 @@ Each step includes 3 sub-steps for comprehensive analysis.
 - 1.3.2.3: Critical review (bugs/risks/improvements)
 **Result**:
 ```
-[To be filled]
+Created feature_analysis_dotted_reference.md with comprehensive analysis.
+
+Key findings:
+1. Scoping: Lexical scoping with closest-binding principle
+   - Root-to-leaf traversal for "a.b.c" resolution
+   - Statically resolvable at parse time
+   - Similar to programming language variable scoping
+
+2. Edge Cases (6 identified):
+   - Name shadowing at different levels
+   - Deep nesting performance/readability
+   - Partial path resolution failures
+   - Circular references
+   - Reserved name collisions ("type", "graph", "output")
+   - Cross-DAG sibling references
+
+3. Critical Review:
+   - Parsing: Need escape sequences for dots in names
+   - Performance: Deep traversal costs, caching needed
+   - Alternatives: Considered slash notation, JSONPath, explicit scopes
+   - Error handling: Need contextual messages with suggestions
+
+4. Recommendations: Enhanced syntax spec, caching, circular detection, validation tools
 ```
 
 #### Step 1.3.3: Feature Analysis - Remote Graph Loading (RemoteGraph)
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Analyze remote graph loading feature
 **Success Criteria**: Document security, performance, and integration considerations
 **Sub-steps**:
@@ -380,12 +419,32 @@ Each step includes 3 sub-steps for comprehensive analysis.
 - 1.3.3.3: Critical review (network/caching/error handling)
 **Result**:
 ```
-[To be filled]
+Created feature_analysis_remote_graph.md with comprehensive analysis.
+
+Key findings:
+1. Current vs RemoteGraph:
+   - Current: Client-driven bind(dataset_id) with Python orchestration
+   - RemoteGraph: Server-side loading within pure GFQL DAGs
+   - Enables graph mashups without client round-trips
+
+2. Security Critical:
+   - Access control: Need token propagation strategy (implicit/embedded/capability)
+   - Cross-tenant isolation risks when loading multiple graphs
+   - Data exfiltration vectors: combinators, errors, timing
+   - Recommendation: Capability-based tokens with strict validation
+
+3. Technical Challenges:
+   - Network: No current timeout/retry; need cascading DAG timeouts
+   - Caching: 3-tier strategy (metadata/data/computation)
+   - Errors: Need comprehensive categorization and safe messages
+   - Resources: Per-user and per-graph quotas essential
+
+4. Implementation: Phased approach starting with single RemoteGraph
 ```
 
 #### Step 1.3.4: Feature Analysis - Graph Combinators
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Analyze graph combinator operations
 **Success Criteria**: Document policy system, memory efficiency, and API design
 **Sub-steps**:
@@ -394,12 +453,31 @@ Each step includes 3 sub-steps for comprehensive analysis.
 - 1.3.4.3: Critical review (edge cases/memory/consistency)
 **Result**:
 ```
-[To be filled]
+Created feature_analysis_graph_combinators.md with comprehensive analysis.
+
+Key findings:
+1. Current Gap:
+   - PyGraphistry has rich single-graph ops but no native combinators
+   - Missing: union, intersection, subtraction, systematic merge policies
+   - Combinators enable semantic multi-graph operations
+
+2. Policy System:
+   - Good coverage: attribute merging, node/edge removal strategies
+   - Recommendations: Add type coercion, aggregation, custom merge functions
+   - Need schema evolution handling
+
+3. Critical Issues:
+   - Memory: Graph duplication, intermediate results, remote loading
+   - Edge cases: Mismatched IDs, cycles, empty graphs, schema conflicts
+   - Consistency: Node-edge integrity, attribute conflicts
+   - Performance: Opportunities for parallel execution, GPU acceleration
+
+4. Implementation: Phased approach with robust testing strategy
 ```
 
 #### Step 1.3.5: Feature Analysis - Call Operations
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Analyze call operations for Plottable methods
 **Success Criteria**: Document method inventory, security model, and extensibility
 **Sub-steps**:
@@ -408,17 +486,63 @@ Each step includes 3 sub-steps for comprehensive analysis.
 - 1.3.5.3: Critical review (compatibility/validation/extensibility)
 **Result**:
 ```
-[To be filled]
+Created feature_analysis_call_operations.md with comprehensive analysis.
+
+Key findings:
+1. Method Inventory:
+   - Identified 21+ Plottable methods suitable for GFQL
+   - Categories: transforms (umap, cypher), layouts, analytics, graph ops
+   - Recommended phased rollout starting with common/simple methods
+
+2. Security Model:
+   - Tiered access: Basic/Standard/Advanced/Enterprise
+   - Method-level and parameter-level restrictions
+   - Resource limits per tier (nodes/edges/timeouts)
+   - Safelist configuration with execution sandbox
+
+3. Technical Review:
+   - JSON compatibility: Type serialization challenges addressed
+   - Validation: Pydantic schemas for type safety
+   - Extensibility: Plugin architecture for Louie connectors
+   - Error handling: Comprehensive categories with debugging info
+
+4. Implementation: Start with 5-7 core methods, expand based on usage
 ```
 
 #### Step 1.4: Combined Critical Review
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Synthesize all feature analyses into comprehensive review
 **Success Criteria**: Cross-cutting concerns and integration challenges documented
 **Result**:
 ```
-[To be filled]
+Created combined_critical_review.md synthesizing all 5 feature analyses.
+
+Key findings:
+1. Cross-cutting concerns:
+   - Reference resolution complexity in nested contexts
+   - Compound memory management (DAGs + remote + combinators)
+   - Expanded security attack surface
+   - Type safety challenges across features
+
+2. Integration challenges:
+   - Complex feature interdependencies
+   - Conflicting execution models (parallel vs sequential)
+   - Inconsistent error handling patterns
+   - Competing caching strategies
+
+3. Architecture assessment:
+   - Strengths: Clear purpose, natural composability
+   - Weaknesses: Complexity explosion, inconsistent patterns
+   - Need unified execution context and resource manager
+
+4. Priority recommendations:
+   - Phase 1: Core DAG + basic remote (low risk, high value)
+   - Phase 2: Dotted refs + simple combinators
+   - Phase 3: Advanced combinators + basic calls
+   - Phase 4: Full call operations + optimizations
+
+Risk matrix identified memory exhaustion and debugging complexity as highest concerns.
 ```
 
 #### Step 1.5: Create sketch1X.md
