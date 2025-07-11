@@ -600,13 +600,78 @@ Phase 1 complete! Ready for Phase 2: User Personas and Scenarios.
 ```
 
 #### Step 2.0: Meta-step - Generate Phase 2 Steps
-**Status**: 📝 TODO
-**Started**: 
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
 **Action**: Review Phase 1 results and create user persona/scenario development steps
 **Success Criteria**: Dynamic Phase 2 steps added based on Phase 1 findings
 **Result**:
 ```
-[To be filled]
+Generated Phase 2 steps based on features analyzed:
+- Step 2.1: Define user personas based on GFQL features
+- Step 2.2: Create scenarios for each persona
+- Step 2.3: Review and add missing personas/scenarios
+Focus: Functionality, resource limits, error handling; light on deep security/perf details.
+```
+
+#### Step 2.1: Define User Personas
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
+**Action**: Create key user personas based on GFQL Programs features
+**Success Criteria**: 4-6 personas covering different use cases for DAGs, remote graphs, combinators, and calls
+**Result**:
+```
+Created user_personas.md with 6 diverse personas:
+
+1. Alex - Security Analyst: Multi-source investigations, graph merging
+2. Sam - Data Scientist: Complex pipelines, ML algorithms, resource needs
+3. Jordan - Business Analyst: Low-code user, simple combinations, clear errors
+4. Morgan - DevOps Engineer: Service dependencies, performance concerns
+5. Casey - Compliance Officer: Audit trails, sensitive data, watchlists
+6. Riley - Research Scientist: Custom algorithms, large graphs, parallelization
+
+Each persona has different technical skills and uses different GFQL features.
+```
+
+#### Step 2.2: Create User Scenarios per Persona
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
+**Action**: For each persona, define 3-5 scenarios using GFQL Programs features
+**Success Criteria**: Realistic scenarios that exercise different feature combinations
+**Result**:
+```
+Created user_scenarios.md with 22 scenarios across 6 personas:
+
+Alex (Security): 4 scenarios - threat investigation, lateral movement, timeline, hunting
+Sam (Data Science): 4 scenarios - fraud detection, feature engineering, A/B testing, scoring
+Jordan (Business): 3 scenarios - collaboration, customer journey, quarterly comparison
+Morgan (DevOps): 4 scenarios - dependency mapping, impact analysis, capacity, drift
+Casey (Compliance): 3 scenarios - sanctions, ownership, regulatory impact
+Riley (Research): 4 scenarios - protein analysis, multi-omics, enrichment, comparison
+
+Each scenario identifies key features used and realistic challenges.
+```
+
+#### Step 2.3: Review and Gap Analysis
+**Status**: ✅ DONE
+**Started**: 2025-07-10 UTC
+**Action**: Review personas/scenarios for coverage gaps and add if needed
+**Success Criteria**: Comprehensive coverage of feature usage patterns
+**Result**:
+```
+Created persona_scenario_gap_analysis.md
+
+Coverage Assessment: Good (85%)
+- All major features represented
+- Diverse skill levels (high/medium/low)
+- Multiple industries covered
+
+Minor Gaps Identified:
+- Dotted references under-used (only 2/22 scenarios)
+- Limited error handling scenarios
+- Could use API developer and startup personas
+
+Decision: Proceed with current personas/scenarios as they provide sufficient coverage
+for meaningful role plays. Can address gaps in future iterations.
 ```
 
 #### Step 3.0: Meta-step - Generate Phase 3 Role Play Steps
