@@ -124,12 +124,12 @@ Best Practices
 Integration Checklist
 ---------------------
 
-* ✅ Serialize validation issues to JSON
-* ✅ Implement fix suggestion generation
-* ✅ Create iterative validation pipeline
-* ✅ Provide schema context in prompts
-* ✅ Handle rate limiting and retries
-* ✅ Log validation metrics
+* [✓] Serialize validation issues to JSON
+* [✓] Implement fix suggestion generation
+* [✓] Create iterative validation pipeline
+* [✓] Provide schema context in prompts
+* [✓] Handle rate limiting and retries
+* [✓] Log validation metrics
 
 Next Steps
 ----------

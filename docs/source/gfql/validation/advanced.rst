@@ -86,10 +86,10 @@ Always specify hop limits for better performance:
 
 .. code-block:: python
 
-   # ✅ Good - bounded
+   # [✓] Good - bounded
    {"type": "e_forward", "hops": 3}
    
-   # ⚠️  Warning - unbounded
+   # [WARNING] Warning - unbounded
    {"type": "e_forward"}  # No hop limit
 
 Query Complexity Estimation
