@@ -37,7 +37,7 @@ Quick Start
    
    issues = validate_syntax(query)
    if not issues:
-       print("[✓] Query syntax is valid!")
+       print("[OK] Query syntax is valid!")
 
 Key Concepts
 ------------
@@ -63,10 +63,10 @@ Invalid Operation Type
 
 .. code-block:: python
 
-   # [✗] Wrong
+   # [X] Wrong
    [{"type": "node"}]  # Should be "n"
    
-   # [✓] Correct
+   # [OK] Correct
    [{"type": "n"}]
 
 Missing Operator
@@ -74,10 +74,10 @@ Missing Operator
 
 .. code-block:: python
 
-   # [✗] Wrong
+   # [X] Wrong
    {"filter": {"name": "Alice"}}  # Missing operator
    
-   # [✓] Correct
+   # [OK] Correct
    {"filter": {"name": {"eq": "Alice"}}}
 
 Column Not Found

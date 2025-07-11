@@ -86,7 +86,7 @@ Always specify hop limits for better performance:
 
 .. code-block:: python
 
-   # [✓] Good - bounded
+   # [OK] Good - bounded
    {"type": "e_forward", "hops": 3}
    
    # [WARNING] Warning - unbounded
