@@ -15,9 +15,31 @@ build_epub() {
 build_pdf() {
     sphinx-build -b latex -d /docs/doctrees . /docs/_build/latexpdf
     cd /docs/_build/latexpdf
-    # Run pdflatex twice to resolve cross-references, using batchmode for non-interactive build
+    
+    # Temporarily disable exit on error for pdflatex
+    # LaTeX may exit with code 1 due to warnings (e.g., multiply-defined labels)
+    # but still generate a valid PDF
+    set +e
+    
     pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+    FIRST_EXIT=$?
+    
     pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+    SECOND_EXIT=$?
+    
+    # Re-enable exit on error
+    set -e
+    
+    # If PDF was generated, consider it a success even if there were warnings
+    if [ -f PyGraphistry.pdf ]; then
+        if [ $SECOND_EXIT -ne 0 ]; then
+            echo "WARNING: pdflatex exited with code $SECOND_EXIT but PDF was generated successfully"
+        fi
+        return 0
+    else
+        echo "ERROR: PDF generation failed"
+        return 1
+    fi
 }
 
 # Build docs first
