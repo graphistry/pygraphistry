@@ -201,7 +201,6 @@ Before generating GFQL:
   - `gfql_language_spec.md` - Complete language specification
   - `gfql_wire_protocol_spec.md` - JSON wire format
   - `cypher_to_gfql_mapping_spec.md` - Cypher translation
-  - `synthesis_examples.md` - Extensive examples
 
 ## 🎯 Key Takeaways
 

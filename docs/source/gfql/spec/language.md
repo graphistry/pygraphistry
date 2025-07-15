@@ -7,31 +7,61 @@
 GFQL (Graph Frame Query Language) is a DataFrame-native graph query language designed for expressing graph patterns and traversals on tabular data. It operates on node and edge DataFrames, providing a functional, composable approach to graph querying with native GPU acceleration support.
 
 ### Design Principles
-- **Dataframe-native**: Works directly with pandas/cuDF dataframes
-- **Functional composition**: Queries are composed of chainable operations
-- **Type-safe**: Strong typing with clear coercion rules
-- **Performance-oriented**: Vectorized operations with GPU support
-- **LLM-friendly**: Clear syntax optimized for code generation
+- **Dataframe-native**: Type-safe functional bulk operations over dataframe libraries like pandas, cuDF
+- **Declarative**: Focus on what to retrieve, and give the engine freedom to optimize how
+- **Accessible**: Designed for both human readability and machine generation, and building on intuitions from popular tabular and graph systems
+- **Performance-oriented**: Vectorized operations by default, including GPU acceleration
+- **Embeddable**: Similar to DuckDB, can be embedded in different languages, and initially focused on Python data ecosystem
+- **Computer-tier**: Decoupling from storage enables flexible execution - embedded locally or via remote acceleration servers
+
+### Language Forms
+
+GFQL exists in three complementary forms:
+
+1. **Core Language**: Abstract graph pattern matching language defined by this specification
+2. **Embedded DSL**: Host language implementations (currently Python with pandas/cuDF)
+3. **Wire Protocol**: JSON serialization for client-server communication (see Wire Protocol spec)
+
+This specification focuses on the core language concepts. Examples use Python syntax for concreteness, but the patterns apply to any embedding.
 
 ## Language Overview
 
 ### Core Concepts
 
 1. **Graph Model**: Graphs consist of node and edge dataframes
-   - Nodes: DataFrame with unique identifier column
    - Edges: DataFrame with source and destination columns
+   - Nodes: DataFrame with unique identifier column
+   - Column names are user-defined globals for the graph:
+     - Node ID attribute: `g._node` (e.g., "node_id", "id")
+     - Edge source attribute: `g._source` (e.g., "source", "from")
+     - Edge destination attribute: `g._destination` (e.g., "destination", "to")
+   - GFQL infers nodes from edge references when only edges are provided
 
-2. **Operations**: Two types of operations
+2. **GFQL Programs**: GFQL programs are declarative graph-to-graph transformations
+   - Enable use cases like search, filter, enrich, and traverse
+   - Express *what* to find (ex: Cypher), not *how* to find it (ex: Gremlin)
+
+3. **Chains**: Path pattern expressions for matching graph structures
+   - Express graph patterns as sequences of node and edge matching operations
+   - Similar to Cypher patterns but decomposed into composable steps
+   - Define paths through the graph: start nodes → edges → end nodes
+   - Each operation refines the pattern match based on previous results
+
+4. **Operations**: Act on graph entities (nodes and edges)
    - Node matchers: Filter and select nodes
    - Edge matchers: Traverse relationships
+   - Operations work on the graph structure itself
 
-3. **Chains**: Sequences of operations that define patterns
-   - Execute left-to-right
-   - Each operation filters based on previous results
+5. **Predicates**: Act on attributes of nodes and edges
+   - Filter based on property values
+   - Comparison, membership, string matching, temporal checks
+   - Composable within operations to build complex conditions
 
-4. **Predicates**: Reusable filtering conditions
-   - Comparison, membership, string matching, etc.
-   - Composable within operations
+6. **Values**: Type system matching modern data formats
+   - Scalars: numbers, strings, booleans, null
+   - Temporal: ISO datetimes, dates, times with timezone support
+   - Collections: lists for membership tests
+   - Compatible with JSON, Arrow, and DataFrame type systems
 
 ## Formal Grammar
 
@@ -41,7 +71,7 @@ GFQL (Graph Frame Query Language) is a DataFrame-native graph query language des
 (* Entry point *)
 query ::= chain
 
-(* Chain - sequence of operations *)
+(* Chain - path pattern expression *)
 chain ::= "[" operation ("," operation)* "]"
 
 (* Operations *)
@@ -82,7 +112,12 @@ comparison ::= ("gt" | "lt" | "ge" | "le" | "eq" | "ne") "(" value ")"
 membership ::= "is_in(" "[" value ("," value)* "]" ")"
 range ::= "between(" value "," value ("," "inclusive=" boolean)? ")"
 null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
-string_pred ::= ("contains" | "startswith" | "endswith" | "match") "(" string ")"
+string_pred ::= string_match | string_check
+string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
+              | "match(" string ("," "case=" boolean)? ")"
+              | ("startswith" | "endswith") "(" string ")"
+string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum" 
+               | "isupper" | "islower") "()"
 temporal_pred ::= temporal_check "()"
 temporal_check ::= "is_month_start" | "is_month_end" | "is_quarter_start" 
                  | "is_quarter_end" | "is_year_start" | "is_year_end" | "is_leap_year"
@@ -130,8 +165,6 @@ n({"age": gt(30)})                    # Nodes where age > 30
 n(name="important")                   # Label matching nodes
 n(query="age > 30 and status == 'active'")  # Query string
 ```
-
-**Note**: Use `"type"` for categorical attributes and `"label"` for Cypher-style node labels. The choice depends on your data schema - use what matches your DataFrame column names.
 
 ### Edge Matchers
 
@@ -197,11 +230,22 @@ between(lower, upper, inclusive=True)  # Value in range
 
 ### String Predicates
 
+Pattern matching predicates:
 ```python
-contains(pattern)    # Contains substring
-startswith(prefix)   # Starts with prefix
-endswith(suffix)     # Ends with suffix
-match(regex)         # Matches regular expression
+contains(pat, case=True, regex=True)  # Contains pattern (substring or regex)
+startswith(prefix)                    # Starts with prefix (case-sensitive)
+endswith(suffix)                      # Ends with suffix (case-sensitive)
+match(pat, case=True)                 # Matches regex from start of string
+```
+
+String type checking predicates:
+```python
+isalpha()    # Alphabetic characters only
+isnumeric()  # Numeric characters only
+isdigit()    # Digits only
+isalnum()    # Alphanumeric
+isupper()    # All uppercase
+islower()    # All lowercase
 ```
 
 ### Null Predicates
@@ -252,24 +296,26 @@ GFQL performs automatic type coercion:
 
 ## Execution Model
 
-### Three-Phase Algorithm
+### Declarative Pattern Matching
 
-1. **Forward Wavefront Pass**
-   - Process operations left-to-right
-   - Each operation filters based on previous results
-   - Build path prefixes (may include dead-ends)
+GFQL follows a declarative execution model similar to Neo4j's Cypher:
 
-2. **Reverse Pruning Pass**
-   - Process operations right-to-left
-   - Remove paths that don't reach the end
-   - Ensure all results are on complete paths
+1. **Pattern Declaration**: Chains express path patterns in the graph
+   - Users declare graph patterns as sequences of node and edge constraints
+   - Patterns specify *what* paths to match, not *how* to find them
+   - The engine optimizes pattern matching based on data characteristics
 
-3. **Forward Output Pass**
-   - Collect final results
-   - Apply named labels
-   - Merge with original dataframes
+2. **Set-Based Operations**: All operations work on sets of entities
+   - No explicit iteration or traversal order
+   - Results include all matching patterns in the graph
+   - Current GFQL engines use a novel bulk-oriented execution model that is asymptotically faster than traditional iterative approaches used for Cypher, but this is not a requirement of the language itself
 
+3. **Lazy Evaluation**: Chains define pattern transformations without immediate execution
+   - Allows engines to optimize path finding and pattern matching strategies
+\
 ### Result Access
+
+Query execution returns filtered node and edge datasets. In the Python embedding:
 
 ```python
 result = g.chain([...])
@@ -279,89 +325,29 @@ edges_df = result._edges  # Filtered edges
 
 ### Named Results
 
-Operations with `name` parameter add boolean columns:
+Operations with `name` parameter add boolean columns to mark matched entities:
+
 ```python
-g.chain([
+result = g.chain([
     n({"type": "person"}, name="people"),
-    e_forward(name="connections")
+    e_forward(name="connections"),
+    n({"active": True}, name="active_targets")
 ])
-# The _nodes DataFrame will have 'people' boolean column
-# _edges will have 'connections' boolean column
+
+# Access all matched nodes and edges:
+all_nodes = result._nodes
+all_edges = result._edges
+
+# Access specific matched nodes/edges using pandas filtering:
+people_nodes = result._nodes[result._nodes["people"]]
+connection_edges = result._edges[result._edges["connections"]]
+active_nodes = result._nodes[result._nodes["active_targets"]]
+
+# Or using standard pandas query syntax:
+people_nodes = result._nodes.query("people == True")
 ```
 
-## Examples
-
-### Basic Patterns
-
-```python
-# Find all person nodes
-g.chain([n({"type": "person"})])
-
-# One-hop neighbors
-g.chain([n({"id": "Alice"}), e(), n()])
-
-# Multi-hop paths
-g.chain([n({"id": "A"}), e_forward(hops=3), n({"id": "B"})])
-```
-
-### User 360 Pattern
-
-```python
-# Find customer's recent interactions
-g.chain([
-    n({"customer_id": "C123"}),
-    e_forward({
-        "type": "interaction",
-        "timestamp": gt(pd.Timestamp.now() - pd.Timedelta(days=30))
-    }),
-    n(name="touchpoints")
-])
-```
-
-### Cyber Security Pattern
-
-```python
-# Find compromised paths
-g.chain([
-    n({"status": "compromised"}),
-    e_forward(
-        edge_match={"protocol": is_in(["HTTP", "SSH"])},
-        to_fixed_point=True
-    ),
-    n({"type": "critical_asset"}, name="at_risk")
-])
-```
-
-### Complex Filtering
-
-```python
-# Combine multiple conditions
-g.chain([
-    n({
-        "account_type": "business",
-        "balance": gt(10000),
-        "created": between(date(2023, 1, 1), date(2023, 12, 31))
-    }),
-    e_forward(
-        edge_query="amount > 1000 and status == 'completed'",
-        source_node_query="region == 'US'",
-        destination_node_match={"verified": True}
-    )
-])
-```
-
-### Code Golf Examples
-
-```python
-# Friends of friends
-g.chain([n({"id": "Bob"}), e({"type": "friend"}, hops=2)])
-
-# All paths between nodes
-g.chain([n({"id": "A"}), e(to_fixed_point=True), n({"id": "B"})])
-
-# Recent high-value transactions
-g.chain([n(), e({"amount": gt(1000), "date": gt(pd.Timestamp.now() - pd.Timedelta(7))})])
-```
+This pattern is essential for extracting specific subsets from complex graph traversals.
 
 ## Best Practices
 
@@ -371,20 +357,11 @@ g.chain([n(), e({"amount": gt(1000), "date": gt(pd.Timestamp.now() - pd.Timedelt
 4. **Prefer filter_dict**: More efficient than query strings
 5. **Use appropriate predicates**: Match predicate to column type
 
-## Engine Support
-
-GFQL supports multiple execution engines:
-- `pandas`: CPU execution (default)
-- `cudf`: GPU acceleration
-- `auto`: Automatic selection based on data type
-
-```python
-g.chain([...], engine='cudf')  # Force GPU execution
-```
-
 ## See Also
 
-- [GFQL Validation Guide](../validation/fundamentals.rst) - Learn validation basics
+- {ref}`gfql-spec-python-embedding` - Python implementation details
 - {ref}`gfql-spec-wire-protocol` - JSON serialization format
 - {ref}`gfql-spec-cypher-mapping` - Cypher to GFQL translation
-- {ref}`gfql-spec-synthesis-examples` - Code generation examples
+- {ref}`gfql-spec-cypher-mapping-wire` - Cypher to GFQL with wire protocol
+- [GFQL Quick Reference](../quick.rst) - Comprehensive examples and usage patterns
+- [GFQL Validation Guide](../validation/fundamentals.rst) - Learn validation basics

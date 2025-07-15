@@ -453,4 +453,4 @@ New predicates can be added by extending the schema:
 
 - {ref}`gfql-spec-language` - Language specification
 - {ref}`gfql-spec-cypher-mapping` - Cypher translation guide
-- {ref}`gfql-spec-synthesis-examples` - Wire protocol examples
+- {ref}`gfql-spec-cypher-mapping-wire` - Cypher to GFQL with wire protocol examples

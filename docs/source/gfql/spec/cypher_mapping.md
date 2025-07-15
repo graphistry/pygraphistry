@@ -1,448 +1,258 @@
-(gfql-spec-cypher-mapping)=
+(gfql-spec-cypher-mapping-wire)=
 
-# Cypher to GFQL Mapping Specification
+# Cypher to GFQL Python & Wire Protocol Mapping
 
 ## Introduction
 
-This specification defines the mapping between Cypher query language and GFQL for the subset of Cypher patterns that GFQL supports. This enables:
-- Leveraging existing Cypher knowledge for GFQL queries
-- Two-stage LLM (Large Language Model) synthesis (Text → Cypher → GFQL)
+This specification shows how to translate Cypher queries to both GFQL Python code and Wire Protocol JSON, enabling:
 - Migration from Cypher-based systems
-- Cross-platform query portability
+- Two-stage LLM synthesis: Text → Cypher → GFQL
+- Language-agnostic API integration
+- Secure query generation without code execution
 
-### Understanding the Relationship
+## Conceptual Framework
 
-GFQL and Cypher serve different architectural tiers in graph computing:
+### Translation Scenarios
 
-**Cypher** is a declarative graph query language designed for graph databases. It operates at the storage tier, focusing on:
-- Pattern matching across persistent graph stores
-- Transactional operations (CREATE, UPDATE, DELETE)
-- Complex aggregations and transformations
-- Schema constraints and indexes
+When translating from Cypher, you'll encounter three scenarios:
 
-**GFQL** is a dataframe-native graph query language designed for the compute tier. It operates directly on in-memory dataframes, focusing on:
-- High-performance traversals on dataframes (pandas, cuDF, Arrow)
-- GPU acceleration for massive parallelism
-- Integration with Python data science ecosystem
-- Real-time analytics without database overhead
+**1. Direct Translation** - Most pattern matching maps cleanly to pure GFQL  
+**2. Hybrid Approach** - Post-processing operations (RETURN clauses) use dataframes  
+**3. GFQL Advantages** - Some capabilities go beyond what Cypher offers
 
-### Translation Targets
+### What Translates Directly
+- Graph patterns: `(a)-[r]->(b)` → chain operations
+- Property filters: WHERE clauses embed into operations
+- Path traversals: Variable-length paths use `hops` parameter
+- Pattern composition: Multiple patterns become sequential operations
 
-When translating Cypher to GFQL, there are two primary targets:
+### What Requires DataFrames
+- Aggregations: COUNT, SUM, AVG → pandas operations
+- Projections: RETURN specific columns → DataFrame selection
+- Sorting/limiting: ORDER BY, LIMIT → DataFrame methods
+- Joins: Multiple disconnected patterns → pandas merge
 
-#### 1. Pure GFQL Chains
-Standalone GFQL queries that operate entirely within the graph traversal paradigm:
-```python
-# Pure GFQL - returns filtered subgraph
-g.chain([n({"type": "person"}), e_forward(), n()])
-```
+### GFQL Advantages Beyond Cypher
+- **Rich edge properties**: Query edges as first-class entities
+- **Dataframe-native**: Zero-cost transitions between graph and tabular operations
+- **GPU acceleration**: Massively parallel execution on NVIDIA hardware
+- **Heterogeneous graphs**: No schema constraints on types or properties
 
-#### 2. GFQL + PyGraphistry/Pandas Hybrid
-GFQL for graph operations combined with dataframe operations for aggregations and transformations:
-```python
-# Hybrid - GFQL traversal + pandas aggregation
-result = g.chain([n({"type": "person"}), e_forward(), n()])
-counts = result._nodes.groupby('type').size()
-```
+## Quick Example
 
-This specification focuses on pure GFQL mappings, with notes on when hybrid approaches are needed for full Cypher semantics.
-
-### Design Principles
-- **Semantic Preservation**: Maintain query intent where possible
-- **Pattern-Based**: Focus on graph patterns, not imperative operations
-- **Read-Only**: Support only query operations (no mutations)
-- **Explicit Limitations**: Clear documentation of unsupported features
-- **Performance First**: Leverage GFQL's compute-tier advantages
-
-## Supported Cypher Subset
-
-### Graph Patterns
-- Node patterns: `(n)`, `(n:Label)`, `(n {prop: value})`
-- Edge patterns: `-[r]->`, `<-[r]-`, `-[r]-`
-- Path patterns: `(a)-[r]->(b)`
-- Variable-length paths: `-[*N]-`, `-[*..N]-`, `-[*]-`
-
-### Filtering
-- Property filters in patterns
-- WHERE clauses with simple predicates
-- Comparison operators: `=`, `<>`, `>`, `<`, `>=`, `<=`
-- IN operator for membership
-- String operations: STARTS WITH, ENDS WITH, CONTAINS
-
-### Limitations
-- Read-only (no CREATE, DELETE, SET)
-- No aggregations in MATCH
-- No WITH clauses
-- No OPTIONAL MATCH
-- No RETURN transformations
-
-## Mapping Rules
-
-### Core Translation Rules
-
-1. **MATCH Clause → chain()**
-   ```
-   MATCH pattern → g.chain([...operations...])
-   ```
-
-2. **Node Patterns → n()**
-   ```
-   (n) → n()
-   (n:Label) → n({"label": "Label"})
-   (n {prop: val}) → n({"prop": val})
-   ```
-
-3. **Edge Patterns → Edge Operations**
-   ```
-   -[r]-> → e_forward()
-   <-[r]- → e_reverse()
-   -[r]- → e() or e_undirected()
-   ```
-
-4. **WHERE Clause → Embedded Filters**
-   ```
-   WHERE n.prop = val → embed in n({"prop": val})
-   WHERE r.prop > val → embed in e_*(**{"prop": gt(val)}**)
-   ```
-
-5. **Path Length → hops Parameter**
-   ```
-   -[*2]-> → e_forward(hops=2)
-   -[*]-> → e_forward(to_fixed_point=True)
-   ```
-
-## Pattern Translations
-
-### Basic Node Patterns
-
-| Cypher | GFQL |
-|--------|------|
-| `(n)` | `n()` |
-| `(n:Person)` | `n({"type": "Person"})` or `n({"label": "Person"})` |
-| `(n {name: 'Alice'})` | `n({"name": "Alice"})` |
-| `(n:Person {age: 30})` | `n({"type": "Person", "age": 30})` |
-
-### Edge Patterns
-
-| Cypher | GFQL |
-|--------|------|
-| `-[r]->` | `e_forward()` |
-| `<-[r]-` | `e_reverse()` |
-| `-[r]-` | `e()` |
-| `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"})` |
-| `-[r {since: 2020}]->` | `e_forward({"since": 2020})` |
-
-### Path Patterns
-
-| Cypher | GFQL |
-|--------|------|
-| `(a)-[]->(b)` | `chain([n(), e_forward(), n()])` |
-| `(a)-[*2]->(b)` | `chain([n(), e_forward(hops=2), n()])` |
-| `(a)-[*..3]->(b)` | `chain([n(), e_forward(hops=3), n()])` |
-| `(a)-[*]->(b)` | `chain([n(), e_forward(to_fixed_point=True), n()])` |
-
-### Complex Patterns
-
-**Cypher**:
+**Cypher:**
 ```cypher
-MATCH (p:Person {name: 'Alice'})-[:KNOWS*2]->(friend:Person)
-WHERE friend.age > 25
+MATCH (p:Person)-[r:FOLLOWS]->(q:Person) 
+WHERE p.age > 30
 ```
 
-**GFQL**:
+**Python:**
 ```python
 g.chain([
-    n({"type": "Person", "name": "Alice"}),
-    e_forward({"type": "KNOWS"}, hops=2),
-    n({"type": "Person", "age": gt(25)})
+    n({"type": "Person", "age": gt(30)}, name="p"),
+    e_forward({"type": "FOLLOWS"}, name="r"),
+    n({"type": "Person"}, name="q")
 ])
 ```
 
-## Predicate Mappings
+**Wire Protocol:**
+```json
+{"type": "Chain", "chain": [
+  {"type": "Node", "filter_dict": {"type": "Person", "age": {"type": "GT", "val": 30}}, "name": "p"},
+  {"type": "Edge", "direction": "forward", "edge_match": {"type": "FOLLOWS"}, "name": "r"},
+  {"type": "Node", "filter_dict": {"type": "Person"}, "name": "q"}
+]}
 
-### Comparison Operators
+## Pattern Translations
 
-| Cypher | GFQL |
-|--------|------|
-| `n.prop = value` | `{"prop": value}` |
-| `n.prop > value` | `{"prop": gt(value)}` |
-| `n.prop < value` | `{"prop": lt(value)}` |
-| `n.prop >= value` | `{"prop": ge(value)}` |
-| `n.prop <= value` | `{"prop": le(value)}` |
-| `n.prop <> value` | `{"prop": ne(value)}` |
+### Node Patterns
 
-### String Operators
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `(n)` | `n()` | `{"type": "Node"}` |
+| `(n:Label)` | `n({"type": "Label"})` | `{"type": "Node", "filter_dict": {"type": "Label"}}` |
+| `(n {prop: val})` | `n({"prop": val})` | `{"type": "Node", "filter_dict": {"prop": val}}` |
+| `(n:Person) WHERE n.age > 30` | `n({"type": "Person", "age": gt(30)})` | `{"type": "Node", "filter_dict": {"type": "Person", "age": {"type": "GT", "val": 30}}}` |
 
-| Cypher | GFQL |
-|--------|------|
-| `n.name STARTS WITH 'A'` | `{"name": startswith("A")}` |
-| `n.name ENDS WITH 'z'` | `{"name": endswith("z")}` |
-| `n.name CONTAINS 'bob'` | `{"name": contains("bob")}` |
+### Edge Patterns
 
-### Collection Operators
+| Cypher | Python | Wire Protocol (compact) |
+|--------|--------|-------------------------|
+| `-[]->` | `e_forward()` | `{"type": "Edge", "direction": "forward"}` |
+| `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "KNOWS"}, "name": "r"}` |
+| `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
+| `-[r]-` | `e(name="r")` | `{"type": "Edge", "direction": "undirected", "name": "r"}` |
+| `-[*2]->` | `e_forward(hops=2)` | `{"type": "Edge", "direction": "forward", "hops": 2}` |
+| `-[*1..3]->` | `e_forward(hops=3)` | `{"type": "Edge", "direction": "forward", "hops": 3}` |
+| `-[*]->` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
+| `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
 
-| Cypher | GFQL |
-|--------|------|
-| `n.type IN ['A', 'B']` | `{"type": is_in(["A", "B"])}` |
-| `n.val IN range(1, 10)` | `{"val": is_in(list(range(1, 10)))}` |
+### Predicates
 
-### Temporal Comparisons
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `n.age > 30` | `gt(30)` | `{"type": "GT", "val": 30}` |
+| `n.age >= 50` | `ge(50)` | `{"type": "GE", "val": 50}` |
+| `n.age < 100` | `lt(100)` | `{"type": "LT", "val": 100}` |
+| `n.age <= 50` | `le(50)` | `{"type": "LE", "val": 50}` |
+| `n.status = 'active'` | `"active"` | `"active"` |
+| `n.status <> 'deleted'` | `ne("deleted")` | `{"type": "NE", "val": "deleted"}` |
+| `n.id IN [1,2,3]` | `is_in([1,2,3])` | `{"type": "IsIn", "options": [1,2,3]}` |
+| `n.score BETWEEN 0 AND 100` | `between(0, 100)` | `{"type": "Between", "lower": 0, "upper": 100}` |
+| `n.name =~ '^A.*'` | `match("^A.*")` | `{"type": "Match", "pattern": "^A.*"}` |
+| `n.text CONTAINS 'search'` | `contains("search")` | `{"type": "Contains", "pattern": "search"}` |
+| `n.name STARTS WITH 'Dr'` | `startswith("Dr")` | `{"type": "Startswith", "pattern": "Dr"}` |
+| `n.email ENDS WITH '.com'` | `endswith(".com")` | `{"type": "Endswith", "pattern": ".com"}` |
+| `n.val IS NULL` | `is_null()` | `{"type": "IsNull"}` |
+| `n.val IS NOT NULL` | `not_null()` | `{"type": "NotNull"}` |
 
-| Cypher | GFQL |
-|--------|------|
-| `n.date > date('2024-01-01')` | `{"date": gt(date(2024, 1, 1))}` |
-| `n.time < time('12:00:00')` | `{"time": lt(time(12, 0, 0))}` |
-| `n.timestamp > datetime()` | `{"timestamp": gt(pd.Timestamp.now())}` |
+## Complete Examples
 
-## Unsupported Features
+### Friend of Friend
 
-### Cypher Features Without GFQL Equivalent
-
-1. **OPTIONAL MATCH**
-   ```cypher
-   OPTIONAL MATCH (n)-[r]->(m)  -- No GFQL equivalent
-   ```
-
-2. **WITH Clauses**
-   ```cypher
-   WITH n, count(*) as cnt  -- Use pandas post-processing
-   ```
-
-3. **Aggregations**
-   ```cypher
-   RETURN n, count(r)  -- Use pandas groupby after
-   ```
-
-4. **CREATE/DELETE/SET**
-   ```cypher
-   CREATE (n:Person)  -- GFQL is read-only
-   ```
-
-5. **Complex WHERE**
-   ```cypher
-   WHERE NOT exists(n.prop)  -- Limited support
-   WHERE n.prop =~ 'regex'   -- Use match() predicate
-   ```
-
-### Workarounds
-
-| Unsupported Feature | GFQL Alternative |
-|---------------------|------------------|
-| `ORDER BY` | Use pandas: `result._nodes.sort_values()` |
-| `LIMIT` | Use pandas: `result._nodes.head(n)` |
-| `DISTINCT` | Use pandas: `result._nodes.drop_duplicates()` |
-| `count()` | Use pandas: `len(result._nodes)` |
-| `collect()` | Use pandas: `result._nodes.groupby()` |
-
-## Translation Examples
-
-### Example 1: Simple Friend Query
-
-**Natural Language**: "Find Alice's friends"
-
-**Cypher**:
+**Cypher:**
 ```cypher
-MATCH (alice:Person {name: 'Alice'})-[:FRIEND]->(friend:Person)
-RETURN friend
+MATCH (u:User {name: 'Alice'})-[:FRIEND*2]->(fof:User)
+WHERE fof.active = true
 ```
 
-**GFQL**:
+**Python:**
 ```python
 g.chain([
-    n({"type": "Person", "name": "Alice"}),
-    e_forward({"type": "FRIEND"}),
-    n({"type": "Person"})
-])._nodes
-```
-
-### Example 2: Multi-hop with Filtering
-
-**Natural Language**: "Find friends of friends who are developers"
-
-**Cypher**:
-```cypher
-MATCH (p:Person {id: 123})-[:FRIEND*2]->(fof:Person)
-WHERE fof.occupation = 'Developer'
-RETURN fof
-```
-
-**GFQL**:
-```python
-g.chain([
-    n({"type": "Person", "id": 123}),
+    n({"type": "User", "name": "Alice"}),
     e_forward({"type": "FRIEND"}, hops=2),
-    n({"type": "Person", "occupation": "Developer"})
-])._nodes
+    n({"type": "User", "active": True}, name="fof")
+])
 ```
 
-### Example 3: Temporal Query
+**Wire Protocol:**
+```json
+{"type": "Chain", "chain": [
+  {"type": "Node", "filter_dict": {"type": "User", "name": "Alice"}},
+  {"type": "Edge", "direction": "forward", "edge_match": {"type": "FRIEND"}, "hops": 2},
+  {"type": "Node", "filter_dict": {"type": "User", "active": true}, "name": "fof"}
+]}
 
-**Natural Language**: "Find recent transactions over $1000"
+### Fraud Detection
 
-**Cypher**:
+**Cypher:**
 ```cypher
-MATCH (a:Account)-[t:TRANSACTION]->(b:Account)
-WHERE t.amount > 1000 
-  AND t.timestamp > datetime() - duration('P7D')
-RETURN a, t, b
+MATCH (a:Account)-[t:TRANSFER]->(b:Account)
+WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 ```
 
-**GFQL**:
+**Python:**
 ```python
-week_ago = pd.Timestamp.now() - pd.Timedelta(days=7)
 g.chain([
     n({"type": "Account"}),
     e_forward({
-        "type": "TRANSACTION",
-        "amount": gt(1000),
-        "timestamp": gt(week_ago)
-    }),
+        "type": "TRANSFER", 
+        "amount": gt(10000),
+        "date": gt(date(2024,1,1))
+    }, name="t"),
     n({"type": "Account"})
 ])
 ```
 
-### Example 4: Bidirectional Search
+**Wire Protocol:**
+```json
+{"type": "Chain", "chain": [
+  {"type": "Node", "filter_dict": {"type": "Account"}},
+  {"type": "Edge", "direction": "forward", "edge_match": {
+    "type": "TRANSFER",
+    "amount": {"type": "GT", "val": 10000},
+    "date": {"type": "GT", "val": {"type": "date", "value": "2024-01-01"}}
+  }, "name": "t"},
+  {"type": "Node", "filter_dict": {"type": "Account"}}
+]}
+```
 
-**Natural Language**: "Find all connections between Alice and Bob"
+### Complex Aggregation Example
 
-**Cypher**:
+**Cypher:**
 ```cypher
-MATCH (alice:Person {name: 'Alice'})-[*]-(bob:Person {name: 'Bob'})
-RETURN alice, bob
+MATCH (u:User)-[t:TRANSACTION]->(m:Merchant)
+WHERE t.date > date('2024-01-01')
+RETURN m.category, count(*) as cnt, sum(t.amount) as total
+ORDER BY total DESC
+LIMIT 10
 ```
 
-**GFQL**:
+**Python:**
 ```python
-g.chain([
-    n({"type": "Person", "name": "Alice"}),
-    e(to_fixed_point=True),
-    n({"type": "Person", "name": "Bob"})
+# Step 1: Graph pattern
+result = g.chain([
+    n({"type": "User"}),
+    e_forward({"type": "TRANSACTION", "date": gt(date(2024,1,1))}, name="trans"),
+    n({"type": "Merchant"})
 ])
+
+# Step 2: DataFrame operations
+trans_df = result._edges[result._edges["trans"]]
+merchant_df = result._nodes
+analysis = (trans_df
+    .merge(merchant_df, left_on=g._destination, right_on=g._node)
+    .groupby('category')
+    .agg(cnt=('amount', 'count'), total=('amount', 'sum'))
+    .nlargest(10, 'total'))
 ```
 
-### Example 5: Complex Business Query
+**Note:** Wire protocol returns the filtered graph; aggregations require client-side processing.
 
-**Natural Language**: "Find high-value customers connected to fraudulent accounts"
+## DataFrame Operations Mapping
 
-**Cypher**:
-```cypher
-MATCH (c:Customer)-[:HAS_ACCOUNT]->(a1:Account)-[:TRANSFER*..3]->(a2:Account)<-[:HAS_ACCOUNT]-(f:Customer)
-WHERE c.tier = 'Gold' 
-  AND f.status = 'Fraudulent'
-  AND a1.balance > 10000
-RETURN c, a1, a2, f
-```
+| Cypher Feature | Python DataFrame Operation | Notes |
+|----------------|---------------------------|--------|
+| `RETURN a, b, c` | `df[['a', 'b', 'c']]` | Column selection |
+| `RETURN DISTINCT` | `df.drop_duplicates()` | Remove duplicates |
+| `ORDER BY x DESC` | `df.sort_values('x', ascending=False)` | Sort results |
+| `LIMIT 10` | `df.head(10)` | Limit rows |
+| `count(*)` | `len(df)` or `df.groupby(...).size()` | Count rows |
+| `sum(n.val)` | `df['val'].sum()` or `df.groupby(...).agg(sum)` | Aggregation |
+| `collect(n.x)` | `df.groupby(...).agg(list)` | Collect to list |
+| Named patterns | `df[df['pattern_name']]` | Boolean column filtering |
 
-**GFQL**:
-```python
-g.chain([
-    n({"type": "Customer", "tier": "Gold"}),
-    e_forward({"type": "HAS_ACCOUNT"}),
-    n({"type": "Account", "balance": gt(10000)}),
-    e_forward({"type": "TRANSFER"}, hops=3),
-    n({"type": "Account"}),
-    e_reverse({"type": "HAS_ACCOUNT"}),
-    n({"type": "Customer", "status": "Fraudulent"})
-])
-```
+## Key Differences
+
+| Feature | Python | Wire Protocol |
+|---------|--------|---------------|
+| **Temporal values** | `pd.Timestamp()`, `date()` | `{"type": "date", "value": "..."}` |
+| **Direct equality** | `"active"` | `"active"` (same) |
+| **Comparisons** | `gt(30)` | `{"type": "GT", "val": 30}` |
+| **Collections** | `is_in([...])` | `{"type": "IsIn", "options": [...]}` |
+
+## Not Supported
+- `OPTIONAL MATCH` - No equivalent (would need outer joins)
+- `CREATE`, `DELETE`, `SET` - GFQL is read-only
+- `WITH` clauses - Requires intermediate variables
+- Multiple `MATCH` patterns - Use separate chains or joins
 
 ## Best Practices
 
-### For LLM-Based Translation
+1. **Direct Translation First**: Try pure GFQL before adding DataFrame operations
+2. **Use Named Patterns**: Label important results with `name=` for easy access
+3. **Filter Early**: Apply selective node filters before traversing edges
+4. **Type Consistency**: Ensure wire protocol types match expected column types
+5. **Validate JSON**: Test wire protocol against schema before sending
 
-1. **Start Simple**: Begin with basic patterns before complex queries
-2. **Explicit Types**: Always specify node/edge types when known
-3. **Embed Filters**: Move WHERE conditions into matchers
-4. **Handle Lists**: Convert Cypher lists to Python lists
-5. **Post-Process**: Use pandas for sorting, limiting, aggregating
+## LLM Integration Guide
 
-### Common Patterns
+When building translators:
 
-1. **Node Type Mapping**:
-   - Cypher labels → GFQL type or label property
-   - Choose consistent property name across queries
+```
+Given Cypher: {cypher_query}
 
-2. **Edge Type Mapping**:
-   - Cypher relationship types → GFQL type property
-   - Maintain consistent naming
+Generate both:
+1. Python: Human-readable GFQL code
+2. Wire Protocol: JSON for API calls
 
-3. **Variable-Length Paths**:
-   - Bounded: Use `hops=N`
-   - Unbounded: Use `to_fixed_point=True`
-   - Upper bound only: Use `hops=N` as maximum
-
-4. **Property Access**:
-   - Direct in patterns when possible
-   - Query strings for complex expressions
-
-### Error Handling
-
-Common translation errors and fixes:
-
-1. **OPTIONAL MATCH**
-   - Error: No direct translation
-   - Fix: Split into separate queries or handle nulls in post-processing
-
-2. **Aggregations in MATCH**
-   - Error: Not supported in pattern
-   - Fix: Move to pandas operations after query
-
-3. **Complex WHERE**
-   - Error: Boolean logic not directly supported
-   - Fix: Use query strings or multiple queries
-
-4. **Path Variables**
-   - Error: Full path not captured
-   - Fix: Use named operations to track path components
-
-## Integration Guidelines
-
-### For Tool Builders
-
-1. **Parser Requirements**:
-   - Cypher AST parser for pattern extraction
-   - Pattern matcher for translation rules
-   - Error handler for unsupported features
-
-2. **Translation Pipeline**:
-   ```
-   Cypher String → Parse AST → Match Patterns → Generate GFQL → Validate
-   ```
-
-3. **Validation Steps**:
-   - Check for unsupported Cypher features
-   - Verify property names against schema
-   - Validate predicate types
-
-### For LLM Integration
-
-1. **Prompt Structure**:
-   ```
-   Given Cypher: {cypher_query}
-   
-   Translate to GFQL using these rules:
-   - (n) → n()
-   - -[r]-> → e_forward()
-   - WHERE → embedded filters
-   
-   Handle unsupported features by noting them.
-   ```
-
-2. **Few-Shot Examples**:
-   - Include 3-5 examples per pattern type
-   - Show both successful and error cases
-   - Demonstrate workarounds
-
-3. **Validation Prompts**:
-   ```
-   Validate this GFQL translation:
-   Original Cypher: {cypher}
-   Generated GFQL: {gfql}
-   Schema: {node_columns}, {edge_columns}
-   ```
+Rules:
+- (n:Label) → Python: n({"type": "Label"}) → JSON: {"type": "Node", "filter_dict": {"type": "Label"}}
+- WHERE → Embed as predicates in both formats
+- Aggregations → Note as requiring DataFrame post-processing
+```
 
 ## See Also
-
-- {ref}`gfql-spec-language` - GFQL language specification
-- {ref}`gfql-spec-wire-protocol` - Wire protocol format
-- {ref}`gfql-spec-synthesis-examples` - More translation examples
+- {ref}`gfql-spec-wire-protocol` - Full wire protocol specification
+- {ref}`gfql-spec-cypher-mapping` - Original Python-only mappings
+- {ref}`gfql-spec-python-embedding` - Python implementation details
