@@ -325,31 +325,6 @@ g.chain([
 }
 ```
 
-## Error Handling
-
-### Error Response Format
-
-```json
-{
-  "type": "Error",
-  "error_type": "ValidationError",
-  "message": "Invalid predicate type 'GT' for string column 'name'",
-  "details": {
-    "column": "name",
-    "predicate": "GT",
-    "expected_types": ["string"],
-    "actual_type": "comparison"
-  }
-}
-```
-
-### Error Types
-
-1. **ValidationError**: Schema validation failed
-2. **ParseError**: JSON parsing failed
-3. **TypeError**: Type mismatch
-4. **SemanticError**: Logical inconsistency
-5. **UnsupportedError**: Feature not supported
 
 ## Best Practices
 
