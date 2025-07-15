@@ -11,7 +11,6 @@ language
 python_embedding
 wire_protocol
 cypher_mapping
-cypher_mapping_wire
 ```
 
 ## Overview
@@ -19,7 +18,6 @@ cypher_mapping_wire
 - {ref}`gfql-spec-language` - Complete formal grammar, operations, predicates, and type system
 - {ref}`gfql-spec-python-embedding` - Python-specific implementation with pandas/cuDF
 - {ref}`gfql-spec-wire-protocol` - JSON serialization format for client-server communication
-- {ref}`gfql-spec-cypher-mapping` - Translation rules between Cypher and GFQL
-- {ref}`gfql-spec-cypher-mapping-wire` - Cypher to GFQL translations with both Python and wire protocol
+- {ref}`gfql-spec-cypher-mapping` - Cypher to GFQL translations with both Python and wire protocol
 
 These specifications are optimized for text-to-GFQL synthesis, Cypher-to-GFQL pipelines, query validation, and schema-aware code generation.

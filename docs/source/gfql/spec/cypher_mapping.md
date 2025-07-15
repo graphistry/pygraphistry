@@ -1,4 +1,4 @@
-(gfql-spec-cypher-mapping-wire)=
+(gfql-spec-cypher-mapping)=
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
@@ -254,5 +254,5 @@ Rules:
 
 ## See Also
 - {ref}`gfql-spec-wire-protocol` - Full wire protocol specification
-- {ref}`gfql-spec-cypher-mapping` - Original Python-only mappings
+- {ref}`gfql-spec-language` - Language specification
 - {ref}`gfql-spec-python-embedding` - Python implementation details
