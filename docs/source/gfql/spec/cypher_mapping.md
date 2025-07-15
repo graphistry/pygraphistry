@@ -133,6 +133,7 @@ g.chain([
   {"type": "Edge", "direction": "forward", "edge_match": {"type": "FRIEND"}, "hops": 2},
   {"type": "Node", "filter_dict": {"type": "User", "active": true}, "name": "fof"}
 ]}
+```
 
 ### Fraud Detection
 
