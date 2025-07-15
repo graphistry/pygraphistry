@@ -62,6 +62,7 @@ g.chain([
   {"type": "Edge", "direction": "forward", "edge_match": {"type": "FOLLOWS"}, "name": "r"},
   {"type": "Node", "filter_dict": {"type": "Person"}, "name": "q"}
 ]}
+```
 
 ## Pattern Translations
 
