@@ -9,6 +9,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 * Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
+* GFQL: Add comprehensive specification documentation (#698)
+  * Core language specification with formal grammar, operations, predicates, and type system
+  * Cypher to GFQL translation guide with Python and wire protocol examples
+  * Python embedding guide with pandas/cuDF integration details
+  * Wire protocol JSON format for client-server communication
+  * Fix terminology: clarify g._node (node ID column) vs g._nodes (DataFrame)
+  * Emphasize GFQL's declarative nature for graph-to-graph transformations
 
 ## [0.39.1 - 2025-07-07]
 
