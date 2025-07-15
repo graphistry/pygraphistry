@@ -351,36 +351,6 @@ g.chain([
 4. **SemanticError**: Logical inconsistency
 5. **UnsupportedError**: Feature not supported
 
-## Protocol Extensions
-
-### Future Considerations
-
-The protocol is designed to support future extensions:
-
-1. **Versioning**: Add `"version"` field for protocol versioning
-2. **Metadata**: Add `"metadata": {}` for additional context
-3. **Streaming**: Support for partial results
-4. **Transactions**: Batch multiple operations
-5. **Optimization Hints**: Engine-specific parameters
-
-### Custom Predicates
-
-New predicates can be added by extending the schema:
-
-```json
-{
-  "definitions": {
-    "CustomPredicate": {
-      "type": "object",
-      "properties": {
-        "type": {"const": "CustomPredicateName"},
-        ...custom fields...
-      }
-    }
-  }
-}
-```
-
 ## Best Practices
 
 1. **Always include type fields**: Every object must have a `type`
