@@ -28,40 +28,52 @@ This specification focuses on the core language concepts. Examples use Python sy
 
 ### Core Concepts
 
-1. **Graph Model**: Graphs consist of node and edge dataframes
-   - Edges: DataFrame with source and destination columns
-   - Nodes: DataFrame with unique identifier column
-   - Column names are user-defined globals for the graph:
-     - Node ID attribute: `g._node` (e.g., "node_id", "id")
-     - Edge source attribute: `g._source` (e.g., "source", "from")
-     - Edge destination attribute: `g._destination` (e.g., "destination", "to")
-   - GFQL infers nodes from edge references when only edges are provided
+#### Graph Model
 
-2. **GFQL Programs**: GFQL programs are declarative graph-to-graph transformations
-   - Enable use cases like search, filter, enrich, and traverse
-   - Express *what* to find (ex: Cypher), not *how* to find it (ex: Gremlin)
+Graphs consist of node and edge dataframes:
+- Edges: DataFrame with source and destination columns
+- Nodes: DataFrame with unique identifier column
+- Column names are user-defined globals for the graph:
+  - Node ID attribute: `g._node` (e.g., "node_id", "id")
+  - Edge source attribute: `g._source` (e.g., "source", "from")
+  - Edge destination attribute: `g._destination` (e.g., "destination", "to")
+- GFQL infers nodes from edge references when only edges are provided
 
-3. **Chains**: Path pattern expressions for matching graph structures
-   - Express graph patterns as sequences of node and edge matching operations
-   - Similar to Cypher patterns but decomposed into composable steps
-   - Define paths through the graph: start nodes → edges → end nodes
-   - Each operation refines the pattern match based on previous results
+#### GFQL Programs
 
-4. **Operations**: Act on graph entities (nodes and edges)
-   - Node matchers: Filter and select nodes
-   - Edge matchers: Traverse relationships
-   - Operations work on the graph structure itself
+GFQL programs are declarative graph-to-graph transformations:
+- Enable use cases like search, filter, enrich, and traverse
+- Express *what* to find (ex: Cypher), not *how* to find it (ex: Gremlin)
 
-5. **Predicates**: Act on attributes of nodes and edges
-   - Filter based on property values
-   - Comparison, membership, string matching, temporal checks
-   - Composable within operations to build complex conditions
+#### Chains
 
-6. **Values**: Type system matching modern data formats
-   - Scalars: numbers, strings, booleans, null
-   - Temporal: ISO datetimes, dates, times with timezone support
-   - Collections: lists for membership tests
-   - Compatible with JSON, Arrow, and DataFrame type systems
+Path pattern expressions for matching graph structures:
+- Express graph patterns as sequences of node and edge matching operations
+- Similar to Cypher patterns but decomposed into composable steps
+- Define paths through the graph: start nodes → edges → end nodes
+- Each operation refines the pattern match based on previous results
+
+#### Operations
+
+Act on graph entities (nodes and edges):
+- Node matchers: Filter and select nodes
+- Edge matchers: Traverse relationships
+- Operations work on the graph structure itself
+
+#### Predicates
+
+Act on attributes of nodes and edges:
+- Filter based on property values
+- Comparison, membership, string matching, temporal checks
+- Composable within operations to build complex conditions
+
+#### Values
+
+Type system matching modern data formats:
+- Scalars: numbers, strings, booleans, null
+- Temporal: ISO datetimes, dates, times with timezone support
+- Collections: lists for membership tests
+- Compatible with JSON, Arrow, and DataFrame type systems
 
 ## Formal Grammar
 
