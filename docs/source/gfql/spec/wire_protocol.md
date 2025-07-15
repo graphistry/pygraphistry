@@ -36,79 +36,19 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 - Predicates: `GT`, `LT`, `EQ`, `IsIn`, `Between`, etc.
 - Temporal values: `datetime`, `date`, `time`
 
-## JSON Schema
+## Message Structure
 
-```{code-block} json
-:caption: Complete JSON Schema for GFQL Wire Protocol
+All GFQL wire protocol messages are JSON objects with a `type` field that identifies the message type. The protocol uses discriminated unions for polymorphic types.
 
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://graphistry.com/schemas/gfql/wire-protocol.json",
-  
-  "definitions": {
-    "Chain": {
-      "type": "object",
-      "properties": {
-        "type": {"const": "Chain"},
-        "chain": {
-          "type": "array",
-          "items": {"$ref": "#/definitions/Operation"},
-          "minItems": 1
-        }
-      },
-      "required": ["type", "chain"],
-      "additionalProperties": false
-    },
-    
-    "Operation": {
-      "oneOf": [
-        {"$ref": "#/definitions/NodeOperation"},
-        {"$ref": "#/definitions/EdgeOperation"}
-      ]
-    },
-    
-    "NodeOperation": {
-      "type": "object",
-      "properties": {
-        "type": {"const": "Node"},
-        "filter_dict": {"$ref": "#/definitions/FilterDict"},
-        "query": {"type": "string"},
-        "name": {"type": "string"}
-      },
-      "required": ["type"],
-      "additionalProperties": false
-    },
-    
-    "EdgeOperation": {
-      "type": "object",
-      "properties": {
-        "type": {"const": "Edge"},
-        "direction": {
-          "enum": ["forward", "reverse", "undirected"]
-        },
-        "edge_match": {"$ref": "#/definitions/FilterDict"},
-        "edge_query": {"type": "string"},
-        "hops": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1
-        },
-        "to_fixed_point": {
-          "type": "boolean",
-          "default": false
-        },
-        "source_node_match": {"$ref": "#/definitions/FilterDict"},
-        "source_node_query": {"type": "string"},
-        "destination_node_match": {"$ref": "#/definitions/FilterDict"},
-        "destination_node_query": {"type": "string"},
-        "name": {"type": "string"}
-      },
-      "required": ["type", "direction"],
-      "additionalProperties": false
-    }
-  }
-}
-```
+### Type Identification
+
+Each object includes a `type` field:
+- Operations: `"Node"`, `"Edge"`, `"Chain"`
+- Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
+- Temporal values: `"datetime"`, `"date"`, `"time"`
+
+This enables unambiguous deserialization and validation.
+
 
 ## Operation Serialization
 
