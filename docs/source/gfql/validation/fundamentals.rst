@@ -1,20 +1,19 @@
 GFQL Validation Fundamentals
 ============================
 
-Learn how to use GFQL's built-in validation system to catch errors early and build robust graph applications.
+Learn the basics of validating GFQL queries to catch errors early and build robust graph applications.
 
 .. note::
    This guide is accompanied by an interactive Jupyter notebook. To run the examples yourself, see 
-   `GFQL Validation Fundamentals notebook <../../demos/gfql/gfql_validation_fundamentals.html>`_.
+   `demos/gfql/gfql_validation_fundamentals.ipynb <https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/gfql_validation_fundamentals.ipynb>`_.
 
 What You'll Learn
 -----------------
 
-* How GFQL automatically validates queries
-* Understanding structured error messages with error codes
-* Schema validation against your data
-* Pre-execution validation for performance
-* Collecting all errors vs fail-fast mode
+* How to validate GFQL query syntax
+* Understanding validation error messages  
+* Basic schema validation with DataFrames
+* Common syntax errors and how to fix them
 
 Prerequisites
 -------------
@@ -27,173 +26,69 @@ Quick Start
 
 .. code-block:: python
 
-   from graphistry.compute.chain import Chain
-   from graphistry.compute.ast import n, e_forward
-   from graphistry.compute.exceptions import GFQLValidationError
+   from graphistry.compute.gfql.validate import validate_syntax, validate_query
    
-   # Automatic validation during construction
-   try:
-       chain = Chain([
-           n({'type': 'customer'}),
-           e_forward(),
-           n()
-       ])
-       print("Valid chain created!")
-   except GFQLValidationError as e:
-       print(f"Error: [{e.code}] {e.message}")
+   # Validate query syntax
+   query = [
+       {"type": "n", "filter": {"type": {"eq": "customer"}}},
+       {"type": "e_forward"},
+       {"type": "n"}
+   ]
+   
+   issues = validate_syntax(query)
+   if not issues:
+       print("[OK] Query syntax is valid!")
 
 Key Concepts
 ------------
 
-Built-in Validation
-^^^^^^^^^^^^^^^^^^^
+Error Levels
+^^^^^^^^^^^^
 
-GFQL validates automatically - no separate validation calls needed:
+* **error**: Query will fail if executed
+* **warning**: Query may work but has potential issues
 
-* **Syntax validation**: Happens during chain construction
-* **Schema validation**: Happens by default during ``g.chain()`` execution
-* **Structured errors**: Error codes (E1xx, E2xx, E3xx) for programmatic handling
+Common Validation Functions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Error Types
-^^^^^^^^^^^
-
-* **GFQLSyntaxError** (E1xx): Structural issues in query
-* **GFQLTypeError** (E2xx): Type mismatches and invalid values
-* **GFQLSchemaError** (E3xx): Missing columns, incompatible types
+* ``validate_syntax(query)``: Check query structure and syntax
+* ``validate_schema(query, schema)``: Validate against data schema
+* ``validate_query(query, nodes_df, edges_df)``: Combined validation
 
 Common Errors and Fixes
 -----------------------
 
-Invalid Parameters
-^^^^^^^^^^^^^^^^^^
+Invalid Operation Type
+^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
-   # Wrong - negative hops
-   try:
-       chain = Chain([n(), e_forward(hops=-1)])
-   except GFQLTypeError as e:
-       print(f"Error: {e.message}")  # "hops must be a positive integer"
+   # [X] Wrong
+   [{"type": "node"}]  # Should be "n"
    
-   # Correct
-   chain = Chain([n(), e_forward(hops=2)])
+   # [OK] Correct
+   [{"type": "n"}]
 
-Missing Columns
-^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   # Wrong - column doesn't exist
-   try:
-       result = g.chain([n({'category': 'VIP'})])
-   except GFQLSchemaError as e:
-       print(f"Error: {e.message}")  # Column "category" does not exist
-       print(f"Suggestion: {e.context.get('suggestion')}")
-   
-   # Correct - use existing columns
-   result = g.chain([n({'type': 'customer'})])
-
-Type Mismatches
-^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   # Wrong - string value on numeric column
-   try:
-       result = g.chain([n({'score': 'high'})])
-   except GFQLSchemaError as e:
-       print(f"Error: {e.message}")  # Type mismatch
-   
-   # Correct - use numeric predicate
-   from graphistry.compute.predicates.numeric import gt
-   result = g.chain([n({'score': gt(80)})])
-
-Temporal Comparisons
-^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   import pandas as pd
-   from graphistry.compute.predicates.numeric import gt, lt
-   
-   # Compare datetime columns
-   result = g.chain([
-       n({'created_at': gt(pd.Timestamp('2024-01-01'))})
-   ])
-   
-   # Find recent activity (last 7 days)
-   result = g.chain([
-       e_forward({
-           'timestamp': gt(pd.Timestamp.now() - pd.Timedelta(days=7))
-       })
-   ])
-
-How Validation Works
---------------------
-
-Default Behavior
+Missing Operator
 ^^^^^^^^^^^^^^^^
 
-GFQL validates automatically - just write your queries and run them:
-
 .. code-block:: python
 
-   # Validation happens automatically
-   result = g.chain([n({'type': 'customer'})])
+   # [X] Wrong
+   {"filter": {"name": "Alice"}}  # Missing operator
    
-   # Errors are caught and reported clearly
-   try:
-       result = g.chain([n({'invalid_column': 'value'})])
-   except GFQLSchemaError as e:
-       print(f"Error: {e.message}")
+   # [OK] Correct
+   {"filter": {"name": {"eq": "Alice"}}}
 
-Pre-Execution Validation Options
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-You have two options for validating queries:
-
-1. **Validate-only** (no execution): Use ``validate_chain_schema()`` to check compatibility without running the query
-2. **Validate-and-run**: Use ``g.gfql(..., validate_schema=True)`` to validate before execution
-
-.. code-block:: python
-
-   # Method 1: Validate-only (no execution)
-   from graphistry.compute.validate_schema import validate_chain_schema
-   
-   try:
-       validate_chain_schema(g, chain)  # Only validates, doesn't execute
-       print("Chain is valid for this graph schema")
-   except GFQLSchemaError as e:
-       print(f"Schema incompatibility: {e}")
-   
-   # Method 2: Validate-and-run
-   try:
-       result = g.gfql(chain.chain, validate_schema=True)  # Validates, then executes if valid
-       print(f"Query executed: {len(result._nodes)} nodes")
-   except GFQLSchemaError as e:
-       print(f"Validation failed, query not executed: {e}")
-
-Error Collection
+Column Not Found
 ^^^^^^^^^^^^^^^^
 
-Choose between fail-fast and collect-all modes:
-
-.. code-block:: python
-
-   # Fail-fast (default)
-   try:
-       chain = Chain([problematic_operations])
-   except GFQLValidationError as e:
-       print(f"First error: {e}")
-   
-   # Collect all errors
-   errors = chain.validate(collect_all=True)
-   for error in errors:
-       print(f"[{error.code}] {error.message}")
+Always validate against your schema to catch column name errors early.
 
 Next Steps
 ----------
 
+* :doc:`advanced` - Complex queries and multi-hop validation
 * :doc:`llm` - AI integration patterns
 * :doc:`production` - Production deployment patterns
 
