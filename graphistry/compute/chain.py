@@ -247,7 +247,7 @@ def chain(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-    validate_schema: bool = False,
+    validate_schema: bool = True,
 ) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
@@ -260,7 +260,7 @@ def chain(
     Use `engine='cudf'` to force automatic GPU acceleration mode
 
     :param ops: List[ASTObject] Various node and edge matchers
-    :param validate_schema: If True, pre-validate operations against graph schema before execution
+    :param validate_schema: If True (default), pre-validate operations against graph schema before execution
 
     :returns: Plotter
     :rtype: Plotter
