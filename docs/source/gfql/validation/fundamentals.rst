@@ -108,34 +108,57 @@ Type Mismatches
    from graphistry.compute.predicates.numeric import gt
    result = g.chain([n({'score': gt(80)})])
 
-Validation Modes
-----------------
-
-Automatic Validation
+Temporal Comparisons
 ^^^^^^^^^^^^^^^^^^^^
 
-Validation happens automatically during normal usage:
+.. code-block:: python
+
+   import pandas as pd
+   from graphistry.compute.predicates.numeric import gt, lt
+   
+   # Compare datetime columns
+   result = g.chain([
+       n({'created_at': gt(pd.Timestamp('2024-01-01'))})
+   ])
+   
+   # Find recent activity (last 7 days)
+   result = g.chain([
+       e_forward({
+           'timestamp': gt(pd.Timestamp.now() - pd.Timedelta(days=7))
+       })
+   ])
+
+How Validation Works
+--------------------
+
+Default Behavior
+^^^^^^^^^^^^^^^^
+
+GFQL validates automatically - just write your queries and run them:
 
 .. code-block:: python
 
-   # Schema validation enabled by default
+   # Validation happens automatically
    result = g.chain([n({'type': 'customer'})])
    
-   # Disable if needed
-   result = g.chain([n({'type': 'customer'})], validate_schema=False)
+   # Errors are caught and reported clearly
+   try:
+       result = g.chain([n({'invalid_column': 'value'})])
+   except GFQLSchemaError as e:
+       print(f"Error: {e.message}")
 
-Standalone Validation
-^^^^^^^^^^^^^^^^^^^^^
+Advanced: Manual Validation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For advanced use cases, validate before execution:
+For advanced users who need to validate before execution:
 
 .. code-block:: python
 
-   # Syntax/type validation
+   # Validate syntax without running
    chain = Chain([n(), e_forward()])
    errors = chain.validate(collect_all=True)
    
-   # Schema validation
+   # Pre-validate against schema (rarely needed)
    from graphistry.compute.validate_schema import validate_chain_schema
    schema_errors = validate_chain_schema(g, chain, collect_all=True)
 
