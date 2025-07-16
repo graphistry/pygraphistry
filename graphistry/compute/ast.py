@@ -40,11 +40,11 @@ class ASTObject(ASTSerializable):
         target_wave_front: Optional[DataFrameT],
         engine: Engine,
     ) -> Plottable:
-        raise RuntimeError("__call__ not implemented")
+        raise RuntimeError('__call__ not implemented')
 
     @abstractmethod
-    def reverse(self) -> "ASTObject":
-        raise RuntimeError("reverse not implemented")
+    def reverse(self) -> 'ASTObject':
+        raise RuntimeError('reverse not implemented')
 
 
 ##############################################################################
@@ -63,7 +63,7 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
     if key in d and isinstance(d[key], dict):
         return {k: predicates_from_json(v) if isinstance(v, dict) else v for k, v in d[key].items()}
     elif key in d and d[key] is not None:
-        raise ValueError("filter_dict must be a dict or None")
+        raise ValueError('filter_dict must be a dict or None')
     else:
         return None
 
@@ -86,7 +86,7 @@ class ASTNode(ASTObject):
         self.query = query
 
     def __repr__(self) -> str:
-        return f"ASTNode(filter_dict={self.filter_dict}, name={self._name})"
+        return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
 
     def _validate_fields(self) -> None:
         """Validate node fields."""
@@ -147,16 +147,16 @@ class ASTNode(ASTObject):
         if validate:
             self.validate()
         return {
-            "type": "Node",
-            "filter_dict": {
+            'type': 'Node',
+            'filter_dict': {
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
                 for k, v in self.filter_dict.items()
                 if v is not None
             }
             if self.filter_dict is not None
             else {},
-            **({"name": self._name} if self._name is not None else {}),
-            **({"query": self.query} if self.query is not None else {}),
+            **({'name': self._name} if self._name is not None else {}),
+            **({'query': self.query} if self.query is not None else {}),
         }
 
     @classmethod
@@ -282,7 +282,7 @@ class ASTEdge(ASTObject):
             )
 
         # Validate direction
-        if self.direction not in ["forward", "reverse", "undirected"]:
+        if self.direction not in ['forward', 'reverse', 'undirected']:
             raise GFQLSyntaxError(
                 ErrorCode.E104,
                 f"Invalid edge direction: {self.direction}",
@@ -293,9 +293,9 @@ class ASTEdge(ASTObject):
 
         # Validate filter dicts
         for filter_name, filter_dict in [
-            ("source_node_match", self.source_node_match),
-            ("edge_match", self.edge_match),
-            ("destination_node_match", self.destination_node_match),
+            ('source_node_match', self.source_node_match),
+            ('edge_match', self.edge_match),
+            ('destination_node_match', self.destination_node_match),
         ]:
             if filter_dict is not None:
                 if not isinstance(filter_dict, dict):
@@ -349,13 +349,13 @@ class ASTEdge(ASTObject):
         if validate:
             self.validate()
         return {
-            "type": "Edge",
-            "hops": self.hops,
-            "to_fixed_point": self.to_fixed_point,
-            "direction": self.direction,
+            'type': 'Edge',
+            'hops': self.hops,
+            'to_fixed_point': self.to_fixed_point,
+            'direction': self.direction,
             **(
                 {
-                    "source_node_match": {
+                    'source_node_match': {
                         k: v.to_json() if isinstance(v, ASTPredicate) else v
                         for k, v in self.source_node_match.items()
                         if v is not None
@@ -366,7 +366,7 @@ class ASTEdge(ASTObject):
             ),
             **(
                 {
-                    "edge_match": {
+                    'edge_match': {
                         k: v.to_json() if isinstance(v, ASTPredicate) else v
                         for k, v in self.edge_match.items()
                         if v is not None
@@ -377,7 +377,7 @@ class ASTEdge(ASTObject):
             ),
             **(
                 {
-                    "destination_node_match": {
+                    'destination_node_match': {
                         k: v.to_json() if isinstance(v, ASTPredicate) else v
                         for k, v in self.destination_node_match.items()
                         if v is not None
@@ -386,14 +386,14 @@ class ASTEdge(ASTObject):
                 if self.destination_node_match is not None
                 else {}
             ),
-            **({"name": self._name} if self._name is not None else {}),
-            **({"source_node_query": self.source_node_query} if self.source_node_query is not None else {}),
+            **({'name': self._name} if self._name is not None else {}),
+            **({'source_node_query': self.source_node_query} if self.source_node_query is not None else {}),
             **(
-                {"destination_node_query": self.destination_node_query}
+                {'destination_node_query': self.destination_node_query}
                 if self.destination_node_query is not None
                 else {}
             ),
-            **({"edge_query": self.edge_query} if self.edge_query is not None else {}),
+            **({'edge_query': self.edge_query} if self.edge_query is not None else {}),
         }
 
     @classmethod
@@ -463,7 +463,7 @@ class ASTEdge(ASTObject):
         elif self.direction == "forward":
             direction = "reverse"
         else:
-            direction = "undirected"
+            direction = 'undirected'
         return ASTEdge(
             direction=direction,
             edge_match=self.edge_match,
@@ -597,7 +597,7 @@ class ASTEdgeUndirected(ASTEdge):
         edge_query: Optional[str] = None,
     ):
         super().__init__(
-            direction="undirected",
+            direction='undirected',
             edge_match=edge_match,
             hops=hops,
             source_node_match=source_node_match,
@@ -886,28 +886,28 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
     if not isinstance(o, dict):
         raise GFQLSyntaxError(ErrorCode.E101, "AST JSON must be a dictionary", value=type(o).__name__)
 
-    if "type" not in o:
+    if 'type' not in o:
         raise GFQLSyntaxError(
             ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
         )
 
     out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]
-    if o["type"] == "Node":
+    if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
-    elif o["type"] == "Edge":
-        if "direction" in o:
-            if o["direction"] == "forward":
+    elif o['type'] == 'Edge':
+        if 'direction' in o:
+            if o['direction'] == 'forward':
                 out = ASTEdgeForward.from_json(o, validate=validate)
-            elif o["direction"] == "reverse":
+            elif o['direction'] == 'reverse':
                 out = ASTEdgeReverse.from_json(o, validate=validate)
-            elif o["direction"] == "undirected":
+            elif o['direction'] == 'undirected':
                 out = ASTEdgeUndirected.from_json(o, validate=validate)
             else:
                 raise GFQLSyntaxError(
                     ErrorCode.E104,
                     f"Edge has unknown direction: {o['direction']}",
                     field="direction",
-                    value=o["direction"],
+                    value=o['direction'],
                     suggestion='Use "forward", "reverse", or "undirected"',
                 )
         else:

@@ -122,23 +122,23 @@ class Chain(ASTSerializable):
         if not isinstance(d, dict):
             raise GFQLSyntaxError(ErrorCode.E101, "Chain JSON must be a dictionary", value=type(d).__name__)
 
-        if "chain" not in d:
+        if 'chain' not in d:
             raise GFQLSyntaxError(
                 ErrorCode.E105,
                 "Chain JSON missing required 'chain' field",
                 suggestion="Add 'chain' field with list of operations",
             )
 
-        if not isinstance(d["chain"], list):
+        if not isinstance(d['chain'], list):
             raise GFQLSyntaxError(
-                ErrorCode.E101, "Chain field must be a list", field="chain", value=type(d["chain"]).__name__
+                ErrorCode.E101, "Chain field must be a list", field="chain", value=type(d['chain']).__name__
             )
 
         # Parse operations with same validation setting
         # Import here to avoid circular dependency
         from .ast import from_json as ASTObject_from_json
 
-        ops = cast(List[ASTObject], [ASTObject_from_json(op, validate=validate) for op in d["chain"]])
+        ops = cast(List[ASTObject], [ASTObject_from_json(op, validate=validate) for op in d['chain']])
         out = cls(ops)
 
         if validate:
@@ -152,7 +152,7 @@ class Chain(ASTSerializable):
         """
         if validate:
             self.validate()
-        return {"type": self.__class__.__name__, "chain": [op.to_json() for op in self.chain]}
+        return {'type': self.__class__.__name__, 'chain': [op.to_json() for op in self.chain]}
 
 
 ###############################################################################
