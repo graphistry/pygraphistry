@@ -8,7 +8,6 @@ Learn how to validate GFQL queries for syntax correctness, schema compatibility,
    :caption: Validation Topics
 
    fundamentals
-   advanced
    llm
    production
 
