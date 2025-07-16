@@ -134,7 +134,7 @@ GFQL validation warns about performance issues with unbounded traversals:
    chain = Chain([n(), e_forward()])  # ⚠️ No hop limit - validate manually
 
 Pre-execution Validation
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Use pre-execution validation to catch performance issues early:
 
