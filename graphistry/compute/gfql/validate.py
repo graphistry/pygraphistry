@@ -18,16 +18,8 @@
            print(f"[{e.code}] {e.message}")
 """
 
-import warnings
-
-warnings.warn(
-    "The graphistry.compute.gfql.validate module is deprecated. "
-    "GFQL now has built-in validation. See the migration guide for details.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
 from typing import List, Optional, Dict, Union, Any, Tuple, TYPE_CHECKING
+import warnings
 import pandas as pd
 
 from graphistry.compute.chain import Chain
@@ -47,6 +39,13 @@ from graphistry.compute.predicates.temporal import (
     IsYearStart, IsYearEnd, IsLeapYear
 )
 from graphistry.util import setup_logger
+
+warnings.warn(
+    "The graphistry.compute.gfql.validate module is deprecated. "
+    "GFQL now has built-in validation. See the migration guide for details.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 logger = setup_logger(__name__)
 
