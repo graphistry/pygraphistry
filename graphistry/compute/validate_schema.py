@@ -12,56 +12,56 @@ from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Ma
 
 
 def validate_chain_schema(
-    g: Plottable, 
-    ops: Union[List[ASTObject], Chain], 
+    g: Plottable,
+    ops: Union[List[ASTObject], Chain],
     collect_all: bool = False
 ) -> Optional[List[GFQLSchemaError]]:
     """Validate chain operations against graph schema without executing.
-    
+
     This performs static analysis of the chain operations to detect:
     - References to non-existent columns
     - Type mismatches between filters and column types
     - Invalid predicate usage
-    
+
     Args:
         g: The graph to validate against
         ops: Chain operations to validate
         collect_all: If True, collect all errors. If False, raise on first error.
-        
+
     Returns:
         If collect_all=True: List of schema errors (empty if valid)
         If collect_all=False: None if valid
-        
+
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
     if isinstance(ops, Chain):
         ops = ops.chain
-        
+
     errors: List[GFQLSchemaError] = []
-    
+
     # Get available columns
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
-    
+
     for i, op in enumerate(ops):
         op_errors = []
-        
+
         if isinstance(op, ASTNode):
             op_errors = _validate_node_op(op, node_columns, g._nodes, collect_all)
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
-        
+
         # Add operation index to all errors
         for e in op_errors:
             e.context['operation_index'] = i
-            
+
         if op_errors:
             if collect_all:
                 errors.extend(op_errors)
             else:
                 raise op_errors[0]
-    
+
     return errors if collect_all else None
 
 
@@ -74,8 +74,8 @@ def _validate_node_op(op: ASTNode, node_columns: set, nodes_df: Optional[pd.Data
 
 
 def _validate_edge_op(
-    op: ASTEdge, 
-    node_columns: set, 
+    op: ASTEdge,
+    node_columns: set,
     edge_columns: set,
     nodes_df: Optional[pd.DataFrame],
     edges_df: Optional[pd.DataFrame],
@@ -83,19 +83,19 @@ def _validate_edge_op(
 ) -> List[GFQLSchemaError]:
     """Validate edge operation against schema."""
     errors = []
-    
+
     # Validate edge filters
     if op.edge_match and edges_df is not None:
         errors.extend(_validate_filter_dict(op.edge_match, edge_columns, edges_df, "edge", collect_all))
-    
+
     # Validate source node filters
     if op.source_node_match and nodes_df is not None:
         errors.extend(_validate_filter_dict(op.source_node_match, node_columns, nodes_df, "source node", collect_all))
-    
+
     # Validate destination node filters
     if op.destination_node_match and nodes_df is not None:
         errors.extend(_validate_filter_dict(op.destination_node_match, node_columns, nodes_df, "destination node", collect_all))
-    
+
     return errors
 
 
@@ -124,10 +124,10 @@ def _validate_filter_dict(
                     continue  # Check next field
                 else:
                     raise error
-        
+
             # Check type compatibility
             col_dtype = df[col].dtype
-            
+
             if not isinstance(val, ASTPredicate):
                 # Check literal value type matches
                 if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(val, str):
@@ -171,7 +171,7 @@ def _validate_filter_dict(
                         errors.append(error)
                     else:
                         raise error
-                
+
                 if isinstance(val, (Contains, Startswith, Endswith, Match)) and not pd.api.types.is_string_dtype(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
@@ -185,26 +185,26 @@ def _validate_filter_dict(
                         errors.append(error)
                     else:
                         raise error
-        
+
         except GFQLSchemaError:
             if not collect_all:
                 raise
-    
+
     return errors
 
 
 # Add to Chain class
 def validate_schema(self: Chain, g: Plottable, collect_all: bool = False) -> Optional[List[GFQLSchemaError]]:
     """Validate this chain against a graph's schema without executing.
-    
+
     Args:
         g: Graph to validate against
         collect_all: If True, collect all errors. If False, raise on first.
-        
+
     Returns:
         If collect_all=True: List of schema errors
         If collect_all=False: None if valid
-        
+
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
@@ -212,4 +212,4 @@ def validate_schema(self: Chain, g: Plottable, collect_all: bool = False) -> Opt
 
 
 # Monkey-patch Chain class
-Chain.validate_schema = validate_schema
+setattr(Chain, 'validate_schema', validate_schema)

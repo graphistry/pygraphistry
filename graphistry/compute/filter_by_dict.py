@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, TYPE_CHECKING, Union
+from typing import Dict, Optional, Union
 import pandas as pd
 from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine, s_cons
 from graphistry.util import setup_logger
@@ -21,13 +21,13 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
 
     if filter_dict is None or filter_dict == {}:
         return df
-    
+
     engine_concrete = resolve_engine(engine, df)
     df = df_to_engine(df, engine_concrete)
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
-    
+
     predicates: Dict[str, ASTPredicate] = {}
     for col, val in filter_dict.items():
         if col not in df.columns:
@@ -38,7 +38,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                 value=val,
                 suggestion=f'Available columns: {", ".join(df.columns[:10])}{"..." if len(df.columns) > 10 else ""}'
             )
-        
+
         # Type checking for non-predicate values
         if not isinstance(val, ASTPredicate):
             # Check for obvious type mismatches
@@ -65,9 +65,9 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
             # Validate predicates for appropriate column types
             from .predicates.numeric import NumericASTPredicate, Between
             from .predicates.str import Contains, Startswith, Endswith, Match
-            
+
             col_dtype = df[col].dtype
-            
+
             # Check numeric predicates on non-numeric columns
             if isinstance(val, (NumericASTPredicate, Between)) and not pd.api.types.is_numeric_dtype(col_dtype):
                 raise GFQLSchemaError(
@@ -78,8 +78,8 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                     column_type=str(col_dtype),
                     suggestion='Use string predicates like contains() or startswith() for string columns'
                 )
-            
-            # Check string predicates on non-string columns  
+
+            # Check string predicates on non-string columns
             if isinstance(val, (Contains, Startswith, Endswith, Match)) and not pd.api.types.is_string_dtype(col_dtype):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
@@ -89,7 +89,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                     column_type=str(col_dtype),
                     suggestion='Use numeric predicates like gt() or lt() for numeric columns'
                 )
-            
+
             predicates[col] = val
     filter_dict_concrete = filter_dict if not predicates else {
         k: v
