@@ -95,7 +95,7 @@ class Chain(ASTSerializable):
                     suggestion="Use n() for nodes, e()/e_forward()/e_reverse() for edges",
                 )
 
-    def _get_child_validators(self) -> List[ASTObject]:
+    def _get_child_validators(self) -> List[ASTSerializable]:
         """Return operations for validation."""
         # Only return valid ASTObject instances
         if not isinstance(self.chain, list):
@@ -138,7 +138,7 @@ class Chain(ASTSerializable):
         # Import here to avoid circular dependency
         from .ast import from_json as ASTObject_from_json
 
-        ops = [ASTObject_from_json(op, validate=validate) for op in d["chain"]]
+        ops = cast(List[ASTObject], [ASTObject_from_json(op, validate=validate) for op in d["chain"]])
         out = cls(ops)
 
         if validate:
