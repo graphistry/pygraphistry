@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Fixed
+* Engine: Fix resolve_engine() to use dynamic import for Plottable isinstance check to avoid Jinja dependency from pandas df.style getter (#701)
+
 ### Docs
 * Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
 * GFQL: Add comprehensive specification documentation (#698)
