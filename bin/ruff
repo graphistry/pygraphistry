@@ -1,9 +1,0 @@
-#!/bin/bash
-# Ruff wrapper - PyGraphistry uses flake8 for linting
-# This script provides ruff-like interface but runs flake8
-
-echo "Note: PyGraphistry uses flake8 for linting, not ruff"
-echo "Running flake8 instead..."
-echo
-
-exec "$(dirname "$0")/lint.sh"
