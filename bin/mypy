@@ -1,4 +1,0 @@
-#!/bin/bash
-# MyPy wrapper - convenience script
-
-exec "$(dirname "$0")/typecheck.sh"
