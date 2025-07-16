@@ -160,7 +160,6 @@ Choose between fail-fast and collect-all modes:
 Next Steps
 ----------
 
-* :doc:`advanced` - Complex queries and multi-hop validation
 * :doc:`llm` - AI integration patterns
 * :doc:`production` - Production deployment patterns
 
