@@ -39,8 +39,16 @@ def resolve_engine(
         return Engine(engine.value)
 
     if g_or_df is not None:
-        from graphistry.Plottable import Plottable
-        if isinstance(g_or_df, Plottable):
+        # Use dynamic import to avoid Jinja dependency issues from pandas df.style getter
+        try:
+            from graphistry.plotter import Plotter
+            is_plottable = isinstance(g_or_df, Plotter)
+        except ImportError:
+            # Fallback to old import if plotter module not available
+            from graphistry.Plottable import Plottable
+            is_plottable = isinstance(g_or_df, Plottable)
+        
+        if is_plottable:
             if g_or_df._nodes is not None and g_or_df._edges is not None:
                 if not isinstance(g_or_df._nodes, type(g_or_df._edges)):
                     #raise ValueError(f'Edges and nodes must be same type for auto engine selection, got: {type(g_or_df._edges)} and {type(g_or_df._nodes)}')
