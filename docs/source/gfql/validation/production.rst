@@ -263,7 +263,7 @@ Pre-commit Hooks
            try:
                validate_gfql_in_file(filepath)
            except GFQLValidationError as e:
-               print(f"❌ {filepath}: [{e.code}] {e.message}")
+               print(f"ERROR {filepath}: [{e.code}] {e.message}")
                exit_code = 1
        sys.exit(exit_code)
 
@@ -449,15 +449,15 @@ Security Considerations
 Production Checklist
 --------------------
 
-* ✅ **Built-in Validation**: Use GFQL's automatic validation system
-* ✅ **Caching**: Implement validation result caching
-* ✅ **Batch Processing**: Validate multiple queries efficiently
-* ✅ **Testing**: Comprehensive test coverage with pytest
-* ✅ **CI/CD**: Automated validation in GitHub Actions
-* ✅ **Monitoring**: Track metrics and error patterns by code
-* ✅ **API Design**: RESTful endpoints with structured error responses
-* ✅ **Security**: Rate limiting and operation count limits
-* ✅ **Error Codes**: Use structured error codes for programmatic handling
+* **Built-in Validation**: Use GFQL's automatic validation system
+* **Caching**: Implement validation result caching
+* **Batch Processing**: Validate multiple queries efficiently
+* **Testing**: Comprehensive test coverage with pytest
+* **CI/CD**: Automated validation in GitHub Actions
+* **Monitoring**: Track metrics and error patterns by code
+* **API Design**: RESTful endpoints with structured error responses
+* **Security**: Rate limiting and operation count limits
+* **Error Codes**: Use structured error codes for programmatic handling
 
 Performance Guidelines
 ----------------------
