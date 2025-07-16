@@ -1,4 +1,9 @@
-"""Enhanced chain function with validation support."""
+"""Enhanced chain function with validation support.
+
+.. deprecated:: 0.34.0
+   This module uses the old validation system. Use the built-in validation
+   in chain() which is enabled by default with validate_schema=True.
+"""
 
 from typing import Union, List, Optional
 from graphistry.Plottable import Plottable
