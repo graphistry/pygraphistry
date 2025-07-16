@@ -6,7 +6,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .ast import ASTObject, ASTNode, ASTEdge
 from .typing import DataFrameT
 
 logger = setup_logger(__name__)
@@ -19,23 +19,135 @@ class Chain(ASTSerializable):
 
     def __init__(self, chain: List[ASTObject]) -> None:
         self.chain = chain
+    
+    def validate(self, collect_all: bool = False):
+        """Override to handle multiple operation errors."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
+        
+        if not collect_all:
+            # Use parent's fail-fast implementation
+            return super().validate(collect_all=False)
+        
+        # Custom collect_all implementation for Chain
+        errors = []
+        
+        # Check chain is a list
+        if not isinstance(self.chain, list):
+            errors.append(GFQLTypeError(
+                ErrorCode.E101,
+                "Chain must be a list of operations",
+                field="chain",
+                value=type(self.chain).__name__,
+                suggestion="Wrap your operations in a list: Chain([n(), e(), n()])"
+            ))
+            return errors  # Can't continue if not a list
+        
+        # Empty chain is allowed for backward compatibility
+        
+        # Check each operation
+        for i, op in enumerate(self.chain):
+            if not isinstance(op, ASTObject):
+                errors.append(GFQLTypeError(
+                    ErrorCode.E101,
+                    f"Operation at index {i} is not a valid GFQL operation",
+                    field=f"chain[{i}]",
+                    value=type(op).__name__,
+                    operation_index=i,
+                    suggestion="Use n() for nodes, e()/e_forward()/e_reverse() for edges"
+                ))
+            else:
+                # Validate the operation
+                op_errors = op.validate(collect_all=True)
+                if op_errors:
+                    errors.extend(op_errors)
+        
+        return errors
 
-    def validate(self) -> None:
-        assert isinstance(self.chain, list)
-        for op in self.chain:
-            assert isinstance(op, ASTObject)
-            op.validate()
+    def _validate_fields(self) -> None:
+        """Validate chain structure and operations."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
+        
+        # Check chain is a list
+        if not isinstance(self.chain, list):
+            raise GFQLTypeError(
+                ErrorCode.E101,
+                "Chain must be a list of operations",
+                field="chain",
+                value=type(self.chain).__name__,
+                suggestion="Wrap your operations in a list: Chain([n(), e(), n()])"
+            )
+        
+        # Empty chain is allowed for backward compatibility
+        
+        # Check each operation - but only raise on first error
+        # collect_all mode is handled by parent class
+        for i, op in enumerate(self.chain):
+            if not isinstance(op, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E101,
+                    f"Operation at index {i} is not a valid GFQL operation",
+                    field=f"chain[{i}]",
+                    value=type(op).__name__,
+                    operation_index=i,
+                    suggestion="Use n() for nodes, e()/e_forward()/e_reverse() for edges"
+                )
+    
+    def _get_child_validators(self) -> List[ASTObject]:
+        """Return operations for validation."""
+        # Only return valid ASTObject instances
+        if not isinstance(self.chain, list):
+            return []
+        return [op for op in self.chain if isinstance(op, ASTObject)]
 
     @classmethod
-    def from_json(cls, d: Dict[str, JSONVal]) -> 'Chain':
+    def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> 'Chain':
         """
         Convert a JSON AST into a list of ASTObjects
+        
+        Args:
+            d: Dictionary with 'chain' key containing list of operations
+            validate: If True (default), validate after parsing
+            
+        Returns:
+            Chain object
+            
+        Raises:
+            GFQLValidationError: If validate=True and validation fails
         """
-        assert isinstance(d, dict)
-        assert 'chain' in d
-        assert isinstance(d['chain'], list)
-        out = cls([ASTObject_from_json(op) for op in d['chain']])
-        out.validate()
+        from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
+        
+        if not isinstance(d, dict):
+            raise GFQLSyntaxError(
+                ErrorCode.E101,
+                "Chain JSON must be a dictionary",
+                value=type(d).__name__
+            )
+        
+        if 'chain' not in d:
+            raise GFQLSyntaxError(
+                ErrorCode.E105,
+                "Chain JSON missing required 'chain' field",
+                suggestion="Add 'chain' field with list of operations"
+            )
+        
+        if not isinstance(d['chain'], list):
+            raise GFQLSyntaxError(
+                ErrorCode.E101,
+                "Chain field must be a list",
+                field="chain",
+                value=type(d['chain']).__name__
+            )
+        
+        # Parse operations with same validation setting
+        # Import here to avoid circular dependency
+        from .ast import from_json as ASTObject_from_json
+        
+        ops = [ASTObject_from_json(op, validate=validate) for op in d['chain']]
+        out = cls(ops)
+        
+        if validate:
+            out.validate()
+        
         return out
 
     def to_json(self, validate=True) -> Dict[str, JSONVal]:
@@ -145,7 +257,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = False) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -157,6 +269,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     Use `engine='cudf'` to force automatic GPU acceleration mode
 
     :param ops: List[ASTObject] Various node and edge matchers
+    :param validate_schema: If True, pre-validate operations against graph schema before execution
 
     :returns: Plotter
     :rtype: Plotter
@@ -246,6 +359,11 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
 
     if isinstance(ops, Chain):
         ops = ops.chain
+    
+    # Pre-validate schema if requested
+    if validate_schema:
+        from graphistry.compute.validate_schema import validate_chain_schema
+        validate_chain_schema(self, ops, collect_all=False)
 
     if len(ops) == 0:
         return self
