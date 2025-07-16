@@ -120,39 +120,18 @@ chain = Chain([
 
 ### Schema Validation
 
-You have two options for validating queries against your data schema:
-
-1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
-2. **Validate-and-run**: Use `g.chain(..., validate_schema=True)` to validate before execution
+Schema validation happens during execution or can be done pre-emptively:
 
 ```python
-# Method 1: Validate-only (no execution)
-from graphistry.compute.validate_schema import validate_chain_schema
+# Runtime validation (automatic)
+result = g.chain([
+    n({'missing_column': 'value'})  # Raises GFQLSchemaError during execution
+])
 
-chain = Chain([n({'missing_column': 'value'})])
-try:
-    validate_chain_schema(g, chain)  # Only validates, doesn't execute
-    print("Chain is valid for this graph")
-except GFQLSchemaError as e:
-    print(f"Schema incompatibility: {e}")
-    print("No query was executed")
-
-# Method 2: Runtime validation (automatic)
-try:
-    result = g.chain([
-        n({'missing_column': 'value'})
-    ])  # Validates during execution, raises GFQLSchemaError
-except GFQLSchemaError as e:
-    print(f"Runtime validation error: {e}")
-
-# Method 3: Validate-and-run (pre-execution validation)
-try:
-    result = g.chain([
-        n({'missing_column': 'value'})
-    ], validate_schema=True)  # Validates first, only executes if valid
-except GFQLSchemaError as e:
-    print(f"Pre-execution validation failed: {e}")
-    print("Query was not executed")
+# Pre-execution validation (optional)
+result = g.chain([
+    n({'missing_column': 'value'})
+], validate_schema=True)  # Raises GFQLSchemaError before execution
 ```
 
 ### Error Types

@@ -1,4 +1,31 @@
-"""GFQL query validation utilities for syntax and schema checking."""
+"""GFQL query validation utilities for syntax and schema checking.
+
+.. deprecated:: 0.34.0
+   This module is deprecated. GFQL now has built-in validation.
+   See :doc:`/gfql/validation_migration_guide` for migration instructions.
+   
+   Instead of::
+   
+       from graphistry.compute.gfql.validate import validate_syntax
+       issues = validate_syntax(query)
+       
+   Use::
+   
+       from graphistry.compute.chain import Chain
+       try:
+           chain = Chain(query)  # Automatic validation
+       except GFQLValidationError as e:
+           print(f"[{e.code}] {e.message}")
+"""
+
+import warnings
+
+warnings.warn(
+    "The graphistry.compute.gfql.validate module is deprecated. "
+    "GFQL now has built-in validation. See the migration guide for details.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from typing import List, Optional, Dict, Union, Any, Tuple, TYPE_CHECKING
 import pandas as pd
