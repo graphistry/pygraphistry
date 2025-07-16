@@ -38,9 +38,9 @@ Quick Start
            e_forward(),
            n()
        ])
-       print("✅ Valid chain created!")
+       print("Valid chain created!")
    except GFQLValidationError as e:
-       print(f"❌ Error: [{e.code}] {e.message}")
+       print(f"Error: [{e.code}] {e.message}")
 
 Key Concepts
 ------------
@@ -69,13 +69,13 @@ Invalid Parameters
 
 .. code-block:: python
 
-   # ❌ Wrong - negative hops
+   # Wrong - negative hops
    try:
        chain = Chain([n(), e_forward(hops=-1)])
    except GFQLTypeError as e:
        print(f"Error: {e.message}")  # "hops must be a positive integer"
    
-   # ✅ Correct
+   # Correct
    chain = Chain([n(), e_forward(hops=2)])
 
 Missing Columns
@@ -83,14 +83,14 @@ Missing Columns
 
 .. code-block:: python
 
-   # ❌ Wrong - column doesn't exist
+   # Wrong - column doesn't exist
    try:
        result = g.chain([n({'category': 'VIP'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Column "category" does not exist
        print(f"Suggestion: {e.context.get('suggestion')}")
    
-   # ✅ Correct - use existing columns
+   # Correct - use existing columns
    result = g.chain([n({'type': 'customer'})])
 
 Type Mismatches
@@ -98,13 +98,13 @@ Type Mismatches
 
 .. code-block:: python
 
-   # ❌ Wrong - string value on numeric column
+   # Wrong - string value on numeric column
    try:
        result = g.chain([n({'score': 'high'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Type mismatch
    
-   # ✅ Correct - use numeric predicate
+   # Correct - use numeric predicate
    from graphistry.compute.predicates.numeric import gt
    result = g.chain([n({'score': gt(80)})])
 
