@@ -34,9 +34,9 @@ GFQL automatically validates complex queries during construction, catching error
            e_forward(hops=2),  # 2-hop traversal
            n({'risk_score': gt(50)})
        ])
-       print("✅ Complex query validated successfully")
+       print("Complex query validated successfully")
    except GFQLValidationError as e:
-       print(f"❌ Validation failed: [{e.code}] {e.message}")
+       print(f"Validation failed: [{e.code}] {e.message}")
 
 Named Operations
 ^^^^^^^^^^^^^^^^
@@ -125,13 +125,13 @@ GFQL validation warns about performance issues with unbounded traversals:
 
    # Good - bounded hops
    try:
-       chain = Chain([n(), e_forward(hops=3)])  # ✅ Explicit hop limit
+       chain = Chain([n(), e_forward(hops=3)])  # Explicit hop limit
    except GFQLTypeError as e:
        # Won't trigger - valid configuration
        pass
 
    # Warning - unbounded hops (still valid, but may be slow)
-   chain = Chain([n(), e_forward()])  # ⚠️ No hop limit - validate manually
+   chain = Chain([n(), e_forward()])  # No hop limit - validate manually
 
 Pre-execution Validation
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -148,9 +148,9 @@ Use pre-execution validation to catch performance issues early:
    # Pre-validate against actual data
    try:
        validate_chain_schema(g, chain, collect_all=False)
-       print("✅ Schema validation passed")
+       print("Schema validation passed")
    except GFQLSchemaError as e:
-       print(f"❌ Schema issue: [{e.code}] {e.message}")
+       print(f"Schema issue: [{e.code}] {e.message}")
        # Handle before expensive execution
 
 Query Complexity Estimation
