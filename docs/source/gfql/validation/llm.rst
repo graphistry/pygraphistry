@@ -190,8 +190,7 @@ System Prompt Template
    1. Use Chain() constructor with list of operations
    2. Valid operations: n(), e_forward(), e_reverse(), e_undirected()
    3. Use predicate functions: eq(), gt(), contains(), is_in(), etc.
-   4. Complex filters use and_(), or_() predicates
-   5. Schema validation happens automatically with validate_schema=True (default)
+   4. Schema validation happens automatically with validate_schema=True (default)
    
    Available columns:
    Nodes: [id, name, type, score]
