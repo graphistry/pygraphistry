@@ -14,39 +14,50 @@ Target Audience
 * Developers integrating LLMs with graph queries
 * Teams building automated query generation pipelines
 
-JSON Serialization
-------------------
+JSON Format
+-----------
 
-Convert between JSON and Chain objects for LLM interaction:
+Expected JSON format for GFQL queries:
+
+.. code-block:: json
+
+   {
+       "type": "Chain",
+       "chain": [
+           {"type": "Node", "filter_dict": {"type": "user"}},
+           {"type": "Edge", "direction": "forward", "hops": 2},
+           {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 80}}}
+       ]
+   }
+
+JSON Conversion
+---------------
+
+Convert between JSON and Chain objects:
 
 .. code-block:: python
 
    from graphistry.compute.exceptions import GFQLValidationError
    from graphistry.compute.chain import Chain
-   from graphistry.compute.validate_schema import validate_chain_schema
 
-   # Convert JSON from LLM to Chain
    def json_to_chain(json_data):
        """Parse JSON from LLM into Chain object."""
-       # Example JSON format:
-       # {
-       #     "type": "Chain",
-       #     "chain": [
-       #         {"type": "Node", "filter_dict": {"type": "user"}},
-       #         {"type": "Edge", "direction": "forward", "hops": 2},
-       #         {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 80}}}
-       #     ]
-       # }
        try:
            return Chain.from_json(json_data, validate=True)
        except GFQLValidationError as e:
            # Handle parse errors
-           return None, validation_error_to_dict(e)
-   
-   # Convert Chain to JSON for LLM examples
+           return None, e
+
    def chain_to_json(chain):
        """Convert Chain to JSON for LLM training/examples."""
        return chain.to_json(validate=False)  # Already validated
+
+Error Serialization
+-------------------
+
+Convert validation errors to structured format:
+
+.. code-block:: python
 
    def validation_error_to_dict(error: GFQLValidationError) -> dict:
        """Convert validation error to LLM-friendly format."""
@@ -60,6 +71,15 @@ Convert between JSON and Chain objects for LLM interaction:
            "error_type": error.__class__.__name__
        }
 
+Validation Examples
+-------------------
+
+Complete validation workflow:
+
+.. code-block:: python
+
+   from graphistry.compute.validate_schema import validate_chain_schema
+
    # Example: LLM generates JSON query
    llm_response = {
        "type": "Chain",
@@ -69,33 +89,25 @@ Convert between JSON and Chain objects for LLM interaction:
        ]
    }
    
-   # Parse and validate
-   chain_result = json_to_chain(llm_response)
-   if isinstance(chain_result, tuple):  # Error case
-       chain, error = chain_result
-       print(f"Parse error: {error}")
-       return
-   
-   chain = chain_result
-   
-   # Method 1: Separate syntax and schema validation
-   syntax_errors = chain.validate(collect_all=True)
-   
-   # Schema validation (if you have a graph)
-   schema_errors = []
-   if g:  # g is your Plottable instance
-       schema_errors = validate_chain_schema(g, chain, collect_all=True) or []
-   
-   # Combine all errors
-   all_errors = syntax_errors + schema_errors
-   serialized_errors = [validation_error_to_dict(error) for error in all_errors]
-   
-   # Method 2: Use g.chain() which validates automatically
-   # (but this executes the query if valid)
-   try:
-       result = graph.chain(operations)
-   except GFQLValidationError as e:
-       serialized_error = validation_error_to_dict(e)
+   # Parse JSON
+   result = json_to_chain(llm_response)
+   if isinstance(result, tuple):
+       chain, error = result
+       print(f"Parse error: {validation_error_to_dict(error)}")
+   else:
+       chain = result
+       
+       # Validate syntax
+       syntax_errors = chain.validate(collect_all=True)
+       
+       # Validate schema (if you have a graph)
+       schema_errors = []
+       if g:  # g is your Plottable instance
+           schema_errors = validate_chain_schema(g, chain, collect_all=True) or []
+       
+       # Serialize all errors
+       all_errors = syntax_errors + schema_errors
+       serialized_errors = [validation_error_to_dict(e) for e in all_errors]
 
 Error Categorization
 --------------------
