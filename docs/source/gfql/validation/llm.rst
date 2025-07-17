@@ -5,7 +5,7 @@ Learn how to integrate GFQL's built-in validation with Large Language Models and
 
 .. note::
    Explore the complete examples in 
-   `demos/gfql/gfql_validation_fundamentals.ipynb <https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/gfql_validation_fundamentals.ipynb>`_.
+   `GFQL Validation Fundamentals notebook <../../demos/gfql/gfql_validation_fundamentals.html>`_.
 
 Target Audience
 ---------------
