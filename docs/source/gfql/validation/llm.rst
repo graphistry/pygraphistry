@@ -71,16 +71,15 @@ Convert validation errors to structured format:
            "error_type": error.__class__.__name__
        }
 
-Validation Examples
+Validation Workflow
 -------------------
 
-Complete validation workflow:
+Parse Chain from JSON
+^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
-   from graphistry.compute.validate_schema import validate_chain_schema
-
-   # Example: LLM generates JSON query
+   # LLM generates JSON query
    llm_response = {
        "type": "Chain",
        "chain": [
@@ -89,25 +88,77 @@ Complete validation workflow:
        ]
    }
    
-   # Parse JSON
+   # Parse and handle errors
    result = json_to_chain(llm_response)
    if isinstance(result, tuple):
        chain, error = result
        print(f"Parse error: {validation_error_to_dict(error)}")
+       # Return error to LLM for correction
    else:
+       chain = result
+
+Validate Chain Syntax
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   # Validate syntax and structure
+   syntax_errors = chain.validate(collect_all=True)
+   
+   if syntax_errors:
+       print(f"Found {len(syntax_errors)} syntax errors")
+       for error in syntax_errors:
+           print(f"  [{error.code}] {error.message}")
+
+Validate Against Schema
+^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   from graphistry.compute.validate_schema import validate_chain_schema
+   
+   # Validate against actual data schema
+   schema_errors = []
+   if g:  # Your Plottable instance with data
+       schema_errors = validate_chain_schema(g, chain, collect_all=True) or []
+       
+       if schema_errors:
+           print(f"Found {len(schema_errors)} schema errors")
+           for error in schema_errors:
+               print(f"  [{error.code}] {error.message}")
+
+Combined Validation
+^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   # Complete validation pipeline
+   def validate_llm_query(json_data, graph=None):
+       """Full validation with detailed feedback."""
+       # Parse
+       result = json_to_chain(json_data)
+       if isinstance(result, tuple):
+           return {"success": False, "parse_errors": [validation_error_to_dict(result[1])]}
+       
        chain = result
        
        # Validate syntax
        syntax_errors = chain.validate(collect_all=True)
        
-       # Validate schema (if you have a graph)
+       # Validate schema if graph provided
        schema_errors = []
-       if g:  # g is your Plottable instance
-           schema_errors = validate_chain_schema(g, chain, collect_all=True) or []
+       if graph:
+           schema_errors = validate_chain_schema(graph, chain, collect_all=True) or []
        
-       # Serialize all errors
-       all_errors = syntax_errors + schema_errors
-       serialized_errors = [validation_error_to_dict(e) for e in all_errors]
+       # Return results
+       if syntax_errors or schema_errors:
+           return {
+               "success": False,
+               "syntax_errors": [validation_error_to_dict(e) for e in syntax_errors],
+               "schema_errors": [validation_error_to_dict(e) for e in schema_errors]
+           }
+       
+       return {"success": True, "chain": chain}
 
 Error Categorization
 --------------------
