@@ -15,7 +15,7 @@ def layout_non_bulk_mode(
     partition_key: str,
     layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]],
     layout_params: Optional[Dict[str, Any]],
-    engine: Engine
+    engine: Engine,
     self_selfless: Plottable
 ) -> Tuple[List[pd.DataFrame], float, float, Dict[int, Tuple[int, float]]]:
     """
