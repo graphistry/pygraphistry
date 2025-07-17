@@ -21,7 +21,7 @@ jobs:
   gpu-permission:
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
+      (github.event_name == 'pull_request' && contains(fromJson('["lmeyerov", "tanmoyio", "aucahuasi", "silkspace", "DataBoyTx"]'), github.actor))
     runs-on: ubuntu-latest
     steps:
       - name: Do nothing
@@ -48,7 +48,6 @@ jobs:
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
     runs-on:
       group: GPU Runners - Public
-    environment: gpu-staff
 
     strategy:
       matrix:
