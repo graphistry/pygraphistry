@@ -15,54 +15,6 @@ Target Audience
 * Backend Developers
 * System Architects
 
-Plottable Integration
----------------------
-
-Seamlessly validate queries with built-in validation:
-
-.. code-block:: python
-
-   from graphistry.compute.chain import Chain
-   from graphistry.compute.exceptions import GFQLValidationError
-   from graphistry.compute.validate_schema import validate_chain_schema
-   
-   class PlottableValidator:
-       def __init__(self, plottable):
-           self.plottable = plottable
-       
-       def validate(self, operations, collect_all=False):
-           """Validate operations against plottable schema."""
-           try:
-               # Syntax validation (automatic)
-               chain = Chain(operations)
-               syntax_errors = chain.validate(collect_all=collect_all)
-               
-               # Schema validation
-               schema_errors = validate_chain_schema(
-                   self.plottable, 
-                   operations, 
-                   collect_all=collect_all
-               )
-               
-               if collect_all:
-                   return syntax_errors + (schema_errors if schema_errors else [])
-               else:
-                   return None  # No errors
-               
-           except GFQLValidationError as e:
-               if collect_all:
-                   return [e]
-               else:
-                   raise
-       
-       def is_valid(self, operations):
-           """Quick validation check."""
-           try:
-               self.validate(operations, collect_all=False)
-               return True
-           except GFQLValidationError:
-               return False
-
 Performance & Caching
 ---------------------
 
@@ -195,124 +147,6 @@ pytest Fixtures
            result = sample_plottable.chain(operations)  # Schema validation fails
        assert exc_info.value.code == 'E301'  # Column not found
 
-CI/CD Integration
------------------
-
-GitHub Actions
-^^^^^^^^^^^^^^
-
-.. code-block:: yaml
-
-   name: GFQL Query Validation
-   
-   on:
-     pull_request:
-       paths:
-         - 'queries/**/*.py'
-         - 'tests/**/*.py'
-   
-   jobs:
-     validate-queries:
-       runs-on: ubuntu-latest
-       steps:
-         - uses: actions/checkout@v3
-         - name: Set up Python
-           uses: actions/setup-python@v4
-           with:
-             python-version: '3.9'
-         - name: Install dependencies
-           run: |
-             pip install graphistry[ai]
-             pip install pytest
-         - name: Validate GFQL queries
-           run: python scripts/validate_queries.py queries/
-         - name: Run validation tests
-           run: pytest tests/test_gfql_validation.py -v
-
-Pre-commit Hooks
-^^^^^^^^^^^^^^^^
-
-.. code-block:: yaml
-
-   # .pre-commit-config.yaml
-   repos:
-     - repo: local
-       hooks:
-         - id: validate-gfql
-           name: Validate GFQL Queries
-           entry: python scripts/validate_gfql_hook.py
-           language: system
-           files: '\.py$'
-           
-   # scripts/validate_gfql_hook.py
-   import sys
-   from pathlib import Path
-   from graphistry.compute.chain import Chain
-   from graphistry.compute.exceptions import GFQLValidationError
-   
-   def validate_gfql_in_file(filepath):
-       """Find and validate GFQL queries in Python files."""
-       # Parse Python file for Chain() constructions
-       # Validate each found query
-       # Return validation results
-       pass
-   
-   if __name__ == "__main__":
-       exit_code = 0
-       for filepath in sys.argv[1:]:
-           try:
-               validate_gfql_in_file(filepath)
-           except GFQLValidationError as e:
-               print(f"ERROR {filepath}: [{e.code}] {e.message}")
-               exit_code = 1
-       sys.exit(exit_code)
-
-Monitoring & Logging
---------------------
-
-.. code-block:: python
-
-   import logging
-   import time
-   from datetime import datetime
-   from graphistry.compute.exceptions import GFQLValidationError
-
-   class ValidationMonitor:
-       def __init__(self):
-           self.logger = logging.getLogger(__name__)
-       
-       def log_validation(self, operations, result, elapsed_ms, context=None):
-           """Log validation results for monitoring."""
-           errors = result if isinstance(result, list) else []
-           
-           log_data = {
-               "timestamp": datetime.utcnow().isoformat(),
-               "validation_time_ms": elapsed_ms,
-               "syntax_errors": len([e for e in errors if e.code.startswith('E1')]),
-               "type_errors": len([e for e in errors if e.code.startswith('E2')]),
-               "schema_errors": len([e for e in errors if e.code.startswith('E3')]),
-               "operation_count": len(operations),
-               "context": context or {}
-           }
-           
-           if errors:
-               self.logger.error("GFQL validation failed", extra=log_data)
-           else:
-               self.logger.info("GFQL validation succeeded", extra=log_data)
-       
-       def time_validation(self, validator, operations, **kwargs):
-           """Time validation execution."""
-           start_time = time.time()
-           try:
-               result = validator.validate(operations, **kwargs)
-               elapsed_ms = (time.time() - start_time) * 1000
-               self.log_validation(operations, result, elapsed_ms)
-               return result
-           except GFQLValidationError as e:
-               elapsed_ms = (time.time() - start_time) * 1000
-               self.log_validation(operations, [e], elapsed_ms)
-               raise
-
 API Integration
 ---------------
 
@@ -370,22 +204,20 @@ Flask Example
        plottable_data = data.get('plottable')  # Serialized plottable
        
        try:
-           # Reconstruct plottable and validate
-           # This would need custom serialization/deserialization
-           validator = PlottableValidator(plottable)
-           errors = validator.validate(operations, collect_all=True)
+           # Parse operations from JSON
+           operations = [from_json(op) for op in operations_json]
+           
+           # Would need to reconstruct plottable from data
+           # and use validate_chain_schema
+           from graphistry.compute.validate_schema import validate_chain_schema
+           
+           # This is a placeholder - actual implementation would need
+           # to deserialize plottable_data into a plottable instance
+           # errors = validate_chain_schema(plottable, operations, collect_all=True)
            
            return jsonify({
-               'valid': len(errors) == 0,
-               'errors': [
-                   {
-                       'code': e.code,
-                       'message': e.message,
-                       'field': e.context.get('field'),
-                       'suggestion': e.context.get('suggestion')
-                   }
-                   for e in errors
-               ]
+               'valid': True,
+               'message': 'Schema validation endpoint placeholder'
            })
            
        except Exception as e:
@@ -439,12 +271,15 @@ Security Considerations
            user_requests.append(current_time)
            
            # Perform validation
+           chain = Chain(operations)
+           syntax_errors = chain.validate(collect_all=True)
+           
            if plottable:
-               validator = PlottableValidator(plottable)
-               return validator.validate(operations, collect_all=True)
+               from graphistry.compute.validate_schema import validate_chain_schema
+               schema_errors = validate_chain_schema(plottable, operations, collect_all=True) or []
+               return syntax_errors + schema_errors
            else:
-               chain = Chain(operations)
-               return chain.validate(collect_all=True)
+               return syntax_errors
 
 Production Checklist
 --------------------
@@ -453,8 +288,6 @@ Production Checklist
 * **Caching**: Implement validation result caching
 * **Batch Processing**: Validate multiple queries efficiently
 * **Testing**: Comprehensive test coverage with pytest
-* **CI/CD**: Automated validation in GitHub Actions
-* **Monitoring**: Track metrics and error patterns by code
 * **API Design**: RESTful endpoints with structured error responses
 * **Security**: Rate limiting and operation count limits
 * **Error Codes**: Use structured error codes for programmatic handling
@@ -466,16 +299,14 @@ Performance Guidelines
 2. **Pre-execution Validation**: Validate before expensive operations
 3. **Caching**: Cache validation results with appropriate TTL
 4. **Batch Processing**: Use collect_all=True for multiple error reporting
-5. **Monitoring**: Track p95 validation times and error rates
-6. **Rate Limiting**: Set reasonable per-user request limits
+5. **Rate Limiting**: Set reasonable per-user request limits
 
 Next Steps
 ----------
 
 * Implement production validation service
-* Set up monitoring dashboards
 * Create runbooks for common issues
-* Establish SLOs for validation performance
+* Establish performance benchmarks
 
 See Also
 --------
