@@ -93,12 +93,19 @@ Generate actionable suggestions using structured error context:
            }
            
            # Add specific fix actions based on error code
-           if error.code == ErrorCode.E103:  # Invalid parameter value
+           if error.code == ErrorCode.E103:  # Invalid parameter value (e.g., negative hops)
                fix["action"] = "replace_parameter"
-               fix["new_value"] = error.context.get("valid_range")
+               # Extract valid value from suggestion if present
+               if "positive integer" in error.message:
+                   fix["fix_hint"] = "Use a positive integer value"
            elif error.code == ErrorCode.E301:  # Column not found
                fix["action"] = "replace_column"
-               fix["available_columns"] = error.context.get("available_columns")
+               # Available columns are in the suggestion text
+               if error.context.get("suggestion") and "Available columns:" in error.context.get("suggestion"):
+                   fix["available_columns_hint"] = error.context.get("suggestion")
+           elif error.code == ErrorCode.E302:  # Type mismatch
+               fix["action"] = "fix_type_mismatch"
+               fix["column_type"] = error.context.get("column_type")
            
            fixes.append(fix)
        
