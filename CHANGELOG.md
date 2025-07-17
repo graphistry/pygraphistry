@@ -9,12 +9,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * GFQL: Add comprehensive validation framework with detailed error reporting
-  * New validation methods: `validate()` for all AST components
-  * Structured error types: `GFQLValidationError`, `GFQLTypeError`, `GFQLSyntaxError` 
-  * Error codes (E101-E302) for consistent error identification
-  * Helpful suggestions for common mistakes
-  * Recursive validation for nested predicates and operations
-  * Example notebook: `gfql_validation_examples.ipynb` demonstrating validation usage
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
+
+### Fixed
+* Engine: Fix resolve_engine() to use dynamic import for Plottable isinstance check to avoid Jinja dependency from pandas df.style getter (#701)
 
 ### Docs
 * Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
