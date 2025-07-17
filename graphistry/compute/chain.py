@@ -152,7 +152,10 @@ class Chain(ASTSerializable):
         """
         if validate:
             self.validate()
-        return {'type': self.__class__.__name__, 'chain': [op.to_json() for op in self.chain]}
+        return {
+            'type': self.__class__.__name__,
+            'chain': [op.to_json() for op in self.chain]
+        }
 
 
 ###############################################################################
@@ -168,7 +171,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
     op_type = ASTNode if kind == "nodes" else ASTEdge
 
     if id is None:
-        raise ValueError(f"Cannot combine steps with empty id for kind {kind}")
+        raise ValueError(f'Cannot combine steps with empty id for kind {kind}')
 
     logger.debug("combine_steps ops pre: %s", [op for (op, _) in steps])
     if kind == "edges":

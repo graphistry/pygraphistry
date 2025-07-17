@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * New validation methods: `validate()` for all AST components
+  * Structured error types: `GFQLValidationError`, `GFQLTypeError`, `GFQLSyntaxError` 
+  * Error codes (E101-E302) for consistent error identification
+  * Helpful suggestions for common mistakes
+  * Recursive validation for nested predicates and operations
+  * Example notebook: `gfql_validation_examples.ipynb` demonstrating validation usage
+
 ### Docs
 * Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
 * GFQL: Add comprehensive specification documentation (#698)
@@ -16,6 +25,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Wire protocol JSON format for client-server communication
   * Fix terminology: clarify g._node (node ID column) vs g._nodes (DataFrame)
   * Emphasize GFQL's declarative nature for graph-to-graph transformations
+  * Add validation framework documentation with error code reference
 
 ## [0.39.1 - 2025-07-07]
 
