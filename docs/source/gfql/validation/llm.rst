@@ -128,35 +128,6 @@ Combined Validation
        
        return {"success": True, "chain": chain}
 
-Error Categorization
---------------------
-
-Prioritize fixes for LLM processing using error codes:
-
-.. code-block:: python
-
-   from graphistry.compute.exceptions import ErrorCode
-
-   def categorize_errors(errors):
-       """Categorize errors by severity for LLM processing."""
-       categories = {
-           "critical": [],    # Must fix - syntax errors (E1xx)
-           "important": [],   # Should fix - type errors (E2xx)
-           "data_issues": []  # Schema errors (E3xx)
-       }
-       
-       for error in errors:
-           error_dict = validation_error_to_dict(error)
-           
-           if error.code.startswith('E1'):
-               categories["critical"].append(error_dict)
-           elif error.code.startswith('E2'):
-               categories["important"].append(error_dict)
-           elif error.code.startswith('E3'):
-               categories["data_issues"].append(error_dict)
-       
-       return categories
-
 Automated Fix Suggestions
 -------------------------
 
