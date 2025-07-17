@@ -229,57 +229,63 @@ Flask Example
 Security Considerations
 -----------------------
 
+GFQL is designed with security in mind to prevent arbitrary code execution:
+
+**Safe Query Generation**
+
+Instead of generating Python code directly, generate JSON and use GFQL's validation:
+
 .. code-block:: python
 
-   import time
-   from collections import defaultdict
-   from graphistry.compute.exceptions import GFQLValidationError
+   # DON'T: Generate Python code (security risk)
+   # query = f"g.chain([n({{'user_id': '{user_input}'}})])"
+   # eval(query)  # NEVER DO THIS
+   
+   # DO: Generate JSON and validate
+   query_json = {
+       "type": "Chain",
+       "chain": [{
+           "type": "Node",
+           "filter_dict": {"user_id": user_input}
+       }]
+   }
+   
+   # Safe parsing with validation
+   from graphistry.compute.chain import Chain
+   chain = Chain.from_json(query_json, validate=True)
+   result = g.chain(chain.chain)
 
-   class SecureValidator:
-       def __init__(self, max_operations=50, rate_limit_per_minute=100):
-           self.max_operations = max_operations
-           self.rate_limit_per_minute = rate_limit_per_minute
-           self.request_counts = defaultdict(list)
+**Key Security Features**
+
+1. **No Code Execution**: GFQL operations are data structures, not executable code
+2. **Input Validation**: All inputs are validated against strict schemas
+3. **Type Safety**: Strong typing prevents injection attacks
+4. **Bounded Operations**: Queries have defined limits (e.g., max hops)
+
+**Rate Limiting Example**
+
+.. code-block:: python
+
+   from collections import defaultdict
+   import time
+   
+   class RateLimiter:
+       def __init__(self, requests_per_minute=100):
+           self.requests_per_minute = requests_per_minute
+           self.request_times = defaultdict(list)
        
-       def validate_secure(self, operations, user_id, plottable=None):
-           """Validate with security checks."""
-           current_time = time.time()
+       def check_rate_limit(self, user_id):
+           now = time.time()
+           user_requests = self.request_times[user_id]
            
-           # Check rate limit
-           user_requests = self.request_counts[user_id]
-           # Clean old requests (older than 1 minute)
-           user_requests[:] = [t for t in user_requests if current_time - t < 60]
+           # Clean old requests
+           user_requests[:] = [t for t in user_requests if now - t < 60]
            
-           if len(user_requests) >= self.rate_limit_per_minute:
-               raise GFQLValidationError(
-                   'S001',
-                   f'Rate limit exceeded: {self.rate_limit_per_minute} requests per minute',
-                   field='rate_limit',
-                   suggestion=f'Wait {60 - (current_time - user_requests[0]):.1f} seconds'
-               )
+           if len(user_requests) >= self.requests_per_minute:
+               return False, f"Rate limit exceeded. Try again in {60 - (now - user_requests[0]):.0f} seconds"
            
-           # Check query size
-           if len(operations) > self.max_operations:
-               raise GFQLValidationError(
-                   'S002',
-                   f'Query too large: {len(operations)} operations (max: {self.max_operations})',
-                   field='operations',
-                   suggestion=f'Reduce query to {self.max_operations} operations or fewer'
-               )
-           
-           # Record request
-           user_requests.append(current_time)
-           
-           # Perform validation
-           chain = Chain(operations)
-           syntax_errors = chain.validate(collect_all=True)
-           
-           if plottable:
-               from graphistry.compute.validate_schema import validate_chain_schema
-               schema_errors = validate_chain_schema(plottable, operations, collect_all=True) or []
-               return syntax_errors + schema_errors
-           else:
-               return syntax_errors
+           user_requests.append(now)
+           return True, None
 
 Production Checklist
 --------------------
@@ -289,7 +295,8 @@ Production Checklist
 * **Batch Processing**: Validate multiple queries efficiently
 * **Testing**: Comprehensive test coverage with pytest
 * **API Design**: RESTful endpoints with structured error responses
-* **Security**: Rate limiting and operation count limits
+* **Security**: Generate JSON instead of Python code, use validation
+* **Rate Limiting**: Implement per-user request limits
 * **Error Codes**: Use structured error codes for programmatic handling
 
 Performance Guidelines
