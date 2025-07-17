@@ -5,7 +5,7 @@ Learn how to use GFQL's built-in validation system to catch errors early and bui
 
 .. note::
    This guide is accompanied by an interactive Jupyter notebook. To run the examples yourself, see 
-   `demos/gfql/gfql_validation_fundamentals.ipynb <https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/gfql_validation_fundamentals.ipynb>`_.
+   `GFQL Validation Fundamentals notebook <../../demos/gfql/gfql_validation_fundamentals.html>`_.
 
 What You'll Learn
 -----------------

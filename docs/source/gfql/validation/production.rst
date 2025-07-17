@@ -5,7 +5,7 @@ Production-ready patterns for GFQL built-in validation in platform engineering a
 
 .. note::
    See complete implementation examples in 
-   `demos/gfql/gfql_validation_fundamentals.ipynb <https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/gfql_validation_fundamentals.ipynb>`_.
+   `GFQL Validation Fundamentals notebook <../../demos/gfql/gfql_validation_fundamentals.html>`_.
 
 Target Audience
 ---------------
