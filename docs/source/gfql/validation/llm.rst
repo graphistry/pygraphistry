@@ -14,10 +14,10 @@ Target Audience
 * Developers integrating LLMs with graph queries
 * Teams building automated query generation pipelines
 
-Working with JSON
------------------
+JSON Integration
+----------------
 
-GFQL queries can be serialized to/from JSON for LLM integration. Expected format:
+GFQL queries use JSON for LLM integration:
 
 .. code-block:: json
 
@@ -30,7 +30,11 @@ GFQL queries can be serialized to/from JSON for LLM integration. Expected format
        ]
    }
 
-Convert between JSON and query objects:
+Validation Workflow
+-------------------
+
+Parse and Validate
+^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
@@ -49,13 +53,6 @@ Convert between JSON and query objects:
        """Convert query to JSON for LLM training/examples."""
        return chain.to_json(validate=False)  # Already validated
 
-Error Serialization
--------------------
-
-Convert validation errors to structured format:
-
-.. code-block:: python
-
    def validation_error_to_dict(error: GFQLValidationError) -> dict:
        """Convert validation error to LLM-friendly format."""
        return {
@@ -67,32 +64,6 @@ Convert validation errors to structured format:
            "operation_index": error.context.get("operation_index"),
            "error_type": error.__class__.__name__
        }
-
-Validation Workflow
--------------------
-
-Parse Query from JSON
-^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   # LLM generates JSON query
-   llm_response = {
-       "type": "Chain",
-       "chain": [
-           {"type": "Node", "filter_dict": {"type": "customer"}},
-           {"type": "Edge", "direction": "forward"}
-       ]
-   }
-   
-   # Parse and handle errors
-   result = json_to_chain(llm_response)
-   if isinstance(result, tuple):
-       chain, error = result
-       print(f"Parse error: {validation_error_to_dict(error)}")
-       # Return error to LLM for correction
-   else:
-       chain = result
 
 Validate Query Syntax
 ^^^^^^^^^^^^^^^^^^^^^
