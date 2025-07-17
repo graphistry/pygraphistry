@@ -37,11 +37,27 @@ Convert validation results to structured formats for LLMs:
 
    # Usage with collect-all mode
    from graphistry.compute.chain import Chain
+   from graphistry.compute.validate_schema import validate_chain_schema
    
+   # Method 1: Separate syntax and schema validation
    chain = Chain(operations)
-   errors = chain.validate(collect_all=True)
+   syntax_errors = chain.validate(collect_all=True)
    
-   serialized_errors = [validation_error_to_dict(error) for error in errors]
+   # Schema validation (if you have a graph)
+   schema_errors = []
+   if graph:  # graph is your Plottable instance
+       schema_errors = validate_chain_schema(graph, chain, collect_all=True) or []
+   
+   # Combine all errors
+   all_errors = syntax_errors + schema_errors
+   serialized_errors = [validation_error_to_dict(error) for error in all_errors]
+   
+   # Method 2: Use g.chain() which validates automatically
+   # (but this executes the query if valid)
+   try:
+       result = graph.chain(operations, validate_schema=True)  # default
+   except GFQLValidationError as e:
+       serialized_error = validation_error_to_dict(e)
 
 Error Categorization
 --------------------
