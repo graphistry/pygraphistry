@@ -16,6 +16,7 @@ logger = setup_logger(__name__)
 
 
 class Chain(ASTSerializable):
+
     def __init__(self, chain: List[ASTObject]) -> None:
         self.chain = chain
 
@@ -103,7 +104,7 @@ class Chain(ASTSerializable):
         return [op for op in self.chain if isinstance(op, ASTObject)]
 
     @classmethod
-    def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> "Chain":
+    def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> 'Chain':
         """
         Convert a JSON AST into a list of ASTObjects
 
