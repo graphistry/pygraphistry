@@ -89,7 +89,7 @@ def format_entities_from_col(
     defs: HyperBindings,
     cat_lookup: Dict[str, str],
     drop_na: bool,
-    engine: Engine
+    engine: Engine,
     col_name: str,
     df_with_col: DataframeLike,
     meta: pd.DataFrame,
@@ -330,7 +330,7 @@ def format_entities(
     defs: HyperBindings,
     direct: bool,
     drop_na: bool,
-    engine: Engine
+    engine: Engine,
     npartitions: Optional[int],
     chunksize: Optional[int],
     debug: bool = False) -> DataframeLike:
@@ -556,7 +556,7 @@ def shallow_copy(df: DataframeLike, engine: Engine, debug: bool = False) -> Data
 
 def df_coercion(  # noqa: C901
     df: DataframeLike,
-    engine: Engine
+    engine: Engine,
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
     debug: bool = False
@@ -631,7 +631,7 @@ def df_coercion(  # noqa: C901
 def clean_events(
     events: DataframeLike,
     defs: HyperBindings,
-    engine: Engine
+    engine: Engine,
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
     dropna: bool = False,  # FIXME https://github.com/rapidsai/cudf/issues/7735
