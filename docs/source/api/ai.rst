@@ -50,7 +50,6 @@ RGCN
 .. automodule:: graphistry.networks
     :members:
     :undoc-members:
-    :inherited-members:
     :show-inheritance:
 
 HeterographEmbedModuleMixin
@@ -58,5 +57,4 @@ HeterographEmbedModuleMixin
 .. automodule:: graphistry.embed_utils
     :members:
     :undoc-members:
-    :inherited-members:
     :show-inheritance:

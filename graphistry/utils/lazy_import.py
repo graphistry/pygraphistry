@@ -1,6 +1,6 @@
 from typing import Any
 import warnings
-from graphistry .util import setup_logger, check_set_memoize
+from graphistry .util import setup_logger
 logger = setup_logger(__name__)
 
 
@@ -72,6 +72,17 @@ def lazy_dirty_cat_import():
     try:
         import dirty_cat 
         return True, 'ok', dirty_cat
+    except ModuleNotFoundError as e:
+        return False, e, None
+    except Exception as e:
+        logger.warn('Unexpected exn during lazy import', exc_info=e)
+        return False, e, None
+
+def lazy_skrub_import():
+    warnings.filterwarnings("ignore")
+    try:
+        import skrub 
+        return True, 'ok', skrub
     except ModuleNotFoundError as e:
         return False, e, None
     except Exception as e:

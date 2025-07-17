@@ -11,6 +11,13 @@ class SsoRetrieveTokenTimeoutException(SsoException):
     """
     pass
 
+class SsoStateInvalidException(SsoException):
+    """
+    30 Jun 2025 Raised when the SSO state is missing, invalid, or not initialized during token retrieval.
+    """
+    pass
+
+
 
 class TokenExpireException(Exception):
     """

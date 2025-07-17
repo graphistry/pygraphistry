@@ -1,7 +1,9 @@
-from typing import Union, Tuple
+from typing import Dict, Union, Tuple
 
 import pandas as pd
 import logging
+
+from .util import setup_logger
 
 try: 
     import matplotlib.font_manager
@@ -18,7 +20,7 @@ except:
     OneClassSVM = None  # type: ignore
 
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 # #####################################################################################################################
@@ -94,7 +96,7 @@ def plot_outliers(
         fig (matplotlib.figure.Figure): figure of the plot and axes
     """
     colors = ["m", "r", "b", "g"]
-    legend1 = {}
+    legend1: Dict[str, plt.QuadContourSet] = {}
     if xy_extent is None:
         mminx, mmaxx = embedding.T[0].min(), embedding.T[0].max()
         mminy, mmaxy = embedding.T[1].min(), embedding.T[1].max()
@@ -145,10 +147,10 @@ def plot_outliers(
     plt.ylim((yy.min(), yy.max()))
     plt.legend(
         (
-            legend1_values_list[0].collections[0],
-            legend1_values_list[1].collections[0],
-            legend1_values_list[2].collections[0],
-            legend1_values_list[3].collections[0],
+            legend1_values_list[0],
+            legend1_values_list[1],
+            legend1_values_list[2],
+            legend1_values_list[3],
         ),
         (
             legend1_keys_list[0],

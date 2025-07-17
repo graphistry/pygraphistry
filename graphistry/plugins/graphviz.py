@@ -8,9 +8,10 @@ from graphistry.plugins_types.graphviz_types import (
     EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
     EdgeAttr, Format, GraphAttr, NodeAttr, Prog
 )
+from graphistry.util import setup_logger
 
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 ############################################

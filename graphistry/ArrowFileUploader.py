@@ -1,19 +1,19 @@
-import pyarrow as pa, requests, sys
-from functools import lru_cache
-from typing import Any, Tuple, Optional
-from weakref import WeakKeyDictionary
+import sys, threading, hashlib
+from typing import Any, Optional, Dict, Tuple
+import pyarrow as pa
+import pyarrow.ipc as pa_ipc
+import requests
 
 from graphistry.utils.requests import log_requests_error
 from .util import setup_logger
+
 logger = setup_logger(__name__)
 
+# metadata_hash -> { full_hash -> (response, file_id) }
+_CACHE: Dict[int, Dict[int, Tuple[str, dict]]] = {}
+_CACHE_LOCK = threading.RLock()
+_MAX_SAMPLE_COLS = 20  # cap for cheap sampling
 
-# WrappedTable -> {'file_id': str, 'output': dict}
-DF_TO_FILE_ID_CACHE : WeakKeyDictionary = WeakKeyDictionary()
-"""
-NOTE: Will switch to pa.Table -> ... when RAPIDS upgrades from pyarrow, 
-     which adds weakref support
-"""
 
 class ArrowFileUploader():
     """
@@ -50,10 +50,9 @@ class ArrowFileUploader():
 
     uploader : Any = None  # ArrowUploader, circular
 
-    def __init__(self, uploader):  # ArrowUploader
+    def __init__(self, uploader) -> None:
         self.uploader = uploader
 
-    ###
 
     def create_file(self, file_opts: dict = {}) -> str:
         """
@@ -63,7 +62,6 @@ class ArrowFileUploader():
               - file_type: 'arrow'
 
             See File REST API for file_opts
-
         """
 
         tok = self.uploader.token
@@ -123,58 +121,107 @@ class ArrowFileUploader():
     ###
 
     def create_and_post_file(
-        self, arr: pa.Table, file_id: Optional[str] = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True
+        self,
+        arr: pa.Table,
+        file_id: Optional[str] = None,
+        file_opts: dict = {},
+        upload_url_opts: str = "erase=true",
+        memoize: bool = True,
     ) -> Tuple[str, dict]:
         """
-            Create file and upload data for it.
+        Create a new file (unless `file_id` supplied) and upload `arr`.
 
-            Default upload_url_opts='erase=true' throws exceptions on parse errors and deletes upload.
+        If `memoize` is True (default):
 
-            Default memoize=True skips uploading 'arr' when previously uploaded in current session
-
-            See File REST API for file_opts (file create) and upload_url_opts (file upload)
+        * Returns a cached `file_id` when there is a hash match for the table,
+          in the file_id cache.
         """
+        md_hash = _hash_metadata(arr)
 
-        if memoize:
-            #FIXME if pa.Table was hashable, could do direct set/get map
-            wrapped_table : WrappedTable
-            val : MemoizedFileUpload
-            for wrapped_table, val in DF_TO_FILE_ID_CACHE.items():
-                if wrapped_table.arr is arr:
-                    logger.debug('arrow->file_id memoization hit: %s', val.file_id)
-                    return val.file_id, val.output
-            logger.debug('arrow->file_id memoization miss (of %s)', len(DF_TO_FILE_ID_CACHE))
+        bucket: Optional[Dict[int, Tuple[str, dict]]]
+        with _CACHE_LOCK:
+            bucket = _CACHE.get(md_hash)
 
+        fh: Optional[int] = None
+        if memoize and bucket is not None:
+            fh = _hash_full_table(arr)
+
+            with _CACHE_LOCK:
+                cached = bucket.get(fh)
+                if cached:
+                    logger.debug("Memoisation hit (md=%s, full=%s)", md_hash, fh)
+                    return cached
+
+        # Fresh upload
         if file_id is None:
             file_id = self.create_file(file_opts)
-        
+
+        # Upload
         resp = self.post_arrow(arr, file_id, upload_url_opts)
-        out = MemoizedFileUpload(file_id, resp)
 
         if memoize:
-            wrapped = WrappedTable(arr)
-            cache_arr(wrapped)
-            DF_TO_FILE_ID_CACHE[wrapped] = out
-            logger.debug('Memoized arrow->file_id %s', file_id)
-        
-        return out.file_id, out.output
+            fh = _hash_full_table(arr) if fh is None else fh
+            with _CACHE_LOCK:
+                _CACHE.setdefault(md_hash, {})[fh] = (file_id, resp)
+                logger.debug("Memoised new upload (md=%s, full=%s)", md_hash, fh)
 
-@lru_cache(maxsize=100)
-def cache_arr(arr):
+        return file_id, resp
+
+
+def _hash_metadata(table: pa.Table, max_cols: int = _MAX_SAMPLE_COLS) -> int:
     """
-        Hold reference to most recent memoization entries
-        Hack until RAPIDS supports Arrow 2.0, when pa.Table becomes weakly referenceable
+    Fast, approximate 64-bit digest of *shape*:
+        schema + metadata + col order + bytes + rows + sampled values
     """
-    return arr
+    digest = hashlib.sha256()
 
-class WrappedTable():
-    arr : pa.Table
-    def __init__(self, arr: pa.Table):
-        self.arr = arr
+    schema_str = str(table.schema)
+    meta_items = tuple(sorted((table.schema.metadata or {}).items()))
+    col_names = tuple(table.column_names)
+    num_rows = table.num_rows
 
-class MemoizedFileUpload():    
-    file_id: str
-    output: dict
-    def __init__(self, file_id: str, output: dict):
-        self.file_id = file_id
-        self.output = output
+    # total bytes – cheap property in >=1.0, fallback otherwise
+    if hasattr(table, "nbytes"):
+        nbytes = table.nbytes
+    else:
+        nbytes = 0
+
+    digest.update(schema_str.encode())
+    digest.update(str(meta_items).encode())
+    digest.update(str(col_names).encode())
+    digest.update(str(num_rows).encode())
+    digest.update(str(nbytes).encode())
+
+    # sample first / last row values (bulk, not scalar loop)
+    if num_rows:
+        ncols = min(len(col_names), max_cols)
+        for i in range(ncols):
+            col = table.column(i)
+            try:
+                first_v = col.slice(0, 1).to_pylist()[0]
+                last_v = col.slice(num_rows - 1, 1).to_pylist()[0]
+            except Exception:
+                first_v = last_v = None
+            digest.update(str(first_v).encode())
+            digest.update(str(last_v).encode())
+
+    return int.from_bytes(digest.digest()[:8], "big", signed=False)
+
+
+def _hash_full_table(table: pa.Table) -> int:
+    """
+    Precise 64-bit digest of the *entire* table.
+    """
+    digest = hashlib.sha256()
+
+    # schema (captures types, nullability, field names, etc.)
+    digest.update(str(table.schema).encode())
+
+    # stream all buffers
+    for column in table.columns:
+        for chunk in column.chunks:
+            for buf in chunk.buffers():
+                if buf:
+                    digest.update(buf)  # buffer protocol, zero‑copy
+
+    return int.from_bytes(digest.digest()[:8], "big", signed=False)

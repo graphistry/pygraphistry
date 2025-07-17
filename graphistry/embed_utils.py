@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple, cast
 
 from graphistry.utils.lazy_import import lazy_embed_import
 from .PlotterBase import Plottable
@@ -30,8 +30,27 @@ has_cudf, cudf = check_cudf()
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
 
-logging.StreamHandler.terminator = ""
+
+# Custom handler that doesn't add newlines (for tqdm compatibility)
+# This fixes issue #660 where we were globally modifying logging.StreamHandler.terminator
+# Now we only affect our own logger without breaking other libraries' logging
+class _NoTerminatorHandler(logging.StreamHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.terminator = ""
+
+
+# Set up logger with custom handler that won't affect global logging
 logger = logging.getLogger(__name__)
+# Clear handlers to ensure we only have our custom no-terminator handler
+logger.handlers.clear()
+_handler = _NoTerminatorHandler()
+_handler.setFormatter(logging.Formatter('%(message)s'))
+_handler.setLevel(logging.WARNING)  # Set level on handler
+logger.addHandler(_handler)
+logger.setLevel(logging.WARNING)
+# Propagate=False ensures our special formatting isn't overridden by parent loggers
+logger.propagate = False
 
 
 def log(msg:str) -> None:
@@ -53,9 +72,12 @@ class EmbedDistScore:
         return -(h * r - t).norm(p=1, dim=1)  # type: ignore
 
 
-class HeterographEmbedModuleMixin(MIXIN_BASE):
-    def __init__(self):
-        super().__init__()
+class HeterographEmbedModuleMixin(ComputeMixin):
+    _nodes: Any
+    _edges: Any
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         self._protocol = {
             "TransE": EmbedDistScore.TransE,
@@ -67,9 +89,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self._relation2id = {}
         self._id2node = {}
         self._id2relation = {}
-        self._relation = None
-        self._use_feat = False
-        self._kg_embed_dim = None
         self._kg_embeddings = None
         
         self._embed_model = None
@@ -300,7 +319,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if inplace:
             res = self
         else:
-            res = self.bind()
+            res = cast('HeterographEmbedModuleMixin', self.bind())
         
         requires_new_model = False
         if res._relation != relation:

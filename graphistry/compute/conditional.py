@@ -1,17 +1,9 @@
-import logging
 import pandas as pd
-from typing import Any, List, Union, TYPE_CHECKING
-from typing_extensions import Literal
 
-from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 
-logger = logging.getLogger("compute.conditional")
-
-if TYPE_CHECKING:
-    MIXIN_BASE = Plottable
-else:
-    MIXIN_BASE = object
+logger = setup_logger("compute.conditional")
 
 
 # ############################################################################
@@ -33,7 +25,7 @@ def conditional_probability(x, given, df: pd.DataFrame):
         pd.DataFrame: the conditional probability of x given the column 'given'
     """
     
-    return df.groupby([ given ])[ x ].apply(lambda g : g.value_counts()/len(g))  # noqa type: ignore
+    return df.groupby([ given ])[ x ].apply(lambda g : g.value_counts() / len(g))
 
 
 def probs(x, given, df: pd.DataFrame, how='index'): 
@@ -55,9 +47,10 @@ def probs(x, given, df: pd.DataFrame, how='index'):
         return res.T
     return res
 
-class ConditionalMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs):
-        pass
+class ConditionalMixin(Plottable):
+    
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def conditional_graph(self, x, given, kind='nodes', *args, **kwargs):
         """

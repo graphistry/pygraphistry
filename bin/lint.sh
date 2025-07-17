@@ -23,3 +23,11 @@ flake8 \
   --max-complexity=10 \
   --max-line-length=127 \
   --statistics
+
+# Check for relative imports with '..' using flake8-quotes or custom regex
+# This will fail if any relative imports with .. are found
+echo "Checking for relative imports with '..' ..."
+if grep -r "from \.\." graphistry --include="*.py" --exclude-dir="__pycache__"; then
+    echo "ERROR: Found relative imports with '..'. Use absolute imports instead."
+    exit 1
+fi

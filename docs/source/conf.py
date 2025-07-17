@@ -13,6 +13,7 @@
 import docutils.nodes, os, logging, re, sys
 from docutils import nodes
 from packaging.version import Version
+from sphinx.application import Sphinx
 
 
 sys.path.insert(0, os.path.abspath("../.."))
@@ -26,7 +27,7 @@ logger.setLevel(logging.DEBUG)
 # -- Project information -----------------------------------------------------
 
 project = "PyGraphistry"
-copyright = "2024, Graphistry, Inc."
+copyright = "2025, Graphistry, Inc."
 author = "Graphistry, Inc."
 
 html_title = "PyGraphistry Documentation"
@@ -127,6 +128,8 @@ nitpick_ignore = [
     ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
     ('py:class', 'graphistry.plugins.igraph.from_igraph'),
     ('py:class', 'graphistry.plugins.igraph.layout_igraph'),
+    ('py:class', 'graphistry.plugins.kusto.KustoMixin'),
+    ('py:class', 'graphistry.plugins.spanner.SpannerMixin'),
     ('py:data', 'graphistry.plugins_types.cugraph_types.CuGraphKind'),
     ('py:data', 'graphistry.plugins_types.graphviz_types.EdgeAttr'),
     ('py:data', 'graphistry.plugins_types.graphviz_types.EDGE_ATTRS'),
@@ -238,10 +241,10 @@ nitpick_ignore = [
     ('py:class', 'torch'),
     ('py:class', 'umap'),
     ('py:class', 'sentence_transformers'),
-    ('py:class', 'dirty_cat'),
     ('py:class', 'sklearn'),
     ('py:class', 'scipy'),
     ('py:class', 'seaborn'),
+    ('py:class', 'skrub'),
     ('py:class', 'annoy'),
     ('py:class', 'NetworkX graph'),
     ('py:class', 'Pandas dataframe'),
@@ -759,12 +762,38 @@ def assert_external_images_removed(app, doctree, fromdocname):
         assert "://" not in image_uri, f"Failed to remove external image: {image_uri}"
 
 
-def setup(app):
+def setup(app: Sphinx):
     """
     Connect the replace_iframe_src function to the doctree-resolved event.
     """    
+    
     app.connect("doctree-resolved", ignore_svg_images_for_latex)
     app.connect("doctree-resolved", remove_external_images_for_latex)
     app.connect('doctree-resolved', replace_iframe_src)
     app.connect("doctree-resolved", assert_external_images_removed)
-    app.add_css_file('graphistry.css', priority=900)
+
+    def on_builder(app: Sphinx) -> None:
+        if not hasattr(app, 'builder'):
+            print('No app.builder found for app type=', type(app))
+            # use dir to enumerate field names & types
+            attr_and_types: str = '\n'.join([f'{name}: {type(getattr(app, name))}' for name in dir(app)])
+            print(f'attr_and_types:\n---\n{attr_and_types}\n---\n')
+            return
+
+        if (app.builder.name == "html" or app.builder.name == "readthedocs"):
+            app.add_css_file('graphistry.css', priority=900)
+            app.add_js_file("https://plausible.io/js/script.hash.outbound-links.js", **{
+                "defer": "true",
+                "data-domain": "pygraphistry.readthedocs.io",
+            })
+            app.add_js_file(None, body="""
+                window.plausible = window.plausible || function() {
+                    (window.plausible.q = window.plausible.q || []).push(arguments)
+                }
+            """)
+            return
+        
+        print('No custom handling for app.builder.name=', app.builder.name)
+
+    app.connect('builder-inited', on_builder)
+

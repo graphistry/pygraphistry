@@ -1,5 +1,5 @@
+from typing import Any
 import hashlib
-import json
 import logging
 import os
 import pandas as pd
@@ -10,9 +10,8 @@ import string
 import uuid
 import warnings
 from functools import lru_cache
-from typing import Any
-from collections import UserDict
 
+from graphistry.models.ModelDict import ModelDict
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
@@ -131,46 +130,7 @@ def hash_memoize(v: Any) -> str:
     return hashlib.sha256(hash_memoize_helper(v).encode("utf-8")).hexdigest()
 
 
-def check_set_memoize(
-    g, metadata, attribute, name: str = "", memoize: bool = True
-):  # noqa: C901
-    """
-    Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
-    for the fact that it must have `attribute`. If they have not changed, will return memoized version,
-    if False, will continue with whatever pipeline it is in front.
-    """
 
-    logger = setup_logger(f"{__name__}.memoization")
-
-    if not memoize:
-        logger.debug("Memoization disabled")
-        return False
-
-    hashed = None
-    weakref = getattr(g, attribute)
-    try:
-        hashed = hash_memoize(dict(data=metadata))
-    except TypeError:
-        logger.warning(
-            f"! Failed {name} speedup attempt. Continuing without memoization speedups."
-        )
-    try:
-        if hashed in weakref:
-            logger.debug(f"{name} memoization hit: %s", hashed)
-            return weakref[hashed].v
-        else:
-            logger.debug(
-                f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
-            )
-    except:
-        logger.debug(f"Failed to hash {name} kwargs", exc_info=True)
-        pass
-
-    if memoize and (hashed is not None):
-        w = WeakValueWrapper(g)
-        cache_coercion(hashed, w)
-        weakref[hashed] = w
-    return False
 
 
 def make_iframe(url, height, extra_html="", override_html_style=None):
@@ -220,7 +180,7 @@ def make_iframe(url, height, extra_html="", override_html_style=None):
     return iframe + scrollbug_workaround
 
 
-def fingerprint():
+def fingerprint() -> str:
     md5 = hashlib.md5()
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
@@ -309,65 +269,6 @@ def deprecated(message):
 
 
 # #############################################################################
-# MODEL Parameter HELPERS
-def get_timestamp():
-    import datetime
-
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-class ModelDict(UserDict):
-    """Helper class to print out model names and keep track of updates
-
-    Args:
-        message: description of model
-        verbose: print out model names, logging happens regardless
-    """
-
-    def __init__(self, message, verbose=True, _timestamp=False, *args, **kwargs):
-        self._message = message
-        self._verbose = verbose
-        self._timestamp = _timestamp  # do no use this inside the class, as it will trigger memoization. Only use outside of class.
-        L = (
-            len(message)
-            if _timestamp is False
-            else max(len(message), len(get_timestamp()) + 1)
-        )
-        self._print_length = min(80, L)
-        self._updates = []
-        super().__init__(*args, **kwargs)
-
-    def print(self, message):
-        if self._timestamp:
-            message = f"{message}\n{get_timestamp()}"
-        if self._verbose:
-            print("_" * self._print_length)
-            print()
-            print(message)
-            print("_" * self._print_length)
-            print()
-
-    def __repr__(self):
-        # logger.info(self._message)
-        self.print(self._message)
-        return super().__repr__()
-
-    # def __setitem__(self, key, value):  # can't get this to work properly as it doesn't get called on update
-    #     self._updates.append({key: value})
-    #     if len(self._updates) > 1:
-    #         self._message += (
-    #             "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-    #         )
-    #     return super().__setitem__(key, value)
-
-    def update(self, *args, **kwargs):
-        self._updates.append(args[0])
-        if len(self._updates) > 1:  # don't take first update since its the init/default
-            self._message += (
-                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-            )
-        return super().update(*args, **kwargs)
-
 
 def is_notebook():
     """Check if running in a notebook"""
@@ -391,31 +292,3 @@ def printmd(string, color=None, size=20):
     from IPython.display import Markdown, display
     colorstr = "<span style='color:{};font-weight:200;font-size:{}px'>{}</span>".format(color, size, string)
     display(Markdown(colorstr))
-
-#
-# def inspect_decorator(func, args, kwargs):
-#     import inspect
-#     frame = inspect.currentframe()
-#     args, _, _, values = inspect.getargvalues(frame)
-#     func_name = inspect.getframeinfo(frame)[2]
-#     print(f'function name "{func_name}"')
-#     for i in args:
-#         print("    %s = %s" % (i, values[i]))
-#     return [(i, values[i]) for i in args]
-#
-#
-# # custom decorator
-# def showargs_decorator(func):
-#     import functools
-#     # updates special attributes e.g. __name__, __doc__
-#     @functools.wraps(func)
-#     def wrapper(*args, **kwargs):
-#
-#       # call custom inspection logic
-#       inspect_decorator(func, args, kwargs)
-#
-#       # calls original function
-#       func(*args, **kwargs)
-#
-#     # matches name of inner function
-#     return wrapper

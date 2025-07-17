@@ -10,6 +10,7 @@ See also:
 
 .. toctree::
    :maxdepth: 1
+   :caption: User Guide
 
    about
    overview
@@ -19,3 +20,12 @@ See also:
    combo
    quick
    predicates/quick
+   datetime_filtering
+   wire_protocol_examples
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Developer Resources
+
+   spec/index
+   validation/index

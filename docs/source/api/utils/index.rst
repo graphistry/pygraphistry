@@ -45,6 +45,7 @@ Versioneer
 .. toctree::
    :hidden:
 
+   dgl_utils
    modules
    plugins
    plugins_types

@@ -5,7 +5,248 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## Dev
+
+### Added
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
+
+### Fixed
+* Engine: Fix resolve_engine() to use dynamic import for Plottable isinstance check to avoid Jinja dependency from pandas df.style getter (#701)
+
+### Docs
+* Update copyright year from 2024 to 2025 in documentation and LICENSE.txt
+* GFQL: Add comprehensive specification documentation (#698)
+  * Core language specification with formal grammar, operations, predicates, and type system
+  * Cypher to GFQL translation guide with Python and wire protocol examples
+  * Python embedding guide with pandas/cuDF integration details
+  * Wire protocol JSON format for client-server communication
+  * Fix terminology: clarify g._node (node ID column) vs g._nodes (DataFrame)
+  * Emphasize GFQL's declarative nature for graph-to-graph transformations
+  * Add validation framework documentation with error code reference
+
+## [0.39.1 - 2025-07-07]
+
+### Fixed
+* KQL: Fix Kusto syntax error: missing closing parenthesis in graph_query method (#689)
+
+### Docs
+* KQL: Add Microsoft Azure Data Explorer (Kusto) demo notebook to documentation TOC
+* KQL: Update tutorial text
+
+## [0.39.0 - 2025-06-30]
+
+### Added
+* Multi-tenant support: `graphistry.client()` and `graphistry.set_client_for()`
+  * Global interface `PyGraphistry` class => Global `GraphistryClient` instance
+  * `graphistry.client()` creates an independent `GraphistryClient` instance
+* Type annotations added, especially in PlotterBase.py, arrow_uploader.py, and pygraphistry.py
+
+### Changed
+* Refactored Kusto and Spanner plugins:
+  * Renamed `kustograph.py` to `kusto.py` for consistency
+  * Renamed `spannergraph.py` to `spanner.py` for consistency
+  * Improved configuration handling and error messages
+* Enhanced test coverage with new tests for client_session, kusto, and spanner modules
+
+### Breaking 🔥
+* Plugin module renames: `graphistry.plugins.kustograph` → `graphistry.plugins.kusto` and `graphistry.plugins.spannergraph` → `graphistry.plugins.spanner`
+* Configuration for `Spanner` now uses `g.configure_spanner(...)` instead of `g.register(spanner_config={...})`
+* Configuration for `Kusto` now uses `g.configure_kusto(...)` instead of `g.register(kusto_config={...})`
+
+### Fixed
+* Fixed overzelous cache in `ArrowFileUploader`, now uses hashes to memoize uploads
+
+## [0.38.3 - 2025-06-24]
+
+### Fixed
+* Fix relative imports in GFQL modules that broke pip install (#681)
+  * Replace all `..` relative imports with absolute `graphistry.` imports
+  * Add missing `__init__.py` files in `graphistry.models.gfql` subdirectories
+  * Add lint check in `bin/lint.sh` to prevent future relative imports
+  * Add Docker-based pip install test to CI pipeline
+
+## [0.38.2 - 2025-06-24]
+
+### Added
+* GFQL temporal predicates and type system for date/time comparisons
+  * Support for datetime, date, and time comparisons with operators: `gt`, `lt`, `ge`, `le`, `eq`, `ne`, `between`, `is_in`
+  * Proper timezone handling for datetime comparisons
+  * Type-safe temporal value handling with TypeGuard annotations
+  * Temporal value classes: `DateTimeValue`, `DateValue`, `TimeValue` for explicit temporal types
+  * Wire protocol support for JSON serialization of temporal predicates
+  * Comprehensive documentation: datetime filtering guide, wire protocol reference, and examples notebook
+
+## [0.38.1 - 2025-06-24]
+
+### Breaking
+* Plottable is now a Protocol
+* py.typed added, type checking active on PyGraphistry!
+* transform() and transform_umap() now require some parameters to be keyword-only
+
+### Added
+* CI: Enable notebook validation by default in docs builds (set VALIDATE_NOTEBOOK_EXECUTION=0 to disable)
+* CI: Run notebook validation after doc generation for faster error detection
+
+### Fixed
+* Fix Sphinx documentation build errors in docstrings for kusto and spanner methods
+* Fix toctree references to use correct file names without extensions
+* Remove inherited members from PyTorch nn.Module in RGCN documentation to avoid formatting conflicts
+* Fix Unicode characters in datetime_filtering.md for LaTeX compatibility
+
+## [0.38.0 - 2025-06-17]
+
+### Changed
+* PyPI publish workflow now uses Trusted Publishing (OIDC) instead of password authentication
+
+## [0.38.0 - 2025-06-17]
+
+### Feat
+* Kusto/Azure Data Explorer integration. `PyGraphistry.kusto()`, `kusto_query()`, `kusto_query_graph()`
+* Extra kusto install target `pip install graphistry[kusto]` installs azure-kusto-data, azure-identity
+
+### Fixed
+* Fix sentence transformer model name handling to support both legacy format and new organization-prefixed formats (e.g., `mixedbread-ai/mxbai-embed-large-v1`)
+
+### Changed
+* Legacy `Plottable.spanner_init()` & `PyGraphistry.spanner_init()` helpers no longer shipped. Use `spanner()`
+
+### Breaking
+* Kusto device authentication doesn't persist.
+
+### Test
+* Add comprehensive tests for sentence transformer model name formats including legacy, organization-prefixed, and local path formats
+
+## [0.37.0 - 2025-06-05]
+
+### Fixed
+
+* Fix embed_utils.py modifying global logging.StreamHandler.terminator ([#660](https://github.com/graphistry/pygraphistry/issues/660)) ([8480cd06](https://github.com/graphistry/pygraphistry/commit/8480cd06))
+
+### Breaking 🔥
+
+* `FeatureMixin.transform()` now raises `ValueError` for invalid `kind` parameter instead of silently continuing ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `FeatureMixin._transform()` now raises `ValueError` when encoder is not initialized instead of returning `None` ([25e4bf51](https://github.com/graphistry/pygraphistry/commit/25e4bf51))
+* `UMAPMixin.transform_umap()` now always returns `pd.DataFrame` (possibly empty) instead of `None` for `y_` in tuple return ([d2941ec4](https://github.com/graphistry/pygraphistry/commit/d2941ec4))
+
+### Chore
+
+* Switch to setup_logger utility in multiple modules ([842fb904](https://github.com/graphistry/pygraphistry/commit/842fb904))
+* Add AI_PROGRESS/ and PLAN.md to .gitignore ([f0c18b3b](https://github.com/graphistry/pygraphistry/commit/f0c18b3b), [ac25a356](https://github.com/graphistry/pygraphistry/commit/ac25a356))
+
+### Docs
+
+* Add AI assistant prompt templates and conventional commits guidance ([a52048a7](https://github.com/graphistry/pygraphistry/commit/a52048a7))
+* Simplify CLAUDE.md to point to ai_code_notes README ([e5393381](https://github.com/graphistry/pygraphistry/commit/e5393381))
+* Update AI assistant documentation with Docker-first testing ([db5496eb](https://github.com/graphistry/pygraphistry/commit/db5496eb))
+
+## [0.36.2 - 2025-05-16]
+
+### Feat
+
+* GFQL: Hop pattern matching now supports node ID column having same name as edge source or destination column
+
+### Perf
+
+* GFQL: Optimize hop operations with improved memory usage and reduced redundancy 
+
+### Test
+
+* GFQL: Comprehensive tests for column name conflicts in chain pattern matching
+
+### Infra
+
+* Add CLAUDE.md with performance guidelines
+
+## [0.36.1 - 2025-04-17]
+
+### Feat
+
+* Add "erase_files_on_fail" option to plot and upload functions
+
+## [0.36.0 - 2025-02-05]
+
+### Breaking
+
+* `from_cugraph` returns using the src/dst bindings of `cugraph.Graph` object instead of base `Plottable`
+* `pip install graphistry[umap-learn]` and `pip install graphistry[ai]` are now Python 3.9+ (was 3.8+)
+* `Plottable`'s fields `_node_dbscan` / `_edge_dbscan` are now `_dbscan_nodes` / `_dbscan_edges`
+
+### Feat
+
+* Switch to `skrub` for feature engineering
+* More AI methods support GPU path
+* Support cugraph 26.10+, numpy 2.0+
+* Add more umap, dbscan fields to `Plottable`
+
+### Infra
+
+* `[umap-learn]` + `[ai]` unpin deps - scikit, scipy, torch (now 2), etc
+
+### Refactor
+
+* Move more type models to models/compute/{feature,umap,cluster}
+* Turn more print => logger
+
+### Fixes
+
+* Remove lint/type ignores and fix root causes
+
+### Tests
+
+* Stop ignoring warnings in featurize and umap
+* python version tests use corresponding python version for mypy
+* ci umap tests: py 3.8, 3.9 => 3.9..3.12
+* ci ai tests: py 3.8, 3.9 => 3.9..3.12
+* ci tests dgl
+* plugin tests check for module imports
+
+## [0.35.10 - 2025-01-24]
+
+### Fixes: 
+
+* Spanner: better handling of spanner_config issues: #634, #644
+
+## [0.35.9 - 2025-01-22]
+
+### Docs 
+
+* Spanner: minor changes to html and markdown in notebook for proper rendering in readthedocs 
+
+## [0.35.8 - 2025-01-22]
+
+### Docs
+
+* Spanner: fix for plots rendering in readthedocs demo notebooks
+
+
+## [0.35.7 - 2025-01-22]
+
+### Feat 
+
+* added support for Google Spanner Graph and Google Spanner `spanner_gql_to_g` and `spanner_query_to_df` 
+* added new Google Spanner Graph demo notebook 
+
+## [0.35.6 - 2025-01-11]
+
+### Docs
+
+* Fix typo in new shaping tutorial
+* Privacy-preserving analytics
+
+## [0.35.5 - 2025-01-10]
+
+### Docs
+
+* New tutorial on graph shaping
 
 ## [0.35.4 - 2024-12-28]
 

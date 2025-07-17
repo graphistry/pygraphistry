@@ -1,74 +1,90 @@
-import logging
-import pandas as pd
-import numpy as np
-
-from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional
+from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional, cast
 from typing_extensions import Literal
 from collections import Counter
+from inspect import getmodule
+import numpy as np
+import pandas as pd
+import logging
+import warnings
 
+from graphistry.Engine import Engine, resolve_engine
+from graphistry.models.compute.dbscan import (
+    DBSCANEngine, DBSCANEngineAbstract,
+    dbscan_engine_values
+)
+from graphistry.models.compute.features import GraphEntityKind, graph_entity_kind_values
 from graphistry.Plottable import Plottable
-from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
-from graphistry.features import ModelDict
+from graphistry.constants import CUML, DBSCAN
+from graphistry.models.ModelDict import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
-from graphistry.utils.lazy_import import lazy_cudf_import, lazy_dbscan_import
+from graphistry.utils.lazy_import import lazy_dbscan_import
+from graphistry.util import setup_logger
 
-logger = logging.getLogger("compute.cluster")
+logger = setup_logger("compute.cluster")
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable
 else:
     MIXIN_BASE = object
 
-DBSCANEngineConcrete = Literal["cuml", "umap_learn"]
-DBSCANEngine = Literal[DBSCANEngineConcrete, "auto"]
 
+def resolve_dbscan_engine(
+    engine: DBSCANEngineAbstract,
+    g_or_df: Optional[Any] = None
+) -> DBSCANEngine:
+    """
+    Resolves the engine to use for DBSCAN clustering
 
-def resolve_cpu_gpu_engine(
-    engine: DBSCANEngine,
-) -> DBSCANEngineConcrete:  # noqa
-    if engine in [CUML, UMAP_LEARN, 'sklearn']:
+    If 'auto', decide by checking if cuml or sklearn is installed, and if provided, natural type of the dataset. GPU is used if both a GPU dataset and GPU library is installed. Otherwise, CPU library.
+    """
+    if engine in dbscan_engine_values:
         return engine  # type: ignore
-    if engine in ["auto"]:
+    if engine == "umap_learn":
+        warnings.warn("engine value 'umap_learn' is deprecated, use engine='cuml' or 'sklearn' instead; defaulting to sklearn")
+        return "sklearn"
+    if engine == "auto":
+
+        preferred_engine = None if g_or_df is None else resolve_engine('auto', g_or_df)
+        if preferred_engine in [Engine.DASK, Engine.DASK_CUDF]:
+            raise ValueError('dask not supported for DBSCAN clustering, .compute() values first')
+        assert preferred_engine in [None, Engine.PANDAS, Engine.CUDF]
+
         (
             has_min_dependency,
             _,
             has_cuml_dependency,
             _,
         ) = lazy_dbscan_import()
-        if has_cuml_dependency:
+        if has_cuml_dependency and preferred_engine in [None, 'cudf']:
             return "cuml"
         if has_min_dependency:
-            return "umap_learn"
+            return "sklearn"
 
-    raise ValueError(  # noqa
-        f'engine expected to be "auto", '
-        '"umap_learn", "pandas", "sklearn", or  "cuml" '
-        f"but received: {engine} :: {type(engine)}"
-    )
+    raise ValueError(f'Engine expected to be "auto" with cuml/sklearn installed, "sklearn", or "cuml", but received: {engine} :: {type(engine)}')
 
-def make_safe_gpu_dataframes(X, y, engine):
-    """helper method to coerce a dataframe to the correct type (pd vs cudf)"""
-    def safe_cudf(X, y):
-        new_kwargs = {}
-        kwargs = {'X': X, 'y': y}
-        for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine in ["pandas", 'sklearn', 'umap_learn']:
-                new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine == "cuml":
-                new_kwargs[key] = cudf.from_pandas(value)
-            else:
-                new_kwargs[key] = value
-        return new_kwargs['X'], new_kwargs['y']
+def make_safe_gpu_dataframes(
+    X: Optional[Any], y: Optional[Any], engine: Engine
+) -> Tuple[Optional[Any], Optional[Any]]:
+    """Coerce a dataframe to pd vs cudf based on engine"""
 
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import()
-    if has_cudf_dependancy_:
-        # print('DBSCAN CUML Matrices')
-        return safe_cudf(X, y)
-    else:
-        return X, y
+    assert engine in [Engine.PANDAS, Engine.CUDF], f"Expected engine to be 'pandas' or 'cudf', got {engine}"
+
+    def df_as_dbscan_engine(df: Optional[Any], engine: Engine) -> Optional[Any]:
+        if df is None:
+            return None
+        if isinstance(df, pd.DataFrame) and engine == Engine.CUDF:
+            import cudf
+            return cudf.from_pandas(df)
+        elif 'cudf' in str(getmodule(df)) and engine == Engine.PANDAS:
+            return df.to_pandas()
+        return df
+    
+    return df_as_dbscan_engine(X, engine), df_as_dbscan_engine(y, engine)
 
 
-def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, target):
+def get_model_matrix(
+    g: Plottable, kind: GraphEntityKind, cols: Optional[Union[List, str]], umap, target
+) -> Any:
     """
         Allows for a single function to get the model matrix for both nodes and edges as well as targets, embeddings, and features
 
@@ -82,55 +98,96 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
     Returns:
         pd.DataFrame: dataframe of model matrix given the inputs
     """
-    assert kind in ["nodes", "edges"]
+    assert kind in graph_entity_kind_values, f'Expected kind of {graph_entity_kind_values}, got: {kind}'
     assert (
         hasattr(g, "_node_encoder") if kind == "nodes" else hasattr(g, "_edge_encoder")
     )
 
+    engine = g._dbscan_engine
+    assert engine is not None, 'DBSCAN engine not set'
+
+    df_engine: Engine = Engine.CUDF if engine == 'cuml' else Engine.PANDAS
+
+    ###
+
+    from graphistry.feature_utils import FeatureMixin
+    assert isinstance(g, FeatureMixin)
+
+    # TODO does get_matrix do cudf?
     df = g.get_matrix(cols, kind=kind, target=target)
 
+    # TODO does _get_embedding do cudf?
     if umap and cols is None and g._umap is not None:
-        df = g._get_embedding(kind)            
+        from graphistry.umap_utils import UMAPMixin
+        assert isinstance(g, UMAPMixin)
+        df = g._get_embedding(kind)
     
-    #if g.engine_dbscan in [CUML]:
-    df, _ = make_safe_gpu_dataframes(df, None, g.engine_dbscan)
-    #print('\n df:', df.shape, df.columns)
-    return df
+    df2, _ = make_safe_gpu_dataframes(df, None, df_engine)
+
+    return df2
 
 
-def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[List, str]] = None, use_umap_embedding: bool = True, target: bool = False, verbose: bool = False):
+def dbscan_fit_inplace(
+    res: Plottable, dbscan: Any, kind: GraphEntityKind = "nodes",
+    cols: Optional[Union[List, str]] = None, use_umap_embedding: bool = True,
+    target: bool = False, verbose: bool = False
+) -> None:
     """
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         or target dataframe if target is True.
 
+    Sets:
+        - `res._dbscan_edges` or `res._dbscan_nodes` to the DBSCAN model
+        - `res._edges` or `res._nodes`  gains column `_dbscan`
+
     Args:
-        :g: graphistry graph
+        :res: graphistry graph
         :kind: 'nodes' or 'edges'
         :cols: list of columns to use for clustering given `g.featurize` has been run
         :use_umap_embedding: whether to use UMAP embeddings or features dataframe for clustering (default: True)
+        :target: whether to use the target dataframe or features dataframe (typically False, for features)
     """
-    X = get_model_matrix(g, kind, cols, use_umap_embedding, target)
+    X = get_model_matrix(res, kind, cols, use_umap_embedding, target)
     
     if X.empty:
         raise ValueError("No features found for clustering")
 
-    dbscan.fit(X)
-    # this is a future feature one cuml supports it
-    if g.engine_dbscan == 'cuml':
-        labels = dbscan.labels_.to_numpy()
+    logger.debug('dbscan_fit dbscan: %s', str(getmodule(dbscan)))
+
+    labels: np.ndarray
+    if res._dbscan_engine == 'cuml':
+        import cupy as cp
+        from cuml import DBSCAN
+        assert isinstance(dbscan, DBSCAN), f'Expected cuml.DBSCAN, got: {type(dbscan)}'
+        dbscan.fit(X, calc_core_sample_indices=True)
+        labels = dbscan.labels_
+        core_sample_indices = dbscan.core_sample_indices_
+
+        # Convert core_sample_indices_ to cupy if it's not already
+        # (Sometimes it's already cupy; if it's a CumlArray, we can cast or just index directly)
+        core_sample_indices_cupy = core_sample_indices.astype(cp.int32)
+
+        # The actual core-sample points (a.k.a. "components_" in sklearn terms)
+        components = X[core_sample_indices_cupy]
+        dbscan.components_ = components
+
         # dbscan.components_ = X[dbscan.core_sample_indices_.to_pandas()]  # can't believe len(samples) != unique(labels) ... #cumlfail
     else:
+        from sklearn.cluster import DBSCAN
+        assert isinstance(dbscan, DBSCAN), f'Expected sklearn.DBSCAN, got: {type(dbscan)}'
+        dbscan.fit(X)
         labels = dbscan.labels_
 
     if kind == "nodes":
-        g._nodes = g._nodes.assign(_dbscan=labels)
+        res._nodes = res._nodes.assign(_dbscan=labels)
+        res._dbscan_nodes = dbscan
     elif kind == "edges":
-        g._edges = g._edges.assign(_dbscan=labels)
+        res._edges = res._edges.assign(_dbscan=labels)
+        res._dbscan_edges = dbscan
     else:
-        raise ValueError("kind must be one of `nodes` or `edges`")
+        raise ValueError(f"kind must be one of `nodes` or `edges`, got {kind}")
 
-    kind = "node" if kind == "nodes" else "edge"
-    setattr(g, f"_{kind}_dbscan", dbscan)
+    setattr(res, f"_{kind}_dbscan", dbscan)
     
     if cols is not None:  # set False since we used the features for verbose
         use_umap_embedding = False
@@ -138,16 +195,12 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
     if verbose:
         cnt = Counter(labels)
         message = f"DBSCAN found {len(cnt)} clusters with {cnt[-1]} outliers"
-        print()
-        print('-' * len(message))
-        print(message)
-        print(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape}")
-        print('-' * len(message))
-
-    return g
+        logger.debug(message)
+        logger.debug(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape} :: {X.dtypes}")
 
 
-def dbscan_predict(X: pd.DataFrame, model: Any):
+# TODO what happens in gpu mode?
+def dbscan_predict_sklearn(X: pd.DataFrame, model: Any) -> np.ndarray:
     """
     DBSCAN has no predict per se, so we reverse engineer one here
     from https://stackoverflow.com/questions/27822752/scikit-learn-predicting-new-points-with-dbscan
@@ -169,22 +222,68 @@ def dbscan_predict(X: pd.DataFrame, model: Any):
 
     return y_new
 
+def dbscan_predict_cuml(X: Any, model: Any) -> Any:
+
+    import cudf
+    import cupy as cp
+    from sklearn.cluster import DBSCAN as skDBSCAN
+    from cuml import DBSCAN
+    #assert isinstance(X, cudf.DataFrame), f'Expected cudf.DataFrame, got: {type(X)}'
+    if isinstance(X, cudf.DataFrame):
+        X = X.to_pandas()
+    
+    if isinstance(X, pd.DataFrame) and isinstance(model, skDBSCAN):
+        return dbscan_predict_sklearn(X, model)
+
+    assert isinstance(model, DBSCAN), f'Expected cuml.DBSCAN, got: {type(model)}'
+
+    #raise NotImplementedError('cuml lacks predict, and for cpu fallback, components_')
+    warnings.warn('cuml lacks predict, cpu fallback, components_')
+
+    n_samples = X.shape[0]
+
+    y_new = np.ones(shape=n_samples, dtype=int) * -1
+
+    components = model.components_.to_pandas() if isinstance(model.components_, cudf.DataFrame) else model.components_
+
+    for i in range(n_samples):
+        diff = components - X.iloc[i, :].values  # NumPy broadcasting
+
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+
+        shortest_dist_idx = np.argmin(dist)
+
+        if dist[shortest_dist_idx] < model.eps:
+            y_new[i] = model.labels_[model.core_sample_indices_[shortest_dist_idx]]
+
+    return y_new
+
+
+
 
 class ClusterMixin(MIXIN_BASE):
-    def __init__(self, *args, **kwargs):
-        pass
+    
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, engine_dbscan, verbose, *args, **kwargs
+        self, kind: GraphEntityKind, cols, fit_umap_embedding, target, min_dist, min_samples, engine_dbscan: DBSCANEngineAbstract, verbose, *args, **kwargs
     ):
         """DBSCAN clustering on cpu or gpu infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import()
 
-        if engine_dbscan in [CUML]:
-            print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
+        res = self.bind()
 
-        res.engine_dbscan = engine_dbscan  # resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
+        engine_dbscan = resolve_dbscan_engine(engine_dbscan, res)
+
+        if engine_dbscan in [CUML]:
+            warnings.warn('`_cluster_dbscan(..)` experimental')
+            #engine_dbscan = 'sklearn'
+
+        dbscan_engine = cuDBSCAN if engine_dbscan == CUML else DBSCAN
+
+        res._dbscan_engine = engine_dbscan
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -197,16 +296,8 @@ class ClusterMixin(MIXIN_BASE):
             verbose=verbose,
         )
 
-        dbscan = (
-            cuDBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
-            if res.engine_dbscan == CUML
-            else DBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
-        )
-        # print('dbscan:', dbscan)
-
-        res = dbscan_fit(
-            res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=verbose
-            )
+        dbscan = dbscan_engine(eps=min_dist, min_samples=min_samples, *args, **kwargs)
+        dbscan_fit_inplace(res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=verbose)
 
         return res
 
@@ -215,16 +306,18 @@ class ClusterMixin(MIXIN_BASE):
         min_dist: float = 0.2,
         min_samples: int = 1,
         cols: Optional[Union[List, str]] = None,
-        kind: str = "nodes",
+        kind: GraphEntityKind = "nodes",
         fit_umap_embedding: bool = True,
         target: bool = False,
         verbose: bool = False,
-        engine_dbscan: str = 'sklearn',
+        engine_dbscan: DBSCANEngineAbstract = 'auto',
         *args,
         **kwargs,
     ):
         """DBSCAN clustering on cpu or gpu infered automatically. Adds a `_dbscan` column to nodes or edges.
            NOTE: g.transform_dbscan(..) currently unsupported on GPU.
+
+           Saves model as g._dbscan_nodes or g._dbscan_edges
 
         Examples:
         ::
@@ -268,9 +361,7 @@ class ClusterMixin(MIXIN_BASE):
 
         """
 
-        res = self.bind()
-        res = res._cluster_dbscan(
-            res,
+        res = self._cluster_dbscan(
             kind=kind,
             cols=cols,
             fit_umap_embedding=fit_umap_embedding,
@@ -281,7 +372,7 @@ class ClusterMixin(MIXIN_BASE):
             verbose=verbose,
             *args,
             **kwargs,
-        )
+        )   # type: ignore
 
         return res
 
@@ -290,13 +381,13 @@ class ClusterMixin(MIXIN_BASE):
     ) -> Tuple[Union[pd.DataFrame, None], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
         res = self.bind()
-        if hasattr(res, "_dbscan_params"):
+        if hasattr(res, "_dbscan_params") and res._dbscan_params is not None:
             # Assume that we are transforming to last fit of dbscan
             cols = res._dbscan_params["cols"]
             umap = res._dbscan_params["fit_umap_embedding"]
             target = res._dbscan_params["target"]
 
-            dbscan = res._node_dbscan if kind == "nodes" else res._edge_dbscan
+            dbscan = res._dbscan_nodes if kind == "nodes" else res._dbscan_edges
             # print('DBSCAN TYPE IN TRANSFORM', type(dbscan))
 
             emb = None
@@ -315,13 +406,13 @@ class ClusterMixin(MIXIN_BASE):
             else:
                 X_ = XX
             
-            if res.engine_dbscan == 'cuml':
+            if res._dbscan_engine == 'cuml':
                 print('Transform DBSCAN not yet supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
             
-            X_, emb = make_safe_gpu_dataframes(X_, emb, 'pandas')  
+            X_, emb = make_safe_gpu_dataframes(X_, emb, Engine.PANDAS)  
 
-            labels = dbscan_predict(X_, dbscan)  # type: ignore
+            labels = dbscan_predict_cuml(X_, dbscan)  # type: ignore
             #print('after dbscan predict', type(labels))
             if umap and cols is None:
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
@@ -399,10 +490,17 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
-            df, y = make_safe_gpu_dataframes(df, y, 'pandas')
-            X, emb = make_safe_gpu_dataframes(X, emb, 'pandas')
-            g = self._infer_edges(emb, X, y, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
+            #raise NotImplementedError("Engine specificity")
+            #if 'cudf' in str(getmodule(df)) or 'cudf' in str(getmodule(y)):
+            #    warnings.warn("transform_dbscan using cpu fallback")
+            #df, y = make_safe_gpu_dataframes(df, y, Engine.PANDAS)
+            #X, emb = make_safe_gpu_dataframes(X, emb, Engine.PANDAS)
+            engine = self._dbscan_engine
+            engine_df = Engine.CUDF if engine == 'cuml' else Engine.PANDAS
+            df2, y2 = make_safe_gpu_dataframes(df, y, engine_df)
+            X2, emb2 = make_safe_gpu_dataframes(X, emb, engine_df)
+            g = self._infer_edges(emb2, X2, y2, df2, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
-                )
+            )
             return g
         return emb, X, y, df
