@@ -33,7 +33,7 @@ Expected JSON format for GFQL queries:
 JSON Conversion
 ---------------
 
-Convert between JSON and Chain objects:
+Convert between JSON and query objects:
 
 .. code-block:: python
 
@@ -41,7 +41,7 @@ Convert between JSON and Chain objects:
    from graphistry.compute.chain import Chain
 
    def json_to_chain(json_data):
-       """Parse JSON from LLM into Chain object."""
+       """Parse JSON from LLM into query object."""
        try:
            return Chain.from_json(json_data, validate=True)
        except GFQLValidationError as e:
@@ -49,7 +49,7 @@ Convert between JSON and Chain objects:
            return None, e
 
    def chain_to_json(chain):
-       """Convert Chain to JSON for LLM training/examples."""
+       """Convert query to JSON for LLM training/examples."""
        return chain.to_json(validate=False)  # Already validated
 
 Error Serialization
@@ -74,7 +74,7 @@ Convert validation errors to structured format:
 Validation Workflow
 -------------------
 
-Parse Chain from JSON
+Parse Query from JSON
 ^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
@@ -97,7 +97,7 @@ Parse Chain from JSON
    else:
        chain = result
 
-Validate Chain Syntax
+Validate Query Syntax
 ^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
@@ -311,7 +311,7 @@ System Prompt Template
    You are a GFQL expert. Generate valid GFQL queries using the built-in validation system.
    
    GFQL Rules:
-   1. Use Chain() constructor with list of operations
+   1. Use query constructors with list of operations
    2. Valid operations: n(), e_forward(), e_reverse(), e_undirected()
    3. Use predicate functions: eq(), gt(), contains(), is_in(), etc.
    4. Schema validation happens automatically with validate_schema=True (default)
