@@ -69,7 +69,6 @@ class ASTObject(ASTSerializable):
     Internal, not intended for use outside of this module.
     These are operator-level expressions used as g.chain(List<ASTObject>)
     """
-
     def __init__(self, name: Optional[str] = None):
         self._name = name
         pass
@@ -80,10 +79,10 @@ class ASTObject(ASTSerializable):
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
         target_wave_front: Optional[DataFrameT],
-        engine: Engine,
+        engine: Engine
     ) -> Plottable:
         raise RuntimeError('__call__ not implemented')
-
+        
     @abstractmethod
     def reverse(self) -> 'ASTObject':
         raise RuntimeError('reverse not implemented')
@@ -98,7 +97,6 @@ def assert_record_match(d: Dict) -> None:
         assert isinstance(k, str)
         assert isinstance(v, ASTPredicate) or is_json_serializable(v)
 
-
 def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
     if key not in d:
         return None
@@ -112,7 +110,6 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
     else:
         return None
 
-
 ##############################################################################
 
 
@@ -120,7 +117,6 @@ class ASTNode(ASTObject):
     """
     Internal, not intended for use outside of this module.
     """
-
     def __init__(self, filter_dict: Optional[dict] = None, name: Optional[str] = None, query: Optional[str] = None):
 
         super().__init__(name)
@@ -132,7 +128,7 @@ class ASTNode(ASTObject):
 
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
-
+    
     def _validate_fields(self) -> None:
         """Validate node fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -197,15 +193,13 @@ class ASTNode(ASTObject):
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
                 for k, v in self.filter_dict.items()
                 if v is not None
-            }
-            if self.filter_dict is not None
-            else {},
+            } if self.filter_dict is not None else {},
             **({'name': self._name} if self._name is not None else {}),
             **({'query': self.query } if self.query is not None else {})
         }
-
+    
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> "ASTNode":
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTNode':
         out = ASTNode(
             filter_dict=maybe_filter_dict_from_json(d, 'filter_dict'),
             name=d['name'] if 'name' in d else None,
@@ -220,7 +214,7 @@ class ASTNode(ASTObject):
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
         target_wave_front: Optional[DataFrameT],
-        engine: Engine,
+        engine: Engine
     ) -> Plottable:
         out_g = (g
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
@@ -230,7 +224,7 @@ class ASTNode(ASTObject):
         )
         if target_wave_front is not None:
             assert g._node is not None
-            reduced_nodes = cast(DataFrameT, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how="inner")
+            reduced_nodes = cast(DataFrameT, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how='inner')
             out_g = out_g.nodes(reduced_nodes)
 
         if self._name is not None:
@@ -242,9 +236,8 @@ class ASTNode(ASTObject):
 
         return out_g
 
-    def reverse(self) -> "ASTNode":
+    def reverse(self) -> 'ASTNode':
         return self
-
 
 n = ASTNode  # noqa: E305
 
@@ -257,7 +250,6 @@ DEFAULT_HOPS = 1
 DEFAULT_FIXED_POINT = False
 DEFAULT_DIRECTION: Direction = 'forward'
 DEFAULT_FILTER_DICT = None
-
 
 class ASTEdge(ASTObject):
     """
@@ -418,9 +410,9 @@ class ASTEdge(ASTObject):
             **({'destination_node_query': self.destination_node_query} if self.destination_node_query is not None else {}),
             **({'edge_query': self.edge_query} if self.edge_query is not None else {})
         }
-
+    
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> "ASTEdge":
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdge(
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
@@ -442,7 +434,7 @@ class ASTEdge(ASTObject):
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
         target_wave_front: Optional[DataFrameT],
-        engine: Engine,
+        engine: Engine
     ) -> Plottable:
 
         if logger.isEnabledFor(logging.DEBUG):
@@ -478,7 +470,7 @@ class ASTEdge(ASTObject):
 
         return out_g
 
-    def reverse(self) -> "ASTEdge":
+    def reverse(self) -> 'ASTEdge':
         # updates both edges and nodes
         direction : Direction
         if self.direction == 'reverse':
@@ -498,7 +490,6 @@ class ASTEdge(ASTObject):
             destination_node_query=self.source_node_query,
             edge_query=self.edge_query
         )
-
 
 class ASTEdgeForward(ASTEdge):
     """
@@ -531,7 +522,7 @@ class ASTEdgeForward(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> "ASTEdge":
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeForward(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -549,7 +540,6 @@ class ASTEdgeForward(ASTEdge):
 
 
 e_forward = ASTEdgeForward  # noqa: E305
-
 
 class ASTEdgeReverse(ASTEdge):
     """
@@ -582,7 +572,7 @@ class ASTEdgeReverse(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> "ASTEdge":
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeReverse(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -600,7 +590,6 @@ class ASTEdgeReverse(ASTEdge):
 
 
 e_reverse = ASTEdgeReverse  # noqa: E305
-
 
 class ASTEdgeUndirected(ASTEdge):
     """
@@ -633,7 +622,7 @@ class ASTEdgeUndirected(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> "ASTEdge":
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeUndirected(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -654,7 +643,6 @@ e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
 
 ###
-
 
 def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
