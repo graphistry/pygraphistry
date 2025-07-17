@@ -14,10 +14,10 @@ Target Audience
 * Developers integrating LLMs with graph queries
 * Teams building automated query generation pipelines
 
-JSON Format
------------
+Working with JSON
+-----------------
 
-Expected JSON format for GFQL queries:
+GFQL queries can be serialized to/from JSON for LLM integration. Expected format:
 
 .. code-block:: json
 
@@ -29,9 +29,6 @@ Expected JSON format for GFQL queries:
            {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 80}}}
        ]
    }
-
-JSON Conversion
----------------
 
 Convert between JSON and query objects:
 
