@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * Engine: Fix resolve_engine() to use dynamic import for Plottable isinstance check to avoid Jinja dependency from pandas df.style getter (#701)
+* Engine: Fix resolve_engine() to check both Plotter and Plottable classes for proper type detection
 
 ### Infra
 * CI: Enable parallel test execution in GPU CI with pytest-xdist (#703)
