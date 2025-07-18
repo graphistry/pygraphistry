@@ -28,3 +28,4 @@ See also:
    :caption: Developer Resources
 
    spec/index
+   validation/index

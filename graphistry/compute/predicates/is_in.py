@@ -87,8 +87,18 @@ class IsIn(ASTPredicate):
 
         return s.isin(self.options)
 
-    def validate(self) -> None:
-        assert isinstance(self.options, list)
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.options, list):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "options must be a list",
+                field="options",
+                value=type(self.options).__name__
+            )
+        
         # Check normalized options are JSON serializable
         # (temporal values are converted to pandas types which are serializable)
         try:
@@ -107,7 +117,12 @@ class IsIn(ASTPredicate):
                     json_test.append(opt)
             assert_json_serializable(json_test)
         except Exception as e:
-            raise ValueError(f"Options not JSON serializable: {e}")
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                f"Options not JSON serializable: {e}",
+                field="options",
+                value=str(self.options)
+            )
 
     def to_json(self, validate=True) -> dict:
         """Override to handle temporal values in options"""

@@ -37,6 +37,26 @@ g.chain([n(), e_forward(), n()])      # Pattern matching
 - Prefer `filter_dict` over `query` strings
 - Use appropriate engine: `pandas` (CPU) or `cudf` (GPU)
 
+### Validation (Built-in)
+```python
+# Automatic syntax validation
+chain = Chain([n(), e_forward(hops=-1)])  # Raises GFQLTypeError
+
+# Schema validation at runtime
+g.chain([n({'missing': 'value'})])  # Raises GFQLSchemaError
+
+# Pre-execution validation
+g.chain(ops, validate_schema=True)  # Validate before execution
+
+# Collect all errors
+errors = chain.validate(collect_all=True)
+```
+
+Error types:
+- `GFQLSyntaxError` (E1xx): Structural issues
+- `GFQLTypeError` (E2xx): Type mismatches  
+- `GFQLSchemaError` (E3xx): Missing columns, wrong types
+
 ## 📋 When to Use GFQL
 
 ### Use GFQL When

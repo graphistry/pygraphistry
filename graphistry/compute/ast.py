@@ -129,13 +129,60 @@ class ASTNode(ASTObject):
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
     
-    def validate(self) -> None:
+    def _validate_fields(self) -> None:
+        """Validate node fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+        # Validate filter_dict
         if self.filter_dict is not None:
-            assert_record_match(self.filter_dict)
-        if self._name is not None:
-            assert isinstance(self._name, str)
-        if self.query is not None:
-            assert isinstance(self.query, str)
+            if not isinstance(self.filter_dict, dict):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "filter_dict must be a dictionary",
+                    field="filter_dict",
+                    value=type(self.filter_dict).__name__,
+                    suggestion="Use filter_dict={'column': 'value'}",
+                )
+
+            # Validate each key in filter_dict
+            for key, value in self.filter_dict.items():
+                if not isinstance(key, str):
+                    raise GFQLTypeError(
+                        ErrorCode.E102,
+                        "Filter keys must be strings",
+                        field=f"filter_dict.{key}",
+                        value=key,
+                        suggestion="Use string column names as keys",
+                    )
+
+                # Validate value is either ASTPredicate or json-serializable
+                if not (isinstance(value, ASTPredicate) or is_json_serializable(value)):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        "Filter values must be predicates or JSON-serializable",
+                        field=f"filter_dict.{key}",
+                        value=type(value).__name__,
+                        suggestion="Use predicates like gt(5) or simple values",
+                    )
+
+        # Validate name
+        if self._name is not None and not isinstance(self._name, str):
+            raise GFQLTypeError(ErrorCode.E204, "name must be a string", field="name", value=type(self._name).__name__)
+
+        # Validate query
+        if self.query is not None and not isinstance(self.query, str):
+            raise GFQLTypeError(
+                ErrorCode.E205, "query must be a string", field="query", value=type(self.query).__name__
+            )
+
+    def _get_child_validators(self) -> list:
+        """Return predicates that need validation."""
+        children = []
+        if self.filter_dict:
+            for value in self.filter_dict.values():
+                if isinstance(value, ASTPredicate):
+                    children.append(value)
+        return children
 
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -152,13 +199,14 @@ class ASTNode(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict) -> 'ASTNode':
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTNode':
         out = ASTNode(
             filter_dict=maybe_filter_dict_from_json(d, 'filter_dict'),
             name=d['name'] if 'name' in d else None,
             query=d['query'] if 'query' in d else None
         )
-        out.validate()
+        if validate:
+            out.validate()
         return out
 
     def __call__(
@@ -207,6 +255,7 @@ class ASTEdge(ASTObject):
     """
     Internal, not intended for use outside of this module.
     """
+
     def __init__(
         self,
         direction: Optional[Direction] = DEFAULT_DIRECTION,
@@ -218,7 +267,7 @@ class ASTEdge(ASTObject):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
-        name: Optional[str] = None
+        name: Optional[str] = None,
     ):
 
         super().__init__(name)
@@ -245,24 +294,93 @@ class ASTEdge(ASTObject):
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
 
-    def validate(self) -> None:
-        assert self.hops is None or isinstance(self.hops, int)
-        assert isinstance(self.to_fixed_point, bool)
-        assert self.direction in ['forward', 'reverse', 'undirected']
-        if self.source_node_match is not None:
-            assert_record_match(self.source_node_match)
-        if self.edge_match is not None:
-            assert_record_match(self.edge_match)
-        if self.destination_node_match is not None:
-            assert_record_match(self.destination_node_match)
-        if self._name is not None:
-            assert isinstance(self._name, str)
-        if self.source_node_query is not None:
-            assert isinstance(self.source_node_query, str)
-        if self.destination_node_query is not None:
-            assert isinstance(self.destination_node_query, str)
-        if self.edge_query is not None:
-            assert isinstance(self.edge_query, str)
+    def _validate_fields(self) -> None:
+        """Validate edge fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+
+        # Validate hops
+        if self.hops is not None:
+            if not isinstance(self.hops, int) or self.hops < 1:
+                raise GFQLTypeError(
+                    ErrorCode.E103,
+                    "hops must be a positive integer or None",
+                    field="hops",
+                    value=self.hops,
+                    suggestion="Use hops=2 for specific count, or to_fixed_point=True for unbounded",
+                )
+
+        # Validate to_fixed_point
+        if not isinstance(self.to_fixed_point, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "to_fixed_point must be a boolean",
+                field="to_fixed_point",
+                value=type(self.to_fixed_point).__name__,
+            )
+
+        # Validate direction
+        if self.direction not in ['forward', 'reverse', 'undirected']:
+            raise GFQLSyntaxError(
+                ErrorCode.E104,
+                f"Invalid edge direction: {self.direction}",
+                field="direction",
+                value=self.direction,
+                suggestion='Use "forward", "reverse", or "undirected"',
+            )
+
+        # Validate filter dicts
+        for filter_name, filter_dict in [
+            ('source_node_match', self.source_node_match),
+            ('edge_match', self.edge_match),
+            ('destination_node_match', self.destination_node_match),
+        ]:
+            if filter_dict is not None:
+                if not isinstance(filter_dict, dict):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"{filter_name} must be a dictionary",
+                        field=filter_name,
+                        value=type(filter_dict).__name__,
+                    )
+
+                for key, value in filter_dict.items():
+                    if not isinstance(key, str):
+                        raise GFQLTypeError(
+                            ErrorCode.E102, "Filter keys must be strings", field=f"{filter_name}.{key}", value=key
+                        )
+
+                    if not (isinstance(value, ASTPredicate) or is_json_serializable(value)):
+                        raise GFQLTypeError(
+                            ErrorCode.E201,
+                            "Filter values must be predicates or JSON-serializable",
+                            field=f"{filter_name}.{key}",
+                            value=type(value).__name__,
+                        )
+
+        # Validate name
+        if self._name is not None and not isinstance(self._name, str):
+            raise GFQLTypeError(ErrorCode.E204, "name must be a string", field="name", value=type(self._name).__name__)
+
+        # Validate query strings
+        for query_name, query_value in [
+            ("source_node_query", self.source_node_query),
+            ("destination_node_query", self.destination_node_query),
+            ("edge_query", self.edge_query),
+        ]:
+            if query_value is not None and not isinstance(query_value, str):
+                raise GFQLTypeError(
+                    ErrorCode.E205, f"{query_name} must be a string", field=query_name, value=type(query_value).__name__
+                )
+
+    def _get_child_validators(self) -> list:
+        """Return predicates that need validation."""
+        children = []
+        for filter_dict in [self.source_node_match, self.edge_match, self.destination_node_match]:
+            if filter_dict:
+                for value in filter_dict.values():
+                    if isinstance(value, ASTPredicate):
+                        children.append(value)
+        return children
 
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -294,7 +412,7 @@ class ASTEdge(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict) -> 'ASTEdge':
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdge(
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
@@ -307,7 +425,8 @@ class ASTEdge(ASTObject):
             edge_query=d['edge_query'] if 'edge_query' in d else None,
             name=d['name'] if 'name' in d else None
         )
-        out.validate()
+        if validate:
+            out.validate()
         return out
 
     def __call__(
@@ -376,7 +495,9 @@ class ASTEdgeForward(ASTEdge):
     """
     Internal, not intended for use outside of this module.
     """
-    def __init__(self, 
+
+    def __init__(
+        self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
@@ -385,7 +506,7 @@ class ASTEdgeForward(ASTEdge):
         name: Optional[str] = None,
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
-        edge_query: Optional[str] = None
+        edge_query: Optional[str] = None,
     ):
         super().__init__(
             direction='forward',
@@ -397,11 +518,11 @@ class ASTEdgeForward(ASTEdge):
             name=name,
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
-            edge_query=edge_query
+            edge_query=edge_query,
         )
 
     @classmethod
-    def from_json(cls, d: dict) -> 'ASTEdge':
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeForward(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -413,8 +534,10 @@ class ASTEdgeForward(ASTEdge):
             edge_query=d['edge_query'] if 'edge_query' in d else None,
             name=d['name'] if 'name' in d else None
         )
-        out.validate()
+        if validate:
+            out.validate()
         return out
+
 
 e_forward = ASTEdgeForward  # noqa: E305
 
@@ -422,7 +545,9 @@ class ASTEdgeReverse(ASTEdge):
     """
     Internal, not intended for use outside of this module.
     """
-    def __init__(self,
+
+    def __init__(
+        self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
@@ -431,7 +556,7 @@ class ASTEdgeReverse(ASTEdge):
         name: Optional[str] = None,
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
-        edge_query: Optional[str] = None
+        edge_query: Optional[str] = None,
     ):
         super().__init__(
             direction='reverse',
@@ -443,11 +568,11 @@ class ASTEdgeReverse(ASTEdge):
             name=name,
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
-            edge_query=edge_query
+            edge_query=edge_query,
         )
 
     @classmethod
-    def from_json(cls, d: dict) -> 'ASTEdge':
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeReverse(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -459,8 +584,10 @@ class ASTEdgeReverse(ASTEdge):
             edge_query=d['edge_query'] if 'edge_query' in d else None,
             name=d['name'] if 'name' in d else None
         )
-        out.validate()
+        if validate:
+            out.validate()
         return out
+
 
 e_reverse = ASTEdgeReverse  # noqa: E305
 
@@ -468,7 +595,9 @@ class ASTEdgeUndirected(ASTEdge):
     """
     Internal, not intended for use outside of this module.
     """
-    def __init__(self,
+
+    def __init__(
+        self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
@@ -477,7 +606,7 @@ class ASTEdgeUndirected(ASTEdge):
         name: Optional[str] = None,
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
-        edge_query: Optional[str] = None
+        edge_query: Optional[str] = None,
     ):
         super().__init__(
             direction='undirected',
@@ -489,11 +618,11 @@ class ASTEdgeUndirected(ASTEdge):
             name=name,
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
-            edge_query=edge_query
+            edge_query=edge_query,
         )
 
     @classmethod
-    def from_json(cls, d: dict) -> 'ASTEdge':
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeUndirected(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -505,32 +634,58 @@ class ASTEdgeUndirected(ASTEdge):
             edge_query=d['edge_query'] if 'edge_query' in d else None,
             name=d['name'] if 'name' in d else None
         )
-        out.validate()
+        if validate:
+            out.validate()
         return out
+
 
 e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
 
 ###
 
-def from_json(o: JSONVal) -> Union[ASTNode, ASTEdge]:
-    assert isinstance(o, dict)
-    assert 'type' in o
-    out : Union[ASTNode, ASTEdge]
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
+    from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
+
+    if not isinstance(o, dict):
+        raise GFQLSyntaxError(ErrorCode.E101, "AST JSON must be a dictionary", value=type(o).__name__)
+
+    if 'type' not in o:
+        raise GFQLSyntaxError(
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node' or 'Edge'"
+        )
+
+    out: Union[ASTNode, ASTEdge]
     if o['type'] == 'Node':
-        out = ASTNode.from_json(o)
+        out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
         if 'direction' in o:
             if o['direction'] == 'forward':
-                out = ASTEdgeForward.from_json(o)
+                out = ASTEdgeForward.from_json(o, validate=validate)
             elif o['direction'] == 'reverse':
-                out = ASTEdgeReverse.from_json(o)
+                out = ASTEdgeReverse.from_json(o, validate=validate)
             elif o['direction'] == 'undirected':
-                out = ASTEdgeUndirected.from_json(o)
+                out = ASTEdgeUndirected.from_json(o, validate=validate)
             else:
-                raise ValueError(f'Edge has unknown direction {o["direction"]}')
+                raise GFQLSyntaxError(
+                    ErrorCode.E104,
+                    f"Edge has unknown direction: {o['direction']}",
+                    field="direction",
+                    value=o['direction'],
+                    suggestion='Use "forward", "reverse", or "undirected"',
+                )
         else:
-            raise ValueError('Edge missing direction')
+            raise GFQLSyntaxError(
+                ErrorCode.E105,
+                "Edge missing required 'direction' field",
+                suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
+            )
     else:
-        raise ValueError(f'Unknown type {o["type"]}')
+        raise GFQLSyntaxError(
+            ErrorCode.E101,
+            f"Unknown AST type: {o['type']}",
+            field="type",
+            value=o["type"],
+            suggestion="Use 'Node' or 'Edge'",
+        )
     return out

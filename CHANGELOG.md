@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
+
 ### Fixed
 * Engine: Fix resolve_engine() to use dynamic import for Plottable isinstance check to avoid Jinja dependency from pandas df.style getter (#701)
 * Engine: Fix resolve_engine() to check both Plotter and Plottable classes for proper type detection
@@ -23,6 +35,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Wire protocol JSON format for client-server communication
   * Fix terminology: clarify g._node (node ID column) vs g._nodes (DataFrame)
   * Emphasize GFQL's declarative nature for graph-to-graph transformations
+  * Add validation framework documentation with error code reference
 
 ## [0.39.1 - 2025-07-07]
 

@@ -9,8 +9,17 @@ class NumericASTPredicate(ASTPredicate):
     def __init__(self, val: Union[int, float]) -> None:
         self.val = val
 
-    def validate(self) -> None:
-        assert isinstance(self.val, (int, float))
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.val, (int, float)):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "val must be numeric (int or float)",
+                field="val",
+                value=type(self.val).__name__
+            )
 
 ###
 
@@ -104,10 +113,33 @@ class Between(ASTPredicate):
         else:
             return (s > self.lower) & (s < self.upper)
         
-    def validate(self) -> None:
-        assert isinstance(self.lower, (int, float))
-        assert isinstance(self.upper, (int, float))
-        assert isinstance(self.inclusive, bool)
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.lower, (int, float)):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "lower must be numeric (int or float)",
+                field="lower",
+                value=type(self.lower).__name__
+            )
+        
+        if not isinstance(self.upper, (int, float)):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "upper must be numeric (int or float)",
+                field="upper",
+                value=type(self.upper).__name__
+            )
+        
+        if not isinstance(self.inclusive, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "inclusive must be boolean",
+                field="inclusive",
+                value=type(self.inclusive).__name__
+            )
 
 def between(lower: float, upper: float, inclusive: bool = True) -> Between:
     """

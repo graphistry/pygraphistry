@@ -77,14 +77,18 @@ class ComparisonPredicate(ASTPredicate):
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
     
     
-    def validate(self) -> None:
-        """Validate both numeric and temporal values"""
-        if isinstance(self.val, (int, float)):
-            pass  # Numeric values are always valid
-        elif isinstance(self.val, TemporalValue):
-            pass  # Temporal values validated on construction
-        else:
-            raise TypeError(f"Invalid value type: {type(self.val)}")
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.val, (int, float, TemporalValue)):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "val must be numeric or temporal",
+                field="val",
+                value=type(self.val).__name__,
+                suggestion="Use numeric values or temporal objects"
+            )
     
     def to_json(self, validate=True) -> dict:
         """Serialize maintaining backward compatibility"""
@@ -278,7 +282,10 @@ class Between(ASTPredicate):
         else:
             raise TypeError("Between requires both bounds to be same type (numeric or temporal)")
         
-    def validate(self) -> None:
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
         # Check types match
         lower_is_numeric = isinstance(self.lower, (int, float))
         upper_is_numeric = isinstance(self.upper, (int, float))
@@ -286,9 +293,20 @@ class Between(ASTPredicate):
         upper_is_temporal = isinstance(self.upper, TemporalValue)
         
         if not ((lower_is_numeric and upper_is_numeric) or (lower_is_temporal and upper_is_temporal)):
-            raise TypeError("Between requires both bounds to be same type")
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "Between requires both bounds to be same type (numeric or temporal)",
+                field="bounds",
+                value=f"lower={type(self.lower).__name__}, upper={type(self.upper).__name__}"
+            )
         
-        assert isinstance(self.inclusive, bool)
+        if not isinstance(self.inclusive, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "inclusive must be boolean",
+                field="inclusive",
+                value=type(self.inclusive).__name__
+            )
     
     def to_json(self, validate=True) -> dict:
         """Serialize maintaining backward compatibility"""
