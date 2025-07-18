@@ -416,6 +416,28 @@ def set_currency_to_float(
     mask = where_is_currency_column(df, col)
     df[col, mask] = df[col, mask].apply(convert_money_string_to_float)
 
+def try_coerce_to_numeric(ndf: pd.DataFrame):
+    try:
+        nndf = ndf.copy()
+        object_columns = nndf.select_dtypes(include=['object']).columns
+        for j in object_columns:
+            num_floats = sum(isinstance(x, float) for x in nndf[j].dropna())
+            if num_floats > len(nndf[j]) / 2:  # most of column is float
+                try:
+                    nndf[j] = [float(value) if not isinstance(value, float) else value for value in nndf[j]]
+                    logger.info("Coerced strings to floats")
+                except:
+                    # nndf[j] = nndf[j].apply(lambda x: str(x).split() if isinstance(x, str) and ' ' in x else x)
+                    # nndf = nndf.explode(j)
+                    # logger.info("Exploded rows with multiple values in single cell")
+                    nndf[j] = nndf[j].apply(lambda x: str(x).split()[0] if isinstance(x, str) and ' ' in x else x)
+                    nndf[j] = nndf[j].astype(float)
+                    nndf.reset_index(drop=True, inplace=True)
+                    logger.info("took first float of tuple in single cell")
+
+    except:
+        pass
+    return nndf
 
 def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
     is_all_numeric = True
@@ -966,6 +988,7 @@ def process_dirty_dataframes(
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
+    ndf = try_coerce_to_numeric(ndf)
     all_numeric = is_dataframe_all_numeric(ndf)
     if not all_numeric and has_skrub and (feature_engine in ["skrub", "torch"]):
         data_encoder = TableVectorizer(
