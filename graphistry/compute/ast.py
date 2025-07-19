@@ -5,6 +5,7 @@ from typing_extensions import Literal
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLValidationError
+import pandas as pd
 from graphistry.Engine import Engine
 
 from graphistry.Plottable import Plottable
@@ -14,6 +15,50 @@ from graphistry.utils.json import JSONVal, is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.from_json import from_json as predicates_from_json
 
+from .predicates.is_in import (
+    is_in, IsIn
+)
+from .predicates.categorical import (
+    duplicated, Duplicated,
+)
+from .predicates.temporal import (
+    is_month_start, IsMonthStart,
+    is_month_end, IsMonthEnd,
+    is_quarter_start, IsQuarterStart,
+    is_quarter_end, IsQuarterEnd,
+    is_year_start, IsYearStart,
+    is_year_end, IsYearEnd,
+    is_leap_year, IsLeapYear
+)
+from .predicates.numeric import (
+    gt, GT,
+    lt, LT,
+    ge, GE,
+    le, LE,
+    eq, EQ,
+    ne, NE,
+    between, Between,
+    isna, IsNA,
+    notna, NotNA
+)
+from .predicates.str import (
+    contains, Contains,
+    startswith, Startswith,
+    endswith, Endswith,
+    match, Match,
+    isnumeric, IsNumeric,
+    isalpha, IsAlpha,
+    isdigit, IsDigit,
+    islower, IsLower,
+    isupper, IsUpper,
+    isspace, IsSpace,
+    isalnum, IsAlnum,
+    isdecimal, IsDecimal,
+    istitle, IsTitle,
+    isnull, IsNull,
+    notnull, NotNull
+)
+from .filter_by_dict import filter_by_dict
 from .typing import DataFrameT
 
 
@@ -604,8 +649,8 @@ e = ASTEdgeUndirected  # noqa: E305
 ##############################################################################
 
 
-class ASTLet(ASTObject):
-    """Let bindings for named graph operations"""
+class ASTQueryDAG(ASTObject):
+    """DAG of named graph operations"""
     def __init__(self, bindings: Dict[str, ASTObject]):
         super().__init__()
         self.bindings = bindings
@@ -623,13 +668,13 @@ class ASTLet(ASTObject):
         if validate:
             self.validate()
         return {
-            'type': 'Let',
+            'type': 'QueryDAG',
             'bindings': {k: v.to_json() for k, v in self.bindings.items()}
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
-        assert 'bindings' in d, "Let missing bindings"
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTQueryDAG':
+        assert 'bindings' in d, "QueryDAG missing bindings"
         bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
         if validate:
@@ -638,13 +683,11 @@ class ASTLet(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Let bindings don't use wavefronts - execute via chain_dag_impl
-        from graphistry.compute.chain_dag import chain_dag_impl
-        from graphistry.Engine import EngineAbstract
-        return chain_dag_impl(g, self, EngineAbstract(engine.value))
+        # Implementation in PR 1.2
+        raise NotImplementedError("QueryDAG execution will be implemented in PR 1.2")
     
-    def reverse(self) -> 'ASTLet':
-        raise NotImplementedError("Let reversal not supported")
+    def reverse(self) -> 'ASTQueryDAG':
+        raise NotImplementedError("QueryDAG reversal not supported")
 
 
 class ASTRemoteGraph(ASTObject):
@@ -739,22 +782,8 @@ class ASTChainRef(ASTObject):
 
 
 class ASTCall(ASTObject):
-    """Call a method on the current graph with validated parameters.
-    
-    Allows safe execution of Plottable methods through GFQL with parameter
-    validation and schema checking.
-    
-    Attributes:
-        function: Name of the method to call (must be in safelist)
-        params: Dictionary of parameters to pass to the method
-    """
+    """Call a method on the current graph with validated parameters"""
     def __init__(self, function: str, params: Optional[Dict[str, Any]] = None):
-        """Initialize a Call operation.
-        
-        Args:
-            function: Name of the Plottable method to call
-            params: Optional dictionary of parameters for the method
-        """
         super().__init__()
         self.function = function
         self.params = params or {}
@@ -788,14 +817,6 @@ class ASTCall(ASTObject):
             )
     
     def to_json(self, validate=True) -> dict:
-        """Convert Call to JSON representation.
-        
-        Args:
-            validate: If True, validate before serialization
-            
-        Returns:
-            Dictionary with type, function, and params fields
-        """
         if validate:
             self.validate()
         return {
@@ -817,40 +838,18 @@ class ASTCall(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        """Execute the method call on the graph.
-        
-        Args:
-            g: Graph to operate on
-            prev_node_wavefront: Previous node wavefront (unused)
-            target_wave_front: Target wavefront (unused)
-            engine: Execution engine (pandas/cudf)
-            
-        Returns:
-            New Plottable with method results
-            
-        Raises:
-            GFQLTypeError: If method not in safelist or parameters invalid
-        """
         # For chain_dag, we don't use wavefronts, just execute the call
         from graphistry.compute.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
-        """Reverse is not supported for Call operations.
-        
-        Most Plottable methods are not reversible as they perform
-        transformations that cannot be undone.
-        
-        Raises:
-            NotImplementedError: Always raised as calls cannot be reversed
-        """
         # Most method calls cannot be reversed
         raise NotImplementedError(f"Method '{self.function}' cannot be reversed")
 
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -861,7 +860,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]
+    out: Union[ASTNode, ASTEdge, ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -886,9 +885,8 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
                 "Edge missing required 'direction' field",
                 suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
             )
-    elif o['type'] == 'QueryDAG' or o['type'] == 'Let':
-        # Support both types for backward compatibility
-        out = ASTLet.from_json(o, validate=validate)
+    elif o['type'] == 'QueryDAG':
+        out = ASTQueryDAG.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
     elif o['type'] == 'ChainRef':
@@ -909,7 +907,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 ###############################################################################
 # User-friendly aliases for public API
 
-let = ASTLet  # noqa: E305
+dag = ASTQueryDAG  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTChainRef  # noqa: E305
 call = ASTCall  # noqa: E305
