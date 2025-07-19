@@ -41,8 +41,8 @@ def build_dependency_graph(bindings: Dict[str, ASTObject]) -> Tuple[Dict[str, Se
     :returns: Tuple of (dependencies dict, dependents dict)
     :rtype: Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]
     """
-    dependencies = {}
-    dependents = {}
+    dependencies: Dict[str, Set[str]] = {}
+    dependents: Dict[str, Set[str]] = {}
     
     for name, ast_obj in bindings.items():
         deps = extract_dependencies(ast_obj)
@@ -216,7 +216,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTQueryDAG):
         # Nested DAG execution
-        result = chain_dag_impl(g, ast_obj, engine)
+        result = chain_dag_impl(g, ast_obj, EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTChainRef):
         # Resolve reference from context
         try:
@@ -232,27 +232,28 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, engine)
+            result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
         # For chain_dag, we execute nodes in a simpler way than chain()
         # No wavefront propagation - just filter the graph's nodes
-        if ast_obj.filter_dict or ast_obj.query:
+        node_obj = cast(ASTNode, ast_obj)  # Help mypy understand the type
+        if node_obj.filter_dict or node_obj.query:
             filtered_g = g
-            if ast_obj.filter_dict:
-                filtered_g = filtered_g.filter_nodes_by_dict(ast_obj.filter_dict)
-            if ast_obj.query:
-                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(ast_obj.query))
+            if node_obj.filter_dict:
+                filtered_g = filtered_g.filter_nodes_by_dict(node_obj.filter_dict)
+            if node_obj.query:
+                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(node_obj.query))
             result = filtered_g
         else:
             # Empty filter - return original graph
             result = g
         
         # Add name column if specified
-        if ast_obj._name:
-            result = result.nodes(result._nodes.assign(**{ast_obj._name: True}))
+        if node_obj._name:
+            result = result.nodes(result._nodes.assign(**{node_obj._name: True}))
     elif isinstance(ast_obj, ASTEdge):
         # For chain_dag, execute edge operations using hop()
         # This is simpler than the full chain() wavefront approach
@@ -283,13 +284,21 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         from .chain_remote import chain_remote as chain_remote_impl
         
         # Fetch the remote dataset with an empty chain (no filtering)
+        # Convert engine to the expected type for chain_remote
+        from typing import Literal
+        chain_engine: Optional[Literal["pandas", "cudf"]] = None
+        if engine.value == "pandas":
+            chain_engine = "pandas"
+        elif engine.value == "cudf":
+            chain_engine = "cudf"
+        
         result = chain_remote_impl(
             result,
             [],  # Empty chain - just fetch the entire dataset
             api_token=ast_obj.token,
             dataset_id=ast_obj.dataset_id,
             output_type="all",  # Get full graph (nodes and edges)
-            engine=engine
+            engine=chain_engine
         )
     else:
         # Other AST object types not yet implemented
