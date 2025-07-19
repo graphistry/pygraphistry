@@ -98,7 +98,6 @@ def _validate_edge_op(
 
     return errors
 
-
 def _validate_filter_dict(
     filter_dict: dict,
     columns: set,

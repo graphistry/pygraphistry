@@ -215,7 +215,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_dag_impl(g, ast_obj, engine.value)
+        result = chain_dag_impl(g, ast_obj, EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTChainRef):
         # Resolve reference from context
         try:
@@ -231,14 +231,14 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, engine.value)
+            result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
         # For chain_dag, we execute nodes in a simpler way than chain()
         # No wavefront propagation - just filter the graph's nodes
-        node_obj = cast(ASTNode, ast_obj)
+        node_obj = cast(ASTNode, ast_obj)  # Help mypy understand the type
         if node_obj.filter_dict or node_obj.query:
             filtered_g = g
             if node_obj.filter_dict:
@@ -283,13 +283,21 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         from .chain_remote import chain_remote as chain_remote_impl
         
         # Fetch the remote dataset with an empty chain (no filtering)
+        # Convert engine to the expected type for chain_remote
+        from typing import Literal
+        chain_engine: Optional[Literal["pandas", "cudf"]] = None
+        if engine.value == "pandas":
+            chain_engine = "pandas"
+        elif engine.value == "cudf":
+            chain_engine = "cudf"
+        
         result = chain_remote_impl(
             result,
             [],  # Empty chain - just fetch the entire dataset
             api_token=ast_obj.token,
             dataset_id=ast_obj.dataset_id,
             output_type="all",  # Get full graph (nodes and edges)
-            engine=cast(Literal["pandas", "cudf"], engine.value)
+            engine=chain_engine
         )
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
