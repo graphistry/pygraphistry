@@ -13,6 +13,7 @@ from graphistry.compute.chain_dag import (
     detect_cycles, determine_execution_order
 )
 from graphistry.compute.execution_context import ExecutionContext
+from graphistry.compute.exceptions import GFQLTypeError
 from graphistry.tests.test_compute import CGFull
 
 
@@ -539,8 +540,10 @@ class TestErrorHandling:
             g.gfql("not a dag")
         assert "Query must be ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict" in str(exc_info.value)
         
-        with pytest.raises(AssertionError) as exc_info:
+        # When passed a dict, gfql creates an ASTQueryDAG which validates
+        with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql({'dict': 'not allowed'})
+        assert exc_info.value.code == "type-mismatch"
         assert "binding value must be ASTObject" in str(exc_info.value)
     
     def test_node_execution_error_wrapped(self):
@@ -650,7 +653,7 @@ class TestExecutionMechanics:
         result = execute_node('nested', nested_dag, g, context, Engine.PANDAS)
         assert result is not None
     
-    @patch('graphistry.compute.chain_dag.chain_remote_impl')
+    @patch('graphistry.compute.chain_remote.chain_remote')
     def test_remote_graph_execution(self, mock_chain_remote):
         """Test ASTRemoteGraph executes correctly with mocked remote call"""
         from graphistry.compute.chain_dag import execute_node
@@ -967,9 +970,14 @@ class TestIntegration:
         assert order.index('even') < order.index('high_even')
         assert order.index('odd') < order.index('high_odd')
     
-    def test_mock_remote_graph_placeholder(self):
-        """Test DAG with mock RemoteGraph (will fail until PR 1.3)"""
+    @patch('graphistry.compute.chain_remote.chain_remote')
+    def test_mock_remote_graph_placeholder(self, mock_chain_remote):
+        """Test DAG with mock RemoteGraph"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        
+        # Setup mock to return a simple graph
+        mock_result = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
+        mock_chain_remote.return_value = mock_result
         
         dag = ASTQueryDAG({
             'remote1': ASTRemoteGraph('dataset1'),
@@ -977,11 +985,12 @@ class TestIntegration:
             'combined': n()  # Would combine results
         })
         
-        # Should raise NotImplementedError for now
-        with pytest.raises(RuntimeError) as exc_info:
-            g.gfql(dag)
+        # Should execute successfully with mocked remote calls
+        result = g.gfql(dag)
+        assert result is not None
         
-        assert "ASTRemoteGraph not yet implemented" in str(exc_info.value)
+        # Verify chain_remote was called twice (once for each RemoteGraph)
+        assert mock_chain_remote.call_count == 2
     
     def test_memory_efficient_execution(self):
         """Test that intermediate results are stored efficiently"""
@@ -1184,19 +1193,24 @@ class TestChainDagInternal:
         assert result is not None
         assert len(result._nodes) == 2  # nodes a and b
     
-    def test_chain_dag_remote_not_implemented(self):
-        """Test chain_dag with RemoteGraph raises error for now"""
+    @patch('graphistry.compute.chain_remote.chain_remote')  
+    def test_chain_dag_remote_not_implemented(self, mock_chain_remote):
+        """Test chain_dag with RemoteGraph works with mocked remote"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        
+        # Setup mock
+        mock_result = CGFull().edges(pd.DataFrame({'s': ['remote1'], 'd': ['remote2']}), 's', 'd')
+        mock_chain_remote.return_value = mock_result
+        
         dag = ASTQueryDAG({
             'remote': ASTRemoteGraph('dataset123')
         })
         
-        # Should raise RuntimeError wrapping NotImplementedError until PR 1.3
-        with pytest.raises(RuntimeError) as exc_info:
-            g.gfql(dag)
-        
-        assert "Failed to execute node 'remote' in DAG" in str(exc_info.value)
-        assert "ASTRemoteGraph not yet implemented" in str(exc_info.value)
+        # Should work now with mocked chain_remote
+        result = g.gfql(dag)
+        assert result is not None
+        # Result should be the mocked remote graph
+        assert 'remote1' in result._edges['s'].values
     
     def test_chain_dag_multi_node_works(self):
         """Test chain_dag with multiple nodes now works"""

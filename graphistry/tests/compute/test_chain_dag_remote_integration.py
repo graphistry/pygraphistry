@@ -181,7 +181,7 @@ class TestRemoteGraphIntegration:
 class TestRemoteGraphMocked:
     """Tests with mocked remote calls (always run)."""
     
-    @patch('graphistry.compute.chain_dag.chain_remote_impl')
+    @patch('graphistry.compute.chain_remote.chain_remote')
     def test_remote_graph_execution_mocked(self, mock_chain_remote):
         """Test that RemoteGraph calls chain_remote correctly."""
         # This test always runs, even without remote server
