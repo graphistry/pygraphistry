@@ -1,6 +1,6 @@
 from abc import abstractmethod
 import logging
-from typing import Any, TYPE_CHECKING, Dict, List, Optional, Union, cast
+from typing import Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
 from typing_extensions import Literal
 
 if TYPE_CHECKING:
@@ -133,7 +133,7 @@ class ASTNode(ASTObject):
                 ErrorCode.E205, "query must be a string", field="query", value=type(self.query).__name__
             )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         if self.filter_dict:
@@ -330,7 +330,7 @@ class ASTEdge(ASTObject):
                     ErrorCode.E205, f"{query_name} must be a string", field=query_name, value=type(query_value).__name__
                 )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         for filter_dict in [self.source_node_match, self.edge_match, self.destination_node_match]:
@@ -640,9 +640,10 @@ class ASTLet(ASTObject):
         # TODO: Check for cycles in DAG
         return None
     
-    def _get_child_validators(self) -> List['ASTSerializable']:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return child AST nodes that need validation."""
-        return cast(List[ASTSerializable], list(self.bindings.values()))
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return list(self.bindings.values())
     
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -655,7 +656,7 @@ class ASTLet(ASTObject):
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
         assert 'bindings' in d, "Let missing bindings"
-        bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
+        bindings = {k: from_json(v, validate=validate) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
         if validate:
             out.validate()
@@ -740,7 +741,7 @@ class ASTRemoteGraph(ASTObject):
 
 class ASTChainRef(ASTObject):
     """Execute a chain with reference to a DAG binding"""
-    def __init__(self, ref: str, chain: List[ASTObject]):
+    def __init__(self, ref: str, chain: List['ASTObject']):
         super().__init__()
         self.ref = ref
         self.chain = chain
@@ -782,9 +783,10 @@ class ASTChainRef(ASTObject):
                     value=type(op).__name__
                 )
     
-    def _get_child_validators(self) -> List['ASTSerializable']:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return child AST nodes that need validation."""
-        return cast(List[ASTSerializable], self.chain)
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return self.chain
     
     def to_json(self, validate=True) -> dict:
         if validate:
