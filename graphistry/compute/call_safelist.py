@@ -10,26 +10,74 @@ from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 # Type validators
 def is_string(v: Any) -> bool:
+    """Check if value is a string.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is a string, False otherwise
+    """
     return isinstance(v, str)
 
 
 def is_int(v: Any) -> bool:
+    """Check if value is an integer.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is an integer, False otherwise
+    """
     return isinstance(v, int)
 
 
 def is_bool(v: Any) -> bool:
+    """Check if value is a boolean.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is a boolean, False otherwise
+    """
     return isinstance(v, bool)
 
 
 def is_dict(v: Any) -> bool:
+    """Check if value is a dictionary.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is a dictionary, False otherwise
+    """
     return isinstance(v, dict)
 
 
 def is_string_or_none(v: Any) -> bool:
+    """Check if value is a string or None.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is a string or None, False otherwise
+    """
     return v is None or isinstance(v, str)
 
 
 def is_list_of_strings(v: Any) -> bool:
+    """Check if value is a list of strings.
+
+    Args:
+        v: Value to check
+
+    Returns:
+        True if v is a list containing only strings, False otherwise
+    """
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
 
@@ -47,13 +95,12 @@ def is_list_of_strings(v: Any) -> bool:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'get_degrees': {
-        'allowed_params': {'col_in', 'col_out', 'col', 'engine'},
+        'allowed_params': {'col_in', 'col_out', 'col'},
         'required_params': set(),
         'param_validators': {
             'col_in': is_string,
             'col_out': is_string,
-            'col': is_string,
-            'engine': is_string
+            'col': is_string
         },
         'description': 'Calculate node degrees',
         'schema_effects': {
@@ -67,7 +114,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     'filter_nodes_by_dict': {
         'allowed_params': {'filter_dict'},
         'required_params': {'filter_dict'},
@@ -82,7 +129,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     'filter_edges_by_dict': {
         'allowed_params': {'filter_dict'},
         'required_params': {'filter_dict'},
@@ -97,7 +144,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': lambda p: list(p.get('filter_dict', {}).keys())
         }
     },
-    
+
     'materialize_nodes': {
         'allowed_params': {'engine', 'reuse'},
         'required_params': set(),
@@ -113,7 +160,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     'hop': {
         'allowed_params': {
             'nodes', 'hops', 'to_fixed_point', 'direction',
@@ -143,14 +190,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     # In/out degree methods
     'get_indegrees': {
-        'allowed_params': {'col', 'engine'},
+        'allowed_params': {'col'},
         'required_params': set(),
         'param_validators': {
-            'col': is_string,
-            'engine': is_string
+            'col': is_string
         },
         'description': 'Calculate node in-degrees',
         'schema_effects': {
@@ -160,13 +206,12 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     'get_outdegrees': {
-        'allowed_params': {'col', 'engine'},
+        'allowed_params': {'col'},
         'required_params': set(),
         'param_validators': {
-            'col': is_string,
-            'engine': is_string
+            'col': is_string
         },
         'description': 'Calculate node out-degrees',
         'schema_effects': {
@@ -176,7 +221,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     # Graph algorithm operations
     'compute_cugraph': {
         'allowed_params': {'alg', 'out_col', 'params', 'kind', 'directed', 'G'},
@@ -197,7 +242,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': []
         }
     },
-    
+
     'compute_igraph': {
         'allowed_params': {'alg', 'out_col', 'directed', 'use_vids', 'params'},
         'required_params': {'alg'},
@@ -210,8 +255,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'Run igraph algorithms'
     },
-    
-    # Layout operations  
+
+    # Layout operations
     'layout_cugraph': {
         'allowed_params': {'layout', 'params', 'kind', 'directed', 'G', 'bind_position', 'x_out_col', 'y_out_col', 'play'},
         'required_params': set(),
@@ -228,7 +273,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'GPU-accelerated graph layouts'
     },
-    
+
     'layout_igraph': {
         'allowed_params': {'layout', 'directed', 'use_vids', 'bind_position', 'x_out_col', 'y_out_col', 'params', 'play'},
         'required_params': {'layout'},
@@ -244,9 +289,12 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'igraph-based layouts'
     },
-    
+
     'layout_graphviz': {
-        'allowed_params': {'prog', 'args', 'directed', 'strict', 'graph_attr', 'node_attr', 'edge_attr', 'x_out_col', 'y_out_col', 'bind_position'},
+        'allowed_params': {
+            'prog', 'args', 'directed', 'strict', 'graph_attr',
+            'node_attr', 'edge_attr', 'x_out_col', 'y_out_col', 'bind_position'
+        },
         'required_params': set(),
         'param_validators': {
             'prog': is_string,
@@ -262,7 +310,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'Graphviz layouts (dot, neato, etc)'
     },
-    
+
     'fa2_layout': {
         'allowed_params': {'fa2_params', 'circle_layout_params', 'partition_key', 'remove_self_edges', 'engine', 'featurize'},
         'required_params': set(),
@@ -276,7 +324,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'ForceAtlas2 layout algorithm'
     },
-    
+
     # Self-edge pruning
     'prune_self_edges': {
         'allowed_params': set(),
@@ -407,14 +455,14 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
 def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """Validate parameters for a function call.
-    
+
     Args:
         function: Name of the function to call
         params: Parameters to validate
-        
+
     Returns:
         Validated parameters (may be modified, e.g., defaults added)
-        
+
     Raises:
         GFQLTypeError: If validation fails
     """
@@ -427,12 +475,12 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
             value=function,
             suggestion=f"Available functions: {', '.join(sorted(SAFELIST_V1.keys()))}"
         )
-    
+
     config = SAFELIST_V1[function]
     allowed_params = config['allowed_params']
     required_params = config['required_params']
     param_validators = config['param_validators']
-    
+
     # Check for required parameters
     missing_required = required_params - set(params.keys())
     if missing_required:
@@ -443,7 +491,7 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
             value=list(missing_required),
             suggestion=f"Required parameters: {', '.join(sorted(missing_required))}"
         )
-    
+
     # Check for unknown parameters
     unknown_params = set(params.keys()) - allowed_params
     if unknown_params:
@@ -454,7 +502,7 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
             value=list(unknown_params),
             suggestion=f"Allowed parameters: {', '.join(sorted(allowed_params))}"
         )
-    
+
     # Validate parameter types
     for param_name, param_value in params.items():
         if param_name in param_validators:

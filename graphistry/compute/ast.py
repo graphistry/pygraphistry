@@ -739,8 +739,22 @@ class ASTRef(ASTObject):
 
 
 class ASTCall(ASTObject):
-    """Call a method on the current graph with validated parameters"""
+    """Call a method on the current graph with validated parameters.
+    
+    Allows safe execution of Plottable methods through GFQL with parameter
+    validation and schema checking.
+    
+    Attributes:
+        function: Name of the method to call (must be in safelist)
+        params: Dictionary of parameters to pass to the method
+    """
     def __init__(self, function: str, params: Optional[Dict[str, Any]] = None):
+        """Initialize a Call operation.
+        
+        Args:
+            function: Name of the Plottable method to call
+            params: Optional dictionary of parameters for the method
+        """
         super().__init__()
         self.function = function
         self.params = params or {}
@@ -774,6 +788,14 @@ class ASTCall(ASTObject):
             )
     
     def to_json(self, validate=True) -> dict:
+        """Convert Call to JSON representation.
+        
+        Args:
+            validate: If True, validate before serialization
+            
+        Returns:
+            Dictionary with type, function, and params fields
+        """
         if validate:
             self.validate()
         return {
@@ -795,11 +817,33 @@ class ASTCall(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        """Execute the method call on the graph.
+        
+        Args:
+            g: Graph to operate on
+            prev_node_wavefront: Previous node wavefront (unused)
+            target_wave_front: Target wavefront (unused)
+            engine: Execution engine (pandas/cudf)
+            
+        Returns:
+            New Plottable with method results
+            
+        Raises:
+            GFQLTypeError: If method not in safelist or parameters invalid
+        """
         # For chain_dag, we don't use wavefronts, just execute the call
         from graphistry.compute.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
+        """Reverse is not supported for Call operations.
+        
+        Most Plottable methods are not reversible as they perform
+        transformations that cannot be undone.
+        
+        Raises:
+            NotImplementedError: Always raised as calls cannot be reversed
+        """
         # Most method calls cannot be reversed
         raise NotImplementedError(f"Method '{self.function}' cannot be reversed")
 
