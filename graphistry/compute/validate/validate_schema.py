@@ -311,7 +311,23 @@ def _validate_call_op(
     edge_columns: set,
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
-    """Validate Call operation schema requirements."""
+    """Validate Call operation schema requirements.
+    
+    Checks that all columns required by the called method exist in the graph.
+    Uses the schema_effects metadata from the safelist to determine requirements.
+    
+    Args:
+        op: ASTCall operation to validate
+        node_columns: Set of available node column names
+        edge_columns: Set of available edge column names
+        collect_all: If True, collect all errors. If False, raise on first error.
+        
+    Returns:
+        List of schema errors found (empty if valid)
+        
+    Raises:
+        GFQLSchemaError: If collect_all=False and validation fails
+    """
     errors = []
     
     # Import safelist to get schema effects
