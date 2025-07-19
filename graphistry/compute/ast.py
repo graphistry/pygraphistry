@@ -610,14 +610,39 @@ class ASTLet(ASTObject):
         super().__init__()
         self.bindings = bindings
     
-    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
-        assert isinstance(self.bindings, dict), "bindings must be a dictionary"
+    def _validate_fields(self) -> None:
+        """Validate Let fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.bindings, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "bindings must be a dictionary",
+                field="bindings",
+                value=type(self.bindings).__name__
+            )
+        
         for k, v in self.bindings.items():
-            assert isinstance(k, str), f"binding key must be string, got {type(k)}"
-            assert isinstance(v, ASTObject), f"binding value must be ASTObject, got {type(v)}"
-            v.validate()
+            if not isinstance(k, str):
+                raise GFQLTypeError(
+                    ErrorCode.E102,
+                    "binding key must be string",
+                    field=f"bindings.{k}",
+                    value=type(k).__name__
+                )
+            if not isinstance(v, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "binding value must be ASTObject",
+                    field=f"bindings.{k}",
+                    value=type(v).__name__
+                )
         # TODO: Check for cycles in DAG
         return None
+    
+    def _get_child_validators(self) -> List['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        return cast(List[ASTSerializable], list(self.bindings.values()))
     
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -654,11 +679,33 @@ class ASTRemoteGraph(ASTObject):
         self.dataset_id = dataset_id
         self.token = token
     
-    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
-        assert isinstance(self.dataset_id, str), "dataset_id must be a string"
-        assert len(self.dataset_id) > 0, "dataset_id cannot be empty"
-        assert self.token is None or isinstance(self.token, str), "token must be string or None"
-        return None
+    def _validate_fields(self) -> None:
+        """Validate RemoteGraph fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.dataset_id, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "dataset_id must be a string",
+                field="dataset_id",
+                value=type(self.dataset_id).__name__
+            )
+        
+        if len(self.dataset_id) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "dataset_id cannot be empty",
+                field="dataset_id",
+                value=self.dataset_id
+            )
+        
+        if self.token is not None and not isinstance(self.token, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "token must be string or None",
+                field="token",
+                value=type(self.token).__name__
+            )
     
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -698,14 +745,46 @@ class ASTChainRef(ASTObject):
         self.ref = ref
         self.chain = chain
     
-    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
-        assert isinstance(self.ref, str), "ref must be a string"
-        assert len(self.ref) > 0, "ref cannot be empty"
-        assert isinstance(self.chain, list), "chain must be a list"
+    def _validate_fields(self) -> None:
+        """Validate ChainRef fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.ref, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "ref must be a string",
+                field="ref",
+                value=type(self.ref).__name__
+            )
+        
+        if len(self.ref) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "ref cannot be empty",
+                field="ref",
+                value=self.ref
+            )
+        
+        if not isinstance(self.chain, list):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "chain must be a list",
+                field="chain",
+                value=type(self.chain).__name__
+            )
+        
         for i, op in enumerate(self.chain):
-            assert isinstance(op, ASTObject), f"chain[{i}] must be ASTObject, got {type(op)}"
-            op.validate()
-        return None
+            if not isinstance(op, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    f"chain[{i}] must be ASTObject",
+                    field=f"chain[{i}]",
+                    value=type(op).__name__
+                )
+    
+    def _get_child_validators(self) -> List['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        return cast(List[ASTSerializable], self.chain)
     
     def to_json(self, validate=True) -> dict:
         if validate:
