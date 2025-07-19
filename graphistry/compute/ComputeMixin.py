@@ -6,6 +6,8 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
+from .chain_dag import chain_dag as chain_dag_base
+from .gfql import gfql as gfql_base
 from .chain_remote import chain_remote as chain_remote_base, chain_remote_shape as chain_remote_shape_base
 from .python_remote import (
     python_remote_g as python_remote_g_base,
@@ -460,8 +462,26 @@ class ComputeMixin(Plottable):
     filter_edges_by_dict.__doc__ = filter_edges_by_dict_base.__doc__
 
     def chain(self, *args, **kwargs):
+        """
+        .. deprecated:: 2.XX.X
+           Use :meth:`gfql` instead for a unified API that supports both chains and DAGs.
+        """
+        import warnings
+        warnings.warn(
+            "chain() is deprecated. Use gfql() instead for a unified API.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return chain_base(self, *args, **kwargs)
-    chain.__doc__ = chain_base.__doc__
+    # Preserve original docstring after deprecation notice
+    chain.__doc__ = chain.__doc__ + "\n\n" + (chain_base.__doc__ or "")
+
+    # chain_dag removed from public API - use gfql() instead
+    # (chain_dag_base still available internally for gfql dispatch)
+    
+    def gfql(self, *args, **kwargs):
+        return gfql_base(self, *args, **kwargs)
+    gfql.__doc__ = gfql_base.__doc__
 
     def chain_remote(self, *args, **kwargs) -> Plottable:
         return chain_remote_base(self, *args, **kwargs)
