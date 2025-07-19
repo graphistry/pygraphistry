@@ -4,7 +4,7 @@ This module defines which Plottable methods can be called through GFQL
 and their parameter validation rules.
 """
 
-from typing import Dict, Any, Set, Optional, Union, Type
+from typing import Dict, Any
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
@@ -103,6 +103,129 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': is_string
         },
         'description': 'Traverse graph by following edges'
+    },
+    
+    # In/out degree methods
+    'get_indegrees': {
+        'allowed_params': {'col', 'engine'},
+        'required_params': set(),
+        'param_validators': {
+            'col': is_string,
+            'engine': is_string
+        },
+        'description': 'Calculate node in-degrees'
+    },
+    
+    'get_outdegrees': {
+        'allowed_params': {'col', 'engine'},
+        'required_params': set(),
+        'param_validators': {
+            'col': is_string,
+            'engine': is_string
+        },
+        'description': 'Calculate node out-degrees'
+    },
+    
+    # Graph algorithm operations
+    'compute_cugraph': {
+        'allowed_params': {'alg', 'out_col', 'params', 'kind', 'directed', 'G'},
+        'required_params': {'alg'},
+        'param_validators': {
+            'alg': is_string,
+            'out_col': is_string_or_none,
+            'params': is_dict,
+            'kind': is_string,
+            'directed': is_bool,
+            'G': lambda x: x is None  # Allow None only
+        },
+        'description': 'Run cuGraph algorithms (pagerank, louvain, etc)'
+    },
+    
+    'compute_igraph': {
+        'allowed_params': {'alg', 'out_col', 'directed', 'use_vids', 'params'},
+        'required_params': {'alg'},
+        'param_validators': {
+            'alg': is_string,
+            'out_col': is_string_or_none,
+            'directed': is_bool,
+            'use_vids': is_bool,
+            'params': is_dict
+        },
+        'description': 'Run igraph algorithms'
+    },
+    
+    # Layout operations  
+    'layout_cugraph': {
+        'allowed_params': {'layout', 'params', 'kind', 'directed', 'G', 'bind_position', 'x_out_col', 'y_out_col', 'play'},
+        'required_params': set(),
+        'param_validators': {
+            'layout': is_string,
+            'params': is_dict,
+            'kind': is_string,
+            'directed': is_bool,
+            'G': lambda x: x is None,
+            'bind_position': is_bool,
+            'x_out_col': is_string,
+            'y_out_col': is_string,
+            'play': is_int
+        },
+        'description': 'GPU-accelerated graph layouts'
+    },
+    
+    'layout_igraph': {
+        'allowed_params': {'layout', 'directed', 'use_vids', 'bind_position', 'x_out_col', 'y_out_col', 'params', 'play'},
+        'required_params': {'layout'},
+        'param_validators': {
+            'layout': is_string,
+            'directed': is_bool,
+            'use_vids': is_bool,
+            'bind_position': is_bool,
+            'x_out_col': is_string,
+            'y_out_col': is_string,
+            'params': is_dict,
+            'play': is_int
+        },
+        'description': 'igraph-based layouts'
+    },
+    
+    'layout_graphviz': {
+        'allowed_params': {'prog', 'args', 'directed', 'strict', 'graph_attr', 'node_attr', 'edge_attr', 'x_out_col', 'y_out_col', 'bind_position'},
+        'required_params': set(),
+        'param_validators': {
+            'prog': is_string,
+            'args': is_string_or_none,
+            'directed': is_bool,
+            'strict': is_bool,
+            'graph_attr': is_dict,
+            'node_attr': is_dict,
+            'edge_attr': is_dict,
+            'x_out_col': is_string,
+            'y_out_col': is_string,
+            'bind_position': is_bool
+        },
+        'description': 'Graphviz layouts (dot, neato, etc)'
+    },
+    
+    'fa2_layout': {
+        'allowed_params': {'fa2_params', 'circle_layout_params', 'partition_key', 'remove_self_edges', 'engine', 'featurize'},
+        'required_params': set(),
+        'param_validators': {
+            'fa2_params': is_dict,
+            'circle_layout_params': is_dict,
+            'partition_key': is_string_or_none,
+            'remove_self_edges': is_bool,
+            'engine': is_string,
+            'featurize': is_dict
+        },
+        'description': 'ForceAtlas2 layout algorithm'
+    },
+    
+    # Self-edge pruning
+    'prune_self_edges': {
+        'allowed_params': set(),
+        'required_params': set(),
+        'param_validators': {},
+        'description': 'Remove self-loops from graph'
     }
 }
 
@@ -169,5 +292,5 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
                     value=f"{type(param_value).__name__}: {param_value}",
                     suggestion="Check the parameter type requirements"
                 )
-    
+
     return params
