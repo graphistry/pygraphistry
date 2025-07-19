@@ -302,8 +302,11 @@ class TestExecutionContext:
         
         # Create a simple mock that can be executed
         class MockExecutable(ASTObject):
-            def validate(self):
+            def _validate_fields(self):
                 pass
+                
+            def _get_child_validators(self):
+                return []
             
             def __call__(self, g, prev_node_wavefront, target_wave_front, engine):
                 raise NotImplementedError("Mock execution")
