@@ -738,9 +738,75 @@ class ASTRef(ASTObject):
         return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain)])
 
 
+class ASTCall(ASTObject):
+    """Call a method on the current graph with validated parameters"""
+    def __init__(self, function: str, params: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        self.function = function
+        self.params = params or {}
+    
+    def _validate_fields(self) -> None:
+        """Validate Call fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.function, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "function must be a string",
+                field="function",
+                value=type(self.function).__name__
+            )
+        
+        if len(self.function) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "function name cannot be empty",
+                field="function",
+                value=self.function
+            )
+        
+        if not isinstance(self.params, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "params must be a dictionary",
+                field="params",
+                value=type(self.params).__name__
+            )
+    
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {
+            'type': 'Call',
+            'function': self.function,
+            'params': self.params
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTCall':
+        assert 'function' in d, "Call missing function"
+        out = cls(
+            function=d['function'],
+            params=d.get('params', {})
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # For chain_dag, we don't use wavefronts, just execute the call
+        from graphistry.compute.call_executor import execute_call
+        return execute_call(g, self.function, self.params, engine)
+    
+    def reverse(self) -> 'ASTCall':
+        # Most method calls cannot be reversed
+        raise NotImplementedError(f"Method '{self.function}' cannot be reversed")
+
+
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -748,10 +814,10 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'Ref'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', 'Ref', or 'Call'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -783,13 +849,15 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTRemoteGraph.from_json(o, validate=validate)
     elif o['type'] == 'Ref':
         out = ASTRef.from_json(o, validate=validate)
+    elif o['type'] == 'Call':
+        out = ASTCall.from_json(o, validate=validate)
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', or 'Ref'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'",
         )
     return out
 
@@ -800,3 +868,4 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTRef  # noqa: E305
+call = ASTCall  # noqa: E305
