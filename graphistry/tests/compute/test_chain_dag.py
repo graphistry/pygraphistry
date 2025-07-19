@@ -526,8 +526,7 @@ class TestNodeExecution:
         assert len(result._nodes) == 1
         assert result._nodes['id'].iloc[0] == 'a'
         assert result._nodes['type'].iloc[0] == 'person'
-        assert result._nodes['active'].iloc[0]  # Just check truthiness
-
+        assert result._nodes['active'].iloc[0]
 
 class TestErrorHandling:
     """Test error handling and edge cases"""
@@ -781,8 +780,7 @@ class TestDiamondPatterns:
         assert len(result._nodes) == 1
         assert result._nodes['type'].iloc[0] == 'source'
         assert 'from_left' in result._nodes.columns
-        assert result._nodes['from_left'].iloc[0]  # Check truthiness
-    
+        assert result._nodes['from_left'].iloc[0]
     def test_multi_branch_convergence(self):
         """Test multiple branches converging"""
         g = CGFull().edges(pd.DataFrame({

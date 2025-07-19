@@ -213,3 +213,4 @@ def validate_schema(self: Chain, g: Plottable, collect_all: bool = False) -> Opt
 
 # Monkey-patch Chain class
 setattr(Chain, 'validate_schema', validate_schema)
+
