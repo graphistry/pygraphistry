@@ -482,7 +482,7 @@ class TestNodeExecution:
         
         # Should have 'tagged' column
         assert 'tagged' in result._nodes.columns
-        assert all(result._nodes['tagged'] == True)
+        assert all(result._nodes['tagged'])
     
     def test_node_in_dag_execution(self):
         """Test ASTNode works in full DAG execution"""
