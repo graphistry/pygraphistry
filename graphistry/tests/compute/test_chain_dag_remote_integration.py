@@ -192,7 +192,7 @@ class TestRemoteGraphMocked:
             'remote': ASTRemoteGraph('test-dataset-123', token='test-token')
         })
         
-        result = CGFull().gfql(dag)
+        CGFull().gfql(dag)
         
         # Verify chain_remote was called correctly
         mock_chain_remote.assert_called_once()
