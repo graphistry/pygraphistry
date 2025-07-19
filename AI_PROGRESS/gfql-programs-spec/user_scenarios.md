@@ -121,3 +121,88 @@
 **Goal**: Compare networks across species/conditions
 **Features**: Multiple RemoteGraphs, graph difference operations
 **Challenge**: Dealing with incomplete/missing data
+
+## Taylor - Supply Chain Analyst Scenarios
+
+### Scenario T1: Multi-Tier Risk Assessment
+**Goal**: Assess risk propagation through 4+ tiers of suppliers
+**Features**: Deep traversal, risk scoring algorithms, web dashboard
+**Challenge**: Handling circular supplier relationships, real-time updates
+
+### Scenario T2: Disruption Simulation
+**Goal**: Simulate impact of supplier failures on production
+**Features**: What-if analysis, GraphSubtract for failure scenarios
+**Challenge**: Complex propagation rules, performance with large networks
+
+### Scenario T3: Supplier Diversity Analysis
+**Goal**: Identify single points of failure in supply chain
+**Features**: Centrality analysis, critical path identification
+**Challenge**: Integration with ERP data, executive visualization needs
+
+## Quinn - Cyber Threat Hunter Scenarios
+
+### Scenario Q1: Behavioral Anomaly Hunting
+**Goal**: Find unusual patterns in user/system behavior
+**Features**: Louie conversational queries, anomaly detection, pattern matching
+**Challenge**: Reducing false positives, iterative hypothesis testing
+
+### Scenario Q2: Living Off the Land Detection
+**Goal**: Detect threats using legitimate tools
+**Features**: Complex behavioral patterns, time-based analysis
+**Challenge**: Distinguishing legitimate from malicious use
+
+### Scenario Q3: Data Exfiltration Hunting
+**Goal**: Identify potential data exfiltration patterns
+**Features**: Network flow analysis, statistical anomalies
+**Challenge**: Large data volumes, encryption blind spots
+
+## Harper - Cyber Threat Intelligence Scenarios
+
+### Scenario H1: IOC Correlation and Attribution
+**Goal**: Correlate IOCs across feeds and attribute to threat actors
+**Features**: Multi-source integration, MITRE mapping, confidence scoring
+**Challenge**: Conflicting attribution, data freshness
+
+### Scenario H2: Campaign Tracking
+**Goal**: Track evolution of threat campaigns over time
+**Features**: Temporal analysis, pattern evolution, API development
+**Challenge**: Maintaining historical context, sharing with partners
+
+### Scenario H3: Threat Intelligence API
+**Goal**: Build API for internal teams to query threat data
+**Features**: API wrapper around GFQL queries, caching, rate limiting
+**Challenge**: Performance requirements, access control
+
+## Blake - Tier 1 SOC Analyst Scenarios
+
+### Scenario B1: Alert Triage Workflow
+**Goal**: Quickly triage high volume of security alerts
+**Features**: Template queries, Louie assistance, simple visualizations
+**Challenge**: Alert fatigue, limited technical skills
+
+### Scenario B2: Initial Investigation
+**Goal**: Perform first-level investigation of security incidents
+**Features**: Guided workflows, pre-built queries, escalation criteria
+**Challenge**: Knowing when to escalate, documentation requirements
+
+### Scenario B3: False Positive Identification
+**Goal**: Identify and document false positive patterns
+**Features**: Pattern templates, simple filtering, tagging
+**Challenge**: Building confidence in decisions, reducing repeat alerts
+
+## Dakota - Tier 2 SOC Analyst Scenarios
+
+### Scenario D1: Deep Dive Investigation
+**Goal**: Perform thorough investigation of escalated incidents
+**Features**: Complex multi-stage queries, custom algorithms, automation
+**Challenge**: Efficiency under pressure, comprehensive documentation
+
+### Scenario D2: Threat Remediation Planning
+**Goal**: Develop remediation plans for confirmed threats
+**Features**: Impact analysis, dependency mapping, playbook creation
+**Challenge**: Understanding business impact, coordinating response
+
+### Scenario D3: Investigation Automation
+**Goal**: Automate repetitive investigation tasks
+**Features**: Query templates, workflow automation, dashboard creation
+**Challenge**: Balancing automation with human judgment
