@@ -5,7 +5,6 @@ parameter validation has been performed by the safelist module.
 """
 
 from typing import Dict, Any
-
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.call_safelist import validate_call_params
@@ -30,7 +29,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     """
     # Validate parameters against safelist
     validated_params = validate_call_params(function, params)
-
     # Check if method exists on Plottable
     if not hasattr(g, function):
         raise AttributeError(
@@ -42,7 +40,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     method = getattr(g, function)
 
     # Special handling for methods that need the engine parameter
-    if function in ['materialize_nodes', 'hop']:
+    if function in ['get_degrees', 'materialize_nodes', 'hop']:
         # These methods accept an engine parameter
         if 'engine' not in validated_params:
             # Add current engine if not specified
@@ -51,7 +49,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     try:
         # Execute the method with validated parameters
         result = method(**validated_params)
-
         # Ensure result is a Plottable (most methods return self or new Plottable)
         if not isinstance(result, Plottable):
             raise GFQLTypeError(
@@ -63,7 +60,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             )
 
         return result
-
     except TypeError as e:
         # Handle parameter mismatch errors
         raise GFQLTypeError(
