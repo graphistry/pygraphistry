@@ -39,6 +39,11 @@ def is_list_of_strings(v: Any) -> bool:
 # - required_params: Set of parameters that must be provided
 # - param_validators: Dict of param_name -> validator function
 # - description: Human-readable description of what the method does
+# - schema_effects: Dict describing columns added/removed/required
+#   - adds_node_cols: List of columns added to nodes
+#   - adds_edge_cols: List of columns added to edges
+#   - requires_node_cols: List of node columns that must exist
+#   - requires_edge_cols: List of edge columns that must exist
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'get_degrees': {
@@ -50,7 +55,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'col': is_string,
             'engine': is_string
         },
-        'description': 'Calculate node degrees'
+        'description': 'Calculate node degrees',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [
+                p.get('col', 'degree'),
+                p.get('col_in', 'degree_in'),
+                p.get('col_out', 'degree_out')
+            ],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'filter_nodes_by_dict': {
@@ -59,7 +74,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'filter_dict': is_dict
         },
-        'description': 'Filter nodes by attribute values'
+        'description': 'Filter nodes by attribute values',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': lambda p: list(p.get('filter_dict', {}).keys()),
+            'requires_edge_cols': []
+        }
     },
     
     'filter_edges_by_dict': {
@@ -68,7 +89,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'filter_dict': is_dict
         },
-        'description': 'Filter edges by attribute values'
+        'description': 'Filter edges by attribute values',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': lambda p: list(p.get('filter_dict', {}).keys())
+        }
     },
     
     'materialize_nodes': {
@@ -78,7 +105,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': is_string,
             'reuse': is_bool
         },
-        'description': 'Generate node table from edges'
+        'description': 'Generate node table from edges',
+        'schema_effects': {
+            'adds_node_cols': ['node'],  # Creates node column
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'hop': {
@@ -113,7 +146,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'col': is_string,
             'engine': is_string
         },
-        'description': 'Calculate node in-degrees'
+        'description': 'Calculate node in-degrees',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('col', 'degree_in')],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'get_outdegrees': {
@@ -123,7 +162,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'col': is_string,
             'engine': is_string
         },
-        'description': 'Calculate node out-degrees'
+        'description': 'Calculate node out-degrees',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('col', 'degree_out')],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     # Graph algorithm operations
@@ -138,7 +183,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'directed': is_bool,
             'G': lambda x: x is None  # Allow None only
         },
-        'description': 'Run cuGraph algorithms (pagerank, louvain, etc)'
+        'description': 'Run cuGraph algorithms (pagerank, louvain, etc)',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('out_col', p['alg'])],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'compute_igraph': {
@@ -226,6 +277,124 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': set(),
         'param_validators': {},
         'description': 'Remove self-loops from graph'
+    },
+
+    # Graph transformations
+    'collapse': {
+        'allowed_params': {'node', 'attribute', 'column', 'self_edges', 'unwrap', 'verbose'},
+        'required_params': set(),
+        'param_validators': {
+            'node': is_string_or_none,
+            'attribute': is_string_or_none,
+            'column': is_string_or_none,
+            'self_edges': is_bool,
+            'unwrap': is_bool,
+            'verbose': is_bool
+        },
+        'description': 'Collapse nodes by shared attribute values'
+    },
+
+    'drop_nodes': {
+        'allowed_params': {'nodes'},
+        'required_params': {'nodes'},
+        'param_validators': {
+            'nodes': lambda v: isinstance(v, list) or is_dict(v)
+        },
+        'description': 'Remove specified nodes and their edges'
+    },
+
+    'keep_nodes': {
+        'allowed_params': {'nodes'},
+        'required_params': {'nodes'},
+        'param_validators': {
+            'nodes': lambda v: isinstance(v, list) or is_dict(v)
+        },
+        'description': 'Keep only specified nodes and their edges'
+    },
+
+    # Topology analysis
+    'get_topological_levels': {
+        'allowed_params': {'level_col', 'allow_cycles', 'warn_cycles', 'remove_self_loops'},
+        'required_params': set(),
+        'param_validators': {
+            'level_col': is_string,
+            'allow_cycles': is_bool,
+            'warn_cycles': is_bool,
+            'remove_self_loops': is_bool
+        },
+        'description': 'Compute topological levels for DAG analysis'
+    },
+
+    # Visual encoding methods
+    'encode_point_color': {
+        'allowed_params': {'column', 'palette', 'as_categorical', 'as_continuous', 'categorical_mapping', 'default_mapping'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'palette': lambda v: isinstance(v, list),
+            'as_categorical': is_bool,
+            'as_continuous': is_bool,
+            'categorical_mapping': is_dict,
+            'default_mapping': is_string_or_none
+        },
+        'description': 'Map node column values to colors'
+    },
+
+    'encode_edge_color': {
+        'allowed_params': {'column', 'palette', 'as_categorical', 'as_continuous', 'categorical_mapping', 'default_mapping'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'palette': lambda v: isinstance(v, list),
+            'as_categorical': is_bool,
+            'as_continuous': is_bool,
+            'categorical_mapping': is_dict,
+            'default_mapping': is_string_or_none
+        },
+        'description': 'Map edge column values to colors'
+    },
+
+    'encode_point_size': {
+        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': is_dict,
+            'default_mapping': lambda v: isinstance(v, (int, float))
+        },
+        'description': 'Map node column values to sizes'
+    },
+
+    'encode_point_icon': {
+        'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': is_dict,
+            'continuous_binning': lambda v: isinstance(v, list),
+            'default_mapping': is_string_or_none,
+            'as_text': is_bool
+        },
+        'description': 'Map node column values to icons'
+    },
+
+    # Metadata methods
+    'name': {
+        'allowed_params': {'name'},
+        'required_params': {'name'},
+        'param_validators': {
+            'name': is_string
+        },
+        'description': 'Set visualization name'
+    },
+
+    'description': {
+        'allowed_params': {'description'},
+        'required_params': {'description'},
+        'param_validators': {
+            'description': is_string
+        },
+        'description': 'Set visualization description'
     }
 }
 

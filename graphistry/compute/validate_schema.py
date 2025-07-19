@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.chain import Chain
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph, ASTCall
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
@@ -57,6 +57,8 @@ def validate_chain_schema(
             op_errors = _validate_chainref_op(op, g, collect_all)
         elif isinstance(op, ASTRemoteGraph):
             op_errors = _validate_remotegraph_op(op, collect_all)
+        elif isinstance(op, ASTCall):
+            op_errors = _validate_call_op(op, node_columns, edge_columns, collect_all)
 
         # Add operation index to all errors
         for e in op_errors:
@@ -295,6 +297,76 @@ def _validate_filter_dict(
             if not collect_all:
                 raise
 
+    return errors
+
+
+def _validate_call_op(
+    op: ASTCall,
+    node_columns: set,
+    edge_columns: set,
+    collect_all: bool = False
+) -> List[GFQLSchemaError]:
+    """Validate Call operation schema requirements."""
+    errors = []
+    
+    # Import safelist to get schema effects
+    from graphistry.compute.call_safelist import SAFELIST_V1
+    
+    # Check if method is in safelist
+    if op.function not in SAFELIST_V1:
+        # This should have been caught by parameter validation already
+        return errors
+    
+    method_info = SAFELIST_V1[op.function]
+    
+    # Check if method has schema effects defined
+    if 'schema_effects' not in method_info:
+        # Method doesn't define schema effects, so we can't validate
+        return errors
+    
+    schema_effects = method_info['schema_effects']
+    
+    # Get required columns based on parameters
+    if 'requires_node_cols' in schema_effects:
+        if callable(schema_effects['requires_node_cols']):
+            required_node_cols = schema_effects['requires_node_cols'](op.params)
+        else:
+            required_node_cols = schema_effects['requires_node_cols']
+        
+        for col in required_node_cols:
+            if col not in node_columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Call operation "{op.function}" requires node column "{col}" which does not exist',
+                    field=f'{op.function}.{col}',
+                    value=col,
+                    suggestion=f'Available node columns: {", ".join(sorted(node_columns)[:10])}{"..." if len(node_columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
+                else:
+                    raise error
+    
+    if 'requires_edge_cols' in schema_effects:
+        if callable(schema_effects['requires_edge_cols']):
+            required_edge_cols = schema_effects['requires_edge_cols'](op.params)
+        else:
+            required_edge_cols = schema_effects['requires_edge_cols']
+        
+        for col in required_edge_cols:
+            if col not in edge_columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Call operation "{op.function}" requires edge column "{col}" which does not exist',
+                    field=f'{op.function}.{col}',
+                    value=col,
+                    suggestion=f'Available edge columns: {", ".join(sorted(edge_columns)[:10])}{"..." if len(edge_columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
+                else:
+                    raise error
+    
     return errors
 
 
