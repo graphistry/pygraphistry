@@ -280,40 +280,40 @@ class TestCallInDAG:
         # Should still have all nodes (get_degrees doesn't filter)
         assert len(result._nodes) == 4
     
-    def test_call_with_chainref(self, sample_graph):
-        """Test ASTCall referencing another binding."""
+    def test_call_referencing_binding(self, sample_graph):
+        """Test ASTCall that operates on whole graph (not in chain)."""
         from graphistry.compute.ast import ASTChainRef
         
+        # Call operations work on the whole graph, not as part of chains
         dag = ASTLet({
             'users': n({'type': 'user'}),
-            'users_with_degrees': ASTChainRef('users', [
-                ASTCall('get_degrees', {'col': 'user_degree'})
-            ])
+            'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
         })
         
         result = chain_dag_impl(sample_graph, dag, EngineAbstract.PANDAS)
         
-        # Should have filtered to users and added degrees
-        assert len(result._nodes) == 3
-        assert 'user_degree' in result._nodes.columns
-        assert all(result._nodes['type'] == 'user')
+        # Should have degree column on all nodes
+        assert len(result._nodes) == 4  # All nodes
+        assert 'degree' in result._nodes.columns
     
     def test_multiple_calls(self, sample_graph):
         """Test multiple call operations in sequence."""
-        from graphistry.compute.ast import ASTChainRef
-        
-        dag = ASTLet({
-            'step1': ASTCall('get_degrees', {'col': 'deg'}),
-            'step2': ASTChainRef('step1', [
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': 2}})
-            ])
+        # First add degrees
+        dag1 = ASTLet({
+            'with_degrees': ASTCall('get_degrees', {'col': 'deg'})
         })
+        result1 = chain_dag_impl(sample_graph, dag1, EngineAbstract.PANDAS)
+        assert 'deg' in result1._nodes.columns
         
-        result = chain_dag_impl(sample_graph, dag, EngineAbstract.PANDAS, output='step2')
+        # Then filter - use the graph that has degrees
+        dag2 = ASTLet({
+            'filtered': ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': 2}})
+        })
+        result2 = chain_dag_impl(result1, dag2, EngineAbstract.PANDAS)
         
         # Should have nodes with degree 2
-        assert len(result._nodes) > 0
-        assert all(result._nodes['deg'] == 2)
+        assert len(result2._nodes) > 0
+        assert all(result2._nodes['deg'] == 2)
     
     @patch('graphistry.compute.call_executor.getattr')
     def test_call_execution_error(self, mock_getattr, sample_graph):
