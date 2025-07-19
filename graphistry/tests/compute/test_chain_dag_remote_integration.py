@@ -192,7 +192,9 @@ class TestRemoteGraphMocked:
             'remote': ASTRemoteGraph('test-dataset-123', token='test-token')
         })
         
-        CGFull().gfql(dag)
+        # Need a graph with edges for bind() to work
+        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        g.gfql(dag)
         
         # Verify chain_remote was called correctly
         mock_chain_remote.assert_called_once()
