@@ -2,6 +2,7 @@
 import pytest
 from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n, e
 from graphistry.compute.execution_context import ExecutionContext
+from graphistry.compute.exceptions import GFQLTypeError
 
 
 class TestLetValidation:
@@ -14,15 +15,20 @@ class TestLetValidation:
     
     def test_let_invalid_key_type(self):
         """Let with non-string key should fail"""
-        with pytest.raises(AssertionError, match="binding key must be string"):
-            dag = ASTLet({123: n()})
+        # Note: This validation happens at runtime in _validate_fields
+        dag = ASTLet({123: n()})  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             dag.validate()
+        assert exc_info.value.code == "invalid-filter-key"
+        assert "binding key must be string" in str(exc_info.value)
     
     def test_let_invalid_value_type(self):
         """Let with non-ASTObject value should fail"""
-        with pytest.raises(AssertionError, match="binding value must be ASTObject"):
-            dag = ASTLet({'a': 'not an AST object'})
+        dag = ASTLet({'a': 'not an AST object'})  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             dag.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "binding value must be ASTObject" in str(exc_info.value)
     
     def test_let_nested_validation(self):
         """Let should validate nested objects"""
@@ -47,21 +53,27 @@ class TestRemoteGraphValidation:
     
     def test_remoteGraph_invalid_dataset_type(self):
         """RemoteGraph with non-string dataset_id should fail"""
-        with pytest.raises(AssertionError, match="dataset_id must be a string"):
-            rg = ASTRemoteGraph(123)
+        rg = ASTRemoteGraph(123)  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             rg.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "dataset_id must be a string" in str(exc_info.value)
     
     def test_remoteGraph_empty_dataset(self):
         """RemoteGraph with empty dataset_id should fail"""
-        with pytest.raises(AssertionError, match="dataset_id cannot be empty"):
-            rg = ASTRemoteGraph('')
+        rg = ASTRemoteGraph('')
+        with pytest.raises(GFQLTypeError) as exc_info:
             rg.validate()
+        assert exc_info.value.code == "empty-chain"
+        assert "dataset_id cannot be empty" in str(exc_info.value)
     
     def test_remoteGraph_invalid_token_type(self):
         """RemoteGraph with non-string token should fail"""
-        with pytest.raises(AssertionError, match="token must be string or None"):
-            rg = ASTRemoteGraph('dataset', token=123)
+        rg = ASTRemoteGraph('dataset', token=123)  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             rg.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "token must be string or None" in str(exc_info.value)
 
 
 class TestChainRefValidation:
@@ -77,27 +89,35 @@ class TestChainRefValidation:
     
     def test_chainRef_invalid_ref_type(self):
         """ChainRef with non-string ref should fail"""
-        with pytest.raises(AssertionError, match="ref must be a string"):
-            cr = ASTChainRef(123, [])
+        cr = ASTChainRef(123, [])  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "ref must be a string" in str(exc_info.value)
     
     def test_chainRef_empty_ref(self):
         """ChainRef with empty ref should fail"""
-        with pytest.raises(AssertionError, match="ref cannot be empty"):
-            cr = ASTChainRef('', [])
+        cr = ASTChainRef('', [])
+        with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
+        assert exc_info.value.code == "empty-chain"
+        assert "ref cannot be empty" in str(exc_info.value)
     
     def test_chainRef_invalid_chain_type(self):
         """ChainRef with non-list chain should fail"""
-        with pytest.raises(AssertionError, match="chain must be a list"):
-            cr = ASTChainRef('ref', 'not a list')
+        cr = ASTChainRef('ref', 'not a list')  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "chain must be a list" in str(exc_info.value)
     
     def test_chainRef_invalid_chain_element(self):
         """ChainRef with non-ASTObject in chain should fail"""
-        with pytest.raises(AssertionError, match="must be ASTObject"):
-            cr = ASTChainRef('ref', [n(), 'not an AST object'])
+        cr = ASTChainRef('ref', [n(), 'not an AST object'])  # type: ignore
+        with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
+        assert exc_info.value.code == "type-mismatch"
+        assert "must be ASTObject" in str(exc_info.value)
     
     def test_chainRef_nested_validation(self):
         """ChainRef should validate nested operations"""

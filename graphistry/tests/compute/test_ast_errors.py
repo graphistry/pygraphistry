@@ -13,6 +13,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json("not a dict")
         
+        assert exc_info.value.code == "invalid-chain-type"
         assert "AST JSON must be a dictionary" in str(exc_info.value)
     
     def test_from_json_none_input(self):
@@ -20,6 +21,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json(None)
         
+        assert exc_info.value.code == "invalid-chain-type"
         assert "AST JSON must be a dictionary" in str(exc_info.value)
     
     def test_from_json_missing_type(self):
@@ -27,6 +29,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"no_type": "value"})
         
+        assert exc_info.value.code == "missing-required-field"
         assert "AST JSON missing required 'type' field" in str(exc_info.value)
     
     def test_from_json_unknown_type(self):
@@ -34,6 +37,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "UnknownType"})
         
+        assert exc_info.value.code == "invalid-chain-type"
         assert "Unknown AST type: UnknownType" in str(exc_info.value)
     
     def test_edge_missing_direction(self):
@@ -41,6 +45,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "Edge"})
         
+        assert exc_info.value.code == "missing-required-field"
         assert "Edge missing required 'direction' field" in str(exc_info.value)
     
     def test_edge_invalid_direction(self):
@@ -48,6 +53,7 @@ class TestSerializationErrors:
         with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "Edge", "direction": "invalid"})
         
+        assert exc_info.value.code == "invalid-direction"
         assert "Edge has unknown direction: invalid" in str(exc_info.value)
     
     def test_querydag_missing_bindings(self):
