@@ -1,6 +1,6 @@
 from abc import abstractmethod
 import logging
-from typing import Any, TYPE_CHECKING, Dict, Optional, Union, cast
+from typing import Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Engine import Engine
@@ -175,7 +175,7 @@ class ASTNode(ASTObject):
                 ErrorCode.E205, "query must be a string", field="query", value=type(self.query).__name__
             )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         if self.filter_dict:
@@ -372,7 +372,7 @@ class ASTEdge(ASTObject):
                     ErrorCode.E205, f"{query_name} must be a string", field=query_name, value=type(query_value).__name__
                 )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         for filter_dict in [self.source_node_match, self.edge_match, self.destination_node_match]:
@@ -642,9 +642,225 @@ class ASTEdgeUndirected(ASTEdge):
 e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
 
+
+##############################################################################
+
+
+class ASTQueryDAG(ASTObject):
+    """DAG of named graph operations"""
+    def __init__(self, bindings: Dict[str, 'ASTObject']):
+        super().__init__()
+        self.bindings = bindings
+    
+    def _validate_fields(self) -> None:
+        """Validate QueryDAG fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.bindings, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "bindings must be a dictionary",
+                field="bindings",
+                value=type(self.bindings).__name__
+            )
+        
+        for k, v in self.bindings.items():
+            if not isinstance(k, str):
+                raise GFQLTypeError(
+                    ErrorCode.E102,
+                    "binding key must be string",
+                    field=f"bindings.{k}",
+                    value=type(k).__name__
+                )
+            if not isinstance(v, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "binding value must be ASTObject",
+                    field=f"bindings.{k}",
+                    value=type(v).__name__
+                )
+        # TODO: Check for cycles in DAG
+    
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return list(self.bindings.values())
+    
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {
+            'type': 'QueryDAG',
+            'bindings': {k: v.to_json() for k, v in self.bindings.items()}
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTQueryDAG':
+        assert 'bindings' in d, "QueryDAG missing bindings"
+        bindings = {k: from_json(v, validate=validate) for k, v in d['bindings'].items()}
+        out = cls(bindings=bindings)
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # Implementation in PR 1.2
+        raise NotImplementedError("QueryDAG execution will be implemented in PR 1.2")
+    
+    def reverse(self) -> 'ASTQueryDAG':
+        raise NotImplementedError("QueryDAG reversal not supported")
+
+
+class ASTRemoteGraph(ASTObject):
+    """Load a graph from Graphistry server"""
+    def __init__(self, dataset_id: str, token: Optional[str] = None):
+        super().__init__()
+        self.dataset_id = dataset_id
+        self.token = token
+    
+    def _validate_fields(self) -> None:
+        """Validate RemoteGraph fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.dataset_id, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "dataset_id must be a string",
+                field="dataset_id",
+                value=type(self.dataset_id).__name__
+            )
+        
+        if len(self.dataset_id) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "dataset_id cannot be empty",
+                field="dataset_id",
+                value=self.dataset_id
+            )
+        
+        if self.token is not None and not isinstance(self.token, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "token must be string or None",
+                field="token",
+                value=type(self.token).__name__
+            )
+    
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        result = {
+            'type': 'RemoteGraph',
+            'dataset_id': self.dataset_id
+        }
+        if self.token is not None:
+            result['token'] = self.token
+        return result
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRemoteGraph':
+        assert 'dataset_id' in d, "RemoteGraph missing dataset_id"
+        out = cls(
+            dataset_id=d['dataset_id'],
+            token=d.get('token')
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # Implementation in PR 1.3
+        raise NotImplementedError("RemoteGraph loading will be implemented in PR 1.3")
+    
+    def reverse(self) -> 'ASTRemoteGraph':
+        raise NotImplementedError("RemoteGraph reversal not supported")
+
+
+class ASTChainRef(ASTObject):
+    """Execute a chain with reference to a DAG binding"""
+    def __init__(self, ref: str, chain: List['ASTObject']):
+        super().__init__()
+        self.ref = ref
+        self.chain = chain
+    
+    def _validate_fields(self) -> None:
+        """Validate ChainRef fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.ref, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "ref must be a string",
+                field="ref",
+                value=type(self.ref).__name__
+            )
+        
+        if len(self.ref) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "ref cannot be empty",
+                field="ref",
+                value=self.ref
+            )
+        
+        if not isinstance(self.chain, list):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "chain must be a list",
+                field="chain",
+                value=type(self.chain).__name__
+            )
+        
+        for i, op in enumerate(self.chain):
+            if not isinstance(op, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    f"chain[{i}] must be ASTObject",
+                    field=f"chain[{i}]",
+                    value=type(op).__name__
+                )
+    
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return self.chain
+    
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {
+            'type': 'ChainRef',
+            'ref': self.ref,
+            'chain': [op.to_json() for op in self.chain]
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTChainRef':
+        assert 'ref' in d, "ChainRef missing ref"
+        assert 'chain' in d, "ChainRef missing chain"
+        out = cls(
+            ref=d['ref'],
+            chain=[from_json(op, validate=validate) for op in d['chain']]
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # Implementation in PR 1.2
+        raise NotImplementedError("ChainRef execution will be implemented in PR 1.2")
+    
+    def reverse(self) -> 'ASTChainRef':
+        # Reverse the chain operations
+        return ASTChainRef(self.ref, [op.reverse() for op in reversed(self.chain)])
+
+
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
+def from_json(o: JSONVal, validate: bool = True) -> 'ASTObject':
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -652,10 +868,10 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node' or 'Edge'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge]
+    out: ASTObject
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -680,12 +896,18 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
                 "Edge missing required 'direction' field",
                 suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
             )
+    elif o['type'] == 'QueryDAG':
+        out = ASTQueryDAG.from_json(o, validate=validate)
+    elif o['type'] == 'RemoteGraph':
+        out = ASTRemoteGraph.from_json(o, validate=validate)
+    elif o['type'] == 'ChainRef':
+        out = ASTChainRef.from_json(o, validate=validate)
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node' or 'Edge'",
+            suggestion="Use 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'",
         )
     return out
