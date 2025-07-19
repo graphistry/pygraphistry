@@ -273,6 +273,24 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         # Add name column to edges if specified
         if ast_obj._name:
             result = result.edges(result._edges.assign(**{ast_obj._name: True}))
+    elif isinstance(ast_obj, ASTRemoteGraph):
+        # Create a new plottable bound to the remote dataset_id
+        # This doesn't fetch the data immediately - it just creates a reference
+        result = g.bind(dataset_id=ast_obj.dataset_id)
+        
+        # If we need to actually fetch the data, we would use chain_remote
+        # For now, we'll fetch it immediately to ensure we have the data
+        from .chain_remote import chain_remote as chain_remote_impl
+        
+        # Fetch the remote dataset with an empty chain (no filtering)
+        result = chain_remote_impl(
+            result,
+            [],  # Empty chain - just fetch the entire dataset
+            api_token=ast_obj.token,
+            dataset_id=ast_obj.dataset_id,
+            output_type="all",  # Get full graph (nodes and edges)
+            engine=engine
+        )
     else:
         # Other AST object types not yet implemented
         raise NotImplementedError(f"Execution of {type(ast_obj).__name__} not yet implemented")

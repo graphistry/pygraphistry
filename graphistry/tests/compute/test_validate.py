@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from typing import List
 
-from graphistry.compute.gfql.validate import (
+from graphistry.compute.gfql_validation.validate import (
     validate_syntax, validate_schema, validate_query,
     extract_schema, extract_schema_from_dataframes,
     format_validation_errors, suggest_fixes,
