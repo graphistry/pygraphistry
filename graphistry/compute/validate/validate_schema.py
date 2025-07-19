@@ -3,7 +3,7 @@
 from typing import List, Optional, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTQueryDAG, ASTChainRef, ASTRemoteGraph
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -57,6 +57,12 @@ def validate_chain_schema(
             op_errors = _validate_node_op(op, node_columns, g._nodes, collect_all)
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
+        elif isinstance(op, ASTQueryDAG):
+            op_errors = _validate_querydag_op(op, g, collect_all)
+        elif isinstance(op, ASTChainRef):
+            op_errors = _validate_chainref_op(op, g, collect_all)
+        elif isinstance(op, ASTRemoteGraph):
+            op_errors = _validate_remotegraph_op(op, collect_all)
 
         # Add operation index to all errors
         for e in op_errors:
@@ -102,6 +108,103 @@ def _validate_edge_op(
     if op.destination_node_match and nodes_df is not None:
         errors.extend(_validate_filter_dict(op.destination_node_match, node_columns, nodes_df, "destination node", collect_all))
 
+    return errors
+
+
+def _validate_querydag_op(op: ASTQueryDAG, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
+    """Validate QueryDAG operation against schema."""
+    errors = []
+    
+    # Validate each binding in the DAG
+    for binding_name, binding_value in op.bindings.items():
+        try:
+            # Recursively validate each binding as if it's a single operation
+            binding_errors = validate_chain_schema(g, [binding_value], collect_all=True)
+            
+            # Add binding context to errors
+            for error in binding_errors:
+                error.context['dag_binding'] = binding_name
+                
+            if binding_errors:
+                if collect_all:
+                    errors.extend(binding_errors)
+                else:
+                    raise binding_errors[0]
+                    
+        except GFQLSchemaError as e:
+            e.context['dag_binding'] = binding_name
+            if collect_all:
+                errors.append(e)
+            else:
+                raise
+    
+    return errors
+
+
+def _validate_chainref_op(op: ASTChainRef, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
+    """Validate ChainRef operation against schema."""
+    errors = []
+    
+    # Validate the chain operations in the ChainRef
+    if op.chain:
+        try:
+            chain_errors = validate_chain_schema(g, op.chain, collect_all=True)
+            
+            # Add ChainRef context to errors
+            for error in chain_errors:
+                error.context['chain_ref'] = op.ref
+                
+            if chain_errors:
+                if collect_all:
+                    errors.extend(chain_errors)
+                else:
+                    raise chain_errors[0]
+                    
+        except GFQLSchemaError as e:
+            e.context['chain_ref'] = op.ref
+            if collect_all:
+                errors.append(e)
+            else:
+                raise
+    
+    # Note: We don't validate that op.ref exists here since that's handled
+    # by the DAG dependency validation in chain_dag.py
+    
+    return errors
+
+
+def _validate_remotegraph_op(op: ASTRemoteGraph, collect_all: bool) -> List[GFQLSchemaError]:
+    """Validate RemoteGraph operation against schema."""
+    errors = []
+    
+    # Validate dataset_id format
+    if not op.dataset_id or not isinstance(op.dataset_id, str):
+        error = GFQLSchemaError(
+            ErrorCode.E303,
+            f'RemoteGraph dataset_id must be a non-empty string',
+            field='dataset_id',
+            value=op.dataset_id,
+            suggestion='Provide a valid dataset identifier string'
+        )
+        if collect_all:
+            errors.append(error)
+        else:
+            raise error
+    
+    # Validate token format if provided
+    if op.token is not None and not isinstance(op.token, str):
+        error = GFQLSchemaError(
+            ErrorCode.E303,
+            f'RemoteGraph token must be a string if provided',
+            field='token',
+            value=type(op.token).__name__,
+            suggestion='Provide a valid token string or None'
+        )
+        if collect_all:
+            errors.append(error)
+        else:
+            raise error
+    
     return errors
 
 

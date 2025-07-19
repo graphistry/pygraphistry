@@ -1,5 +1,12 @@
+"""Test chain DAG functionality
+
+For integration tests with real remote graphs, see test_chain_dag_remote_integration.py
+Enable remote tests with: TEST_REMOTE_INTEGRATION=1
+"""
+
 import pandas as pd
 import pytest
+from unittest.mock import patch, MagicMock
 from graphistry.compute.ast import ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTNode, ASTObject, n, e
 from graphistry.compute.chain_dag import (
     extract_dependencies, build_dependency_graph, validate_dependencies,
@@ -646,16 +653,42 @@ class TestExecutionMechanics:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         context = ExecutionContext()
         
-        # Test ASTRemoteGraph raises NotImplementedError
-        remote = ASTRemoteGraph('dataset123')
-        with pytest.raises(NotImplementedError) as exc_info:
-            execute_node('remote', remote, g, context, Engine.PANDAS)
-        assert "ASTRemoteGraph not yet implemented" in str(exc_info.value)
+        # Test ASTRemoteGraph is now implemented (will fail with missing auth)
+        # We'll test actual functionality with mocks in a separate test
         
         # Test nested ASTQueryDAG
         nested_dag = ASTQueryDAG({'inner': n()})
         result = execute_node('nested', nested_dag, g, context, Engine.PANDAS)
         assert result is not None
+    
+    @patch('graphistry.compute.chain_dag.chain_remote_impl')
+    def test_remote_graph_execution(self, mock_chain_remote):
+        """Test ASTRemoteGraph executes correctly with mocked remote call"""
+        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.execution_context import ExecutionContext
+        from graphistry.Engine import Engine
+        
+        # Setup mock return value
+        mock_result = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
+        mock_chain_remote.return_value = mock_result
+        
+        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        context = ExecutionContext()
+        
+        # Execute remote graph
+        remote = ASTRemoteGraph('dataset123', token='secret-token')
+        result = execute_node('remote_data', remote, g, context, Engine.PANDAS)
+        
+        # Verify chain_remote was called with correct params
+        mock_chain_remote.assert_called_once()
+        call_args = mock_chain_remote.call_args
+        assert call_args[0][1] == []  # Empty chain
+        assert call_args[1]['dataset_id'] == 'dataset123'
+        assert call_args[1]['api_token'] == 'secret-token'
+        assert call_args[1]['output_type'] == 'all'
+        
+        # Verify result is stored in context
+        assert context.get_binding('remote_data') is mock_result
     
     def test_chain_ref_resolution_order(self):
         """Test ASTChainRef resolves references in correct order"""
