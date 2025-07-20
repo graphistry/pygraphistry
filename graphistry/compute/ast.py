@@ -911,3 +911,4 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTChainRef  # noqa: E305
+call = ASTCall  # noqa: E305
