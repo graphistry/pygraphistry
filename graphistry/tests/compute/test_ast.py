@@ -40,8 +40,6 @@ def test_serialization_let_empty():
 
 def test_serialization_let_single():
     """Test Let with single binding"""
-    """Test QueryDAG with single binding"""
->>>>>>> docs(gfql): add comprehensive docstrings to PR1 AST classes
     dag = ASTLet({'a': n()})
     o = dag.to_json()
     assert o['type'] == 'Let'

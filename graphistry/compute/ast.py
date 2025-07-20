@@ -1062,7 +1062,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
         )
 
     out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]

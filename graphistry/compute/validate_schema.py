@@ -108,7 +108,7 @@ def _validate_edge_op(
 
 
 def _validate_querydag_op(op: ASTLet, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
-    """Validate QueryDAG operation against schema."""
+    """Validate Let operation against schema."""
     errors = []
     
     # Validate each binding in the DAG
