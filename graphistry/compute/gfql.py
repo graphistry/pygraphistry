@@ -45,15 +45,15 @@ def gfql(self: Plottable,
     
     ::
     
-        from graphistry.compute.ast import ASTQueryDAG, ASTChainRef, n, e
+        from graphistry.compute.ast import dag, ref, n, e
         
-        result = g.gfql(ASTQueryDAG({
+        result = g.gfql(dag({
             'people': n({'type': 'person'}),
-            'friends': ASTChainRef('people', [e({'rel': 'knows'}), n()])
+            'friends': ref('people', [e({'rel': 'knows'}), n()])
         }))
         
         # Select specific output
-        friends = g.gfql(dag, output='friends')
+        friends = g.gfql(result, output='friends')
     
     **Example: Auto-detection**
     

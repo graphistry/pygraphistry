@@ -828,3 +828,11 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQ
             suggestion="Use 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'",
         )
     return out
+
+
+###############################################################################
+# User-friendly aliases for public API
+
+dag = ASTQueryDAG  # noqa: E305
+remote = ASTRemoteGraph  # noqa: E305
+ref = ASTChainRef  # noqa: E305
