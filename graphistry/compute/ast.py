@@ -605,8 +605,8 @@ e = ASTEdgeUndirected  # noqa: E305
 
 
 class ASTLet(ASTObject):
-    """Let bindings for named graph operations"""
-    def __init__(self, bindings: Dict[str, ASTObject]):
+    """Let-bindings for named graph operations"""
+    def __init__(self, bindings: Dict[str, 'ASTObject']):
         super().__init__()
         self.bindings = bindings
     
@@ -967,8 +967,10 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
                 "Edge missing required 'direction' field",
                 suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
             )
-    elif o['type'] == 'QueryDAG' or o['type'] == 'Let':
-        # Support both types for backward compatibility
+    elif o['type'] == 'Let':
+        out = ASTLet.from_json(o, validate=validate)
+    elif o['type'] == 'QueryDAG':
+        # For backward compatibility
         out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)

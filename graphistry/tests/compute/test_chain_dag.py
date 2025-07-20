@@ -543,7 +543,7 @@ class TestErrorHandling:
             g.gfql("not a dag")
         assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
         
-        # When passed a dict, gfql creates an ASTQueryDAG which validates
+        # When passed a dict, gfql creates an ASTLet which validates
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql({'dict': 'not allowed'})
         assert exc_info.value.code == "type-mismatch"

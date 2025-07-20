@@ -194,7 +194,11 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     """Execute a single node in the DAG
     
     Handles different AST object types:
+<<<<<<< HEAD
     - ASTLet: Recursive let execution
+=======
+    - ASTLet: Recursive DAG execution
+>>>>>>> refactor: rename ASTQueryDAG to ASTLet throughout codebase
     - ASTChainRef: Reference resolution and chain execution
     - ASTNode: Node filtering operations
     - ASTEdge: Edge traversal operations
