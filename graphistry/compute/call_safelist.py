@@ -82,16 +82,31 @@ def is_list_of_strings(v: Any) -> bool:
 
 
 # Safelist configuration
-# Each entry defines:
-# - allowed_params: Set of parameter names that can be passed
-# - required_params: Set of parameters that must be provided
-# - param_validators: Dict of param_name -> validator function
-# - description: Human-readable description of what the method does
-# - schema_effects: Dict describing columns added/removed/required
-#   - adds_node_cols: List of columns added to nodes
-#   - adds_edge_cols: List of columns added to edges
-#   - requires_node_cols: List of node columns that must exist
-#   - requires_edge_cols: List of edge columns that must exist
+# Dictionary mapping allowed Plottable method names to their validation rules.
+#
+# Each method entry contains:
+#     - allowed_params (Set[str]): Parameter names that can be passed to the method
+#     - required_params (Set[str]): Parameters that must be provided
+#     - param_validators (Dict[str, Callable]): Maps param names to validation functions
+#     - description (str): Human-readable description of what the method does
+#     - schema_effects (Dict[str, List[str]]): Describes schema changes:
+#         - adds_node_cols: Columns added to node DataFrame
+#         - adds_edge_cols: Columns added to edge DataFrame
+#         - requires_node_cols: Node columns that must exist before calling
+#         - requires_edge_cols: Edge columns that must exist before calling
+#
+# Example entry:
+#     'hop': {
+#         'allowed_params': {'steps', 'to_fixed_point', 'direction'},
+#         'required_params': set(),
+#         'param_validators': {
+#             'steps': is_int,
+#             'to_fixed_point': is_bool,
+#             'direction': lambda v: v in ['forward', 'reverse', 'undirected']
+#         },
+#         'description': 'Traverse graph edges for N steps',
+#         'schema_effects': {}
+#     }
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'get_degrees': {
@@ -448,17 +463,41 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
 
 def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate parameters for a function call.
-
+    """Validate parameters for a GFQL Call operation against the safelist.
+    
+    Performs comprehensive validation:
+        1. Checks if function is in the safelist
+        2. Verifies all required parameters are present
+        3. Ensures no unknown parameters are passed
+        4. Validates parameter types using configured validators
+        5. Returns the validated parameters unchanged
+    
     Args:
-        function: Name of the function to call
-        params: Parameters to validate
-
+        function: Name of the Plottable method to call
+        params: Dictionary of parameters to validate
+    
     Returns:
-        Validated parameters (may be modified, e.g., defaults added)
-
+        The same parameters dict if validation passes
+    
     Raises:
-        GFQLTypeError: If validation fails
+        GFQLTypeError: If function not in safelist (E303)
+        GFQLTypeError: If required parameters missing (E105)
+        GFQLTypeError: If unknown parameters provided (E303)
+        GFQLTypeError: If parameter type validation fails (E201)
+    
+    **Example::**
+    
+        # Valid call
+        params = validate_call_params('hop', {'steps': 2, 'direction': 'forward'})
+        
+        # Invalid - unknown function
+        validate_call_params('dangerous_method', {})  # Raises E303
+        
+        # Invalid - missing required param
+        validate_call_params('fa2_layout', {})  # Would raise E105 if layout was required
+        
+        # Invalid - wrong type
+        validate_call_params('hop', {'steps': 'two'})  # Raises E201
     """
     # Check if function is in safelist
     if function not in SAFELIST_V1:

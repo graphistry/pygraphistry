@@ -952,7 +952,7 @@ class ASTCall(ASTObject):
         function: Name of the method to call (must be in safelist)
         params: Dictionary of parameters to pass to the method
     """
-    def __init__(self, function: str, params: Optional[Dict[str, Any]] = None):
+    def __init__(self, function: str, params: Optional[Dict[str, Any]] = None) -> None:
         """Initialize a Call operation.
         
         Args:
@@ -991,7 +991,7 @@ class ASTCall(ASTObject):
                 value=type(self.params).__name__
             )
     
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate: bool = True) -> dict:
         """Convert Call to JSON representation.
         
         Args:
@@ -1010,6 +1010,21 @@ class ASTCall(ASTObject):
     
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTCall':
+        """Create ASTCall from JSON representation.
+        
+        :param d: JSON dictionary with 'function' field and optional 'params'
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTCall instance
+        :rtype: ASTCall
+        :raises AssertionError: If 'function' field is missing
+        
+        **Example::**
+        
+            call_json = {'type': 'Call', 'function': 'hop', 'params': {'steps': 2}}
+            call = ASTCall.from_json(call_json)
+        """
         assert 'function' in d, "Call missing function"
         out = cls(
             function=d['function'],
