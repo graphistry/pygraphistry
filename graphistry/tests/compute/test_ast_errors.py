@@ -57,7 +57,7 @@ class TestSerializationErrors:
         assert "Edge has unknown direction: invalid" in str(exc_info.value)
     
     def test_querydag_missing_bindings(self):
-        """Test clear error when QueryDAG missing bindings"""
+        """Test clear error when Let DAG missing bindings"""
         with pytest.raises(AssertionError) as exc_info:
             from_json({"type": "QueryDAG"})
         

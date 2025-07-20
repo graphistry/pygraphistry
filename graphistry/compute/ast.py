@@ -605,8 +605,29 @@ e = ASTEdgeUndirected  # noqa: E305
 
 
 class ASTLet(ASTObject):
-    """Let-bindings for named graph operations"""
-    def __init__(self, bindings: Dict[str, 'ASTObject']):
+    """Let-bindings for named graph operations in a DAG.
+    
+    Allows defining reusable graph operations that can reference each other,
+    forming a directed acyclic graph (DAG) of computations.
+    
+    :param bindings: Dictionary mapping names to graph operations
+    :type bindings: Dict[str, ASTObject]
+    
+    :raises GFQLTypeError: If bindings is not a dict or contains invalid keys/values
+    
+    **Example::**
+    
+        dag = ASTLet({
+            'persons': n({'type': 'person'}),
+            'friends': ASTChainRef('persons', [e_forward({'rel': 'friend'})])
+        })
+    """
+    def __init__(self, bindings: Dict[str, 'ASTObject']) -> None:
+        """Initialize Let with named bindings.
+        
+        :param bindings: Dictionary mapping names to AST operations
+        :type bindings: Dict[str, ASTObject]
+        """
         super().__init__()
         self.bindings = bindings
     
@@ -645,7 +666,14 @@ class ASTLet(ASTObject):
         # ASTObject inherits from ASTSerializable, so this is safe
         return list(self.bindings.values())
     
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert Let to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
         if validate:
             self.validate()
         return {
@@ -655,6 +683,16 @@ class ASTLet(ASTObject):
     
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
+        """Create ASTLet from JSON representation.
+        
+        :param d: JSON dictionary with 'bindings' field
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTLet instance
+        :rtype: ASTLet
+        :raises AssertionError: If 'bindings' field is missing
+        """
         assert 'bindings' in d, "Let missing bindings"
         bindings = {k: from_json(v, validate=validate) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
@@ -674,8 +712,34 @@ class ASTLet(ASTObject):
 
 
 class ASTRemoteGraph(ASTObject):
-    """Load a graph from Graphistry server"""
-    def __init__(self, dataset_id: str, token: Optional[str] = None):
+    """Load a graph from Graphistry server.
+    
+    Allows fetching previously uploaded graphs by dataset ID,
+    optionally with an authentication token.
+    
+    :param dataset_id: Unique identifier of the dataset on the server
+    :type dataset_id: str
+    :param token: Optional authentication token
+    :type token: Optional[str]
+    
+    :raises GFQLTypeError: If dataset_id is not a string or is empty
+    
+    **Example::**
+    
+        # Fetch public dataset
+        remote = ASTRemoteGraph('my-dataset-id')
+        
+        # Fetch private dataset with token
+        remote = ASTRemoteGraph('private-dataset', token='auth-token')
+    """
+    def __init__(self, dataset_id: str, token: Optional[str] = None) -> None:
+        """Initialize RemoteGraph with dataset ID and optional token.
+        
+        :param dataset_id: Unique identifier of the dataset
+        :type dataset_id: str
+        :param token: Optional authentication token
+        :type token: Optional[str]
+        """
         super().__init__()
         self.dataset_id = dataset_id
         self.token = token
@@ -708,7 +772,14 @@ class ASTRemoteGraph(ASTObject):
                 value=type(self.token).__name__
             )
     
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert RemoteGraph to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
         if validate:
             self.validate()
         result = {
@@ -721,6 +792,16 @@ class ASTRemoteGraph(ASTObject):
     
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTRemoteGraph':
+        """Create ASTRemoteGraph from JSON representation.
+        
+        :param d: JSON dictionary with 'dataset_id' field
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTRemoteGraph instance
+        :rtype: ASTRemoteGraph
+        :raises AssertionError: If 'dataset_id' field is missing
+        """
         assert 'dataset_id' in d, "RemoteGraph missing dataset_id"
         out = cls(
             dataset_id=d['dataset_id'],
@@ -740,8 +821,31 @@ class ASTRemoteGraph(ASTObject):
 
 
 class ASTChainRef(ASTObject):
-    """Execute a chain with reference to a DAG binding"""
-    def __init__(self, ref: str, chain: List['ASTObject']):
+    """Execute a chain of operations starting from a DAG binding reference.
+    
+    Allows building graph operations that start from a named binding
+    defined in an ASTLet (DAG) and apply additional operations.
+    
+    :param ref: Name of the binding to reference from the DAG
+    :type ref: str
+    :param chain: List of operations to apply to the referenced graph
+    :type chain: List[ASTObject]
+    
+    :raises GFQLTypeError: If ref is not a string or chain is not a list
+    
+    **Example::**
+    
+        # Reference 'persons' binding and find their friends
+        friends = ASTChainRef('persons', [e_forward({'rel': 'friend'})])
+    """
+    def __init__(self, ref: str, chain: List['ASTObject']) -> None:
+        """Initialize ChainRef with reference name and operation chain.
+        
+        :param ref: Name of the binding to reference
+        :type ref: str
+        :param chain: List of operations to apply
+        :type chain: List[ASTObject]
+        """
         super().__init__()
         self.ref = ref
         self.chain = chain
@@ -788,7 +892,14 @@ class ASTChainRef(ASTObject):
         # ASTObject inherits from ASTSerializable, so this is safe
         return self.chain
     
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert ChainRef to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
         if validate:
             self.validate()
         return {
@@ -799,6 +910,16 @@ class ASTChainRef(ASTObject):
     
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTChainRef':
+        """Create ASTChainRef from JSON representation.
+        
+        :param d: JSON dictionary with 'ref' and 'chain' fields
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTChainRef instance
+        :rtype: ASTChainRef
+        :raises AssertionError: If 'ref' or 'chain' fields are missing
+        """
         assert 'ref' in d, "ChainRef missing ref"
         assert 'chain' in d, "ChainRef missing chain"
         out = cls(
