@@ -80,12 +80,12 @@ from graphistry import n
 from graphistry.compute import gt, lt, between
 
 # Filter nodes created after a specific datetime
-recent_nodes = g.chain([
+recent_nodes = g.gfql([
     n(filter_dict={"created_at": gt(pd.Timestamp("2023-01-01 12:00:00"))})
 ])
 
 # Filter edges within a date range
-date_range_edges = g.chain([
+date_range_edges = g.gfql([
     n(edge_match={"timestamp": between(
         datetime(2023, 1, 1),
         datetime(2023, 12, 31)
@@ -102,12 +102,12 @@ from datetime import date
 from graphistry.compute import eq, ge
 
 # Filter nodes by exact date
-specific_date = g.chain([
+specific_date = g.gfql([
     n(filter_dict={"event_date": eq(date(2023, 6, 15))})
 ])
 
 # Filter nodes on or after a date
-after_date = g.chain([
+after_date = g.gfql([
     n(filter_dict={"start_date": ge(date(2023, 1, 1))})
 ])
 ```
@@ -121,7 +121,7 @@ from datetime import time
 from graphistry.compute import is_in, between
 
 # Filter events at specific times
-morning_events = g.chain([
+morning_events = g.gfql([
     n(filter_dict={"event_time": is_in([
         time(9, 0, 0),
         time(9, 30, 0),
@@ -130,7 +130,7 @@ morning_events = g.chain([
 ])
 
 # Filter events in time range
-business_hours = g.chain([
+business_hours = g.gfql([
     n(filter_dict={"timestamp": between(
         time(9, 0, 0),
         time(17, 0, 0)
@@ -145,7 +145,7 @@ import pytz
 
 # Timezone-aware filtering
 eastern = pytz.timezone('US/Eastern')
-tz_aware_filter = g.chain([
+tz_aware_filter = g.gfql([
     n(filter_dict={
         "timestamp": gt(pd.Timestamp("2023-01-01 12:00:00", tz=eastern))
     })
@@ -164,7 +164,7 @@ Combine temporal predicates with other filters:
 from graphistry.compute import gt, lt, eq
 
 # Complex filter with multiple conditions
-complex_filter = g.chain([
+complex_filter = g.gfql([
     n(filter_dict={
         "created_at": gt(datetime(2023, 1, 1)),
         "status": eq("active"),
@@ -179,7 +179,7 @@ You can pass wire protocol dictionaries directly to predicates, which is useful 
 
 ```python
 # Pass wire protocol dictionaries directly
-filter_with_dict = g.chain([
+filter_with_dict = g.gfql([
     n(filter_dict={"timestamp": gt({
         "type": "datetime",
         "value": "2023-01-01T12:00:00",
@@ -188,7 +188,7 @@ filter_with_dict = g.chain([
 ])
 
 # Works with all temporal predicates
-date_range_filter = g.chain([
+date_range_filter = g.gfql([
     n(filter_dict={"event_date": between(
         {"type": "date", "value": "2023-01-01"},
         {"type": "date", "value": "2023-12-31"}
@@ -196,7 +196,7 @@ date_range_filter = g.chain([
 ])
 
 # And with is_in for multiple values
-time_filter = g.chain([
+time_filter = g.gfql([
     n(filter_dict={"event_time": is_in([
         {"type": "time", "value": "09:00:00"},
         {"type": "time", "value": "12:00:00"},
@@ -216,7 +216,7 @@ Use temporal filters in complex graph traversals:
 
 ```python
 # Find all transactions after a date, then their related accounts
-recent_transactions = g.chain([
+recent_transactions = g.gfql([
     n(filter_dict={"type": eq("transaction"), 
                    "date": gt(date(2023, 6, 1))}),
     n(edge_match={"relationship": eq("involves")}),
@@ -239,7 +239,7 @@ from graphistry.compute import DateTimeValue, gt
 dt_value = DateTimeValue("2023-01-01T12:00:00", "US/Eastern")
 
 # Use in predicate
-filter_dt = g.chain([
+filter_dt = g.gfql([
     n(filter_dict={"timestamp": gt(dt_value)})
 ])
 ```
@@ -256,7 +256,7 @@ start = DateValue("2023-01-01")
 end = DateValue("2023-12-31")
 
 # Use in between predicate
-year_filter = g.chain([
+year_filter = g.gfql([
     n(filter_dict={"event_date": between(start, end)})
 ])
 ```
@@ -273,7 +273,7 @@ morning = TimeValue("09:00:00")
 noon = TimeValue("12:00:00")
 
 # Filter by specific times
-time_filter = g.chain([
+time_filter = g.gfql([
     n(filter_dict={"daily_event": is_in([morning, noon])})
 ])
 ```
@@ -300,12 +300,12 @@ from datetime import datetime, timedelta
 # Find events within last 7 days
 now = datetime.now()
 week_ago = now - timedelta(days=7)
-recent_events = g.chain([
+recent_events = g.gfql([
     n(filter_dict={"timestamp": gt(pd.Timestamp(week_ago))})
 ])
 
 # For recurring intervals, use multiple conditions
-business_days = g.chain([
+business_days = g.gfql([
     n(filter_dict={
         "timestamp": between(
             pd.Timestamp("2023-01-01"),
@@ -324,7 +324,7 @@ from datetime import datetime, timedelta
 
 # Get data from last 30 days
 thirty_days_ago = datetime.now() - timedelta(days=30)
-recent_data = g.chain([
+recent_data = g.gfql([
     n(filter_dict={"timestamp": gt(pd.Timestamp(thirty_days_ago))})
 ])
 ```
@@ -333,7 +333,7 @@ recent_data = g.chain([
 
 ```python
 # Filter events during business hours
-business_hours = g.chain([
+business_hours = g.gfql([
     n(filter_dict={
         "timestamp": between(time(9, 0, 0), time(17, 0, 0))
     })
@@ -344,7 +344,7 @@ business_hours = g.chain([
 
 ```python
 # Q1 2023 data
-q1_2023 = g.chain([
+q1_2023 = g.gfql([
     n(filter_dict={
         "date": between(
             date(2023, 1, 1),
