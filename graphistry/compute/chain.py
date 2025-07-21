@@ -167,15 +167,15 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
 
-    id = getattr(g, "_node" if kind == "nodes" else "_edge")
-    df_fld = "_nodes" if kind == "nodes" else "_edges"
-    op_type = ASTNode if kind == "nodes" else ASTEdge
+    id = getattr(g, '_node' if kind == 'nodes' else '_edge')
+    df_fld = '_nodes' if kind == 'nodes' else '_edges'
+    op_type = ASTNode if kind == 'nodes' else ASTEdge
 
     if id is None:
         raise ValueError(f'Cannot combine steps with empty id for kind {kind}')
 
     logger.debug("combine_steps ops pre: %s", [op for (op, _) in steps])
-    if kind == "edges":
+    if kind == 'edges':
         logger.debug("EDGES << recompute forwards given reduced set")
         steps = [
             (
@@ -199,7 +199,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
     out_df = concat([getattr(g_step, df_fld)[[id]] for (_, g_step) in steps]).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
-            if kind == "edges":
+            if kind == 'edges':
                 logger.debug("adding edges to concat: %s", g_step._edges[[g_step._source, g_step._destination]])
             else:
                 logger.debug("adding nodes to concat: %s", g_step._nodes[[g_step._node]])
@@ -209,9 +209,9 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
     for (op, g_step) in steps:
         if op._name is not None and isinstance(op, op_type):
             logger.debug("tagging kind [%s] name %s", op_type, op._name)
-            out_df = out_df.merge(getattr(g_step, df_fld)[[id, op._name]], on=id, how="left")
+            out_df = out_df.merge(getattr(g_step, df_fld)[[id, op._name]], on=id, how='left')
             out_df[op._name] = out_df[op._name].fillna(False).astype(bool)
-    out_df = out_df.merge(getattr(g, df_fld), on=id, how="left")
+    out_df = out_df.merge(getattr(g, df_fld), on=id, how='left')
 
     logger.debug("COMBINED[%s] >>\n%s", kind, out_df)
 
@@ -382,11 +382,11 @@ def chain(
     g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
     if g._edge is None:
-        if "index" in g._edges.columns:
+        if 'index' in g._edges.columns:
             raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
         added_edge_index = True
         indexed_edges_df = g._edges.reset_index()
-        g = g.edges(indexed_edges_df, edge="index")
+        g = g.edges(indexed_edges_df, edge='index')
     else:
         added_edge_index = False
 
@@ -453,12 +453,12 @@ def chain(
             logger.debug("edges: %s", g_step._edges)
 
     logger.debug("============ COMBINE NODES ============")
-    final_nodes_df = combine_steps(g, "nodes", list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+    final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
 
     logger.debug("============ COMBINE EDGES ============")
-    final_edges_df = combine_steps(g, "edges", list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+    final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
     if added_edge_index:
-        final_edges_df = final_edges_df.drop(columns=["index"])
+        final_edges_df = final_edges_df.drop(columns=['index'])
 
     g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
