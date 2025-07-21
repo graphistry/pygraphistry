@@ -294,7 +294,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         )
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
-        from .call_executor import execute_call
+        from .gfql.call_executor import execute_call
         result = execute_call(g, ast_obj.function, ast_obj.params, engine)
     else:
         # Other AST object types not yet implemented
