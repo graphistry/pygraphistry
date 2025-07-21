@@ -1051,7 +1051,7 @@ class ASTCall(ASTObject):
             GFQLTypeError: If method not in safelist or parameters invalid
         """
         # For chain_dag, we don't use wavefronts, just execute the call
-        from graphistry.compute.call_executor import execute_call
+        from graphistry.compute.gfql.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
