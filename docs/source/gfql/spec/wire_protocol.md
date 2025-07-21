@@ -33,6 +33,9 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 - `Chain`: Complete query chain
 - `Node`: Node matcher operation
 - `Edge`: Edge traversal operation
+- `Let`: DAG bindings for named graph patterns
+- `ChainRef`: Reference to a named binding in Let
+- `RemoteGraph`: Load graph from remote dataset
 - Predicates: `GT`, `LT`, `EQ`, `IsIn`, `Between`, etc.
 - Temporal values: `datetime`, `date`, `time`
 
@@ -43,7 +46,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -132,6 +135,112 @@ chain([
       "filter_dict": {"status": "active"}
     }
   ]
+}
+```
+
+### Let Bindings (DAG Patterns)
+
+**Python**:
+```python
+ASTLet({
+    'persons': n({'type': 'Person'}),
+    'adults': ASTChainRef('persons', [n({'age': ge(18)})]),
+    'connections': ASTChainRef('adults', [
+        e_forward({'type': 'knows'}),
+        ASTChainRef('adults')
+    ])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "persons": {
+      "type": "Node",
+      "filter_dict": {"type": "Person"}
+    },
+    "adults": {
+      "type": "ChainRef",
+      "ref": "persons",
+      "chain": [{
+        "type": "Node",
+        "filter_dict": {
+          "age": {"type": "GE", "val": 18}
+        }
+      }]
+    },
+    "connections": {
+      "type": "ChainRef",
+      "ref": "adults",
+      "chain": [
+        {
+          "type": "Edge",
+          "direction": "forward",
+          "edge_match": {"type": "knows"}
+        },
+        {
+          "type": "ChainRef",
+          "ref": "adults",
+          "chain": []
+        }
+      ]
+    }
+  }
+}
+```
+
+### ChainRef (Reference to Named Binding)
+
+**Python**:
+```python
+ASTChainRef('base_pattern', [
+    e_forward({'status': 'active'}),
+    n({'verified': True})
+])
+```
+
+**Wire Format**:
+```json
+{
+  "type": "ChainRef",
+  "ref": "base_pattern",
+  "chain": [
+    {
+      "type": "Edge",
+      "direction": "forward",
+      "edge_match": {"status": "active"}
+    },
+    {
+      "type": "Node",
+      "filter_dict": {"verified": true}
+    }
+  ]
+}
+```
+
+### RemoteGraph (Load Remote Dataset)
+
+**Python**:
+```python
+ASTRemoteGraph('dataset-123', token='auth-token')
+```
+
+**Wire Format**:
+```json
+{
+  "type": "RemoteGraph",
+  "dataset_id": "dataset-123",
+  "token": "auth-token"
+}
+```
+
+Without token (public dataset):
+```json
+{
+  "type": "RemoteGraph",
+  "dataset_id": "public-dataset-456"
 }
 ```
 
@@ -325,6 +434,71 @@ g.chain([
 }
 ```
 
+### Complex DAG Pattern
+
+**Python**:
+```python
+g.gfql(ASTLet({
+    'suspicious_ips': n({'risk_score': gt(80)}),
+    'lateral_movement': ASTChainRef('suspicious_ips', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})
+    ]),
+    'escalation': ASTChainRef('lateral_movement', [
+        e_forward({'type': 'privilege_change'}),
+        n({'admin': True})
+    ])
+}))
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "suspicious_ips": {
+      "type": "Node",
+      "filter_dict": {
+        "risk_score": {"type": "GT", "val": 80}
+      }
+    },
+    "lateral_movement": {
+      "type": "ChainRef",
+      "ref": "suspicious_ips",
+      "chain": [
+        {
+          "type": "Edge",
+          "direction": "forward",
+          "edge_match": {
+            "type": "ssh",
+            "failed_attempts": {"type": "GT", "val": 5}
+          }
+        },
+        {
+          "type": "Node",
+          "filter_dict": {"type": "server"}
+        }
+      ]
+    },
+    "escalation": {
+      "type": "ChainRef",
+      "ref": "lateral_movement",
+      "chain": [
+        {
+          "type": "Edge",
+          "direction": "forward",
+          "edge_match": {"type": "privilege_change"}
+        },
+        {
+          "type": "Node",
+          "filter_dict": {"admin": true}
+        }
+      ]
+    }
+  }
+}
+```
+
 
 ## Best Practices
 
@@ -333,6 +507,9 @@ g.chain([
 3. **Handle timezones consistently**: Include timezone for datetime values when precision matters (defaults to UTC)
 4. **Validate before sending**: Use JSON Schema validation
 5. **Handle unknown fields**: Ignore unrecognized fields for compatibility
+6. **Let bindings**: Define bindings in dependency order (referenced names must be defined first)
+7. **ChainRef validation**: Ensure referenced names exist in the Let binding scope
+8. **RemoteGraph security**: Protect authentication tokens in transit and storage
 
 ## See Also
 
