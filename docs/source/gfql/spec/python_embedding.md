@@ -53,6 +53,94 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+## DAG Patterns with Let Bindings
+
+GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which allow you to define named graph operations that can reference each other.
+
+### Let Bindings
+
+```python
+from graphistry import let, ref, n, e_forward
+
+# Define DAG patterns with named bindings
+result = g.gfql(let({
+    'persons': n({'type': 'person'}),
+    'adults': ref('persons', [n({'age': ge(18)})]),
+    'connections': ref('adults', [
+        e_forward({'type': 'knows'}),
+        ref('adults')  # Find connections between adults
+    ])
+}))
+
+# Access individual binding results
+persons_df = result._nodes[result._nodes['persons']]
+adults_df = result._nodes[result._nodes['adults']]
+connection_edges = result._edges[result._edges['connections']]
+```
+
+### ChainRef (Reference to Named Bindings)
+
+The `ref()` function creates references to named bindings within a Let:
+
+```python
+# Basic reference - just the binding result
+result = g.gfql(let({
+    'base': n({'status': 'active'}),
+    'extended': ref('base')  # Just references 'base'
+}))
+
+# Reference with additional operations
+result = g.gfql(let({
+    'suspects': n({'risk_score': gt(80)}),
+    'lateral_movement': ref('suspects', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})
+    ])
+}))
+```
+
+### Complex DAG Patterns
+
+```python
+# Multi-level analysis pattern
+result = g.gfql(let({
+    # Find high-value accounts
+    'high_value': n({'balance': gt(100000)}),
+    
+    # Find transactions from high-value accounts
+    'high_value_txns': ref('high_value', [
+        e_forward({'type': 'transaction', 'amount': gt(10000)})
+    ]),
+    
+    # Find recipients of high-value transactions
+    'recipients': ref('high_value_txns', [n()]),
+    
+    # Find second-hop connections
+    'network': ref('recipients', [
+        e_forward({'type': 'transaction'}, hops=2)
+    ])
+}))
+```
+
+### RemoteGraph (Load Remote Datasets)
+
+```python
+from graphistry import remote_dataset
+
+# Load a public dataset
+remote_g = remote_dataset('public-dataset-id')
+result = remote_g.gfql([n({'type': 'user'})])
+
+# Load a private dataset with authentication
+remote_g = remote_dataset('private-dataset-id', token='auth-token')
+
+# Use remote dataset in Let bindings
+result = g.gfql(let({
+    'remote_data': remote_dataset('dataset-123'),
+    'filtered': ref('remote_data', [n({'active': True})])
+}))
+```
+
 ## Engine Selection
 
 GFQL supports multiple execution engines:
