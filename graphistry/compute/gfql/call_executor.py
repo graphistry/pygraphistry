@@ -7,7 +7,7 @@ after parameter validation.
 from typing import Dict, Any
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
-from graphistry.compute.call_safelist import validate_call_params
+from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
