@@ -932,8 +932,10 @@ class ASTChainRef(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Implementation in PR 1.2
-        raise NotImplementedError("ChainRef execution will be implemented in PR 1.2")
+        raise NotImplementedError(
+            "ASTChainRef cannot be used directly in chain(). "
+            "It must be used within an ASTLet/chain_dag() context."
+        )
     
     def reverse(self) -> 'ASTChainRef':
         # Reverse the chain operations
