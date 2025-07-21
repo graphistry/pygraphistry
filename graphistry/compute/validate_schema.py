@@ -323,7 +323,7 @@ def _validate_call_op(
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
-    errors = []
+    errors: List[GFQLSchemaError] = []
     
     # Import safelist to get schema effects
     from graphistry.compute.call_safelist import SAFELIST_V1
