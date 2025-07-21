@@ -6,8 +6,9 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
+from graphistry.compute.validate_schema import validate_chain_schema
 
 logger = setup_logger(__name__)
 
@@ -20,131 +21,22 @@ class Chain(ASTSerializable):
     def __init__(self, chain: List[ASTObject]) -> None:
         self.chain = chain
 
-    def validate(self, collect_all: bool = False):
-        """Override to handle multiple operation errors."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not collect_all:
-            # Use parent's fail-fast implementation
-            return super().validate(collect_all=False)
-
-        # Custom collect_all implementation for Chain
-        errors = []
-
-        # Check chain is a list
-        if not isinstance(self.chain, list):
-            errors.append(
-                GFQLTypeError(
-                    ErrorCode.E101,
-                    "Chain must be a list of operations",
-                    field="chain",
-                    value=type(self.chain).__name__,
-                    suggestion="Wrap your operations in a list: Chain([n(), e(), n()])",
-                )
-            )
-            return errors  # Can't continue if not a list
-
-        # Empty chain is allowed for backward compatibility
-
-        # Check each operation
-        for i, op in enumerate(self.chain):
-            if not isinstance(op, ASTObject):
-                errors.append(
-                    GFQLTypeError(
-                        ErrorCode.E101,
-                        f"Operation at index {i} is not a valid GFQL operation",
-                        field=f"chain[{i}]",
-                        value=type(op).__name__,
-                        operation_index=i,
-                        suggestion="Use n() for nodes, e()/e_forward()/e_reverse() for edges",
-                    )
-                )
-            else:
-                # Validate the operation
-                op_errors = op.validate(collect_all=True)
-                if op_errors:
-                    errors.extend(op_errors)
-
-        return errors
-
-    def _validate_fields(self) -> None:
-        """Validate chain structure and operations."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        # Check chain is a list
-        if not isinstance(self.chain, list):
-            raise GFQLTypeError(
-                ErrorCode.E101,
-                "Chain must be a list of operations",
-                field="chain",
-                value=type(self.chain).__name__,
-                suggestion="Wrap your operations in a list: Chain([n(), e(), n()])",
-            )
-
-        # Empty chain is allowed for backward compatibility
-
-        # Check each operation - but only raise on first error
-        # collect_all mode is handled by parent class
-        for i, op in enumerate(self.chain):
-            if not isinstance(op, ASTObject):
-                raise GFQLTypeError(
-                    ErrorCode.E101,
-                    f"Operation at index {i} is not a valid GFQL operation",
-                    field=f"chain[{i}]",
-                    value=type(op).__name__,
-                    operation_index=i,
-                    suggestion="Use n() for nodes, e()/e_forward()/e_reverse() for edges",
-                )
-
-    def _get_child_validators(self) -> List[ASTSerializable]:
-        """Return operations for validation."""
-        # Only return valid ASTObject instances
-        if not isinstance(self.chain, list):
-            return []
-        return [op for op in self.chain if isinstance(op, ASTObject)]
+    def validate(self) -> None:
+        assert isinstance(self.chain, list)
+        for op in self.chain:
+            assert isinstance(op, ASTObject)
+            op.validate()
 
     @classmethod
-    def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> 'Chain':
+    def from_json(cls, d: Dict[str, JSONVal]) -> 'Chain':
         """
         Convert a JSON AST into a list of ASTObjects
-
-        Args:
-            d: Dictionary with 'chain' key containing list of operations
-            validate: If True (default), validate after parsing
-
-        Returns:
-            Chain object
-
-        Raises:
-            GFQLValidationError: If validate=True and validation fails
         """
-        from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
-
-        if not isinstance(d, dict):
-            raise GFQLSyntaxError(ErrorCode.E101, "Chain JSON must be a dictionary", value=type(d).__name__)
-
-        if 'chain' not in d:
-            raise GFQLSyntaxError(
-                ErrorCode.E105,
-                "Chain JSON missing required 'chain' field",
-                suggestion="Add 'chain' field with list of operations",
-            )
-
-        if not isinstance(d['chain'], list):
-            raise GFQLSyntaxError(
-                ErrorCode.E101, "Chain field must be a list", field="chain", value=type(d['chain']).__name__
-            )
-
-        # Parse operations with same validation setting
-        # Import here to avoid circular dependency
-        from .ast import from_json as ASTObject_from_json
-
-        ops = cast(List[ASTObject], [ASTObject_from_json(op, validate=validate) for op in d['chain']])
-        out = cls(ops)
-
-        if validate:
-            out.validate()
-
+        assert isinstance(d, dict)
+        assert 'chain' in d
+        assert isinstance(d['chain'], list)
+        out = cls([ASTObject_from_json(op) for op in d['chain']])
+        out.validate()
         return out
 
     def to_json(self, validate=True) -> Dict[str, JSONVal]:
@@ -162,7 +54,7 @@ class Chain(ASTSerializable):
 ###############################################################################
 
 
-def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottable]], engine: Engine) -> DataFrameT:
+def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]], engine: Engine) -> DataFrameT:
     """
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
@@ -174,46 +66,54 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
     if id is None:
         raise ValueError(f'Cannot combine steps with empty id for kind {kind}')
 
-    logger.debug("combine_steps ops pre: %s", [op for (op, _) in steps])
+    logger.debug('combine_steps ops pre: %s', [op for (op, _) in steps])
     if kind == 'edges':
-        logger.debug("EDGES << recompute forwards given reduced set")
+        logger.debug('EDGES << recompute forwards given reduced set')
         steps = [
             (
                 op,  # forward op
                 op(
                     g=g.edges(g_step._edges),  # transition via any found edge
                     prev_node_wavefront=g_step._nodes,  # start from where backwards step says is reachable
-                    # target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
+
+                    #target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
                     target_wave_front=None,  # ^^^ optimization: valid transitions already limit to known-good ones
-                    engine=engine,
-                ),
+                    engine=engine
+                )
             )
             for (op, g_step) in steps
         ]
 
     concat = df_concat(engine)
 
-    logger.debug("-----------[ combine %s ---------------]", kind)
+    logger.debug('-----------[ combine %s ---------------]', kind)
 
     # df[[id]]
-    out_df = concat([getattr(g_step, df_fld)[[id]] for (_, g_step) in steps]).drop_duplicates(subset=[id])
+    out_df = concat([
+        getattr(g_step, df_fld)[[id]]
+        for (_, g_step) in steps
+    ]).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
-                logger.debug("adding edges to concat: %s", g_step._edges[[g_step._source, g_step._destination]])
+                logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
             else:
-                logger.debug("adding nodes to concat: %s", g_step._nodes[[g_step._node]])
+                logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
     # df[[id, op_name1, ...]]
-    logger.debug("combine_steps ops: %s", [op for (op, _) in steps])
+    logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
     for (op, g_step) in steps:
         if op._name is not None and isinstance(op, op_type):
-            logger.debug("tagging kind [%s] name %s", op_type, op._name)
-            out_df = out_df.merge(getattr(g_step, df_fld)[[id, op._name]], on=id, how='left')
+            logger.debug('tagging kind [%s] name %s', op_type, op._name)
+            out_df = out_df.merge(
+                getattr(g_step, df_fld)[[id, op._name]],
+                on=id,
+                how='left'
+            )
             out_df[op._name] = out_df[op._name].fillna(False).astype(bool)
     out_df = out_df.merge(getattr(g, df_fld), on=id, how='left')
 
-    logger.debug("COMBINED[%s] >>\n%s", kind, out_df)
+    logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 
     return out_df
 
@@ -231,13 +131,13 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
 #     2. Reverse pruning pass  (fastish)
 #
 #     Some paths traversed during Step 1 are deadends that must be pruned
-#
+#    
 #     To only pick nodes on full paths, we then run in a reverse pass on a graph subsetted to nodes along full/partial paths.
 #
 #     - Every node encountered on the reverse pass is guaranteed to be on a full path
-#
+#    
 #     - Every 'good' node will be encountered
-#
+#    
 #     - No 'bad' deadend nodes will be included
 #
 #     3. Forward output pass
@@ -246,13 +146,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject, Plottabl
 #
 ###############################################################################
 
-
-def chain(
-    self: Plottable,
-    ops: Union[List[ASTObject], Chain],
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-    validate_schema: bool = True,
-) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = False) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -264,7 +158,7 @@ def chain(
     Use `engine='cudf'` to force automatic GPU acceleration mode
 
     :param ops: List[ASTObject] Various node and edge matchers
-    :param validate_schema: If True (default), pre-validate operations against graph schema before execution
+    :param validate_schema: Whether to validate the chain against the graph schema before executing
 
     :returns: Plotter
     :rtype: Plotter
@@ -276,7 +170,7 @@ def chain(
             from graphistry.ast import n
 
             people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
-
+            
     **Example: Find 2-hop edge sequences with some attribute**
 
     ::
@@ -324,7 +218,7 @@ def chain(
                 n({"risk2": True})
             ])
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
-
+    
     **Example: Run with automatic GPU acceleration**
 
     ::
@@ -355,29 +249,26 @@ def chain(
     if isinstance(ops, Chain):
         ops = ops.chain
 
-    # Pre-validate schema if requested
     if validate_schema:
-        from graphistry.compute.validate_schema import validate_chain_schema
-
         validate_chain_schema(self, ops, collect_all=False)
 
     if len(ops) == 0:
         return self
 
-    logger.debug("orig chain >> %s", ops)
+    logger.debug('orig chain >> %s', ops)
 
     engine_concrete = resolve_engine(engine, self)
-    logger.debug("chain engine: %s => %s", engine, engine_concrete)
+    logger.debug('chain engine: %s => %s', engine, engine_concrete)
 
     if isinstance(ops[0], ASTEdge):
-        logger.debug("adding initial node to ensure initial link has needed reversals")
-        ops = cast(List[ASTObject], [ASTNode()]) + ops
+        logger.debug('adding initial node to ensure initial link has needed reversals')
+        ops = cast(List[ASTObject], [ ASTNode() ]) + ops
 
     if isinstance(ops[-1], ASTEdge):
-        logger.debug("adding final node to ensure final link has needed reversals")
-        ops = ops + cast(List[ASTObject], [ASTNode()])
+        logger.debug('adding final node to ensure final link has needed reversals')
+        ops = ops + cast(List[ASTObject], [ ASTNode() ])
 
-    logger.debug("final chain >> %s", ops)
+    logger.debug('final chain >> %s', ops)
 
     g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
@@ -389,41 +280,45 @@ def chain(
         g = g.edges(indexed_edges_df, edge='index')
     else:
         added_edge_index = False
+    
 
-    logger.debug("======================== FORWARDS ========================")
+    logger.debug('======================== FORWARDS ========================')
 
     # Forwards
     # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
     #  g_step._nodes: The nodes reached in this step
     #  g_step._edges: The edges used to reach those nodes
     # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
-    g_stack: List[Plottable] = []
+    g_stack : List[Plottable] = []
     for op in ops:
         prev_step_nodes = (  # start from only prev step's wavefront node
-            None if len(g_stack) == 0 else g_stack[-1]._nodes  # first uses full graph
+            None  # first uses full graph
+            if len(g_stack) == 0
+            else g_stack[-1]._nodes
         )
-        g_step = op(
-            g=g,  # transition via any original edge
-            prev_node_wavefront=prev_step_nodes,
-            target_wave_front=None,  # implicit any
-            engine=engine_concrete,
+        g_step = (
+            op(
+                g=g,  # transition via any original edge
+                prev_node_wavefront=prev_step_nodes,
+                target_wave_front=None,  # implicit any
+                engine=engine_concrete
+            )
         )
         g_stack.append(g_step)
 
     import logging
-
     if logger.isEnabledFor(logging.DEBUG):
         for (i, g_step) in enumerate(g_stack):
-            logger.debug("~" * 10 + "\nstep %s", i)
-            logger.debug("nodes: %s", g_step._nodes)
-            logger.debug("edges: %s", g_step._edges)
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
 
-    logger.debug("======================== BACKWARDS ========================")
+    logger.debug('======================== BACKWARDS ========================')
 
     # Backwards
     # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
     # Each g node/edge represents a valid wavefront entry for that step.
-    g_stack_reverse: List[Plottable] = []
+    g_stack_reverse : List[Plottable] = []
     for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
         prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
         if len(g_stack_reverse) == len(g_stack) - 1:
@@ -431,31 +326,36 @@ def chain(
         else:
             prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
         assert prev_loop_step._nodes is not None
-        g_step_reverse = (op.reverse())(
-            # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
-            # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
-            g=g_step,
-            # check for hits against fully valid targets
-            # ast will replace g.node() with this as its starting points
-            prev_node_wavefront=prev_loop_step._nodes,
-            # only allow transitions to these nodes (vs prev_node_wavefront)
-            target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
-            engine=engine_concrete,
+        g_step_reverse = (
+            (op.reverse())(
+
+                # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
+                # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
+                g=g_step,
+
+                # check for hits against fully valid targets
+                # ast will replace g.node() with this as its starting points
+                prev_node_wavefront=prev_loop_step._nodes,
+
+                # only allow transitions to these nodes (vs prev_node_wavefront)
+                target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
+
+                engine=engine_concrete
+            )
         )
         g_stack_reverse.append(g_step_reverse)
 
     import logging
-
     if logger.isEnabledFor(logging.DEBUG):
         for (i, g_step) in enumerate(g_stack_reverse):
-            logger.debug("~" * 10 + "\nstep %s", i)
-            logger.debug("nodes: %s", g_step._nodes)
-            logger.debug("edges: %s", g_step._edges)
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
 
-    logger.debug("============ COMBINE NODES ============")
+    logger.debug('============ COMBINE NODES ============')
     final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
 
-    logger.debug("============ COMBINE EDGES ============")
+    logger.debug('============ COMBINE EDGES ============')
     final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
     if added_edge_index:
         final_edges_df = final_edges_df.drop(columns=['index'])
