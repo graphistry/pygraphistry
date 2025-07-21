@@ -239,3 +239,5 @@ class TestCallOperationsGPU:
         )
         
         assert hasattr(result2._nodes, '__cuda_array_interface__')
+        # Should have size encoding set
+        assert result2._point_size == 'score'
