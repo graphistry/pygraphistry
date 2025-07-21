@@ -36,6 +36,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 - `Let`: DAG bindings for named graph patterns
 - `ChainRef`: Reference to a named binding in Let
 - `RemoteGraph`: Load graph from remote dataset
+- `Call`: Method invocation with validated parameters
 - Predicates: `GT`, `LT`, `EQ`, `IsIn`, `Between`, etc.
 - Temporal values: `datetime`, `date`, `time`
 
@@ -46,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -243,6 +244,127 @@ Without token (public dataset):
   "dataset_id": "public-dataset-456"
 }
 ```
+
+### Call Operation
+
+**Python**:
+```python
+ASTCall('get_degrees', {
+    'col': 'centrality',
+    'col_in': 'in_centrality',
+    'col_out': 'out_centrality'
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Call",
+  "function": "get_degrees",
+  "params": {
+    "col": "centrality",
+    "col_in": "in_centrality", 
+    "col_out": "out_centrality"
+  }
+}
+```
+
+#### Call Operation Examples
+
+**PageRank computation**:
+```json
+{
+  "type": "Call",
+  "function": "compute_cugraph",
+  "params": {
+    "alg": "pagerank",
+    "out_col": "pagerank_score",
+    "params": {"alpha": 0.85}
+  }
+}
+```
+
+**Graph layout**:
+```json
+{
+  "type": "Call",
+  "function": "layout_cugraph",
+  "params": {
+    "layout": "force_atlas2",
+    "params": {
+      "iterations": 500,
+      "outbound_attraction_distribution": true,
+      "edge_weight_influence": 1.0
+    }
+  }
+}
+```
+
+**Node filtering**:
+```json
+{
+  "type": "Call",
+  "function": "filter_nodes_by_dict",
+  "params": {
+    "filter_dict": {
+      "type": "person",
+      "active": true
+    }
+  }
+}
+```
+
+**Complex hop traversal**:
+```json
+{
+  "type": "Call",
+  "function": "hop",
+  "params": {
+    "hops": 3,
+    "direction": "forward",
+    "edge_match": {"type": "transfer"},
+    "destination_node_match": {"account_type": "checking"}
+  }
+}
+```
+
+#### Available Call Methods
+
+The following Plottable methods are available through Call operations:
+
+**Graph Analysis**:
+- `get_degrees`: Calculate node degrees
+- `get_indegrees`: Calculate in-degrees only
+- `get_outdegrees`: Calculate out-degrees only
+- `compute_cugraph`: Run GPU algorithms (pagerank, louvain, etc.)
+- `compute_igraph`: Run CPU algorithms
+- `get_topological_levels`: Analyze DAG structure
+
+**Filtering & Transformation**:
+- `filter_nodes_by_dict`: Filter nodes by attributes
+- `filter_edges_by_dict`: Filter edges by attributes
+- `hop`: Traverse graph with complex conditions
+- `drop_nodes`: Remove specified nodes
+- `keep_nodes`: Keep only specified nodes
+- `collapse`: Merge nodes by attribute
+- `prune_self_edges`: Remove self-loops
+- `materialize_nodes`: Generate node table from edges
+
+**Layout**:
+- `layout_cugraph`: GPU-accelerated layouts
+- `layout_igraph`: CPU-based layouts
+- `layout_graphviz`: Graphviz layouts (dot, neato, etc.)
+- `fa2_layout`: ForceAtlas2 layout
+
+**Visual Encoding**:
+- `encode_point_color`: Map node values to colors
+- `encode_edge_color`: Map edge values to colors
+- `encode_point_size`: Map node values to sizes
+- `encode_point_icon`: Map node values to icons
+
+**Metadata**:
+- `name`: Set visualization name
+- `description`: Set visualization description
 
 ## Predicate Serialization
 
@@ -499,6 +621,57 @@ g.gfql(ASTLet({
 }
 ```
 
+### DAG Pattern with Call Operations
+
+**Python**:
+```python
+g.gfql(ASTLet({
+    'high_value': n({'amount': gt(100000)}),
+    'connected': ASTChainRef('high_value', [
+        e_forward({'type': 'transfer'}, hops=2)
+    ]),
+    'analyzed': ASTCall('compute_cugraph', {
+        'alg': 'pagerank',
+        'out_col': 'influence_score'
+    })
+}))
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "high_value": {
+      "type": "Node",
+      "filter_dict": {
+        "amount": {"type": "GT", "val": 100000}
+      }
+    },
+    "connected": {
+      "type": "ChainRef",
+      "ref": "high_value",
+      "chain": [
+        {
+          "type": "Edge",
+          "direction": "forward",
+          "edge_match": {"type": "transfer"},
+          "hops": 2
+        }
+      ]
+    },
+    "analyzed": {
+      "type": "Call",
+      "function": "compute_cugraph",
+      "params": {
+        "alg": "pagerank",
+        "out_col": "influence_score"
+      }
+    }
+  }
+}
+```
+
 
 ## Best Practices
 
@@ -510,6 +683,9 @@ g.gfql(ASTLet({
 6. **Let bindings**: Define bindings in dependency order (referenced names must be defined first)
 7. **ChainRef validation**: Ensure referenced names exist in the Let binding scope
 8. **RemoteGraph security**: Protect authentication tokens in transit and storage
+9. **Call operations**: Only use function names from the safelist
+10. **Parameter validation**: Ensure Call parameters match expected types
+11. **Error handling**: Call operations may fail if schema requirements aren't met
 
 ## See Also
 
