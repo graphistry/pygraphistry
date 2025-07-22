@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple
+from typing import Dict, Union, cast, List, Tuple, Sequence
 from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -21,14 +21,19 @@ class Chain(ASTSerializable):
     def __init__(self, chain: List[ASTObject]) -> None:
         self.chain = chain
 
-    def validate(self) -> None:
+    def _validate_fields(self) -> None:
+        """Validate Chain fields."""
         assert isinstance(self.chain, list)
         for op in self.chain:
             assert isinstance(op, ASTObject)
-            op.validate()
+    
+    def _get_child_validators(self) -> List['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return cast(List['ASTSerializable'], self.chain)
 
     @classmethod
-    def from_json(cls, d: Dict[str, JSONVal]) -> 'Chain':
+    def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> 'Chain':
         """
         Convert a JSON AST into a list of ASTObjects
         """
@@ -36,7 +41,8 @@ class Chain(ASTSerializable):
         assert 'chain' in d
         assert isinstance(d['chain'], list)
         out = cls([ASTObject_from_json(op) for op in d['chain']])
-        out.validate()
+        if validate:
+            out.validate()
         return out
 
     def to_json(self, validate=True) -> Dict[str, JSONVal]:
