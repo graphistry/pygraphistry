@@ -1,10 +1,12 @@
 """Schema validation for GFQL chains without execution."""
 
-from typing import List, Optional, Union
+from typing import List, Optional, Union, TYPE_CHECKING
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.compute.chain import Chain
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph, ASTCall
+
+if TYPE_CHECKING:
+    from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
@@ -13,7 +15,7 @@ from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Ma
 
 def validate_chain_schema(
     g: Plottable,
-    ops: Union[List[ASTObject], Chain],
+    ops: Union[List[ASTObject], 'Chain'],
     collect_all: bool = False
 ) -> Optional[List[GFQLSchemaError]]:
     """Validate chain operations against graph schema without executing.
@@ -35,7 +37,8 @@ def validate_chain_schema(
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
-    if isinstance(ops, Chain):
+    # Handle Chain objects
+    if hasattr(ops, 'chain'):
         ops = ops.chain
 
     errors: List[GFQLSchemaError] = []
@@ -387,7 +390,7 @@ def _validate_call_op(
 
 
 # Add to Chain class
-def validate_schema(self: Chain, g: Plottable, collect_all: bool = False) -> Optional[List[GFQLSchemaError]]:
+def validate_schema(self: 'Chain', g: Plottable, collect_all: bool = False) -> Optional[List[GFQLSchemaError]]:
     """Validate this chain against a graph's schema without executing.
 
     Args:
@@ -404,5 +407,4 @@ def validate_schema(self: Chain, g: Plottable, collect_all: bool = False) -> Opt
     return validate_chain_schema(g, self, collect_all)
 
 
-# Monkey-patch Chain class
-setattr(Chain, 'validate_schema', validate_schema)
+# Monkey-patching moved to chain.py to avoid circular import
