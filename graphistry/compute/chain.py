@@ -8,7 +8,7 @@ from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
-from graphistry.compute.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 logger = setup_logger(__name__)
 
