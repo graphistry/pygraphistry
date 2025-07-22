@@ -1,6 +1,6 @@
 """Schema validation for GFQL chains without execution."""
 
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import List, Optional, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph, ASTCall
@@ -39,7 +39,9 @@ def validate_chain_schema(
     """
     # Handle Chain objects
     if hasattr(ops, 'chain'):
-        ops = ops.chain
+        chain_ops = cast(List[ASTObject], ops.chain)
+    else:
+        chain_ops = ops
 
     errors: List[GFQLSchemaError] = []
 
@@ -47,7 +49,7 @@ def validate_chain_schema(
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
 
-    for i, op in enumerate(ops):
+    for i, op in enumerate(chain_ops):
         op_errors = []
 
         if isinstance(op, ASTNode):
