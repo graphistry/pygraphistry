@@ -33,27 +33,20 @@ jobs:
           # Infrastructure changes that affect all tests
           infra:
             - '.github/workflows/ci.yml'
-            - '.github/actions/**'
             - 'docker/**'
-            - '.dockerignore'
             - 'bin/**'
             - 'setup.py'
             - 'setup.cfg'
             - 'MANIFEST.in'
-            - 'pyproject.toml'
-            - 'requirements*.txt'
             
           # Python code changes
           python:
             - '**.py'
             - 'graphistry/**'
-            - 'requirements*.txt'
             - 'setup.py'
             - 'setup.cfg'
-            - 'pyproject.toml'
             - 'pytest.ini'
             - 'mypy.ini'
-            - '.flake8'
             - 'bin/lint.sh'
             - 'bin/typecheck.sh'
             
@@ -74,7 +67,7 @@ jobs:
     
     strategy:
       matrix:
-        python-version: ['3.10']  # Run lint/types on single version
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]  # Run lint/types on all versions
     
     steps:
     - name: Checkout repo
