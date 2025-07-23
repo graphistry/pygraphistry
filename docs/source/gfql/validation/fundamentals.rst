@@ -147,20 +147,31 @@ GFQL validates automatically - just write your queries and run them:
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")
 
-Advanced: Manual Validation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Pre-Execution Validation Options
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For advanced users who need to validate before execution:
+You have two options for validating queries:
+
+1. **Validate-only** (no execution): Use ``validate_chain_schema()`` to check compatibility without running the query
+2. **Validate-and-run**: Use ``g.gfql(..., validate_schema=True)`` to validate before execution
 
 .. code-block:: python
 
-   # Validate syntax without running
-   chain = Chain([n(), e_forward()])
-   errors = chain.validate(collect_all=True)
-   
-   # Pre-validate against schema (rarely needed)
+   # Method 1: Validate-only (no execution)
    from graphistry.compute.validate_schema import validate_chain_schema
-   schema_errors = validate_chain_schema(g, chain, collect_all=True)
+   
+   try:
+       validate_chain_schema(g, chain)  # Only validates, doesn't execute
+       print("Chain is valid for this graph schema")
+   except GFQLSchemaError as e:
+       print(f"Schema incompatibility: {e}")
+   
+   # Method 2: Validate-and-run
+   try:
+       result = g.gfql(chain.chain, validate_schema=True)  # Validates, then executes if valid
+       print(f"Query executed: {len(result._nodes)} nodes")
+   except GFQLSchemaError as e:
+       print(f"Validation failed, query not executed: {e}")
 
 Error Collection
 ^^^^^^^^^^^^^^^^
