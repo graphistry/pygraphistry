@@ -2,6 +2,9 @@ from abc import abstractmethod
 import logging
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Union, cast
 from typing_extensions import Literal
+
+if TYPE_CHECKING:
+    from graphistry.compute.exceptions import GFQLValidationError
 import pandas as pd
 from graphistry.Engine import Engine
 
@@ -652,13 +655,14 @@ class ASTQueryDAG(ASTObject):
         super().__init__()
         self.bindings = bindings
     
-    def validate(self) -> None:
+    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         assert isinstance(self.bindings, dict), "bindings must be a dictionary"
         for k, v in self.bindings.items():
             assert isinstance(k, str), f"binding key must be string, got {type(k)}"
             assert isinstance(v, ASTObject), f"binding value must be ASTObject, got {type(v)}"
             v.validate()
         # TODO: Check for cycles in DAG
+        return None
     
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -671,7 +675,7 @@ class ASTQueryDAG(ASTObject):
     @classmethod
     def from_json(cls, d: dict, validate: bool = True) -> 'ASTQueryDAG':
         assert 'bindings' in d, "QueryDAG missing bindings"
-        bindings = {k: from_json(v, validate=validate) for k, v in d['bindings'].items()}
+        bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
         if validate:
             out.validate()
@@ -693,10 +697,11 @@ class ASTRemoteGraph(ASTObject):
         self.dataset_id = dataset_id
         self.token = token
     
-    def validate(self) -> None:
+    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         assert isinstance(self.dataset_id, str), "dataset_id must be a string"
         assert len(self.dataset_id) > 0, "dataset_id cannot be empty"
         assert self.token is None or isinstance(self.token, str), "token must be string or None"
+        return None
     
     def to_json(self, validate=True) -> dict:
         if validate:
@@ -736,13 +741,14 @@ class ASTChainRef(ASTObject):
         self.ref = ref
         self.chain = chain
     
-    def validate(self) -> None:
+    def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         assert isinstance(self.ref, str), "ref must be a string"
         assert len(self.ref) > 0, "ref cannot be empty"
         assert isinstance(self.chain, list), "chain must be a list"
         for i, op in enumerate(self.chain):
             assert isinstance(op, ASTObject), f"chain[{i}] must be ASTObject, got {type(op)}"
             op.validate()
+        return None
     
     def to_json(self, validate=True) -> dict:
         if validate:

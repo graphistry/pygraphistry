@@ -2,6 +2,7 @@
 
 import pytest
 from graphistry.compute.ast import from_json
+from graphistry.compute.exceptions import GFQLSyntaxError
 
 
 class TestSerializationErrors:
@@ -9,45 +10,45 @@ class TestSerializationErrors:
     
     def test_from_json_non_dict_input(self):
         """Test clear error when input is not a dict"""
-        with pytest.raises(AssertionError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json("not a dict")
         
-        assert "Expected dict for JSON deserialization, got str" in str(exc_info.value)
+        assert "AST JSON must be a dictionary" in str(exc_info.value)
     
     def test_from_json_none_input(self):
         """Test clear error when input is None"""
-        with pytest.raises(AssertionError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json(None)
         
-        assert "Expected dict for JSON deserialization, got NoneType" in str(exc_info.value)
+        assert "AST JSON must be a dictionary" in str(exc_info.value)
     
     def test_from_json_missing_type(self):
         """Test clear error when 'type' field is missing"""
-        with pytest.raises(AssertionError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"no_type": "value"})
         
-        assert "JSON object missing required 'type' field" in str(exc_info.value)
+        assert "AST JSON missing required 'type' field" in str(exc_info.value)
     
     def test_from_json_unknown_type(self):
         """Test clear error for unknown type"""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "UnknownType"})
         
-        assert "Unknown type UnknownType" in str(exc_info.value)
+        assert "Unknown AST type: UnknownType" in str(exc_info.value)
     
     def test_edge_missing_direction(self):
         """Test clear error when Edge missing direction"""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "Edge"})
         
-        assert "Edge missing direction" in str(exc_info.value)
+        assert "Edge missing required 'direction' field" in str(exc_info.value)
     
     def test_edge_invalid_direction(self):
         """Test clear error for invalid Edge direction"""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             from_json({"type": "Edge", "direction": "invalid"})
         
-        assert "Edge has unknown direction invalid" in str(exc_info.value)
+        assert "Edge has unknown direction: invalid" in str(exc_info.value)
     
     def test_querydag_missing_bindings(self):
         """Test clear error when QueryDAG missing bindings"""

@@ -193,6 +193,7 @@ class TestRemoteGraphMocked:
         })
         
         result = CGFull().gfql(dag)
+        assert result is not None  # Verify result was returned
         
         # Verify chain_remote was called correctly
         mock_chain_remote.assert_called_once()

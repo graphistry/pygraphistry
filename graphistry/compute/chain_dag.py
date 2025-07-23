@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, Set, List, Optional, Tuple, Union, cast
+from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -41,8 +42,8 @@ def build_dependency_graph(bindings: Dict[str, ASTObject]) -> Tuple[Dict[str, Se
     :returns: Tuple of (dependencies dict, dependents dict)
     :rtype: Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]
     """
-    dependencies = {}
-    dependents = {}
+    dependencies: Dict[str, Set[str]] = {}
+    dependents: Dict[str, Set[str]] = {}
     
     for name, ast_obj in bindings.items():
         deps = extract_dependencies(ast_obj)
@@ -216,7 +217,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTQueryDAG):
         # Nested DAG execution
-        result = chain_dag_impl(g, ast_obj, engine)
+        result = chain_dag_impl(g, ast_obj, engine.value)
     elif isinstance(ast_obj, ASTChainRef):
         # Resolve reference from context
         try:
@@ -232,7 +233,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, engine)
+            result = chain_impl(referenced_result, ast_obj.chain, engine.value)
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
@@ -289,7 +290,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
             api_token=ast_obj.token,
             dataset_id=ast_obj.dataset_id,
             output_type="all",  # Get full graph (nodes and edges)
-            engine=engine
+            engine=cast(Literal["pandas", "cudf"], engine.value)
         )
     else:
         # Other AST object types not yet implemented

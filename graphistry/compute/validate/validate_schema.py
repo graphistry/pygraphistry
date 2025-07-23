@@ -181,7 +181,7 @@ def _validate_remotegraph_op(op: ASTRemoteGraph, collect_all: bool) -> List[GFQL
     if not op.dataset_id or not isinstance(op.dataset_id, str):
         error = GFQLSchemaError(
             ErrorCode.E303,
-            f'RemoteGraph dataset_id must be a non-empty string',
+            'RemoteGraph dataset_id must be a non-empty string',
             field='dataset_id',
             value=op.dataset_id,
             suggestion='Provide a valid dataset identifier string'
@@ -195,7 +195,7 @@ def _validate_remotegraph_op(op: ASTRemoteGraph, collect_all: bool) -> List[GFQL
     if op.token is not None and not isinstance(op.token, str):
         error = GFQLSchemaError(
             ErrorCode.E303,
-            f'RemoteGraph token must be a string if provided',
+            'RemoteGraph token must be a string if provided',
             field='token',
             value=type(op.token).__name__,
             suggestion='Provide a valid token string or None'
