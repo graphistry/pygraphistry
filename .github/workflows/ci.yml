@@ -171,7 +171,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     strategy:
       matrix:
@@ -220,7 +220,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
-    timeout-minutes: 31
+    timeout-minutes: 15
 
     strategy:
       matrix:
@@ -350,7 +350,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v3
