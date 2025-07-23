@@ -16,12 +16,49 @@ class Contains(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
     
-    def validate(self) -> None:
-        assert isinstance(self.pat, str)
-        assert isinstance(self.case, bool)
-        assert isinstance(self.flags, int)
-        assert isinstance(self.na, (bool, type(None)))
-        assert isinstance(self.regex, bool)
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.pat, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "pat must be string",
+                field="pat",
+                value=type(self.pat).__name__
+            )
+        
+        if not isinstance(self.case, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "case must be boolean",
+                field="case",
+                value=type(self.case).__name__
+            )
+        
+        if not isinstance(self.flags, int):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "flags must be integer",
+                field="flags",
+                value=type(self.flags).__name__
+            )
+        
+        if not isinstance(self.na, (bool, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be boolean or None",
+                field="na",
+                value=type(self.na).__name__
+            )
+        
+        if not isinstance(self.regex, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "regex must be boolean",
+                field="regex",
+                value=type(self.regex).__name__
+            )
 
 def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None, regex: bool = True) -> Contains:
     """
@@ -38,9 +75,25 @@ class Startswith(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.startswith(self.pat, self.na)
 
-    def validate(self) -> None:
-        assert isinstance(self.pat, str)
-        assert isinstance(self.na, (str, type(None)))
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.pat, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "pat must be string",
+                field="pat",
+                value=type(self.pat).__name__
+            )
+        
+        if not isinstance(self.na, (str, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be string or None",
+                field="na",
+                value=type(self.na).__name__
+            )
 
 def startswith(pat: str, na: Optional[str] = None) -> Startswith:
     """
@@ -59,9 +112,25 @@ class Endswith(ASTPredicate):
         """
         return s.str.endswith(self.pat, self.na)
 
-    def validate(self) -> None:
-        assert isinstance(self.pat, str)
-        assert isinstance(self.na, (str, type(None)))
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.pat, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "pat must be string",
+                field="pat",
+                value=type(self.pat).__name__
+            )
+        
+        if not isinstance(self.na, (str, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be string or None",
+                field="na",
+                value=type(self.na).__name__
+            )
 
 def endswith(pat: str, na: Optional[str] = None) -> Endswith:
     return Endswith(pat, na)
@@ -76,11 +145,41 @@ class Match(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.match(self.pat, self.case, self.flags, self.na)
     
-    def validate(self) -> None:
-        assert isinstance(self.pat, str)
-        assert isinstance(self.case, bool)
-        assert isinstance(self.flags, int)
-        assert isinstance(self.na, (bool, type(None)))
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.pat, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "pat must be string",
+                field="pat",
+                value=type(self.pat).__name__
+            )
+        
+        if not isinstance(self.case, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "case must be boolean",
+                field="case",
+                value=type(self.case).__name__
+            )
+        
+        if not isinstance(self.flags, int):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "flags must be integer",
+                field="flags",
+                value=type(self.flags).__name__
+            )
+        
+        if not isinstance(self.na, (bool, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be boolean or None",
+                field="na",
+                value=type(self.na).__name__
+            )
 
 def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Match:
     """

@@ -99,6 +99,120 @@ active_nodes = result._nodes.query("active == True")
 result._nodes.groupby('type').size()
 ```
 
+## Validation
+
+GFQL provides comprehensive validation to catch errors early:
+
+### Syntax Validation
+
+Operations are automatically validated during construction:
+
+```python
+from graphistry.compute.chain import Chain
+from graphistry.compute.ast import n, e_forward
+
+# Automatic validation on construction
+chain = Chain([
+    n({'type': 'person'}),
+    e_forward({'hops': -1})  # Raises GFQLTypeError: hops must be positive
+])
+```
+
+### Schema Validation
+
+You have two options for validating queries against your data schema:
+
+1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
+2. **Validate-and-run**: Use `g.chain(..., validate_schema=True)` to validate before execution
+
+```python
+# Method 1: Validate-only (no execution)
+from graphistry.compute.validate_schema import validate_chain_schema
+
+chain = Chain([n({'missing_column': 'value'})])
+try:
+    validate_chain_schema(g, chain)  # Only validates, doesn't execute
+    print("Chain is valid for this graph")
+except GFQLSchemaError as e:
+    print(f"Schema incompatibility: {e}")
+    print("No query was executed")
+
+# Method 2: Runtime validation (automatic)
+try:
+    result = g.chain([
+        n({'missing_column': 'value'})
+    ])  # Validates during execution, raises GFQLSchemaError
+except GFQLSchemaError as e:
+    print(f"Runtime validation error: {e}")
+
+# Method 3: Validate-and-run (pre-execution validation)
+try:
+    result = g.chain([
+        n({'missing_column': 'value'})
+    ], validate_schema=True)  # Validates first, only executes if valid
+except GFQLSchemaError as e:
+    print(f"Pre-execution validation failed: {e}")
+    print("Query was not executed")
+```
+
+### Error Types
+
+GFQL uses structured exceptions with error codes:
+
+- **GFQLSyntaxError** (E1xx): Structural issues
+  - E101: Invalid type (e.g., chain not a list)
+  - E103: Invalid parameter value (e.g., negative hops)
+  - E104: Invalid direction
+  - E105: Missing required field
+
+- **GFQLTypeError** (E2xx): Type mismatches
+  - E201: Wrong value type (e.g., string instead of dict)
+  - E202: Predicate type mismatch
+  - E204: Invalid name type
+
+- **GFQLSchemaError** (E3xx): Data-related issues
+  - E301: Column not found
+  - E302: Incompatible column type (e.g., numeric predicate on string column)
+
+### Validation Modes
+
+```python
+# Fail-fast mode (default) - raises on first error
+chain.validate()
+
+# Collect-all mode - returns list of all errors
+errors = chain.validate(collect_all=True)
+for error in errors:
+    print(f"[{error.code}] {error.message}")
+    if error.suggestion:
+        print(f"  Suggestion: {error.suggestion}")
+
+# Pre-validate schema without execution
+from graphistry.compute.validate_schema import validate_chain_schema
+
+# Check schema compatibility
+errors = validate_chain_schema(g, chain, collect_all=True)
+```
+
+### Example: Handling Validation Errors
+
+```python
+from graphistry.compute.exceptions import GFQLValidationError, GFQLSchemaError
+
+try:
+    result = g.chain([
+        n({'age': 'twenty-five'})  # Type mismatch
+    ])
+except GFQLSchemaError as e:
+    print(f"Schema error [{e.code}]: {e.message}")
+    print(f"Field: {e.context.get('field')}")
+    print(f"Suggestion: {e.context.get('suggestion')}")
+    # Output:
+    # Schema error [E302]: Type mismatch: column "age" is numeric but filter value is string
+    # Field: age
+    # Suggestion: Use a numeric value like age=25
+```
+
 ## Common Errors and Validation
 
 ### Type Mismatches

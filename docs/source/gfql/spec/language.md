@@ -375,3 +375,4 @@ This pattern is essential for extracting specific subsets from complex graph tra
 - {ref}`gfql-spec-wire-protocol` - JSON serialization format
 - {ref}`gfql-spec-cypher-mapping` - Cypher to GFQL translation with wire protocol
 - [GFQL Quick Reference](../quick.rst) - Comprehensive examples and usage patterns
+- [GFQL Validation Guide](../validation/fundamentals.rst) - Learn validation basics
