@@ -21,6 +21,7 @@ jobs:
   test-minimal-python:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 6
 
     strategy:
       matrix:
@@ -76,6 +77,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     strategy:
       matrix:
@@ -124,6 +126,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 6
 
     strategy:
       matrix:
@@ -168,6 +171,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -216,6 +220,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 31
 
     strategy:
       matrix:
@@ -294,6 +299,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     env:
       COMPOSE_DOCKER_CLI_BUILD: 1
       DOCKER_BUILDKIT: 1
@@ -315,6 +321,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 2
 
     steps:
     - uses: actions/checkout@v3
@@ -343,6 +350,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 16
 
     steps:
     - uses: actions/checkout@v3
@@ -358,6 +366,7 @@ jobs:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
+    timeout-minutes: 1
 
     steps:
     - uses: actions/checkout@v3
