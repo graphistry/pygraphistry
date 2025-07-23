@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Infra
+* CI: Add explicit timeout-minutes to all CI jobs to prevent stuck workflows (#710)
+* CI: Add smart change detection to optimize CI runtime (#710)
+  * Python changes trigger lint/type checks and Python tests
+  * Documentation changes only trigger docs-related tests
+  * Dedicated lint/type job runs once instead of per Python version
+  * Reduces CI time for focused changes (e.g., docs-only PRs)
+
 ## [0.40.0 - 2025-07-23]
 
 ### Added
