@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.40.0 - 2025-07-23]
+
 ### Added
 * GFQL: Add comprehensive validation framework with detailed error reporting
   * Built-in validation: `Chain()` constructor validates syntax automatically
