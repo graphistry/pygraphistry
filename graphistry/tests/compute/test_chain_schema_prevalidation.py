@@ -5,7 +5,7 @@ import pandas as pd
 from graphistry import edges, nodes
 from graphistry.compute.chain import Chain
 from graphistry.compute.ast import n, e_forward
-from graphistry.compute.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.predicates.numeric import gt
 from graphistry.compute.predicates.str import contains
