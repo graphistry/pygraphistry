@@ -727,8 +727,32 @@ class ASTRemoteGraph(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Implementation in PR 1.3
-        raise NotImplementedError("RemoteGraph loading will be implemented in PR 1.3")
+        """Load remote graph dataset.
+        
+        This operation loads a graph from the Graphistry server by dataset_id.
+        The loaded graph replaces the current graph context.
+        
+        Args:
+            g: Current graph (ignored - remote graph becomes new context)
+            prev_node_wavefront: Previous node wavefront (unused)
+            target_wave_front: Target wavefront (unused) 
+            engine: Execution engine (preserved for loaded graph)
+            
+        Returns:
+            New Plottable with remote graph data
+            
+        Raises:
+            NotImplementedError: Remote graph loading not yet implemented
+        """
+        # TODO: Implement remote graph loading via Graphistry API
+        # This would involve:
+        # 1. Authenticate using self.token if provided
+        # 2. Fetch graph data from server using self.dataset_id
+        # 3. Return new Plottable with loaded edges/nodes
+        raise NotImplementedError(
+            "RemoteGraph loading is not yet implemented. "
+            "This requires server-side dataset loading functionality."
+        )
     
     def reverse(self) -> 'ASTRemoteGraph':
         raise NotImplementedError("RemoteGraph reversal not supported")
@@ -773,8 +797,29 @@ class ASTChainRef(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Implementation in PR 1.2
-        raise NotImplementedError("ChainRef execution will be implemented in PR 1.2")
+        """Execute chain operations with reference to a DAG binding.
+        
+        ASTChainRef cannot be executed directly as it requires access to the 
+        let bindings context to resolve the reference. This method should only
+        be called from within chain_let_impl where the binding context is available.
+        
+        Args:
+            g: Graph to operate on
+            prev_node_wavefront: Previous node wavefront
+            target_wave_front: Target wavefront  
+            engine: Execution engine
+            
+        Returns:
+            New Plottable after executing chain operations
+            
+        Raises:
+            NotImplementedError: ChainRef requires let bindings context
+        """
+        raise NotImplementedError(
+            "ASTChainRef cannot be executed directly. "
+            "It must be used within an ASTLet/chain_let() context where "
+            "the binding reference can be resolved."
+        )
     
     def reverse(self) -> 'ASTChainRef':
         # Reverse the chain operations
