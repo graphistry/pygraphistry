@@ -3,7 +3,7 @@
 from typing import List, Optional, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTQueryDAG, ASTChainRef, ASTRemoteGraph
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -57,7 +57,7 @@ def validate_chain_schema(
             op_errors = _validate_node_op(op, node_columns, g._nodes, collect_all)
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
-        elif isinstance(op, ASTQueryDAG):
+        elif isinstance(op, ASTLet):
             op_errors = _validate_querydag_op(op, g, collect_all)
         elif isinstance(op, ASTChainRef):
             op_errors = _validate_chainref_op(op, g, collect_all)
@@ -111,8 +111,8 @@ def _validate_edge_op(
     return errors
 
 
-def _validate_querydag_op(op: ASTQueryDAG, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
-    """Validate QueryDAG operation against schema."""
+def _validate_querydag_op(op: ASTLet, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
+    """Validate Let operation against schema."""
     errors = []
     
     # Validate each binding in the DAG

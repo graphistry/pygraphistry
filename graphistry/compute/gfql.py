@@ -5,7 +5,7 @@ from typing import List, Union, Optional, Dict
 from graphistry.Plottable import Plottable
 from graphistry.Engine import EngineAbstract
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTQueryDAG
+from .ast import ASTObject, ASTLet
 from .chain import Chain, chain as chain_impl
 from .chain_dag import chain_dag as chain_dag_impl
 
@@ -13,7 +13,7 @@ logger = setup_logger(__name__)
 
 
 def gfql(self: Plottable,
-         query: Union[ASTObject, List[ASTObject], ASTQueryDAG, Chain, dict],
+         query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None) -> Plottable:
     """
@@ -22,7 +22,7 @@ def gfql(self: Plottable,
     Unified entrypoint that automatically detects query type and
     dispatches to the appropriate execution engine.
     
-    :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict
+    :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, or dict
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
     :returns: Resulting Plottable
@@ -45,9 +45,9 @@ def gfql(self: Plottable,
     
     ::
     
-        from graphistry.compute.ast import dag, ref, n, e
+        from graphistry.compute.ast import let, ref, n, e
         
-        result = g.gfql(dag({
+        result = g.gfql(let({
             'people': n({'type': 'person'}),
             'friends': ref('people', [e({'rel': 'knows'}), n()])
         }))
@@ -68,12 +68,12 @@ def gfql(self: Plottable,
         # Dict → DAG execution (convenience)
         g.gfql({'people': n({'type': 'person'})})
     """
-    # Handle dict convenience first (convert to ASTQueryDAG)
+    # Handle dict convenience first (convert to ASTLet)
     if isinstance(query, dict):
-        query = ASTQueryDAG(query)
+        query = ASTLet(query)
     
     # Dispatch based on type - check specific types before generic
-    if isinstance(query, ASTQueryDAG):
+    if isinstance(query, ASTLet):
         logger.debug('GFQL executing as DAG')
         return chain_dag_impl(self, query, engine, output)
     elif isinstance(query, Chain):
@@ -94,6 +94,6 @@ def gfql(self: Plottable,
         return chain_impl(self, query, engine)
     else:
         raise TypeError(
-            f"Query must be ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict. "
+            f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
             f"Got {type(query).__name__}"
         )

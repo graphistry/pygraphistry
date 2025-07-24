@@ -4,7 +4,7 @@ from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTQueryDAG, ASTChainRef, ASTRemoteGraph, ASTNode, ASTEdge
+from .ast import ASTObject, ASTLet, ASTChainRef, ASTRemoteGraph, ASTNode, ASTEdge
 from .execution_context import ExecutionContext
 from .typing import DataFrameT
 
@@ -26,8 +26,8 @@ def extract_dependencies(ast_obj: ASTObject) -> Set[str]:
         for op in ast_obj.chain:
             deps.update(extract_dependencies(op))
     
-    elif isinstance(ast_obj, ASTQueryDAG):
-        # Nested DAGs
+    elif isinstance(ast_obj, ASTLet):
+        # Nested let bindings
         for binding in ast_obj.bindings.values():
             deps.update(extract_dependencies(binding))
     
@@ -196,7 +196,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     """Execute a single node in the DAG
     
     Handles different AST object types:
-    - ASTQueryDAG: Recursive DAG execution
+    - ASTLet: Recursive let execution
     - ASTChainRef: Reference resolution and chain execution
     - ASTNode: Node filtering operations
     - ASTEdge: Edge traversal operations
@@ -215,8 +215,8 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
     
     # Handle different AST object types
-    if isinstance(ast_obj, ASTQueryDAG):
-        # Nested DAG execution
+    if isinstance(ast_obj, ASTLet):
+        # Nested let execution
         result = chain_dag_impl(g, ast_obj, engine.value)
     elif isinstance(ast_obj, ASTChainRef):
         # Resolve reference from context
@@ -302,7 +302,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     return result
 
 
-def chain_dag_impl(g: Plottable, dag: ASTQueryDAG, 
+def chain_dag_impl(g: Plottable, dag: ASTLet, 
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
                   output: Optional[str] = None) -> Plottable:
     """Internal implementation of chain_dag execution
@@ -311,7 +311,7 @@ def chain_dag_impl(g: Plottable, dag: ASTQueryDAG,
     in topological order.
     
     :param g: Input graph
-    :param dag: DAG specification with named bindings
+    :param dag: Let specification with named bindings
     :param engine: Engine selection (auto/pandas/cudf)
     :param output: Name of binding to return (default: last executed)
     :returns: Result from specified or last executed node
@@ -323,11 +323,11 @@ def chain_dag_impl(g: Plottable, dag: ASTQueryDAG,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
     
-    # Validate the DAG parameter
-    if not isinstance(dag, ASTQueryDAG):
-        raise TypeError(f"dag must be an ASTQueryDAG, got {type(dag).__name__}")
+    # Validate the let parameter
+    if not isinstance(dag, ASTLet):
+        raise TypeError(f"dag must be an ASTLet, got {type(dag).__name__}")
     
-    # Validate the DAG
+    # Validate the let bindings
     dag.validate()
     
     # Resolve engine
@@ -340,7 +340,7 @@ def chain_dag_impl(g: Plottable, dag: ASTQueryDAG,
     # Create execution context
     context = ExecutionContext()
     
-    # Handle empty DAG
+    # Handle empty let bindings
     if not dag.bindings:
         return g
     
@@ -378,7 +378,7 @@ def chain_dag_impl(g: Plottable, dag: ASTQueryDAG,
         return last_result
 
 
-def chain_dag(self: Plottable, dag: ASTQueryDAG,
+def chain_dag(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
              output: Optional[str] = None) -> Plottable:
     """
@@ -387,7 +387,7 @@ def chain_dag(self: Plottable, dag: ASTQueryDAG,
     Chain operations can reference results from other operations by name,
     enabling parallel branches and complex data flows.
     
-    :param dag: ASTQueryDAG containing named bindings of operations
+    :param dag: ASTLet containing named bindings of operations
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: Name of binding to return (default: last executed)
     :returns: Plottable result from the specified or last operation
@@ -397,9 +397,9 @@ def chain_dag(self: Plottable, dag: ASTQueryDAG,
     
     ::
     
-        from graphistry.compute.ast import ASTQueryDAG, n
+        from graphistry.compute.ast import ASTLet, n
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'})
         })
         result = g.chain_dag(dag)
@@ -408,9 +408,9 @@ def chain_dag(self: Plottable, dag: ASTQueryDAG,
     
     ::
     
-        from graphistry.compute.ast import ASTQueryDAG, ASTChainRef, n, e
+        from graphistry.compute.ast import ASTLet, ASTChainRef, n, e
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'start': n({'type': 'person'}),
             'friends': ASTChainRef('start', [e(), n()])
         })
@@ -420,7 +420,7 @@ def chain_dag(self: Plottable, dag: ASTQueryDAG,
     
     ::
     
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'}),
             'transactions': n({'type': 'transaction'}),
             'branch1': ASTChainRef('people', [e()]),

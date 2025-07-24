@@ -1,7 +1,7 @@
 from .ComputeMixin import ComputeMixin
 from .ast import (
     n, e, e_forward, e_reverse, e_undirected,
-    dag, remote, ref
+    let, remote, ref
 )
 from .chain import Chain
 from .predicates.is_in import (
