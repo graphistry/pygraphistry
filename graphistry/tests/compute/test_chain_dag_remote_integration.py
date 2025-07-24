@@ -81,7 +81,9 @@ class TestRemoteGraphIntegration:
             'remote_data': ASTRemoteGraph(dataset_id)
         })
         
-        g2 = CGFull().gfql(dag)
+        # CGFull() creates empty graph, need one with edges for materialize_nodes
+        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        g2 = g_base.gfql(dag)
         
         # Verify we got the data back
         assert len(g2._edges) == 3
@@ -108,7 +110,9 @@ class TestRemoteGraphIntegration:
             'data': ASTRemoteGraph(dataset_id, token=token)
         })
         
-        result = CGFull().gfql(dag)
+        # Need graph with edges for materialize_nodes
+        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        result = g_base.gfql(dag)
         assert len(result._edges) == 1
     
     def test_remote_graph_in_complex_dag(self):
@@ -135,8 +139,9 @@ class TestRemoteGraphIntegration:
             'friends': ASTChainRef('persons', [n(edge_query="type == 'friend'")])
         })
         
-        # Execute and verify
-        result = CGFull().gfql(dag, output='friends')
+        # Execute and verify - need graph with edges for materialize_nodes
+        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        result = g_base.gfql(dag, output='friends')
         
         # Should only have person nodes
         assert all(result._nodes['category'] == 'person')
@@ -149,7 +154,8 @@ class TestRemoteGraphIntegration:
             'bad_remote': ASTRemoteGraph('invalid-dataset-id-12345')
         })
         
-        g = CGFull()
+        # Need graph with edges for materialize_nodes
+        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         with pytest.raises(Exception) as exc_info:
             g.gfql(dag)
         
@@ -168,7 +174,9 @@ class TestRemoteGraphIntegration:
             'data': ASTRemoteGraph(dataset_id)
         })
         
-        result = CGFull().gfql(dag)
+        # Need graph with edges for materialize_nodes
+        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        result = g_base.gfql(dag)
         
         # Basic validation - should have some data
         assert result._edges is not None or result._nodes is not None
@@ -181,7 +189,7 @@ class TestRemoteGraphIntegration:
 class TestRemoteGraphMocked:
     """Tests with mocked remote calls (always run)."""
     
-    @patch('graphistry.compute.chain_dag.chain_remote_impl')
+    @patch('graphistry.compute.chain_remote.chain_remote')
     def test_remote_graph_execution_mocked(self, mock_chain_remote):
         """Test that RemoteGraph calls chain_remote correctly."""
         # This test always runs, even without remote server
@@ -192,7 +200,9 @@ class TestRemoteGraphMocked:
             'remote': ASTRemoteGraph('test-dataset-123', token='test-token')
         })
         
-        result = CGFull().gfql(dag)
+        # Mock result should be used, but we still need edges for materialize_nodes
+        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        result = g_base.gfql(dag)
         assert result is not None  # Verify result was returned
         
         # Verify chain_remote was called correctly

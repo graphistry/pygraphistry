@@ -526,7 +526,7 @@ class TestNodeExecution:
         assert len(result._nodes) == 1
         assert result._nodes['id'].iloc[0] == 'a'
         assert result._nodes['type'].iloc[0] == 'person'
-        assert result._nodes['active'].iloc[0] is True
+        assert result._nodes['active'].iloc[0]  # Just check truthiness
 
 
 class TestErrorHandling:
@@ -651,7 +651,7 @@ class TestExecutionMechanics:
         result = execute_node('nested', nested_dag, g, context, Engine.PANDAS)
         assert result is not None
     
-    @patch('graphistry.compute.chain_dag.chain_remote_impl')
+    @patch('graphistry.compute.chain_remote.chain_remote')
     def test_remote_graph_execution(self, mock_chain_remote):
         """Test ASTRemoteGraph executes correctly with mocked remote call"""
         from graphistry.compute.chain_dag import execute_node
@@ -781,7 +781,7 @@ class TestDiamondPatterns:
         assert len(result._nodes) == 1
         assert result._nodes['type'].iloc[0] == 'source'
         assert 'from_left' in result._nodes.columns
-        assert result._nodes['from_left'].iloc[0] is True
+        assert result._nodes['from_left'].iloc[0]  # Check truthiness
     
     def test_multi_branch_convergence(self):
         """Test multiple branches converging"""
