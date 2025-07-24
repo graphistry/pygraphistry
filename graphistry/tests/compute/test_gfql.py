@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from graphistry.compute.ast import ASTQueryDAG, ASTChainRef, n, e
+from graphistry.compute.ast import ASTLet, ASTChainRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 
@@ -65,7 +65,7 @@ class TestGFQL:
         # Result depends on graph structure
     
     def test_gfql_with_dag(self):
-        """Test gfql with ASTQueryDAG"""
+        """Test gfql with ASTLet"""
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c', 'd'],
             'type': ['person', 'person', 'company', 'company']
@@ -74,7 +74,7 @@ class TestGFQL:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Execute as DAG
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'}),
             'companies': n({'type': 'company'})
         })
@@ -147,7 +147,7 @@ class TestGFQL:
         with pytest.raises(TypeError) as exc_info:
             g.gfql("not a valid query")
         
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict" in str(exc_info.value)
+        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""

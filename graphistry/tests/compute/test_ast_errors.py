@@ -55,7 +55,7 @@ class TestSerializationErrors:
         with pytest.raises(AssertionError) as exc_info:
             from_json({"type": "QueryDAG"})
         
-        assert "QueryDAG missing bindings" in str(exc_info.value)
+        assert "Let missing bindings" in str(exc_info.value)
     
     def test_remotegraph_missing_dataset_id(self):
         """Test clear error when RemoteGraph missing dataset_id"""

@@ -7,7 +7,7 @@ Enable remote tests with: TEST_REMOTE_INTEGRATION=1
 import pandas as pd
 import pytest
 from unittest.mock import patch, MagicMock
-from graphistry.compute.ast import ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTNode, ASTObject, n, e
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, ASTNode, ASTObject, n, e
 from graphistry.compute.chain_dag import (
     extract_dependencies, build_dependency_graph, validate_dependencies,
     detect_cycles, determine_execution_order
@@ -43,7 +43,7 @@ class TestChainDagHelpers:
         assert deps == {'a', 'b'}
         
         # Nested DAG
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'inner': ASTChainRef('outer', [n()])
         })
         deps = extract_dependencies(dag)
@@ -260,7 +260,7 @@ class TestExecutionContext:
     def test_context_passed_through_dag(self):
         """Test that context is passed through DAG execution"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        dag = ASTQueryDAG({})
+        dag = ASTLet({})
         
         # Empty DAG should work
         result = g.gfql(dag)
@@ -269,7 +269,7 @@ class TestExecutionContext:
     def test_execution_order_verified(self):
         """Test that execution order follows dependencies"""
         # Create a DAG with known dependencies
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'data': ASTRemoteGraph('dataset'),
             'filtered': ASTChainRef('data', []),
             'analyzed': ASTChainRef('filtered', [])
@@ -283,7 +283,7 @@ class TestExecutionContext:
         assert order == ['data', 'filtered', 'analyzed']
         
         # Also test diamond pattern
-        dag_diamond = ASTQueryDAG({
+        dag_diamond = ASTLet({
             'root': ASTRemoteGraph('data'),
             'left': ASTChainRef('root', []),
             'right': ASTChainRef('root', []),
@@ -311,7 +311,7 @@ class TestExecutionContext:
                 return self
         
         # Create DAG with mock executable and chain ref
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'first': MockExecutable(),
             'second': ASTChainRef('first', [])  # Empty chain should work
         })
@@ -338,7 +338,7 @@ class TestEdgeExecution:
         g = CGFull().edges(edges_df, 's', 'd')
         g = g.materialize_nodes()
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'one_hop': e()  # Default forward edge
         })
         
@@ -360,7 +360,7 @@ class TestEdgeExecution:
         })
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'work_edges': e(edge_match={'rel': 'works_at'})
         })
         
@@ -379,7 +379,7 @@ class TestEdgeExecution:
         
         # Test reverse direction
         from graphistry.compute.ast import ASTEdgeReverse
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'reverse': ASTEdgeReverse()
         })
         
@@ -394,7 +394,7 @@ class TestEdgeExecution:
         })
         g = CGFull().edges(edges_df, 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'tagged_edges': e(name='important')
         })
         
@@ -413,7 +413,7 @@ class TestEdgeExecution:
         })
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'}),
             'from_people': ASTChainRef('people', [e()]),
             'companies': n({'type': 'company'})
@@ -494,7 +494,7 @@ class TestNodeExecution:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # DAG with node filter
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'})
         })
         
@@ -515,7 +515,7 @@ class TestNodeExecution:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # DAG: filter people, then filter active from those
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'}),
             'active_people': ASTChainRef('people', [n({'active': True})])
         })
@@ -538,7 +538,7 @@ class TestErrorHandling:
         
         with pytest.raises(TypeError) as exc_info:
             g.gfql("not a dag")
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict" in str(exc_info.value)
+        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
         
         with pytest.raises(AssertionError) as exc_info:
             g.gfql({'dict': 'not allowed'})
@@ -549,7 +549,7 @@ class TestErrorHandling:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Create a node with invalid query syntax
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'bad_query': n(query='invalid python syntax !@#')
         })
         
@@ -562,7 +562,7 @@ class TestErrorHandling:
     
     def test_cycle_detection_with_path(self):
         """Test cycle detection provides the cycle path"""
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'a': ASTChainRef('b', []),
             'b': ASTChainRef('c', []),
             'c': ASTChainRef('a', [])  # Creates cycle a->b->c->a
@@ -600,7 +600,7 @@ class TestErrorHandling:
     
     def test_missing_reference_with_suggestions(self):
         """Test missing reference error includes available bindings"""
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'data1': n(),
             'data2': n(),
             'result': ASTChainRef('data3', [])  # data3 doesn't exist
@@ -646,8 +646,8 @@ class TestExecutionMechanics:
         # Test ASTRemoteGraph is now implemented (will fail with missing auth)
         # We'll test actual functionality with mocks in a separate test
         
-        # Test nested ASTQueryDAG
-        nested_dag = ASTQueryDAG({'inner': n()})
+        # Test nested ASTLet
+        nested_dag = ASTLet({'inner': n()})
         result = execute_node('nested', nested_dag, g, context, Engine.PANDAS)
         assert result is not None
     
@@ -707,12 +707,12 @@ class TestExecutionMechanics:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # First DAG execution
-        dag1 = ASTQueryDAG({'node1': n(name='first')})
+        dag1 = ASTLet({'node1': n(name='first')})
         result1 = g.gfql(dag1)
         assert result1 is not None  # First execution succeeds
         
         # Second DAG execution should not see first's context
-        dag2 = ASTQueryDAG({
+        dag2 = ASTLet({
             'node2': n(name='second'),
             'ref_fail': ASTChainRef('node1', [])  # Should fail - node1 not in this context
         })
@@ -735,7 +735,7 @@ class TestExecutionMechanics:
         
         try:
             g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-            dag = ASTQueryDAG({
+            dag = ASTLet({
                 'first': n(),
                 'second': ASTChainRef('first', []),
                 'third': ASTChainRef('second', [])
@@ -768,7 +768,7 @@ class TestDiamondPatterns:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Diamond: top -> (left, right) -> bottom
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'top': n({'type': 'source'}),
             'left': ASTChainRef('top', [n(name='from_left')]),
             'right': ASTChainRef('top', [n(name='from_right')]),
@@ -795,7 +795,7 @@ class TestDiamondPatterns:
         from graphistry.compute.chain_dag import determine_execution_order, ExecutionContext, execute_node
         from graphistry.Engine import Engine
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'branch1': n(name='b1'),
             'branch2': n(name='b2'),
             'branch3': n(name='b3'),
@@ -821,7 +821,7 @@ class TestDiamondPatterns:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Two independent branches
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'branch_a': n({'branch': 'A'}),
             'branch_b': n({'branch': 'B'}),
             'a_subset': ASTChainRef('branch_a', [n(query="id in ['a', 'b']")]),
@@ -854,7 +854,7 @@ class TestDiamondPatterns:
         for i in range(2, 11):
             dag_dict[f'n{i}'] = ASTChainRef(f'n{i - 1}', [])
         
-        dag = ASTQueryDAG(dag_dict)
+        dag = ASTLet(dag_dict)
         
         # Test execution order is correct
         from graphistry.compute.chain_dag import determine_execution_order
@@ -881,7 +881,7 @@ class TestDiamondPatterns:
         # Test execution order for fan-out/fan-in
         from graphistry.compute.chain_dag import determine_execution_order
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'start': n({'id': 'root'}),
             'expand1': ASTChainRef('start', []),
             'expand2': ASTChainRef('start', []),
@@ -911,7 +911,7 @@ class TestIntegration:
     def test_empty_dag(self):
         """Test empty DAG returns original graph"""
         g = CGFull().edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
-        dag = ASTQueryDAG({})
+        dag = ASTLet({})
         
         result = g.gfql(dag)
         
@@ -936,7 +936,7 @@ class TestIntegration:
         g = CGFull().nodes(pd.DataFrame(nodes_data), 'id').edges(pd.DataFrame(edges_data), 's', 'd')
         
         # Create a 10+ node DAG with various patterns
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             # Layer 1: Initial filters using filter_dict
             'high_value': n(name='high'),
             'even': n({'type': 'even'}),
@@ -974,7 +974,7 @@ class TestIntegration:
         """Test DAG with RemoteGraph requires authentication"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'remote1': ASTRemoteGraph('dataset1'),
             'remote2': ASTRemoteGraph('dataset2', token='mock-token'),
             'combined': n()  # Would combine results
@@ -993,7 +993,7 @@ class TestIntegration:
         g = CGFull().edges(pd.DataFrame({'s': list('abc'), 'd': list('bcd')}), 's', 'd')
         g = g.materialize_nodes()
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'step1': n(name='tag1'),
             'step2': n(name='tag2'),
             'step3': n(name='tag3')
@@ -1011,7 +1011,7 @@ class TestIntegration:
         """Test errors include helpful context about which node failed"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'good1': n(),
             'good2': n(), 
             'bad': n(query='invalid syntax !@#'),
@@ -1042,7 +1042,7 @@ class TestCrossValidation:
         chain_result = g.chain([n({'type': 'person'})])
         
         # Using DAG
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'})
         })
         dag_result = g.gfql(dag)
@@ -1055,7 +1055,7 @@ class TestCrossValidation:
         """Test that execution order is deterministic for same DAG"""
         from graphistry.compute.chain_dag import determine_execution_order
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'a': n(),
             'b': n(),
             'c': ASTChainRef('a', []),
@@ -1096,7 +1096,7 @@ class TestCrossValidation:
             # Call original but capture context usage
             return original_chain_dag_impl(g, dag, engine)
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'step1': n(name='tag1'),
             'step2': n(name='tag2'),
             'step3': ASTChainRef('step1', [])
@@ -1112,7 +1112,7 @@ class TestCrossValidation:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # First execution with error
-        bad_dag = ASTQueryDAG({
+        bad_dag = ASTLet({
             'bad': n(query='invalid syntax !!!')
         })
         
@@ -1122,7 +1122,7 @@ class TestCrossValidation:
             pass  # Expected
         
         # Second execution should work fine
-        good_dag = ASTQueryDAG({
+        good_dag = ASTLet({
             'good': n()
         })
         
@@ -1140,13 +1140,13 @@ class TestCrossValidation:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Test filter_dict
-        dag1 = ASTQueryDAG({'result': n({'active': True})})
+        dag1 = ASTLet({'result': n({'active': True})})
         result1 = g.gfql(dag1)
         assert len(result1._nodes) == 3
         assert all(result1._nodes['active'])
         
         # Test with name
-        dag2 = ASTQueryDAG({'result': n({'active': True}, name='is_active')})
+        dag2 = ASTLet({'result': n({'active': True}, name='is_active')})
         result2 = g.gfql(dag2)
         assert 'is_active' in result2._nodes.columns
         assert all(result2._nodes['is_active'])
@@ -1167,7 +1167,7 @@ class TestChainDagInternal:
     def test_chain_dag_empty(self):
         """Test chain_dag with empty DAG"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        dag = ASTQueryDAG({})
+        dag = ASTLet({})
         
         # Empty DAG should return original graph
         result = g.gfql(dag)
@@ -1178,7 +1178,7 @@ class TestChainDagInternal:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         g = g.materialize_nodes()
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'all_nodes': n()
         })
         
@@ -1190,7 +1190,7 @@ class TestChainDagInternal:
     def test_chain_dag_remote_not_implemented(self):
         """Test chain_dag with RemoteGraph requires authentication"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'remote': ASTRemoteGraph('dataset123')
         })
         
@@ -1204,7 +1204,7 @@ class TestChainDagInternal:
     def test_chain_dag_multi_node_works(self):
         """Test chain_dag with multiple nodes now works"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'first': n(),
             'second': n()
         })
@@ -1225,7 +1225,7 @@ class TestChainDagInternal:
         with pytest.raises(TypeError) as exc_info:
             g.gfql("not a dag")
         
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTQueryDAG, or dict" in str(exc_info.value)
+        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
     
     def test_chain_dag_output_selection(self):
         """Test output parameter selects specific binding"""
@@ -1236,7 +1236,7 @@ class TestChainDagInternal:
         edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'people': n({'type': 'person'}),
             'companies': n({'type': 'company'}),
             'all_nodes': n()
@@ -1262,7 +1262,7 @@ class TestChainDagInternal:
     def test_chain_dag_output_not_found(self):
         """Test error when output binding not found"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        dag = ASTQueryDAG({'node1': n()})
+        dag = ASTLet({'node1': n()})
         
         with pytest.raises(ValueError) as exc_info:
             g.gfql(dag, output='missing')

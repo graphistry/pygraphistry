@@ -2,7 +2,7 @@ import os
 import pytest
 import pandas as pd
 
-from graphistry.compute.ast import ASTQueryDAG, ASTRemoteGraph, ASTChainRef, n
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n
 from graphistry.compute.chain_dag import chain_dag_impl
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.tests.test_compute import CGFull
@@ -51,7 +51,7 @@ class TestChainDagGPU:
         assert isinstance(g._edges, cudf.DataFrame)
         
         # Empty DAG should work
-        dag = ASTQueryDAG({})
+        dag = ASTLet({})
         result = g.chain_dag(dag)
         
         # Result should preserve GPU mode
@@ -65,7 +65,7 @@ class TestChainDagGPU:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Empty DAG with cudf engine
-        dag = ASTQueryDAG({})
+        dag = ASTLet({})
         result = g.chain_dag(dag, engine='cudf')
         
         # Should have materialized nodes
@@ -82,7 +82,7 @@ class TestChainDagGPU:
         g = CGFull().edges(edges_gdf, 's', 'd')
         
         # Create a simple DAG (will fail on execution but that's ok)
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'step1': n()
         })
         
@@ -165,7 +165,7 @@ class TestChainDagGPU:
         g = CGFull().edges(edges_gdf, 's', 'd')
         
         # Create a simple DAG
-        dag = ASTQueryDAG({})  # Empty DAG
+        dag = ASTLet({})  # Empty DAG
         
         # Execute
         result = g.chain_dag(dag)

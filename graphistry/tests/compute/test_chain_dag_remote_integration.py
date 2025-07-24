@@ -17,7 +17,7 @@ import pandas as pd
 from unittest.mock import patch
 
 from graphistry import PyGraphistry
-from graphistry.compute.ast import ASTQueryDAG, ASTRemoteGraph, ASTChainRef, n
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n
 from graphistry.tests.test_compute import CGFull
 
 
@@ -77,7 +77,7 @@ class TestRemoteGraphIntegration:
         assert dataset_id is not None
         
         # Now test fetching it via ASTRemoteGraph
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'remote_data': ASTRemoteGraph(dataset_id)
         })
         
@@ -104,7 +104,7 @@ class TestRemoteGraphIntegration:
         dataset_id = uploaded._dataset_id
         
         # Fetch with explicit token
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'data': ASTRemoteGraph(dataset_id, token=token)
         })
         
@@ -129,7 +129,7 @@ class TestRemoteGraphIntegration:
         dataset_id = uploaded._dataset_id
         
         # Create complex DAG with remote data
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'remote': ASTRemoteGraph(dataset_id),
             'persons': ASTChainRef('remote', [n({'category': 'person'})]),
             'friends': ASTChainRef('persons', [n(edge_query="type == 'friend'")])
@@ -145,7 +145,7 @@ class TestRemoteGraphIntegration:
     
     def test_remote_graph_error_handling(self):
         """Test error handling for invalid dataset IDs."""
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'bad_remote': ASTRemoteGraph('invalid-dataset-id-12345')
         })
         
@@ -164,7 +164,7 @@ class TestRemoteGraphIntegration:
         """Test with a known dataset ID from env var."""
         dataset_id = os.environ["GRAPHISTRY_TEST_DATASET_ID"]
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'data': ASTRemoteGraph(dataset_id)
         })
         
@@ -188,7 +188,7 @@ class TestRemoteGraphMocked:
         mock_result = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
         mock_chain_remote.return_value = mock_result
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'remote': ASTRemoteGraph('test-dataset-123', token='test-token')
         })
         

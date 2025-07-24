@@ -1,5 +1,5 @@
 from graphistry.compute.ast import (
-    from_json, ASTNode, ASTEdge, ASTQueryDAG, ASTRemoteGraph, ASTChainRef,
+    from_json, ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef,
     n, e, e_forward, e_reverse, e_undirected
 )
 
@@ -26,40 +26,40 @@ def test_serialization_edge():
     assert o == o2
 
 
-def test_serialization_querydag_empty():
-    """Test QueryDAG with empty bindings"""
-    dag = ASTQueryDAG({})
+def test_serialization_let_empty():
+    """Test Let with empty bindings"""
+    dag = ASTLet({})
     o = dag.to_json()
-    assert o == {'type': 'QueryDAG', 'bindings': {}}
+    assert o == {'type': 'Let', 'bindings': {}}
     dag2 = from_json(o)
-    assert isinstance(dag2, ASTQueryDAG)
+    assert isinstance(dag2, ASTLet)
     assert dag2.bindings == {}
     o2 = dag2.to_json()
     assert o == o2
 
 
-def test_serialization_querydag_single():
-    """Test QueryDAG with single binding"""
-    dag = ASTQueryDAG({'a': n()})
+def test_serialization_let_single():
+    """Test Let with single binding"""
+    dag = ASTLet({'a': n()})
     o = dag.to_json()
-    assert o['type'] == 'QueryDAG'
+    assert o['type'] == 'Let'
     assert 'a' in o['bindings']
     dag2 = from_json(o)
-    assert isinstance(dag2, ASTQueryDAG)
+    assert isinstance(dag2, ASTLet)
     assert 'a' in dag2.bindings
     assert isinstance(dag2.bindings['a'], ASTNode)
 
 
-def test_serialization_querydag_multi():
-    """Test QueryDAG with multiple bindings"""
-    dag = ASTQueryDAG({
+def test_serialization_let_multi():
+    """Test Let with multiple bindings"""
+    dag = ASTLet({
         'nodes': n({'type': 'person'}),
         'edges': e_forward(),
         'remote': ASTRemoteGraph('dataset123')
     })
     o = dag.to_json()
     dag2 = from_json(o)
-    assert isinstance(dag2, ASTQueryDAG)
+    assert isinstance(dag2, ASTLet)
     assert len(dag2.bindings) == 3
     assert isinstance(dag2.bindings['nodes'], ASTNode)
     assert isinstance(dag2.bindings['edges'], ASTEdge)

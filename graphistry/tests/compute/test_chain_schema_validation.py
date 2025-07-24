@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 from graphistry import edges, nodes
 from graphistry.compute.chain import Chain
-from graphistry.compute.ast import n, e_forward, ASTQueryDAG, ASTChainRef, ASTRemoteGraph
+from graphistry.compute.ast import n, e_forward, ASTLet, ASTChainRef, ASTRemoteGraph
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 
@@ -132,8 +132,8 @@ class TestChainSchemaValidation:
         pass
 
 
-class TestDAGSchemaValidation:
-    """Test schema validation for new DAG AST types."""
+class TestLetSchemaValidation:
+    """Test schema validation for new Let AST types."""
     
     def setup_method(self):
         """Set up test data."""
@@ -152,9 +152,9 @@ class TestDAGSchemaValidation:
         
         self.g = edges(self.edges_df, 'src', 'dst').nodes(self.nodes_df, 'id')
     
-    def test_querydag_valid_schema(self):
-        """Valid QueryDAG passes schema validation."""
-        dag = ASTQueryDAG({
+    def test_let_valid_schema(self):
+        """Valid Let passes schema validation."""
+        dag = ASTLet({
             'persons': n({'type': 'person'}),
             'friends': e_forward({'edge_type': 'friend'})
         })
@@ -163,9 +163,9 @@ class TestDAGSchemaValidation:
         errors = validate_chain_schema(self.g, [dag], collect_all=True)
         assert errors == []
     
-    def test_querydag_invalid_node_column(self):
-        """QueryDAG with invalid node column fails."""
-        dag = ASTQueryDAG({
+    def test_let_invalid_node_column(self):
+        """Let with invalid node column fails."""
+        dag = ASTLet({
             'bad_nodes': n({'missing_column': 'value'})
         })
         
@@ -176,9 +176,9 @@ class TestDAGSchemaValidation:
         assert 'missing_column' in str(exc_info.value)
         assert exc_info.value.context.get('dag_binding') == 'bad_nodes'
     
-    def test_querydag_collect_all_errors(self):
-        """QueryDAG can collect all validation errors."""
-        dag = ASTQueryDAG({
+    def test_let_collect_all_errors(self):
+        """Let can collect all validation errors."""
+        dag = ASTLet({
             'bad_nodes': n({'missing1': 'value'}),
             'bad_edges': e_forward({'missing2': 'value'})
         })
@@ -269,10 +269,10 @@ class TestDAGSchemaValidation:
         assert exc_info.value.code == ErrorCode.E303
         assert 'token must be a string' in str(exc_info.value)
     
-    def test_nested_dag_validation(self):
-        """Nested DAG structures are validated recursively."""
-        nested_dag = ASTQueryDAG({
-            'inner': ASTQueryDAG({
+    def test_nested_let_validation(self):
+        """Nested Let structures are validated recursively."""
+        nested_dag = ASTLet({
+            'inner': ASTLet({
                 'bad_node': n({'missing_column': 'value'})
             })
         })
