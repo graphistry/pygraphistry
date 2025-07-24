@@ -238,20 +238,21 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     elif isinstance(ast_obj, ASTNode):
         # For chain_dag, we execute nodes in a simpler way than chain()
         # No wavefront propagation - just filter the graph's nodes
-        if ast_obj.filter_dict or ast_obj.query:
+        node_obj = cast(ASTNode, ast_obj)
+        if node_obj.filter_dict or node_obj.query:
             filtered_g = g
-            if ast_obj.filter_dict:
-                filtered_g = filtered_g.filter_nodes_by_dict(ast_obj.filter_dict)
-            if ast_obj.query:
-                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(ast_obj.query))
+            if node_obj.filter_dict:
+                filtered_g = filtered_g.filter_nodes_by_dict(node_obj.filter_dict)
+            if node_obj.query:
+                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(node_obj.query))
             result = filtered_g
         else:
             # Empty filter - return original graph
             result = g
         
         # Add name column if specified
-        if ast_obj._name:
-            result = result.nodes(result._nodes.assign(**{ast_obj._name: True}))
+        if node_obj._name:
+            result = result.nodes(result._nodes.assign(**{node_obj._name: True}))
     elif isinstance(ast_obj, ASTEdge):
         # For chain_dag, execute edge operations using hop()
         # This is simpler than the full chain() wavefront approach

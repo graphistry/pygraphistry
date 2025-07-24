@@ -640,7 +640,8 @@ class ASTLet(ASTObject):
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
         # Let bindings don't use wavefronts - execute via chain_dag_impl
         from graphistry.compute.chain_dag import chain_dag_impl
-        return chain_dag_impl(g, self, engine)
+        from graphistry.Engine import EngineAbstract
+        return chain_dag_impl(g, self, EngineAbstract(engine.value))
     
     def reverse(self) -> 'ASTLet':
         raise NotImplementedError("Let reversal not supported")
