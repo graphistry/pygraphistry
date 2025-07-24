@@ -683,8 +683,9 @@ class ASTLet(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Implementation in PR 1.2
-        raise NotImplementedError("Let execution will be implemented in PR 1.2")
+        # Let execution is handled by chain_dag_impl, not through __call__
+        # This method exists for API consistency but should not be called directly
+        raise NotImplementedError("Let execution is performed via g.gfql(), not through direct __call__")
     
     def reverse(self) -> 'ASTLet':
         raise NotImplementedError("Let reversal not supported")
