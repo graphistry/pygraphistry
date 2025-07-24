@@ -294,7 +294,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         )
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
-        from .gfql.call_executor import execute_call
+        from .call_executor import execute_call
         result = execute_call(g, ast_obj.function, ast_obj.params, engine)
     else:
         # Other AST object types not yet implemented
@@ -320,7 +320,7 @@ def chain_dag_impl(g: Plottable, dag: ASTLet,
     :param output: Name of binding to return (default: last executed)
     :returns: Result from specified or last executed node
     :rtype: Plottable
-    :raises TypeError: If dag is not an ASTQueryDAG
+    :raises TypeError: If dag is not an ASTLet
     :raises RuntimeError: If node execution fails
     :raises ValueError: If output binding not found
     """

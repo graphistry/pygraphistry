@@ -875,7 +875,7 @@ class ASTCall(ASTObject):
             GFQLTypeError: If method not in safelist or parameters invalid
         """
         # For chain_dag, we don't use wavefronts, just execute the call
-        from graphistry.compute.gfql.call_executor import execute_call
+        from graphistry.compute.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
@@ -893,7 +893,7 @@ class ASTCall(ASTObject):
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -904,7 +904,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':

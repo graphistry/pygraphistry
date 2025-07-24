@@ -8,8 +8,8 @@ from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.compute.ast import ASTCall, ASTQueryDAG, n
 from graphistry.compute.chain_dag import chain_dag_impl
-from graphistry.compute.gfql.call_safelist import validate_call_params
-from graphistry.compute.gfql.call_executor import execute_call
+from graphistry.compute.call_safelist import validate_call_params
+from graphistry.compute.call_executor import execute_call
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
 
 
@@ -315,7 +315,7 @@ class TestCallInDAG:
         assert len(result2._nodes) > 0
         assert all(result2._nodes['deg'] == 2)
     
-    @patch('graphistry.compute.gfql.call_executor.getattr')
+    @patch('graphistry.compute.call_executor.getattr')
     def test_call_execution_error(self, mock_getattr, sample_graph):
         """Test handling of execution errors in calls."""
         # Make the method raise an error
