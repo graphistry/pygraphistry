@@ -1,7 +1,6 @@
 """GFQL unified entrypoint for chains and DAGs"""
 
-import logging
-from typing import List, Union, Optional, Dict
+from typing import List, Union, Optional
 from graphistry.Plottable import Plottable
 from graphistry.Engine import EngineAbstract
 from graphistry.util import setup_logger

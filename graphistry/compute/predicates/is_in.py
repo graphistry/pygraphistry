@@ -1,4 +1,4 @@
-from typing import Any, List, Union
+from typing import Any, List
 from datetime import date, datetime, time
 import numpy as np
 import pandas as pd
@@ -7,10 +7,10 @@ from graphistry.compute.typing import SeriesT
 from graphistry.models.gfql.coercions.temporal import to_native
 from graphistry.models.gfql.types.guards import is_any_temporal, is_basic_scalar
 from graphistry.models.gfql.types.predicates import IsInElementInput
-from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TemporalWire, TimeWire
+from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire
 from graphistry.utils.json import assert_json_serializable
 from .ASTPredicate import ASTPredicate
-from .types import NormalizedIsInElement, NormalizedNumeric, NormalizedScalar
+from .types import NormalizedIsInElement
 
 
 class IsIn(ASTPredicate):

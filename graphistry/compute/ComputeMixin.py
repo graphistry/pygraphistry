@@ -1,4 +1,5 @@
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from typing import Any, List, Union
 from inspect import getmodule
 
@@ -6,9 +7,11 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
-from .chain_dag import chain_dag as chain_dag_base
 from .gfql import gfql as gfql_base
-from .chain_remote import chain_remote as chain_remote_base, chain_remote_shape as chain_remote_shape_base
+from .chain_remote import (
+    chain_remote as chain_remote_base,
+    chain_remote_shape as chain_remote_shape_base
+)
 from .python_remote import (
     python_remote_g as python_remote_g_base,
     python_remote_table as python_remote_table_base,

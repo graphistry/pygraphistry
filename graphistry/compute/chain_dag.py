@@ -1,4 +1,3 @@
-import logging
 from typing import Dict, Set, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
@@ -6,7 +5,6 @@ from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTChainRef, ASTRemoteGraph, ASTNode, ASTEdge
 from .execution_context import ExecutionContext
-from .typing import DataFrameT
 
 logger = setup_logger(__name__)
 
