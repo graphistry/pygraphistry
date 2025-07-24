@@ -1,13 +1,14 @@
 """Execute validated method calls on Plottable objects.
 
-This module handles the actual execution of safelisted methods
-after parameter validation.
+This module provides the execution layer for GFQL Call operations after
+parameter validation has been performed by the safelist module.
 """
 
 from typing import Dict, Any
+
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
