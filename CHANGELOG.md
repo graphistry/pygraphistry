@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Fixed
+* Docs: Fix notebook validation error in hop_and_chain_graph_pattern_mining.ipynb by adding missing 'outputs' field to code cell
+
 ### Infra
 * CI: Add explicit timeout-minutes to all CI jobs to prevent stuck workflows (#710)
 * CI: Add smart change detection to optimize CI runtime (#710)
