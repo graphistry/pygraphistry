@@ -38,8 +38,9 @@ def validate_chain_schema(
         GFQLSchemaError: If collect_all=False and validation fails
     """
     # Handle Chain objects
-    if hasattr(ops, 'chain'):
-        chain_ops = cast(List[ASTObject], ops.chain)
+    from graphistry.compute.chain import Chain
+    if isinstance(ops, Chain):
+        chain_ops = ops.chain
     else:
         chain_ops = ops
 
