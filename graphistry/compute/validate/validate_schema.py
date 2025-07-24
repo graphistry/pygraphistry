@@ -122,8 +122,9 @@ def _validate_querydag_op(op: ASTQueryDAG, g: Plottable, collect_all: bool) -> L
             binding_errors = validate_chain_schema(g, [binding_value], collect_all=True)
             
             # Add binding context to errors
-            for error in binding_errors:
-                error.context['dag_binding'] = binding_name
+            if binding_errors:
+                for error in binding_errors:
+                    error.context['dag_binding'] = binding_name
                 
             if binding_errors:
                 if collect_all:
@@ -151,8 +152,9 @@ def _validate_chainref_op(op: ASTChainRef, g: Plottable, collect_all: bool) -> L
             chain_errors = validate_chain_schema(g, op.chain, collect_all=True)
             
             # Add ChainRef context to errors
-            for error in chain_errors:
-                error.context['chain_ref'] = op.ref
+            if chain_errors:
+                for error in chain_errors:
+                    error.context['chain_ref'] = op.ref
                 
             if chain_errors:
                 if collect_all:

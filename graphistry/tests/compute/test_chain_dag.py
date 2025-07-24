@@ -526,7 +526,7 @@ class TestNodeExecution:
         assert len(result._nodes) == 1
         assert result._nodes['id'].iloc[0] == 'a'
         assert result._nodes['type'].iloc[0] == 'person'
-        assert result._nodes['active'].iloc[0] == True
+        assert result._nodes['active'].iloc[0] is True
 
 
 class TestErrorHandling:

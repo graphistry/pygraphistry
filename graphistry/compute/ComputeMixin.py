@@ -474,7 +474,7 @@ class ComputeMixin(Plottable):
         )
         return chain_base(self, *args, **kwargs)
     # Preserve original docstring after deprecation notice
-    chain.__doc__ = chain.__doc__ + "\n\n" + (chain_base.__doc__ or "")
+    chain.__doc__ = (chain.__doc__ or "") + "\n\n" + (chain_base.__doc__ or "")
 
     # chain_dag removed from public API - use gfql() instead
     # (chain_dag_base still available internally for gfql dispatch)
