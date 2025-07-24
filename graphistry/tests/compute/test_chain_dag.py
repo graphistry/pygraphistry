@@ -852,7 +852,7 @@ class TestDiamondPatterns:
         # Using empty chains to avoid execution issues
         dag_dict = {'n1': n(name='level1')}
         for i in range(2, 11):
-            dag_dict[f'n{i}'] = ASTChainRef(f'n{i-1}', [])
+            dag_dict[f'n{i}'] = ASTChainRef(f'n{i - 1}', [])
         
         dag = ASTQueryDAG(dag_dict)
         
