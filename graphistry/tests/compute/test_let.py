@@ -1,33 +1,33 @@
-"""Tests for QueryDAG and related AST nodes validation"""
+"""Tests for Let bindings and related AST nodes validation"""
 import pytest
-from graphistry.compute.ast import ASTQueryDAG, ASTRemoteGraph, ASTChainRef, n, e
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n, e
 from graphistry.compute.execution_context import ExecutionContext
 
 
-class TestQueryDAGValidation:
-    """Test validation for QueryDAG"""
+class TestLetValidation:
+    """Test validation for Let bindings"""
     
-    def test_querydag_valid(self):
-        """Valid QueryDAG should pass validation"""
-        dag = ASTQueryDAG({'a': n(), 'b': e()})
+    def test_let_valid(self):
+        """Valid Let should pass validation"""
+        dag = ASTLet({'a': n(), 'b': e()})
         dag.validate()  # Should not raise
     
-    def test_querydag_invalid_key_type(self):
-        """QueryDAG with non-string key should fail"""
+    def test_let_invalid_key_type(self):
+        """Let with non-string key should fail"""
         with pytest.raises(AssertionError, match="binding key must be string"):
-            dag = ASTQueryDAG({123: n()})
+            dag = ASTLet({123: n()})
             dag.validate()
     
-    def test_querydag_invalid_value_type(self):
-        """QueryDAG with non-ASTObject value should fail"""
+    def test_let_invalid_value_type(self):
+        """Let with non-ASTObject value should fail"""
         with pytest.raises(AssertionError, match="binding value must be ASTObject"):
-            dag = ASTQueryDAG({'a': 'not an AST object'})
+            dag = ASTLet({'a': 'not an AST object'})
             dag.validate()
     
-    def test_querydag_nested_validation(self):
-        """QueryDAG should validate nested objects"""
+    def test_let_nested_validation(self):
+        """Let should validate nested objects"""
         # This should work - nested validation of valid objects
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'a': n({'type': 'person'}),
             'b': ASTRemoteGraph('dataset123')
         })
