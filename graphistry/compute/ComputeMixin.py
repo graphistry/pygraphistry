@@ -6,7 +6,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
-from .chain_dag import chain_dag as chain_dag_base
+from .chain_let import chain_let as chain_let_base
 from .gfql import gfql as gfql_base
 from .chain_remote import chain_remote as chain_remote_base, chain_remote_shape as chain_remote_shape_base
 from .python_remote import (
@@ -476,8 +476,8 @@ class ComputeMixin(Plottable):
     # Preserve original docstring after deprecation notice
     chain.__doc__ = (chain.__doc__ or "") + "\n\n" + (chain_base.__doc__ or "")
 
-    # chain_dag removed from public API - use gfql() instead
-    # (chain_dag_base still available internally for gfql dispatch)
+    # chain_let removed from public API - use gfql() instead
+    # (chain_let_base still available internally for gfql dispatch)
     
     def gfql(self, *args, **kwargs):
         return gfql_base(self, *args, **kwargs)

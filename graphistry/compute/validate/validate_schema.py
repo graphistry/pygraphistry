@@ -167,7 +167,7 @@ def _validate_chainref_op(op: ASTChainRef, g: Plottable, collect_all: bool) -> L
                 raise
     
     # Note: We don't validate that op.ref exists here since that's handled
-    # by the DAG dependency validation in chain_dag.py
+    # by the let bindings dependency validation in chain_let.py
     
     return errors
 

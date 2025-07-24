@@ -7,7 +7,7 @@ from graphistry.Engine import EngineAbstract
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet
 from .chain import Chain, chain as chain_impl
-from .chain_dag import chain_dag as chain_dag_impl
+from .chain_let import chain_let as chain_let_impl
 
 logger = setup_logger(__name__)
 
@@ -75,7 +75,7 @@ def gfql(self: Plottable,
     # Dispatch based on type - check specific types before generic
     if isinstance(query, ASTLet):
         logger.debug('GFQL executing as DAG')
-        return chain_dag_impl(self, query, engine, output)
+        return chain_let_impl(self, query, engine, output)
     elif isinstance(query, Chain):
         logger.debug('GFQL executing as Chain')
         if output is not None:

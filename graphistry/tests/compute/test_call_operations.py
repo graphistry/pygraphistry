@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch, MagicMock
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine, EngineAbstract
-from graphistry.compute.ast import ASTCall, ASTQueryDAG, n
-from graphistry.compute.chain_dag import chain_dag_impl
+from graphistry.compute.ast import ASTCall, ASTLet, n
+from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.call_safelist import validate_call_params
 from graphistry.compute.call_executor import execute_call
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
@@ -268,12 +268,12 @@ class TestCallInDAG:
     
     def test_call_in_dag(self, sample_graph):
         """Test executing ASTCall within a DAG."""
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'filtered': n({'type': 'user'}),
             'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
         })
         
-        result = chain_dag_impl(sample_graph, dag, EngineAbstract.PANDAS)
+        result = chain_let_impl(sample_graph, dag, EngineAbstract.PANDAS)
         
         # Should have degree column
         assert 'degree' in result._nodes.columns
@@ -285,12 +285,12 @@ class TestCallInDAG:
         from graphistry.compute.ast import ASTChainRef
         
         # Call operations work on the whole graph, not as part of chains
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'users': n({'type': 'user'}),
             'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
         })
         
-        result = chain_dag_impl(sample_graph, dag, EngineAbstract.PANDAS)
+        result = chain_let_impl(sample_graph, dag, EngineAbstract.PANDAS)
         
         # Should have degree column on all nodes
         assert len(result._nodes) == 4  # All nodes
@@ -299,17 +299,17 @@ class TestCallInDAG:
     def test_multiple_calls(self, sample_graph):
         """Test multiple call operations in sequence."""
         # First add degrees
-        dag1 = ASTQueryDAG({
+        dag1 = ASTLet({
             'with_degrees': ASTCall('get_degrees', {'col': 'deg'})
         })
-        result1 = chain_dag_impl(sample_graph, dag1, EngineAbstract.PANDAS)
+        result1 = chain_let_impl(sample_graph, dag1, EngineAbstract.PANDAS)
         assert 'deg' in result1._nodes.columns
         
         # Then filter - use the graph that has degrees
-        dag2 = ASTQueryDAG({
+        dag2 = ASTLet({
             'filtered': ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': 2}})
         })
-        result2 = chain_dag_impl(result1, dag2, EngineAbstract.PANDAS)
+        result2 = chain_let_impl(result1, dag2, EngineAbstract.PANDAS)
         
         # Should have nodes with degree 2
         assert len(result2._nodes) > 0
@@ -322,12 +322,12 @@ class TestCallInDAG:
         mock_method = Mock(side_effect=RuntimeError("Method failed"))
         mock_getattr.return_value = mock_method
         
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'failing': ASTCall('get_degrees', {})
         })
         
         with pytest.raises(RuntimeError) as exc_info:
-            chain_dag_impl(sample_graph, dag, EngineAbstract.PANDAS)
+            chain_let_impl(sample_graph, dag, EngineAbstract.PANDAS)
         assert "Failed to execute node 'failing'" in str(exc_info.value)
 
 

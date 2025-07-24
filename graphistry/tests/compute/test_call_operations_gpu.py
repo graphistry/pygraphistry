@@ -6,8 +6,8 @@ import pandas as pd
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine
-from graphistry.compute.ast import ASTCall, ASTQueryDAG, n
-from graphistry.compute.chain_dag import chain_dag_impl
+from graphistry.compute.ast import ASTCall, ASTLet, n
+from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.call_executor import execute_call
 from graphistry.compute.validate_schema import validate_chain_schema
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -147,7 +147,7 @@ class TestCallOperationsGPU:
         assert hasattr(result._nodes, '__cuda_array_interface__')
     
     @skip_gpu
-    def test_chain_dag_with_gpu_calls(self):
+    def test_chain_let_with_gpu_calls(self):
         """Test DAG execution with Call operations on GPU."""
         import cudf
         
@@ -170,12 +170,12 @@ class TestCallOperationsGPU:
             .bind(source='source', destination='target', node='node')
         
         # Create DAG with Call operations
-        dag = ASTQueryDAG({
+        dag = ASTLet({
             'filtered': n({'type': 'user'}),
             'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
         })
         
-        result = chain_dag_impl(g, dag, Engine.CUDF)
+        result = chain_let_impl(g, dag, Engine.CUDF)
         
         # Should have GPU data with degrees
         assert hasattr(result._nodes, '__cuda_array_interface__')
