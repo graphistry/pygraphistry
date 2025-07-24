@@ -127,8 +127,6 @@ def _validate_querydag_op(op: ASTLet, g: Plottable, collect_all: bool) -> List[G
             if binding_errors:
                 for error in binding_errors:
                     error.context['dag_binding'] = binding_name
-                
-            if binding_errors:
                 if collect_all:
                     errors.extend(binding_errors)
                 else:
@@ -157,8 +155,6 @@ def _validate_ref_op(op: ASTRef, g: Plottable, collect_all: bool) -> List[GFQLSc
             if chain_errors:
                 for error in chain_errors:
                     error.context['ref'] = op.ref
-                
-            if chain_errors:
                 if collect_all:
                     errors.extend(chain_errors)
                 else:
@@ -329,10 +325,10 @@ def _validate_call_op(
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
-    errors = []
+    errors: List[GFQLSchemaError] = []
     
     # Import safelist to get schema effects
-    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+    from graphistry.compute.call_safelist import SAFELIST_V1
     
     # Check if method is in safelist
     if op.function not in SAFELIST_V1:
