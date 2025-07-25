@@ -649,8 +649,8 @@ e = ASTEdgeUndirected  # noqa: E305
 ##############################################################################
 
 
-class ASTQueryDAG(ASTObject):
-    """DAG of named graph operations"""
+class ASTLet(ASTObject):
+    """Let bindings for named graph operations"""
     def __init__(self, bindings: Dict[str, ASTObject]):
         super().__init__()
         self.bindings = bindings
@@ -668,13 +668,13 @@ class ASTQueryDAG(ASTObject):
         if validate:
             self.validate()
         return {
-            'type': 'QueryDAG',
+            'type': 'Let',
             'bindings': {k: v.to_json() for k, v in self.bindings.items()}
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTQueryDAG':
-        assert 'bindings' in d, "QueryDAG missing bindings"
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
+        assert 'bindings' in d, "Let missing bindings"
         bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
         if validate:
@@ -683,11 +683,13 @@ class ASTQueryDAG(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Implementation in PR 1.2
-        raise NotImplementedError("QueryDAG execution will be implemented in PR 1.2")
+        # Let bindings don't use wavefronts - execute via chain_dag_impl
+        from graphistry.compute.chain_dag import chain_dag_impl
+        from graphistry.Engine import EngineAbstract
+        return chain_dag_impl(g, self, EngineAbstract(engine.value))
     
-    def reverse(self) -> 'ASTQueryDAG':
-        raise NotImplementedError("QueryDAG reversal not supported")
+    def reverse(self) -> 'ASTLet':
+        raise NotImplementedError("Let reversal not supported")
 
 
 class ASTRemoteGraph(ASTObject):
@@ -849,7 +851,7 @@ class ASTCall(ASTObject):
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTCall]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -860,7 +862,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQ
             ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTQueryDAG, ASTRemoteGraph, ASTChainRef, ASTCall]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -885,8 +887,9 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQ
                 "Edge missing required 'direction' field",
                 suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
             )
-    elif o['type'] == 'QueryDAG':
-        out = ASTQueryDAG.from_json(o, validate=validate)
+    elif o['type'] == 'QueryDAG' or o['type'] == 'Let':
+        # Support both types for backward compatibility
+        out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
     elif o['type'] == 'ChainRef':
@@ -907,7 +910,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTQ
 ###############################################################################
 # User-friendly aliases for public API
 
-let = ASTQueryDAG  # noqa: E305
+let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTChainRef  # noqa: E305
 call = ASTCall  # noqa: E305
