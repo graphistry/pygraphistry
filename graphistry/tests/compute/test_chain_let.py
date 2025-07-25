@@ -1,6 +1,6 @@
 """Test chain DAG functionality
 
-For integration tests with real remote graphs, see test_chain_dag_remote_integration.py
+For integration tests with real remote graphs, see test_chain_let_remote_integration.py
 Enable remote tests with: TEST_REMOTE_INTEGRATION=1
 """
 
@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch, MagicMock
 from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, ASTNode, ASTObject, n, e
-from graphistry.compute.chain_dag import (
+from graphistry.compute.chain_let import (
     extract_dependencies, build_dependency_graph, validate_dependencies,
     detect_cycles, determine_execution_order
 )
@@ -195,11 +195,11 @@ class TestChainDagHelpers:
 
 
 class TestExecutionContext:
-    """Test ExecutionContext integration in chain_dag"""
+    """Test ExecutionContext integration in chain_let"""
     
     def test_context_stores_results(self):
         """Test that ExecutionContext stores node results"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         
         # Create a mock AST object that returns a known result
         class MockNode:
@@ -220,8 +220,13 @@ class TestExecutionContext:
         # (we can't test this without implementing execution)
     
     def test_chain_ref_missing_reference(self):
+<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef with missing reference gives helpful error"""
         from graphistry.compute.chain_dag import execute_node
+=======
+        """Test ASTChainRef with missing reference gives helpful error"""
+        from graphistry.compute.chain_let import execute_node
+>>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -238,8 +243,13 @@ class TestExecutionContext:
         assert "Available bindings: []" in str(exc_info.value)
     
     def test_chain_ref_with_existing_reference(self):
+<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef successfully resolves existing reference"""
         from graphistry.compute.chain_dag import execute_node
+=======
+        """Test ASTChainRef successfully resolves existing reference"""
+        from graphistry.compute.chain_let import execute_node
+>>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -277,7 +287,7 @@ class TestExecutionContext:
         })
         
         # Get execution order
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         order = determine_execution_order(dag.bindings)
         
         # Verify order respects dependencies
@@ -330,7 +340,7 @@ class TestExecutionContext:
 
 
 class TestEdgeExecution:
-    """Test ASTEdge execution in chain_dag"""
+    """Test ASTEdge execution in chain_let"""
     
     def test_edge_execution_basic(self):
         """Test basic edge traversal in DAG"""
@@ -429,11 +439,11 @@ class TestEdgeExecution:
 
 
 class TestNodeExecution:
-    """Test ASTNode execution in chain_dag"""
+    """Test ASTNode execution in chain_let"""
     
     def test_node_execution_empty_filter(self):
         """Test ASTNode with empty filter returns original graph"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
@@ -450,7 +460,7 @@ class TestNodeExecution:
     
     def test_node_execution_with_filter(self):
         """Test ASTNode with filter_dict filters nodes"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         # Create graph with node attributes
@@ -473,7 +483,7 @@ class TestNodeExecution:
     
     def test_node_execution_with_name(self):
         """Test ASTNode adds name column when specified"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -596,7 +606,7 @@ class TestErrorHandling:
         }
         
         # Test cycle detection directly
-        from graphistry.compute.chain_dag import detect_cycles, build_dependency_graph
+        from graphistry.compute.chain_let import detect_cycles, build_dependency_graph
         dependencies, _ = build_dependency_graph(bindings)
         cycle = detect_cycles(dependencies)
         
@@ -625,7 +635,7 @@ class TestExecutionMechanics:
     
     def test_execute_node_stores_in_context(self):
         """Test that execute_node stores results in context"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -642,7 +652,7 @@ class TestExecutionMechanics:
     
     def test_execute_node_with_different_ast_types(self):
         """Test execute_node handles different AST object types"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -659,7 +669,7 @@ class TestExecutionMechanics:
     @patch('graphistry.compute.chain_remote.chain_remote')
     def test_remote_graph_execution(self, mock_chain_remote):
         """Test ASTRemoteGraph executes correctly with mocked remote call"""
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
         
         # Setup mock return value
@@ -686,8 +696,13 @@ class TestExecutionMechanics:
         assert context.get_binding('remote_data') is mock_result
     
     def test_chain_ref_resolution_order(self):
+<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef resolves references in correct order"""
         from graphistry.compute.chain_dag import execute_node
+=======
+        """Test ASTChainRef resolves references in correct order"""
+        from graphistry.compute.chain_let import execute_node
+>>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         nodes_df = pd.DataFrame({'id': ['a', 'b', 'c'], 'value': [1, 2, 3]})
@@ -729,7 +744,7 @@ class TestExecutionMechanics:
     def test_execution_order_logging(self):
         """Test execution order is logged correctly"""
         import logging
-        from graphistry.compute.chain_dag import logger as dag_logger
+        from graphistry.compute.chain_let import logger as dag_logger
         
         # Capture log output
         logs = []
@@ -796,7 +811,7 @@ class TestDiamondPatterns:
         g = g.materialize_nodes()
         
         # Multiple branches converging - test execution order
-        from graphistry.compute.chain_dag import determine_execution_order, ExecutionContext, execute_node
+        from graphistry.compute.chain_let import determine_execution_order, ExecutionContext, execute_node
         from graphistry.Engine import Engine
         
         dag = ASTLet({
@@ -833,7 +848,7 @@ class TestDiamondPatterns:
         })
         
         # Check execution order allows parallel execution
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         order = determine_execution_order(dag.bindings)
         
         # branch_a and branch_b can execute in any order
@@ -861,7 +876,7 @@ class TestDiamondPatterns:
         dag = ASTLet(dag_dict)
         
         # Test execution order is correct
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         order = determine_execution_order(dag.bindings)
         
         # Should be in sequential order
@@ -883,7 +898,7 @@ class TestDiamondPatterns:
         g = g.materialize_nodes()
         
         # Test execution order for fan-out/fan-in
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         
         dag = ASTLet({
             'start': n({'id': 'root'}),
@@ -967,7 +982,7 @@ class TestIntegration:
         assert len(dag.bindings) == 10
         
         # Verify execution order is valid
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         order = determine_execution_order(dag.bindings)
         assert len(order) == 10
         # References come after their dependencies
@@ -1063,7 +1078,7 @@ class TestCrossValidation:
     
     def test_execution_order_deterministic(self):
         """Test that execution order is deterministic for same DAG"""
-        from graphistry.compute.chain_dag import determine_execution_order
+        from graphistry.compute.chain_let import determine_execution_order
         
         dag = ASTLet({
             'a': n(),
@@ -1086,7 +1101,7 @@ class TestCrossValidation:
     
     def test_context_bindings_accessible(self):
         """Test that all intermediate results are accessible in context"""
-        from graphistry.compute.chain_dag import chain_dag_impl
+        from graphistry.compute.chain_let import chain_let_impl
         
         g = CGFull().edges(pd.DataFrame({'s': list('abc'), 'd': list('bcd')}), 's', 'd')
         g = g.materialize_nodes()
@@ -1100,11 +1115,11 @@ class TestCrossValidation:
                 bindings_tracker[name] = value
         
         # Monkey patch the execution to use our tracking context
-        original_chain_dag_impl = chain_dag_impl
+        original_chain_let_impl = chain_let_impl
         
-        def tracking_chain_dag_impl(g, dag, engine):
+        def tracking_chain_let_impl(g, dag, engine):
             # Call original but capture context usage
-            return original_chain_dag_impl(g, dag, engine)
+            return original_chain_let_impl(g, dag, engine)
         
         dag = ASTLet({
             'step1': n(name='tag1'),
@@ -1140,7 +1155,7 @@ class TestCrossValidation:
         assert result is not None
     
     def test_node_filter_consistency(self):
-        """Test node filtering is consistent between chain and chain_dag"""
+        """Test node filtering is consistent between chain and chain_let"""
         nodes_df = pd.DataFrame({
             'id': list('abcdef'),
             'value': [10, 20, 30, 40, 50, 60],
@@ -1163,19 +1178,19 @@ class TestCrossValidation:
 
 
 class TestChainDagInternal:
-    """Test internal chain_dag functionality (via gfql)"""
+    """Test internal chain_let functionality (via gfql)"""
     
-    def test_chain_dag_via_gfql(self):
+    def test_chain_let_via_gfql(self):
         """Test that DAG execution works via gfql"""
         g = CGFull()
         assert hasattr(g, 'gfql')
         assert callable(g.gfql)
         
-        # chain_dag should not be in public API
-        assert not hasattr(g, 'chain_dag')
+        # chain_let should not be in public API
+        assert not hasattr(g, 'chain_let')
     
-    def test_chain_dag_empty(self):
-        """Test chain_dag with empty DAG"""
+    def test_chain_let_empty(self):
+        """Test chain_let with empty DAG"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         dag = ASTLet({})
         
@@ -1183,8 +1198,8 @@ class TestChainDagInternal:
         result = g.gfql(dag)
         assert result is not None
     
-    def test_chain_dag_single_node_works(self):
-        """Test chain_dag with single node now works"""
+    def test_chain_let_single_node_works(self):
+        """Test chain_let with single node now works"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         g = g.materialize_nodes()
         
@@ -1198,8 +1213,8 @@ class TestChainDagInternal:
         assert len(result._nodes) == 2  # nodes a and b
     
     @patch('graphistry.compute.chain_remote.chain_remote')  
-    def test_chain_dag_remote_not_implemented(self, mock_chain_remote):
-        """Test chain_dag with RemoteGraph works with mocked remote"""
+    def test_chain_let_remote_not_implemented(self, mock_chain_remote):
+        """Test chain_let with RemoteGraph works with mocked remote"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Setup mock
@@ -1216,8 +1231,8 @@ class TestChainDagInternal:
         # Result should be the mocked remote graph
         assert 'remote1' in result._edges['s'].values
     
-    def test_chain_dag_multi_node_works(self):
-        """Test chain_dag with multiple nodes now works"""
+    def test_chain_let_multi_node_works(self):
+        """Test chain_let with multiple nodes now works"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         dag = ASTLet({
             'first': n(),
@@ -1232,8 +1247,8 @@ class TestChainDagInternal:
         # Both nodes have empty filters so should have all data
         assert len(result._nodes) == 2  # nodes a and b
     
-    def test_chain_dag_validates(self):
-        """Test chain_dag validates the DAG"""
+    def test_chain_let_validates(self):
+        """Test chain_let validates the DAG"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Invalid DAG should raise during validation
@@ -1242,7 +1257,7 @@ class TestChainDagInternal:
         
         assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
     
-    def test_chain_dag_output_selection(self):
+    def test_chain_let_output_selection(self):
         """Test output parameter selects specific binding"""
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c', 'd'],
@@ -1274,7 +1289,7 @@ class TestChainDagInternal:
         result_all = g.gfql(dag, output='all_nodes')
         assert len(result_all._nodes) == 4
     
-    def test_chain_dag_output_not_found(self):
+    def test_chain_let_output_not_found(self):
         """Test error when output binding not found"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         dag = ASTLet({'node1': n()})

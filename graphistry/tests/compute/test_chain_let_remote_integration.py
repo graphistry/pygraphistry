@@ -1,4 +1,4 @@
-"""Integration tests for remote graph functionality in chain_dag.
+"""Integration tests for remote graph functionality in chain_let.
 
 These tests require a real Graphistry server and authentication.
 Enable with: TEST_REMOTE_INTEGRATION=1

@@ -20,8 +20,8 @@ class TestGFQLAPI:
         assert hasattr(g, 'chain')
         assert callable(g.chain)
         
-        # Should NOT have chain_dag in public API
-        assert not hasattr(g, 'chain_dag')
+        # Should NOT have chain_let in public API
+        assert not hasattr(g, 'chain_let')
 
 
 class TestGFQL:
@@ -170,8 +170,8 @@ class TestGFQL:
         
         assert len(chain_result._nodes) == 2
         
-        # chain_dag should no longer exist as public method
-        assert not hasattr(g, 'chain_dag'), "chain_dag should be removed from public API"
+        # chain_let should no longer exist as public method
+        assert not hasattr(g, 'chain_let'), "chain_let should be removed from public API"
         
         # gfql should work for both patterns
         gfql_chain = g.gfql([n({'type': 'person'})])
