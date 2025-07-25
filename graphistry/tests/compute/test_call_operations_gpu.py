@@ -9,7 +9,7 @@ from graphistry.Engine import Engine
 from graphistry.compute.ast import ASTCall, ASTLet, n
 from graphistry.compute.chain_dag import chain_dag_impl
 from graphistry.compute.call_executor import execute_call
-from graphistry.compute.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
