@@ -61,7 +61,7 @@ __all__ = [
     'ComputeMixin', 'Chain',
     # AST nodes
     'n', 'e', 'e_forward', 'e_reverse', 'e_undirected',
-    'let', 'remote', 'ref',
+    'let', 'remote', 'ref', 'call',
     # Predicates
     'is_in', 'IsIn',
     'duplicated', 'Duplicated',
