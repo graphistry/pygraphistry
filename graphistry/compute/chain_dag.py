@@ -288,7 +288,6 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         
         # Fetch the remote dataset with an empty chain (no filtering)
         # Convert engine to the expected type for chain_remote
-        from typing import Literal
         chain_engine: Optional[Literal["pandas", "cudf"]] = None
         if engine.value == "pandas":
             chain_engine = "pandas"
