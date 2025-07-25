@@ -5,7 +5,7 @@ import pandas as pd
 from graphistry.tests.test_compute import CGFull
 from graphistry.compute.ast import ASTCall, n
 from graphistry.compute.chain import Chain
-from graphistry.compute.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
 
