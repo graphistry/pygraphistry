@@ -1169,7 +1169,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 ###############################################################################
 # User-friendly aliases for public API
 
-dag = ASTLet  # noqa: E305
+let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTRef  # noqa: E305
 call = ASTCall  # noqa: E305
