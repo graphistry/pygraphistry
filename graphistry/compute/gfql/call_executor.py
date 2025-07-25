@@ -40,7 +40,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     method = getattr(g, function)
 
     # Special handling for methods that need the engine parameter
-    if function in ['get_degrees', 'materialize_nodes', 'hop']:
+    if function in ['materialize_nodes', 'hop']:
         # These methods accept an engine parameter
         if 'engine' not in validated_params:
             # Add current engine if not specified
