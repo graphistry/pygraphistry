@@ -383,8 +383,6 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'description': is_string
         },
         'description': 'Set visualization description'
-=======
->>>>>>> feat(gfql): implement ASTCall with safelist validation:graphistry/compute/call_safelist.py
     }
 }
 
