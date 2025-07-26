@@ -1,6 +1,6 @@
 """Tests for Let bindings and related AST nodes validation"""
 import pytest
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n, e
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n, e
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.compute.exceptions import GFQLTypeError
 
@@ -81,15 +81,15 @@ class TestChainRefValidation:
     
     def test_chainRef_valid(self):
         """Valid ChainRef should pass validation"""
-        cr = ASTChainRef('myref', [n(), e()])
+        cr = ASTRef('myref', [n(), e()])
         cr.validate()  # Should not raise
         
-        cr_empty = ASTChainRef('myref', [])
+        cr_empty = ASTRef('myref', [])
         cr_empty.validate()  # Empty chain is valid
     
     def test_chainRef_invalid_ref_type(self):
         """ChainRef with non-string ref should fail"""
-        cr = ASTChainRef(123, [])  # type: ignore
+        cr = ASTRef(123, [])  # type: ignore
         with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
         assert exc_info.value.code == "type-mismatch"
@@ -97,7 +97,7 @@ class TestChainRefValidation:
     
     def test_chainRef_empty_ref(self):
         """ChainRef with empty ref should fail"""
-        cr = ASTChainRef('', [])
+        cr = ASTRef('', [])
         with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
         assert exc_info.value.code == "empty-chain"
@@ -105,7 +105,7 @@ class TestChainRefValidation:
     
     def test_chainRef_invalid_chain_type(self):
         """ChainRef with non-list chain should fail"""
-        cr = ASTChainRef('ref', 'not a list')  # type: ignore
+        cr = ASTRef('ref', 'not a list')  # type: ignore
         with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
         assert exc_info.value.code == "type-mismatch"
@@ -113,7 +113,7 @@ class TestChainRefValidation:
     
     def test_chainRef_invalid_chain_element(self):
         """ChainRef with non-ASTObject in chain should fail"""
-        cr = ASTChainRef('ref', [n(), 'not an AST object'])  # type: ignore
+        cr = ASTRef('ref', [n(), 'not an AST object'])  # type: ignore
         with pytest.raises(GFQLTypeError) as exc_info:
             cr.validate()
         assert exc_info.value.code == "type-mismatch"
@@ -121,7 +121,7 @@ class TestChainRefValidation:
     
     def test_chainRef_nested_validation(self):
         """ChainRef should validate nested operations"""
-        cr = ASTChainRef('ref', [n({'type': 'person'}), e()])
+        cr = ASTRef('ref', [n({'type': 'person'}), e()])
         cr.validate()  # Should validate nested nodes
 
 
@@ -190,10 +190,10 @@ class TestChainRefReverse:
     
     def test_chainRef_reverse(self):
         """Test ChainRef reverse reverses operations"""
-        cr = ASTChainRef('data', [n(), e(), n()])
+        cr = ASTRef('data', [n(), e(), n()])
         reversed_cr = cr.reverse()
         
-        assert isinstance(reversed_cr, ASTChainRef)
+        assert isinstance(reversed_cr, ASTRef)
         assert reversed_cr.ref == 'data'
         assert len(reversed_cr.chain) == 3
         # Operations should be reversed

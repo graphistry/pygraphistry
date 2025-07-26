@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 from graphistry import edges, nodes
 from graphistry.compute.chain import Chain
-from graphistry.compute.ast import n, e_forward, ASTLet, ASTChainRef, ASTRemoteGraph
+from graphistry.compute.ast import n, e_forward, ASTLet, ASTRef, ASTRemoteGraph
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 
@@ -193,7 +193,7 @@ class TestLetSchemaValidation:
     
     def test_chainref_valid_schema(self):
         """Valid ChainRef passes schema validation."""
-        chain_ref = ASTChainRef('other_data', [
+        chain_ref = ASTRef('other_data', [
             n({'type': 'person'}),
             e_forward({'edge_type': 'friend'})
         ])
@@ -204,7 +204,7 @@ class TestLetSchemaValidation:
     
     def test_chainref_invalid_chain_operation(self):
         """ChainRef with invalid chain operation fails."""
-        chain_ref = ASTChainRef('other_data', [
+        chain_ref = ASTRef('other_data', [
             n({'missing_column': 'value'})
         ])
         
@@ -217,7 +217,7 @@ class TestLetSchemaValidation:
     
     def test_chainref_empty_chain(self):
         """ChainRef with empty chain passes validation."""
-        chain_ref = ASTChainRef('other_data', [])
+        chain_ref = ASTRef('other_data', [])
         
         # Should not raise
         errors = validate_chain_schema(self.g, [chain_ref], collect_all=True)
