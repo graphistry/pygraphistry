@@ -213,7 +213,7 @@ class TestLetSchemaValidation:
         
         assert exc_info.value.code == ErrorCode.E301
         assert 'missing_column' in str(exc_info.value)
-        assert exc_info.value.context.get('chain_ref') == 'other_data'
+        assert exc_info.value.context.get('ref') == 'other_data'
     
     def test_chainref_empty_chain(self):
         """ChainRef with empty chain passes validation."""
