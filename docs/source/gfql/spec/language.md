@@ -88,12 +88,12 @@ query ::= chain
 chain ::= "[" operation ("," operation)* "]"
 
 (* Operations *)
-operation ::= node_matcher | edge_matcher | let_op | chain_ref
+operation ::= node_matcher | edge_matcher | let_op | ref_op
 
 (* Let bindings for DAG patterns *)
 let_op ::= "let(" "{" binding ("," binding)* "}" ")"
 binding ::= identifier ":" operation
-chain_ref ::= "ref(" identifier ("," "[" operation ("," operation)* "]")? ")"
+ref_op ::= "ref(" identifier ("," "[" operation ("," operation)* "]")? ")"
 
 (* Node Matcher *)
 node_matcher ::= "n(" node_params? ")"

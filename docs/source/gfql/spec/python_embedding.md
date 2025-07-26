@@ -53,6 +53,268 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+## DAG Patterns with Let Bindings
+
+GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which allow you to define named graph operations that can reference each other.
+
+### Let Bindings
+
+```python
+from graphistry import let, ref, n, e_forward
+
+# Define DAG patterns with named bindings
+result = g.gfql(let({
+    'persons': n({'type': 'person'}),
+    'adults': ref('persons', [n({'age': ge(18)})]),
+    'connections': ref('adults', [
+        e_forward({'type': 'knows'}),
+        ref('adults')  # Find connections between adults
+    ])
+}))
+
+# Access individual binding results
+persons_df = result._nodes[result._nodes['persons']]
+adults_df = result._nodes[result._nodes['adults']]
+connection_edges = result._edges[result._edges['connections']]
+```
+
+### Ref (Reference to Named Bindings)
+
+The `ref()` function creates references to named bindings within a Let:
+
+```python
+# Basic reference - just the binding result
+result = g.gfql(let({
+    'base': n({'status': 'active'}),
+    'extended': ref('base')  # Just references 'base'
+}))
+
+# Reference with additional operations
+result = g.gfql(let({
+    'suspects': n({'risk_score': gt(80)}),
+    'lateral_movement': ref('suspects', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})
+    ])
+}))
+```
+
+### Complex DAG Patterns
+
+```python
+# Multi-level analysis pattern
+result = g.gfql(let({
+    # Find high-value accounts
+    'high_value': n({'balance': gt(100000)}),
+    
+    # Find transactions from high-value accounts
+    'high_value_txns': ref('high_value', [
+        e_forward({'type': 'transaction', 'amount': gt(10000)})
+    ]),
+    
+    # Find recipients of high-value transactions
+    'recipients': ref('high_value_txns', [n()]),
+    
+    # Find second-hop connections
+    'network': ref('recipients', [
+        e_forward({'type': 'transaction'}, hops=2)
+    ])
+}))
+```
+
+### RemoteGraph (Load Remote Datasets)
+
+```python
+from graphistry import remote_dataset
+
+# Load a public dataset
+remote_g = remote_dataset('public-dataset-id')
+result = remote_g.gfql([n({'type': 'user'})])
+
+# Load a private dataset with authentication
+remote_g = remote_dataset('private-dataset-id', token='auth-token')
+
+# Use remote dataset in Let bindings
+result = g.gfql(let({
+    'remote_data': remote_dataset('dataset-123'),
+    'filtered': ref('remote_data', [n({'active': True})])
+}))
+```
+
+## Call Operations
+
+GFQL supports calling Plottable methods through the `call()` function, providing a safe way to invoke graph transformations and analysis operations.
+
+### Basic Call Usage
+
+```python
+from graphistry import call
+
+# Calculate node degrees
+result = g.gfql([
+    n({'type': 'person'}),
+    call('get_degrees', {
+        'col': 'centrality',
+        'col_in': 'in_centrality',
+        'col_out': 'out_centrality'
+    })
+])
+
+# Access degree columns
+degree_df = result._nodes[['centrality', 'in_centrality', 'out_centrality']]
+```
+
+### Graph Analysis Operations
+
+```python
+# PageRank computation
+result = g.gfql([
+    call('compute_cugraph', {
+        'alg': 'pagerank',
+        'out_col': 'pagerank_score',
+        'params': {'alpha': 0.85}
+    })
+])
+
+# Community detection
+result = g.gfql([
+    call('compute_cugraph', {
+        'alg': 'louvain',
+        'out_col': 'community'
+    })
+])
+
+# Topological analysis
+result = g.gfql([
+    call('get_topological_levels', {
+        'level_col': 'topo_level',
+        'allow_cycles': True
+    })
+])
+```
+
+### Layout Operations
+
+```python
+# GPU-accelerated layout
+result = g.gfql([
+    call('layout_cugraph', {
+        'layout': 'force_atlas2',
+        'params': {
+            'iterations': 500,
+            'outbound_attraction_distribution': True
+        }
+    })
+])
+
+# Graphviz layouts
+result = g.gfql([
+    call('layout_graphviz', {
+        'prog': 'dot',
+        'directed': True
+    })
+])
+```
+
+### Filtering and Transformation
+
+```python
+# Complex filtering
+result = g.gfql([
+    call('filter_nodes_by_dict', {
+        'filter_dict': {'type': 'server', 'critical': True}
+    }),
+    call('hop', {
+        'hops': 2,
+        'direction': 'forward',
+        'edge_match': {'port': 22}
+    })
+])
+
+# Node transformations
+result = g.gfql([
+    call('collapse', {
+        'column': 'department',
+        'self_edges': False
+    })
+])
+```
+
+### Visual Encoding
+
+```python
+# Encode visual properties
+result = g.gfql([
+    call('encode_point_color', {
+        'column': 'risk_score',
+        'palette': ['green', 'yellow', 'red'],
+        'as_continuous': True
+    }),
+    call('encode_point_size', {
+        'column': 'importance',
+        'categorical_mapping': {
+            'low': 10,
+            'medium': 20,
+            'high': 30
+        }
+    })
+])
+```
+
+### Call with Let Bindings
+
+```python
+from graphistry import let, ref, call
+
+# Combine Let bindings with Call operations
+result = g.gfql(let({
+    'high_risk': n({'risk_score': gt(80)}),
+    'connected': ref('high_risk', [
+        e_forward({'type': 'communicates'})
+    ]),
+    'analyzed': call('compute_cugraph', {
+        'alg': 'pagerank',
+        'out_col': 'influence'
+    })
+}))
+```
+
+### Available Call Methods
+
+Call operations are restricted to a safelist of Plottable methods:
+
+- **Graph Analysis**: `get_degrees`, `get_indegrees`, `get_outdegrees`, `compute_cugraph`, `compute_igraph`, `get_topological_levels`
+- **Filtering**: `filter_nodes_by_dict`, `filter_edges_by_dict`, `hop`, `drop_nodes`, `keep_nodes`
+- **Transformation**: `collapse`, `prune_self_edges`, `materialize_nodes`
+- **Layout**: `layout_cugraph`, `layout_igraph`, `layout_graphviz`, `fa2_layout`
+- **Visual Encoding**: `encode_point_color`, `encode_edge_color`, `encode_point_size`, `encode_point_icon`
+- **Metadata**: `name`, `description`
+
+### Call Validation
+
+Call operations are validated at multiple levels:
+
+1. **Function validation**: Only safelist methods allowed
+2. **Parameter validation**: Type checking for all parameters
+3. **Schema validation**: Ensures required columns exist
+
+```python
+try:
+    result = g.gfql([
+        call('dangerous_method', {})  # Raises E303: not in safelist
+    ])
+except GFQLTypeError as e:
+    print(f"Error: {e.message}")
+    
+# Parameter type validation
+try:
+    result = g.gfql([
+        call('hop', {'hops': 'two'})  # Raises E201: wrong type
+    ])
+except GFQLTypeError as e:
+    print(f"Error: {e.message}")
+```
+
 ## Engine Selection
 
 GFQL supports multiple execution engines:
