@@ -50,6 +50,69 @@ Each object includes a `type` field:
 This enables unambiguous deserialization and validation.
 
 
+## Query Structure
+
+GFQL queries can be expressed as either Chains (linear patterns) or Let queries (DAG patterns with named bindings).
+
+### Chain Queries
+
+Chains represent linear graph patterns as sequences of operations:
+
+**Python**:
+```python
+g.gfql([n({"type": "person"}), e_forward(), n({"type": "company"})])
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Chain",
+  "ops": [
+    {"type": "Node", "filter_dict": {"type": "person"}},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "company"}}
+  ]
+}
+```
+
+### Let Queries (DAG Patterns)
+
+Let queries enable complex patterns with named bindings and references:
+
+**Python**:
+```python
+g.gfql({
+    "suspects": n({"risk_score": gt(8)}),
+    "contacts": ref("suspects").gfql([e(), n()]),
+    "transactions": ref("contacts").gfql([e_forward({"type": "transaction"})])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "suspects": {"type": "Node", "filter_dict": {"risk_score": {"type": "GT", "val": 8}}},
+    "contacts": {
+      "type": "Ref",
+      "ref": "suspects",
+      "chain": [
+        {"type": "Edge", "direction": "undirected"},
+        {"type": "Node"}
+      ]
+    },
+    "transactions": {
+      "type": "Ref",
+      "ref": "contacts",
+      "chain": [
+        {"type": "Edge", "direction": "forward", "filter_dict": {"type": "transaction"}}
+      ]
+    }
+  }
+}
+```
+
 ## Operation Serialization
 
 ### Node Operation
