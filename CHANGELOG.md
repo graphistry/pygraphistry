@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.41.0 - 2025-07-26]
+
 ### Added
 * Typing: Add PEP 561 type distribution support (#714)
   * Add py.typed marker file to enable type checking with mypy, pyright, and PyCharm
