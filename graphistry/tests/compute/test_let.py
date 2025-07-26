@@ -1,6 +1,6 @@
 """Tests for Let bindings and related AST nodes validation"""
 import pytest
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n, e
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n, e
 from graphistry.compute.execution_context import ExecutionContext
 
 
@@ -64,44 +64,44 @@ class TestRemoteGraphValidation:
             rg.validate()
 
 
-class TestChainRefValidation:
-    """Test validation for ChainRef"""
+class TestRefValidation:
+    """Test validation for Ref"""
     
-    def test_chainRef_valid(self):
-        """Valid ChainRef should pass validation"""
-        cr = ASTChainRef('myref', [n(), e()])
+    def test_ref_valid(self):
+        """Valid Ref should pass validation"""
+        cr = ASTRef('myref', [n(), e()])
         cr.validate()  # Should not raise
         
-        cr_empty = ASTChainRef('myref', [])
+        cr_empty = ASTRef('myref', [])
         cr_empty.validate()  # Empty chain is valid
     
-    def test_chainRef_invalid_ref_type(self):
-        """ChainRef with non-string ref should fail"""
+    def test_ref_invalid_ref_type(self):
+        """Ref with non-string ref should fail"""
         with pytest.raises(AssertionError, match="ref must be a string"):
-            cr = ASTChainRef(123, [])
+            cr = ASTRef(123, [])
             cr.validate()
     
-    def test_chainRef_empty_ref(self):
-        """ChainRef with empty ref should fail"""
+    def test_ref_empty_ref(self):
+        """Ref with empty ref should fail"""
         with pytest.raises(AssertionError, match="ref cannot be empty"):
-            cr = ASTChainRef('', [])
+            cr = ASTRef('', [])
             cr.validate()
     
-    def test_chainRef_invalid_chain_type(self):
-        """ChainRef with non-list chain should fail"""
+    def test_ref_invalid_chain_type(self):
+        """Ref with non-list chain should fail"""
         with pytest.raises(AssertionError, match="chain must be a list"):
-            cr = ASTChainRef('ref', 'not a list')
+            cr = ASTRef('ref', 'not a list')
             cr.validate()
     
-    def test_chainRef_invalid_chain_element(self):
-        """ChainRef with non-ASTObject in chain should fail"""
+    def test_ref_invalid_chain_element(self):
+        """Ref with non-ASTObject in chain should fail"""
         with pytest.raises(AssertionError, match="must be ASTObject"):
-            cr = ASTChainRef('ref', [n(), 'not an AST object'])
+            cr = ASTRef('ref', [n(), 'not an AST object'])
             cr.validate()
     
-    def test_chainRef_nested_validation(self):
-        """ChainRef should validate nested operations"""
-        cr = ASTChainRef('ref', [n({'type': 'person'}), e()])
+    def test_ref_nested_validation(self):
+        """Ref should validate nested operations"""
+        cr = ASTRef('ref', [n({'type': 'person'}), e()])
         cr.validate()  # Should validate nested nodes
 
 
@@ -165,15 +165,15 @@ class TestExecutionContext:
         assert ctx.get_binding('a') == 'second'
 
 
-class TestChainRefReverse:
-    """Test reverse operation for ChainRef"""
+class TestRefReverse:
+    """Test reverse operation for Ref"""
     
-    def test_chainRef_reverse(self):
-        """Test ChainRef reverse reverses operations"""
-        cr = ASTChainRef('data', [n(), e(), n()])
+    def test_ref_reverse(self):
+        """Test Ref reverse reverses operations"""
+        cr = ASTRef('data', [n(), e(), n()])
         reversed_cr = cr.reverse()
         
-        assert isinstance(reversed_cr, ASTChainRef)
+        assert isinstance(reversed_cr, ASTRef)
         assert reversed_cr.ref == 'data'
         assert len(reversed_cr.chain) == 3
         # Operations should be reversed

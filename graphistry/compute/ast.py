@@ -691,7 +691,7 @@ class ASTRemoteGraph(ASTObject):
         raise NotImplementedError("RemoteGraph reversal not supported")
 
 
-class ASTChainRef(ASTObject):
+class ASTRef(ASTObject):
     """Execute a chain with reference to a DAG binding"""
     def __init__(self, ref: str, chain: List[ASTObject]):
         super().__init__()
@@ -711,15 +711,15 @@ class ASTChainRef(ASTObject):
         if validate:
             self.validate()
         return {
-            'type': 'ChainRef',
+            'type': 'Ref',
             'ref': self.ref,
             'chain': [op.to_json() for op in self.chain]
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTChainRef':
-        assert 'ref' in d, "ChainRef missing ref"
-        assert 'chain' in d, "ChainRef missing chain"
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRef':
+        assert 'ref' in d, "Ref missing ref"
+        assert 'chain' in d, "Ref missing chain"
         out = cls(
             ref=d['ref'],
             chain=[from_json(op, validate=validate) for op in d['chain']]
@@ -731,16 +731,16 @@ class ASTChainRef(ASTObject):
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
         # Implementation in PR 1.2
-        raise NotImplementedError("ChainRef execution will be implemented in PR 1.2")
+        raise NotImplementedError("Ref execution will be implemented in PR 1.2")
     
-    def reverse(self) -> 'ASTChainRef':
+    def reverse(self) -> 'ASTRef':
         # Reverse the chain operations
-        return ASTChainRef(self.ref, [op.reverse() for op in reversed(self.chain)])
+        return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain)])
 
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -748,10 +748,10 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'ChainRef'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'QueryDAG', 'RemoteGraph', or 'Ref'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -781,15 +781,15 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
-    elif o['type'] == 'ChainRef':
-        out = ASTChainRef.from_json(o, validate=validate)
+    elif o['type'] == 'Ref':
+        out = ASTRef.from_json(o, validate=validate)
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', or 'Ref'",
         )
     return out
 
@@ -799,4 +799,4 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
-ref = ASTChainRef  # noqa: E305
+ref = ASTRef  # noqa: E305

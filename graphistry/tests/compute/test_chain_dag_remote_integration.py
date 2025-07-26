@@ -17,7 +17,7 @@ import pandas as pd
 from unittest.mock import patch
 
 from graphistry import PyGraphistry
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n
 from graphistry.tests.test_compute import CGFull
 
 
@@ -135,8 +135,8 @@ class TestRemoteGraphIntegration:
         # Create complex DAG with remote data
         dag = ASTLet({
             'remote': ASTRemoteGraph(dataset_id),
-            'persons': ASTChainRef('remote', [n({'category': 'person'})]),
-            'friends': ASTChainRef('persons', [n(edge_query="type == 'friend'")])
+            'persons': ASTRef('remote', [n({'category': 'person'})]),
+            'friends': ASTRef('persons', [n(edge_query="type == 'friend'")])
         })
         
         # Execute and verify - need graph with edges for materialize_nodes

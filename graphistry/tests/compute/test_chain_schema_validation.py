@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 from graphistry import edges, nodes
 from graphistry.compute.chain import Chain
-from graphistry.compute.ast import n, e_forward, ASTLet, ASTChainRef, ASTRemoteGraph
+from graphistry.compute.ast import n, e_forward, ASTLet, ASTRef, ASTRemoteGraph
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 
@@ -191,36 +191,36 @@ class TestLetSchemaValidation:
         binding_names = {e.context.get('dag_binding') for e in errors}
         assert binding_names == {'bad_nodes', 'bad_edges'}
     
-    def test_chainref_valid_schema(self):
-        """Valid ChainRef passes schema validation."""
-        chain_ref = ASTChainRef('other_data', [
+    def test_ref_valid_schema(self):
+        """Valid Ref passes schema validation."""
+        ref = ASTRef('other_data', [
             n({'type': 'person'}),
             e_forward({'edge_type': 'friend'})
         ])
         
         # Should not raise
-        errors = validate_chain_schema(self.g, [chain_ref], collect_all=True)
+        errors = validate_chain_schema(self.g, [ref], collect_all=True)
         assert errors == []
     
-    def test_chainref_invalid_chain_operation(self):
-        """ChainRef with invalid chain operation fails."""
-        chain_ref = ASTChainRef('other_data', [
+    def test_ref_invalid_chain_operation(self):
+        """Ref with invalid chain operation fails."""
+        ref = ASTRef('other_data', [
             n({'missing_column': 'value'})
         ])
         
         with pytest.raises(GFQLSchemaError) as exc_info:
-            validate_chain_schema(self.g, [chain_ref], collect_all=False)
+            validate_chain_schema(self.g, [ref], collect_all=False)
         
         assert exc_info.value.code == ErrorCode.E301
         assert 'missing_column' in str(exc_info.value)
-        assert exc_info.value.context.get('chain_ref') == 'other_data'
+        assert exc_info.value.context.get('ref') == 'other_data'
     
-    def test_chainref_empty_chain(self):
-        """ChainRef with empty chain passes validation."""
-        chain_ref = ASTChainRef('other_data', [])
+    def test_ref_empty_chain(self):
+        """Ref with empty chain passes validation."""
+        ref = ASTRef('other_data', [])
         
         # Should not raise
-        errors = validate_chain_schema(self.g, [chain_ref], collect_all=True)
+        errors = validate_chain_schema(self.g, [ref], collect_all=True)
         assert errors == []
     
     def test_remotegraph_valid(self):

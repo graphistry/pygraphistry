@@ -64,16 +64,16 @@ class TestSerializationErrors:
         
         assert "RemoteGraph missing dataset_id" in str(exc_info.value)
     
-    def test_chainref_missing_ref(self):
-        """Test clear error when ChainRef missing ref"""
+    def test_ref_missing_ref(self):
+        """Test clear error when Ref missing ref"""
         with pytest.raises(AssertionError) as exc_info:
-            from_json({"type": "ChainRef"})
+            from_json({"type": "Ref"})
         
-        assert "ChainRef missing ref" in str(exc_info.value)
+        assert "Ref missing ref" in str(exc_info.value)
     
-    def test_chainref_missing_chain(self):
-        """Test clear error when ChainRef missing chain"""
+    def test_ref_missing_chain(self):
+        """Test clear error when Ref missing chain"""
         with pytest.raises(AssertionError) as exc_info:
-            from_json({"type": "ChainRef", "ref": "test"})
+            from_json({"type": "Ref", "ref": "test"})
         
-        assert "ChainRef missing chain" in str(exc_info.value)
+        assert "Ref missing chain" in str(exc_info.value)

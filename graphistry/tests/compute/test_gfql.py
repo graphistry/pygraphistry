@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from graphistry.compute.ast import ASTLet, ASTChainRef, n, e
+from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 

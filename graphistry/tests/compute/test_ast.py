@@ -1,5 +1,5 @@
 from graphistry.compute.ast import (
-    from_json, ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef,
+    from_json, ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef,
     n, e, e_forward, e_reverse, e_undirected
 )
 
@@ -92,26 +92,26 @@ def test_serialization_remoteGraph_with_token():
     assert rg2.token == 'secret-token'
 
 
-def test_serialization_chainRef_empty():
-    """Test ChainRef with empty chain"""
-    cr = ASTChainRef('mydata', [])
+def test_serialization_ref_empty():
+    """Test Ref with empty chain"""
+    cr = ASTRef('mydata', [])
     o = cr.to_json()
-    assert o == {'type': 'ChainRef', 'ref': 'mydata', 'chain': []}
+    assert o == {'type': 'Ref', 'ref': 'mydata', 'chain': []}
     cr2 = from_json(o)
-    assert isinstance(cr2, ASTChainRef)
+    assert isinstance(cr2, ASTRef)
     assert cr2.ref == 'mydata'
     assert cr2.chain == []
 
 
-def test_serialization_chainRef_with_ops():
-    """Test ChainRef with operations"""
-    cr = ASTChainRef('data1', [n({'type': 'person'}), e_forward()])
+def test_serialization_ref_with_ops():
+    """Test Ref with operations"""
+    cr = ASTRef('data1', [n({'type': 'person'}), e_forward()])
     o = cr.to_json()
-    assert o['type'] == 'ChainRef'
+    assert o['type'] == 'Ref'
     assert o['ref'] == 'data1'
     assert len(o['chain']) == 2
     cr2 = from_json(o)
-    assert isinstance(cr2, ASTChainRef)
+    assert isinstance(cr2, ASTRef)
     assert cr2.ref == 'data1'
     assert len(cr2.chain) == 2
     assert isinstance(cr2.chain[0], ASTNode)

@@ -7,7 +7,7 @@ Enable remote tests with: TEST_REMOTE_INTEGRATION=1
 import pandas as pd
 import pytest
 from unittest.mock import patch, MagicMock
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, ASTNode, ASTObject, n, e
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, ASTNode, ASTObject, n, e
 from graphistry.compute.chain_dag import (
     extract_dependencies, build_dependency_graph, validate_dependencies,
     detect_cycles, determine_execution_order
@@ -29,22 +29,22 @@ class TestChainDagHelpers:
         deps = extract_dependencies(remote)
         assert deps == set()
     
-    def test_extract_dependencies_chain_ref(self):
-        """Test extracting dependencies from ASTChainRef"""
-        chain_ref = ASTChainRef('source', [n()])
-        deps = extract_dependencies(chain_ref)
+    def test_extract_dependencies_ref(self):
+        """Test extracting dependencies from ASTRef"""
+        ref = ASTRef('source', [n()])
+        deps = extract_dependencies(ref)
         assert deps == {'source'}
     
     def test_extract_dependencies_nested(self):
         """Test extracting dependencies from nested structures"""
-        # ChainRef with ChainRef in its chain
-        nested = ASTChainRef('a', [ASTChainRef('b', [n()])])
+        # Ref with Ref in its chain
+        nested = ASTRef('a', [ASTRef('b', [n()])])
         deps = extract_dependencies(nested)
         assert deps == {'a', 'b'}
         
         # Nested DAG
         dag = ASTLet({
-            'inner': ASTChainRef('outer', [n()])
+            'inner': ASTRef('outer', [n()])
         })
         deps = extract_dependencies(dag)
         assert deps == {'outer'}
@@ -53,8 +53,8 @@ class TestChainDagHelpers:
         """Test building dependency and dependent mappings"""
         bindings = {
             'a': n(),
-            'b': ASTChainRef('a', [n()]),
-            'c': ASTChainRef('b', [n()])
+            'b': ASTRef('a', [n()]),
+            'c': ASTRef('b', [n()])
         }
         
         dependencies, dependents = build_dependency_graph(bindings)
@@ -73,7 +73,7 @@ class TestChainDagHelpers:
         """Test validation passes for valid dependencies"""
         bindings = {
             'a': n(),
-            'b': ASTChainRef('a', [n()])
+            'b': ASTRef('a', [n()])
         }
         dependencies = {'a': set(), 'b': {'a'}}
         
@@ -155,8 +155,8 @@ class TestChainDagHelpers:
         """Test execution order for linear dependencies"""
         bindings = {
             'a': n(),
-            'b': ASTChainRef('a', [n()]),
-            'c': ASTChainRef('b', [n()])
+            'b': ASTRef('a', [n()]),
+            'c': ASTRef('b', [n()])
         }
         
         order = determine_execution_order(bindings)
@@ -166,9 +166,9 @@ class TestChainDagHelpers:
         """Test execution order for diamond pattern"""
         bindings = {
             'top': n(),
-            'left': ASTChainRef('top', [n()]),
-            'right': ASTChainRef('top', [n()]),
-            'bottom': ASTChainRef('left', [ASTChainRef('right', [n()])])
+            'left': ASTRef('top', [n()]),
+            'right': ASTRef('top', [n()]),
+            'bottom': ASTRef('left', [ASTRef('right', [n()])])
         }
         
         order = determine_execution_order(bindings)
@@ -182,9 +182,9 @@ class TestChainDagHelpers:
         """Test execution order for disconnected components"""
         bindings = {
             'a1': n(),
-            'a2': ASTChainRef('a1', [n()]),
+            'a2': ASTRef('a1', [n()]),
             'b1': n(),
-            'b2': ASTChainRef('b1', [n()])
+            'b2': ASTRef('b1', [n()])
         }
         
         order = determine_execution_order(bindings)
@@ -218,26 +218,26 @@ class TestExecutionContext:
         # Even though execution failed, context.set_binding was called
         # (we can't test this without implementing execution)
     
-    def test_chain_ref_missing_reference(self):
-        """Test ASTChainRef with missing reference gives helpful error"""
+    def test_ref_missing_reference(self):
+        """Test ASTRef with missing reference gives helpful error"""
         from graphistry.compute.chain_dag import execute_node
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         context = ExecutionContext()
         
-        # Create ASTChainRef that references non-existent binding
-        chain_ref = ASTChainRef('missing_ref', [])
+        # Create ASTRef that references non-existent binding
+        ref = ASTRef('missing_ref', [])
         
         # Should raise ValueError with helpful message
         with pytest.raises(ValueError) as exc_info:
-            execute_node('test', chain_ref, g, context, Engine.PANDAS)
+            execute_node('test', ref, g, context, Engine.PANDAS)
         
         assert "references 'missing_ref' which has not been executed yet" in str(exc_info.value)
         assert "Available bindings: []" in str(exc_info.value)
     
-    def test_chain_ref_with_existing_reference(self):
-        """Test ASTChainRef successfully resolves existing reference"""
+    def test_ref_with_existing_reference(self):
+        """Test ASTRef successfully resolves existing reference"""
         from graphistry.compute.chain_dag import execute_node
         from graphistry.Engine import Engine
         
@@ -247,11 +247,11 @@ class TestExecutionContext:
         # Pre-populate context with a result
         context.set_binding('previous_result', g)
         
-        # Create ASTChainRef that references it (empty chain)
-        chain_ref = ASTChainRef('previous_result', [])
+        # Create ASTRef that references it (empty chain)
+        ref = ASTRef('previous_result', [])
         
         # Should return the referenced result
-        result = execute_node('test', chain_ref, g, context, Engine.PANDAS)
+        result = execute_node('test', ref, g, context, Engine.PANDAS)
         assert result is g  # Same object since empty chain
         
         # And store it under new name
@@ -271,8 +271,8 @@ class TestExecutionContext:
         # Create a DAG with known dependencies
         dag = ASTLet({
             'data': ASTRemoteGraph('dataset'),
-            'filtered': ASTChainRef('data', []),
-            'analyzed': ASTChainRef('filtered', [])
+            'filtered': ASTRef('data', []),
+            'analyzed': ASTRef('filtered', [])
         })
         
         # Get execution order
@@ -285,9 +285,9 @@ class TestExecutionContext:
         # Also test diamond pattern
         dag_diamond = ASTLet({
             'root': ASTRemoteGraph('data'),
-            'left': ASTChainRef('root', []),
-            'right': ASTChainRef('root', []),
-            'merge': ASTChainRef('left', [ASTChainRef('right', [])])
+            'left': ASTRef('root', []),
+            'right': ASTRef('root', []),
+            'merge': ASTRef('left', [ASTRef('right', [])])
         })
         
         order_diamond = determine_execution_order(dag_diamond.bindings)
@@ -295,8 +295,8 @@ class TestExecutionContext:
         assert order_diamond[-1] == 'merge'
         assert set(order_diamond[1:3]) == {'left', 'right'}
     
-    def test_chain_ref_in_dag_execution(self):
-        """Test ASTChainRef works in DAG execution (fails on chain ops)"""
+    def test_ref_in_dag_execution(self):
+        """Test ASTRef works in DAG execution (fails on chain ops)"""
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Create a simple mock that can be executed
@@ -313,7 +313,7 @@ class TestExecutionContext:
         # Create DAG with mock executable and chain ref
         dag = ASTLet({
             'first': MockExecutable(),
-            'second': ASTChainRef('first', [])  # Empty chain should work
+            'second': ASTRef('first', [])  # Empty chain should work
         })
         
         # Try to execute - will fail on MockExecutable
@@ -415,7 +415,7 @@ class TestEdgeExecution:
         
         dag = ASTLet({
             'people': n({'type': 'person'}),
-            'from_people': ASTChainRef('people', [e()]),
+            'from_people': ASTRef('people', [e()]),
             'companies': n({'type': 'company'})
         })
         
@@ -517,7 +517,7 @@ class TestNodeExecution:
         # DAG: filter people, then filter active from those
         dag = ASTLet({
             'people': n({'type': 'person'}),
-            'active_people': ASTChainRef('people', [n({'active': True})])
+            'active_people': ASTRef('people', [n({'active': True})])
         })
         
         result = g.gfql(dag)
@@ -563,9 +563,9 @@ class TestErrorHandling:
     def test_cycle_detection_with_path(self):
         """Test cycle detection provides the cycle path"""
         dag = ASTLet({
-            'a': ASTChainRef('b', []),
-            'b': ASTChainRef('c', []),
-            'c': ASTChainRef('a', [])  # Creates cycle a->b->c->a
+            'a': ASTRef('b', []),
+            'b': ASTRef('c', []),
+            'c': ASTRef('a', [])  # Creates cycle a->b->c->a
         })
         
         g = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
@@ -581,13 +581,13 @@ class TestErrorHandling:
         # This DAG has no cycles, just complex dependencies
         bindings = {
             'start': n(),
-            'a': ASTChainRef('start', []),
-            'b': ASTChainRef('a', []),
-            'c': ASTChainRef('b', []),
-            'd': ASTChainRef('c', []),
-            'e': ASTChainRef('d', []),
-            'f': ASTChainRef('b', []),  # Second branch from b
-            'g': ASTChainRef('f', [])  # Note: removed nested ASTChainRef in chain  
+            'a': ASTRef('start', []),
+            'b': ASTRef('a', []),
+            'c': ASTRef('b', []),
+            'd': ASTRef('c', []),
+            'e': ASTRef('d', []),
+            'f': ASTRef('b', []),  # Second branch from b
+            'g': ASTRef('f', [])  # Note: removed nested ASTRef in chain  
         }
         
         # Test cycle detection directly
@@ -603,7 +603,7 @@ class TestErrorHandling:
         dag = ASTLet({
             'data1': n(),
             'data2': n(),
-            'result': ASTChainRef('data3', [])  # data3 doesn't exist
+            'result': ASTRef('data3', [])  # data3 doesn't exist
         })
         
         g = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
@@ -680,8 +680,8 @@ class TestExecutionMechanics:
         # Verify result is stored in context
         assert context.get_binding('remote_data') is mock_result
     
-    def test_chain_ref_resolution_order(self):
-        """Test ASTChainRef resolves references in correct order"""
+    def test_ref_resolution_order(self):
+        """Test ASTRef resolves references in correct order"""
         from graphistry.compute.chain_dag import execute_node
         from graphistry.Engine import Engine
         
@@ -695,8 +695,8 @@ class TestExecutionMechanics:
         context.set_binding('filtered_data', filtered)
         
         # Create chain ref that adds more filtering
-        chain_ref = ASTChainRef('filtered_data', [n({'id': 'b'})])
-        result = execute_node('final', chain_ref, g, context, Engine.PANDAS)
+        ref = ASTRef('filtered_data', [n({'id': 'b'})])
+        result = execute_node('final', ref, g, context, Engine.PANDAS)
         
         # Should have only node 'b'
         assert len(result._nodes) == 1
@@ -714,7 +714,7 @@ class TestExecutionMechanics:
         # Second DAG execution should not see first's context
         dag2 = ASTLet({
             'node2': n(name='second'),
-            'ref_fail': ASTChainRef('node1', [])  # Should fail - node1 not in this context
+            'ref_fail': ASTRef('node1', [])  # Should fail - node1 not in this context
         })
         
         with pytest.raises(ValueError) as exc_info:
@@ -737,8 +737,8 @@ class TestExecutionMechanics:
             g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
             dag = ASTLet({
                 'first': n(),
-                'second': ASTChainRef('first', []),
-                'third': ASTChainRef('second', [])
+                'second': ASTRef('first', []),
+                'third': ASTRef('second', [])
             })
             
             g.gfql(dag)
@@ -770,9 +770,9 @@ class TestDiamondPatterns:
         # Diamond: top -> (left, right) -> bottom
         dag = ASTLet({
             'top': n({'type': 'source'}),
-            'left': ASTChainRef('top', [n(name='from_left')]),
-            'right': ASTChainRef('top', [n(name='from_right')]),
-            'bottom': ASTChainRef('left', [])
+            'left': ASTRef('top', [n(name='from_left')]),
+            'right': ASTRef('top', [n(name='from_right')]),
+            'bottom': ASTRef('left', [])
         })
         
         result = g.gfql(dag)
@@ -824,8 +824,8 @@ class TestDiamondPatterns:
         dag = ASTLet({
             'branch_a': n({'branch': 'A'}),
             'branch_b': n({'branch': 'B'}),
-            'a_subset': ASTChainRef('branch_a', [n(query="id in ['a', 'b']")]),
-            'b_subset': ASTChainRef('branch_b', [n(query="id in ['e', 'f']")])
+            'a_subset': ASTRef('branch_a', [n(query="id in ['a', 'b']")]),
+            'b_subset': ASTRef('branch_b', [n(query="id in ['e', 'f']")])
         })
         
         # Check execution order allows parallel execution
@@ -852,7 +852,7 @@ class TestDiamondPatterns:
         # Using empty chains to avoid execution issues
         dag_dict = {'n1': n(name='level1')}
         for i in range(2, 11):
-            dag_dict[f'n{i}'] = ASTChainRef(f'n{i - 1}', [])
+            dag_dict[f'n{i}'] = ASTRef(f'n{i - 1}', [])
         
         dag = ASTLet(dag_dict)
         
@@ -883,9 +883,9 @@ class TestDiamondPatterns:
         
         dag = ASTLet({
             'start': n({'id': 'root'}),
-            'expand1': ASTChainRef('start', []),
-            'expand2': ASTChainRef('start', []),
-            'expand3': ASTChainRef('start', []),
+            'expand1': ASTRef('start', []),
+            'expand2': ASTRef('start', []),
+            'expand3': ASTRef('start', []),
             'collect': n()  # Gets all nodes from original graph
         })
         
@@ -943,8 +943,8 @@ class TestIntegration:
             'odd': n({'type': 'odd'}),
             
             # Layer 2: References
-            'high_even': ASTChainRef('even', []),
-            'high_odd': ASTChainRef('odd', []),
+            'high_even': ASTRef('even', []),
+            'high_odd': ASTRef('odd', []),
             
             # Layer 3: More nodes
             'n1': n(name='tag1'),
@@ -1058,10 +1058,10 @@ class TestCrossValidation:
         dag = ASTLet({
             'a': n(),
             'b': n(),
-            'c': ASTChainRef('a', []),
-            'd': ASTChainRef('b', []),
-            'e': ASTChainRef('c', []),
-            'f': ASTChainRef('d', [])
+            'c': ASTRef('a', []),
+            'd': ASTRef('b', []),
+            'e': ASTRef('c', []),
+            'f': ASTRef('d', [])
         })
         
         # Get order multiple times
@@ -1099,7 +1099,7 @@ class TestCrossValidation:
         dag = ASTLet({
             'step1': n(name='tag1'),
             'step2': n(name='tag2'),
-            'step3': ASTChainRef('step1', [])
+            'step3': ASTRef('step1', [])
         })
         
         result = g.gfql(dag)

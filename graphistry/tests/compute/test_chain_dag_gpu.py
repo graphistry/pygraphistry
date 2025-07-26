@@ -2,7 +2,7 @@ import os
 import pytest
 import pandas as pd
 
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTChainRef, n
+from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n
 from graphistry.compute.chain_dag import chain_dag_impl
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.tests.test_compute import CGFull
@@ -130,8 +130,8 @@ class TestChainDagGPU:
         assert sorted(g2._nodes['id'].to_pandas().tolist()) == expected_nodes
     
     @skip_gpu
-    def test_chain_ref_with_gpu_data(self):
-        """Test ASTChainRef resolution works with GPU data"""
+    def test_ref_with_gpu_data(self):
+        """Test ASTRef resolution works with GPU data"""
         import cudf
         from graphistry.compute.chain_dag import execute_node
         from graphistry.compute.execution_context import ExecutionContext
@@ -145,11 +145,11 @@ class TestChainDagGPU:
         context = ExecutionContext()
         context.set_binding('gpu_result', g)
         
-        # Create chain ref to GPU data
-        chain_ref = ASTChainRef('gpu_result', [])
+        # Create ref to GPU data
+        ref = ASTRef('gpu_result', [])
         
         # Execute should preserve GPU
-        result = execute_node('test', chain_ref, g, context, Engine.CUDF)
+        result = execute_node('test', ref, g, context, Engine.CUDF)
         
         # Result should still have GPU data
         assert isinstance(result._edges, cudf.DataFrame)
