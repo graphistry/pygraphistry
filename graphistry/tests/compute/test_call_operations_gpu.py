@@ -7,7 +7,7 @@ import pandas as pd
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine
 from graphistry.compute.ast import ASTCall, ASTLet, n
-from graphistry.compute.chain_dag import chain_dag_impl
+from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.gfql.call_executor import execute_call
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -171,7 +171,7 @@ class TestCallOperationsGPU:
         assert result._nodes['y'].notna().all()
     
     @skip_gpu
-    def test_chain_dag_with_gpu_calls(self):
+    def test_chain_let_with_gpu_calls(self):
         """Test DAG execution with Call operations on GPU."""
         import cudf
         
@@ -199,7 +199,7 @@ class TestCallOperationsGPU:
             'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
         })
         
-        result = chain_dag_impl(g, dag, Engine.CUDF)
+        result = chain_let_impl(g, dag, Engine.CUDF)
         
         # Should have degrees column
         assert 'degree' in result._nodes.columns

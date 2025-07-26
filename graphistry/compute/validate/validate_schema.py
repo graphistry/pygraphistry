@@ -168,7 +168,7 @@ def _validate_ref_op(op: ASTRef, g: Plottable, collect_all: bool) -> List[GFQLSc
                 raise
     
     # Note: We don't validate that op.ref exists here since that's handled
-    # by the DAG dependency validation in chain_dag.py
+    # by the DAG dependency validation in chain_let.py
     
     return errors
 

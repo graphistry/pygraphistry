@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 
 from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n
-from graphistry.compute.chain_dag import chain_dag_impl
+from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.tests.test_compute import CGFull
 
@@ -15,7 +15,7 @@ skip_gpu = pytest.mark.skipif(
 
 
 class TestChainDagGPU:
-    """Test chain_dag with GPU/cudf"""
+    """Test chain_let with GPU/cudf"""
     
     @skip_gpu
     def test_execution_context_stores_cudf(self):
@@ -37,8 +37,8 @@ class TestChainDagGPU:
         assert retrieved.equals(gdf)
     
     @skip_gpu
-    def test_chain_dag_with_cudf_edges(self):
-        """Test chain_dag with cudf edge DataFrame"""
+    def test_chain_let_with_cudf_edges(self):
+        """Test chain_let with cudf edge DataFrame"""
         import cudf
         # Create cudf edges
         edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
@@ -52,21 +52,21 @@ class TestChainDagGPU:
         
         # Empty DAG should work
         dag = ASTLet({})
-        result = g.chain_dag(dag)
+        result = g.chain_let(dag)
         
         # Result should preserve GPU mode
         assert isinstance(result._edges, cudf.DataFrame)
     
     @skip_gpu
-    def test_chain_dag_engine_cudf(self):
-        """Test chain_dag with explicit engine='cudf'"""
+    def test_chain_let_engine_cudf(self):
+        """Test chain_let with explicit engine='cudf'"""
         import cudf
         # Start with pandas
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Empty DAG with cudf engine
         dag = ASTLet({})
-        result = g.chain_dag(dag, engine='cudf')
+        result = g.chain_let(dag, engine='cudf')
         
         # Should have materialized nodes
         assert result._nodes is not None
@@ -74,8 +74,8 @@ class TestChainDagGPU:
         assert isinstance(result._nodes, cudf.DataFrame)
     
     @skip_gpu
-    def test_chain_dag_auto_detects_gpu(self):
-        """Test chain_dag auto-detects GPU mode from edges"""
+    def test_chain_let_auto_detects_gpu(self):
+        """Test chain_let auto-detects GPU mode from edges"""
         import cudf
         # Create graph with GPU edges
         edges_gdf = cudf.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
@@ -88,7 +88,7 @@ class TestChainDagGPU:
         
         # Try to execute
         try:
-            g.chain_dag(dag)  # engine='auto' by default
+            g.chain_let(dag)  # engine='auto' by default
         except RuntimeError as e:
             # Should fail on execution, but engine should be detected
             assert "Failed to execute node 'step1'" in str(e)
@@ -133,7 +133,7 @@ class TestChainDagGPU:
     def test_chain_ref_with_gpu_data(self):
         """Test ASTRef resolution works with GPU data"""
         import cudf
-        from graphistry.compute.chain_dag import execute_node
+        from graphistry.compute.chain_let import execute_node
         from graphistry.compute.execution_context import ExecutionContext
         from graphistry.Engine import Engine
         
@@ -168,7 +168,7 @@ class TestChainDagGPU:
         dag = ASTLet({})  # Empty DAG
         
         # Execute
-        result = g.chain_dag(dag)
+        result = g.chain_let(dag)
         
         # Should preserve GPU mode
         assert isinstance(result._edges, cudf.DataFrame)

@@ -7,13 +7,13 @@ This directory contains both unit tests (always run) and integration tests (opt-
 ### GPU Tests
 ```bash
 # Enable CUDF/GPU tests
-TEST_CUDF=1 pytest test_chain_dag_gpu.py
+TEST_CUDF=1 pytest test_chain_let_gpu.py
 ```
 
 ### Remote Graph Integration Tests
 ```bash
 # Enable remote Graphistry server tests
-TEST_REMOTE_INTEGRATION=1 pytest test_chain_dag_remote_integration.py
+TEST_REMOTE_INTEGRATION=1 pytest test_chain_let_remote_integration.py
 
 # Additional configuration for remote tests:
 GRAPHISTRY_USERNAME=myuser         # Username for auth
