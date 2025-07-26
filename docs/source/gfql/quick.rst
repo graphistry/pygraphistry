@@ -201,6 +201,28 @@ Combined Examples
           n(query="status == 'active'")
       ])
 
+Let Bindings (DAG Patterns)
+----------------------------
+
+- **Basic Let syntax:**
+
+  .. code-block:: python
+
+      g.chain_let({
+          'persons': n({'type': 'person'}),
+          'friends': ref('persons').chain([e_forward({'rel': 'friend'}), n()])
+      })
+
+- **Complex analysis with reusable components:**
+
+  .. code-block:: python
+
+      g.chain_let({
+          'suspects': n({'risk_score': gt(7)}),
+          'contacts': ref('suspects').chain([e_undirected(), n()]),
+          'final': ref('contacts').chain([n({'active': True})])
+      })
+
 GPU Acceleration
 ----------------
 

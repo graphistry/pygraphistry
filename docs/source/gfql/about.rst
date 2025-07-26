@@ -338,11 +338,33 @@ Additional parameters enable controlling options such as the execution `engine` 
 Conclusion and Next Steps
 -------------------------
 
+9. Advanced: Let Bindings for Reusable Patterns
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For complex analysis requiring reusable components, use Let bindings to create DAG patterns:
+
+**Example: Multi-step investigation with named components**
+
+::
+
+    investigation = g.chain_let({
+        'suspects': n({'risk_score': gt(8)}),
+        'contacts': ref('suspects').chain([e_undirected(), n()]),
+        'evidence': ref('contacts').chain([e_forward({'type': 'transaction'}), n()])
+    })
+
+**Explanation:**
+
+- `chain_let()` creates named bindings that can reference each other.
+- `ref('suspects')` references the named suspects pattern.
+- Enables complex investigations with reusable, composable parts.
+
 Congratulations! You've covered the basics of GFQL in just 10 minutes. You've learned how to:
 
 - Query and filter nodes and edges using GFQL.
 - Chain multiple hops and apply advanced predicates.
 - Leverage GPU acceleration for high-performance graph querying.
+- Create reusable patterns with Let bindings for complex analysis.
 - Integrate GFQL with graph algorithms and visualization tools.
 
 **Next Steps:**
