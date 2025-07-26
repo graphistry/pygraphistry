@@ -694,7 +694,7 @@ class ASTLet(ASTObject):
         :raises AssertionError: If 'bindings' field is missing
         """
         assert 'bindings' in d, "Let missing bindings"
-        bindings = {k: from_json(v, validate=validate) for k, v in d['bindings'].items()}
+        bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
         out = cls(bindings=bindings)
         if validate:
             out.validate()
