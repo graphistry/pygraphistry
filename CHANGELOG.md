@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
+
 ### Fixed
 * Docs: Fix notebook validation error in hop_and_chain_graph_pattern_mining.ipynb by adding missing 'outputs' field to code cell
 

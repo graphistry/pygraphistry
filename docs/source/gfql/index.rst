@@ -21,7 +21,6 @@ See also:
    quick
    predicates/quick
    datetime_filtering
-   wire_protocol_examples
 
 .. toctree::
    :maxdepth: 2

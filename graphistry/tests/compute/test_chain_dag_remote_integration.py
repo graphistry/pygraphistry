@@ -200,9 +200,9 @@ class TestRemoteGraphMocked:
             'remote': ASTRemoteGraph('test-dataset-123', token='test-token')
         })
         
-        # Mock result should be used, but we still need edges for materialize_nodes
-        g_base = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
-        result = g_base.gfql(dag)
+        # Need a graph with edges for bind() to work
+        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        result = g.gfql(dag)
         assert result is not None  # Verify result was returned
         
         # Verify chain_remote was called correctly
