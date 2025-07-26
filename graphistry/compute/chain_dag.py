@@ -3,14 +3,14 @@ from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTChainRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
+from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
 from .execution_context import ExecutionContext
 
 logger = setup_logger(__name__)
 
 
 def extract_dependencies(ast_obj: ASTObject) -> Set[str]:
-    """Recursively find all ASTChainRef references in an AST object
+    """Recursively find all ASTRef references in an AST object
     
     :param ast_obj: AST object to analyze
     :returns: Set of referenced binding names
@@ -18,7 +18,7 @@ def extract_dependencies(ast_obj: ASTObject) -> Set[str]:
     """
     deps = set()
     
-    if isinstance(ast_obj, ASTChainRef):
+    if isinstance(ast_obj, ASTRef):
         deps.add(ast_obj.ref)
         # Also check chain operations
         for op in ast_obj.chain:
@@ -199,7 +199,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
 =======
     - ASTLet: Recursive DAG execution
 >>>>>>> refactor: rename ASTQueryDAG to ASTLet throughout codebase
-    - ASTChainRef: Reference resolution and chain execution
+    - ASTRef: Reference resolution and chain execution
     - ASTNode: Node filtering operations
     - ASTEdge: Edge traversal operations
     - Others: NotImplementedError
@@ -220,7 +220,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
         result = chain_dag_impl(g, ast_obj, EngineAbstract(engine.value))
-    elif isinstance(ast_obj, ASTChainRef):
+    elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
             referenced_result = context.get_binding(ast_obj.ref)
@@ -422,11 +422,11 @@ def chain_dag(self: Plottable, dag: ASTLet,
     
     ::
     
-        from graphistry.compute.ast import ASTLet, ASTChainRef, n, e
+        from graphistry.compute.ast import ASTLet, ASTRef, n, e
         
         dag = ASTLet({
             'start': n({'type': 'person'}),
-            'friends': ASTChainRef('start', [e(), n()])
+            'friends': ASTRef('start', [e(), n()])
         })
         result = g.chain_dag(dag)
     
@@ -437,9 +437,9 @@ def chain_dag(self: Plottable, dag: ASTLet,
         dag = ASTLet({
             'people': n({'type': 'person'}),
             'transactions': n({'type': 'transaction'}),
-            'branch1': ASTChainRef('people', [e()]),
-            'branch2': ASTChainRef('transactions', [e()]), 
-            'merged': g.union(ASTChainRef('branch1'), ASTChainRef('branch2'))
+            'branch1': ASTRef('people', [e()]),
+            'branch2': ASTRef('transactions', [e()]), 
+            'merged': g.union(ASTRef('branch1'), ASTRef('branch2'))
         })
         result = g.chain_dag(dag)  # Returns last executed
         

@@ -619,7 +619,7 @@ class ASTLet(ASTObject):
     
         dag = ASTLet({
             'persons': n({'type': 'person'}),
-            'friends': ASTChainRef('persons', [e_forward({'rel': 'friend'})])
+            'friends': ASTRef('persons', [e_forward({'rel': 'friend'})])
         })
     """
     def __init__(self, bindings: Dict[str, 'ASTObject']) -> None:
@@ -820,7 +820,7 @@ class ASTRemoteGraph(ASTObject):
         raise NotImplementedError("RemoteGraph reversal not supported")
 
 
-class ASTChainRef(ASTObject):
+class ASTRef(ASTObject):
     """Execute a chain of operations starting from a DAG binding reference.
     
     Allows building graph operations that start from a named binding
@@ -836,10 +836,10 @@ class ASTChainRef(ASTObject):
     **Example::**
     
         # Reference 'persons' binding and find their friends
-        friends = ASTChainRef('persons', [e_forward({'rel': 'friend'})])
+        friends = ASTRef('persons', [e_forward({'rel': 'friend'})])
     """
     def __init__(self, ref: str, chain: List['ASTObject']) -> None:
-        """Initialize ChainRef with reference name and operation chain.
+        """Initialize Ref with reference name and operation chain.
         
         :param ref: Name of the binding to reference
         :type ref: str
@@ -851,7 +851,7 @@ class ASTChainRef(ASTObject):
         self.chain = chain
     
     def _validate_fields(self) -> None:
-        """Validate ChainRef fields."""
+        """Validate Ref fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
         
         if not isinstance(self.ref, str):
@@ -893,7 +893,7 @@ class ASTChainRef(ASTObject):
         return self.chain
     
     def to_json(self, validate: bool = True) -> dict:
-        """Convert ChainRef to JSON representation.
+        """Convert Ref to JSON representation.
         
         :param validate: Whether to validate before serialization
         :type validate: bool
@@ -903,25 +903,25 @@ class ASTChainRef(ASTObject):
         if validate:
             self.validate()
         return {
-            'type': 'ChainRef',
+            'type': 'Ref',
             'ref': self.ref,
             'chain': [op.to_json() for op in self.chain]
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTChainRef':
-        """Create ASTChainRef from JSON representation.
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRef':
+        """Create ASTRef from JSON representation.
         
         :param d: JSON dictionary with 'ref' and 'chain' fields
         :type d: dict
         :param validate: Whether to validate after creation
         :type validate: bool
-        :returns: New ASTChainRef instance
-        :rtype: ASTChainRef
+        :returns: New ASTRef instance
+        :rtype: ASTRef
         :raises AssertionError: If 'ref' or 'chain' fields are missing
         """
-        assert 'ref' in d, "ChainRef missing ref"
-        assert 'chain' in d, "ChainRef missing chain"
+        assert 'ref' in d, "Ref missing ref"
+        assert 'chain' in d, "Ref missing chain"
         out = cls(
             ref=d['ref'],
             chain=[from_json(op, validate=validate) for op in d['chain']]
@@ -933,13 +933,13 @@ class ASTChainRef(ASTObject):
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
         raise NotImplementedError(
-            "ASTChainRef cannot be used directly in chain(). "
+            "ASTRef cannot be used directly in chain(). "
             "It must be used within an ASTLet/chain_dag() context."
         )
     
-    def reverse(self) -> 'ASTChainRef':
+    def reverse(self) -> 'ASTRef':
         # Reverse the chain operations
-        return ASTChainRef(self.ref, [op.reverse() for op in reversed(self.chain)])
+        return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain)])
 
 
 class ASTCall(ASTObject):
@@ -1051,7 +1051,7 @@ class ASTCall(ASTObject):
             GFQLTypeError: If method not in safelist or parameters invalid
         """
         # For chain_dag, we don't use wavefronts, just execute the call
-        from graphistry.compute.gfql.call_executor import execute_call
+        from graphistry.compute.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
@@ -1069,7 +1069,7 @@ class ASTCall(ASTObject):
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -1080,7 +1080,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTChainRef, ASTCall]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -1113,7 +1113,9 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
     elif o['type'] == 'ChainRef':
-        out = ASTChainRef.from_json(o, validate=validate)
+        out = ASTRef.from_json(o, validate=validate)
+    elif o['type'] == 'Ref':
+        out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Call':
         out = ASTCall.from_json(o, validate=validate)
     else:
@@ -1122,7 +1124,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', or 'Call'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', 'Ref', or 'Call'",
         )
     return out
 
@@ -1132,5 +1134,5 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
-ref = ASTChainRef  # noqa: E305
+ref = ASTRef  # noqa: E305
 call = ASTCall  # noqa: E305

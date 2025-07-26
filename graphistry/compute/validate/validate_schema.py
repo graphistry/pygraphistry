@@ -3,7 +3,7 @@
 from typing import List, Optional, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTChainRef, ASTRemoteGraph, ASTCall
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTRef, ASTRemoteGraph, ASTCall
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -59,8 +59,8 @@ def validate_chain_schema(
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
         elif isinstance(op, ASTLet):
             op_errors = _validate_querydag_op(op, g, collect_all)
-        elif isinstance(op, ASTChainRef):
-            op_errors = _validate_chainref_op(op, g, collect_all)
+        elif isinstance(op, ASTRef):
+            op_errors = _validate_ref_op(op, g, collect_all)
         elif isinstance(op, ASTRemoteGraph):
             op_errors = _validate_remotegraph_op(op, collect_all)
         elif isinstance(op, ASTCall):
@@ -142,26 +142,26 @@ def _validate_querydag_op(op: ASTLet, g: Plottable, collect_all: bool) -> List[G
     return errors
 
 
-def _validate_chainref_op(op: ASTChainRef, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
-    """Validate ChainRef operation against schema."""
+def _validate_ref_op(op: ASTRef, g: Plottable, collect_all: bool) -> List[GFQLSchemaError]:
+    """Validate Ref operation against schema."""
     errors = []
     
-    # Validate the chain operations in the ChainRef
+    # Validate the chain operations in the Ref
     if op.chain:
         try:
             chain_errors = validate_chain_schema(g, op.chain, collect_all=True)
             
-            # Add ChainRef context to errors
+            # Add Ref context to errors
             if chain_errors:
                 for error in chain_errors:
-                    error.context['chain_ref'] = op.ref
+                    error.context['ref'] = op.ref
                 if collect_all:
                     errors.extend(chain_errors)
                 else:
                     raise chain_errors[0]
                     
         except GFQLSchemaError as e:
-            e.context['chain_ref'] = op.ref
+            e.context['ref'] = op.ref
             if collect_all:
                 errors.append(e)
             else:
@@ -328,7 +328,7 @@ def _validate_call_op(
     errors: List[GFQLSchemaError] = []
     
     # Import safelist to get schema effects
-    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+    from graphistry.compute.call_safelist import SAFELIST_V1
     
     # Check if method is in safelist
     if op.function not in SAFELIST_V1:
