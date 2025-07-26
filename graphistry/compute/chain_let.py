@@ -194,11 +194,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     """Execute a single node in the DAG
     
     Handles different AST object types:
-<<<<<<< HEAD
     - ASTLet: Recursive let execution
-=======
-    - ASTLet: Recursive DAG execution
->>>>>>> refactor: rename ASTQueryDAG to ASTLet throughout codebase
     - ASTRef: Reference resolution and chain execution
     - ASTNode: Node filtering operations
     - ASTEdge: Edge traversal operations
@@ -219,13 +215,8 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-<<<<<<< HEAD:graphistry/compute/chain_dag.py
-        result = chain_dag_impl(g, ast_obj, EngineAbstract(engine.value))
-    elif isinstance(ast_obj, ASTRef):
-=======
         result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value))
-    elif isinstance(ast_obj, ASTChainRef):
->>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/compute/chain_let.py
+    elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
             referenced_result = context.get_binding(ast_obj.ref)

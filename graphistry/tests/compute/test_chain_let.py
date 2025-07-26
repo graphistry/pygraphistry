@@ -220,13 +220,8 @@ class TestExecutionContext:
         # (we can't test this without implementing execution)
     
     def test_chain_ref_missing_reference(self):
-<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef with missing reference gives helpful error"""
-        from graphistry.compute.chain_dag import execute_node
-=======
-        """Test ASTChainRef with missing reference gives helpful error"""
         from graphistry.compute.chain_let import execute_node
->>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -243,13 +238,8 @@ class TestExecutionContext:
         assert "Available bindings: []" in str(exc_info.value)
     
     def test_chain_ref_with_existing_reference(self):
-<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef successfully resolves existing reference"""
-        from graphistry.compute.chain_dag import execute_node
-=======
-        """Test ASTChainRef successfully resolves existing reference"""
         from graphistry.compute.chain_let import execute_node
->>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
@@ -696,13 +686,8 @@ class TestExecutionMechanics:
         assert context.get_binding('remote_data') is mock_result
     
     def test_chain_ref_resolution_order(self):
-<<<<<<< HEAD:graphistry/tests/compute/test_chain_dag.py
         """Test ASTRef resolves references in correct order"""
-        from graphistry.compute.chain_dag import execute_node
-=======
-        """Test ASTChainRef resolves references in correct order"""
         from graphistry.compute.chain_let import execute_node
->>>>>>> refactor: rename chain_dag → chain_let throughout codebase:graphistry/tests/compute/test_chain_let.py
         from graphistry.Engine import Engine
         
         nodes_df = pd.DataFrame({'id': ['a', 'b', 'c'], 'value': [1, 2, 3]})
