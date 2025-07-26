@@ -141,7 +141,7 @@ result = g.gfql(let({
 }))
 ```
 
-## Call Operations
+## Call Operations and Let Bindings
 
 GFQL supports calling Plottable methods through the `call()` function, providing a safe way to invoke graph transformations and analysis operations.
 

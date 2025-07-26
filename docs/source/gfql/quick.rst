@@ -127,6 +127,28 @@ Edge Matchers
 - :class:`e_reverse <graphistry.compute.ast.e_reverse>`: Same as :class:`e_forward <graphistry.compute.ast.e_forward>`, but traverses in reverse.
 - :class:`e <graphistry.compute.ast.e>`: Traverses edges regardless of direction.
 
+Let Bindings (DAG Patterns)
+----------------------------
+
+- **Basic Let syntax:**
+
+  .. code-block:: python
+
+      g.let({
+          'persons': n({'type': 'person'}),
+          'friends': ref('persons').gfql([e_forward({'rel': 'friend'}), n()])
+      })
+
+- **Complex analysis with reusable components:**
+
+  .. code-block:: python
+
+      g.let({
+          'suspects': n({'risk_score': gt(7)}),
+          'contacts': ref('suspects').gfql([e_undirected(), n()]),
+          'final': ref('contacts').gfql([n({'active': True})])
+      })
+
 Predicates
 -----------
 
@@ -153,7 +175,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"type": "person"}),
           e_forward({"status": "active"}),
           n({"type": "transaction"})
@@ -163,7 +185,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"id": "start_node"}, name="start"),
           e_forward(name="edge1"),
           n({"level": 2}, name="middle"),
@@ -175,7 +197,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"status": "infected"}),
           e_forward(to_fixed_point=True),
           n(name="reachable")
@@ -185,7 +207,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"type": is_in(["server", "database"])}),
           e_undirected({"protocol": "TCP"}, hops=3),
           n(query="risk_level >= 8")
@@ -195,33 +217,12 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n(query="age > 30 and country == 'USA'"),
           e_forward(edge_query="weight > 5"),
           n(query="status == 'active'")
       ])
 
-Let Bindings (DAG Patterns)
-----------------------------
-
-- **Basic Let syntax:**
-
-  .. code-block:: python
-
-      g.chain_let({
-          'persons': n({'type': 'person'}),
-          'friends': ref('persons').chain([e_forward({'rel': 'friend'}), n()])
-      })
-
-- **Complex analysis with reusable components:**
-
-  .. code-block:: python
-
-      g.chain_let({
-          'suspects': n({'risk_score': gt(7)}),
-          'contacts': ref('suspects').chain([e_undirected(), n()]),
-          'final': ref('contacts').chain([n({'active': True})])
-      })
 
 GPU Acceleration
 ----------------
@@ -230,7 +231,7 @@ GPU Acceleration
 
   .. code-block:: python
 
-      g.chain([...], engine='cudf')
+      g.gfql([...], engine='cudf')
 
 - **Example with cuDF DataFrames:**
 
@@ -242,7 +243,7 @@ GPU Acceleration
       n_gdf = cudf.from_pandas(node_df)
 
       g = graphistry.nodes(n_gdf, 'node_id').edges(e_gdf, 'src', 'dst')
-      g.chain([...], engine='cudf')
+      g.gfql([...], engine='cudf')
 
 Remote Mode
 -----------
@@ -420,7 +421,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({g._node: "Alice"}),
           e_undirected(hops=3),
           n({g._node: "Bob"})
@@ -442,7 +443,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"community": "A"}),
           e_undirected(hops=2),
           n({"community": "B"}, name="bridge_nodes")
@@ -452,7 +453,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n(query="age >= 18"),
           e_forward(edge_query="interaction == 'message'"),
           n(query="location == 'NYC'")

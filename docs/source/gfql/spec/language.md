@@ -82,10 +82,13 @@ Type system matching modern data formats:
 :caption: GFQL Grammar in Extended Backus-Naur Form
 
 (* Entry point *)
-query ::= chain
+query ::= chain | let_query
 
 (* Chain - path pattern expression *)
 chain ::= "[" operation ("," operation)* "]"
+
+(* Let query - DAG pattern at top level *)
+let_query ::= "{" binding ("," binding)* "}"
 
 (* Operations *)
 operation ::= node_matcher | edge_matcher | let_op | ref_op
@@ -367,9 +370,9 @@ people_nodes = result._nodes.query("people == True")
 
 This pattern is essential for extracting specific subsets from complex graph traversals.
 
-## Call Operations and Security
+## Call Operations, Let Bindings, and Security
 
-### Call Operations
+### Call Operations and Let Bindings
 
 GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
 

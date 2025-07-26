@@ -217,7 +217,7 @@ WHERE friend_count > 5
 
 **Python:**
 ```python
-g.chain_let({
+g.let({
     'social_users': n({'type': 'User'}).chain([e_forward({'type': 'FRIEND'}), n()]),
     'high_social': ref('social_users', [n({'friend_count': gt(5)})]),
     'transactions': ref('high_social').chain([e_forward({'type': 'TRANSACTION'}), n({'type': 'Transaction'})])
@@ -255,7 +255,7 @@ MATCH (contacts)-[:TRANSACTION]->(evidence)
 
 **Python:**
 ```python
-g.chain_let({
+g.let({
     'suspects': n({'type': 'Person', 'risk_score': gt(8)}),
     'contacts': ref('suspects').chain([e_undirected({'type': 'CONNECTED'}), n()]),
     'evidence': ref('contacts').chain([e_forward({'type': 'TRANSACTION'}), n()])
