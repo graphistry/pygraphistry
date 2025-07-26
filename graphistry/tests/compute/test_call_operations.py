@@ -282,7 +282,7 @@ class TestCallInDAG:
     
     def test_call_referencing_binding(self, sample_graph):
         """Test ASTCall that operates on whole graph (not in chain)."""
-        from graphistry.compute.ast import ASTChainRef
+        from graphistry.compute.ast import ASTRef
         
         # Call operations work on the whole graph, not as part of chains
         dag = ASTLet({
