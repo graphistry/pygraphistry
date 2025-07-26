@@ -59,11 +59,11 @@ Finding Nodes with Specific Properties
     from graphistry import n
 
     # df[['id', 'type', ...]]
-    g.chain([ n({"type": "person"}) ])._nodes
+    g.gfql([ n({"type": "person"}) ])._nodes
 
 **Explanation**:
 
-- **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.chain([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
+- **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.gfql([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
 
 ---
 
@@ -165,13 +165,16 @@ Performing Multi-Hop Traversals
     from graphistry import n, e_forward
 
     # df[['id', ...]]
-    g.chain([
+    g.gfql([
         n({g._node: "Alice"}), e_forward(), e_forward(), n(name='m')
     ])._nodes.query('m')
 
 **Explanation**:
 
 - **GFQL**: Starts at node `"Alice"`, performs two forward hops, and obtains nodes two steps away. Results are in `nodes_df`. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
+
+.. note::
+   For more complex multi-hop patterns with reusable components, see the :ref:`Complex Pattern Reuse and DAG Structures` section below, which demonstrates using ``let`` to create named, composable graph traversals.
 
 ---
 
@@ -208,7 +211,7 @@ Filtering Edges and Nodes with Conditions
     from graphistry import e_forward
 
     # df[['src', 'dst', 'weight', ...]]
-    g.chain([ e_forward(edge_query='weight > 0.5') ])._edges
+    g.gfql([ e_forward(edge_query='weight > 0.5') ])._edges
 
 **Explanation**:
 
@@ -349,7 +352,7 @@ All Paths and Connectivity
 
     # g._edges: df[['src', 'dst', ...]]
     # g._nodes: df[['id', ...]]
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(
             source_node_query='type == "person"',
@@ -437,7 +440,7 @@ Time-Windowed Graph Analytics
 .. code-block:: python
 
     past_week = pd.Timestamp.now() - pd.Timedelta(7)
-    g.chain([
+    g.gfql([
         n({"id": {"$in": ["Alice", "Bob"]}}), 
         e_forward(edge_query=f'timestamp >= "{past_week}"'), 
         n({"id": {"$in": ["Alice", "Bob"]}})
@@ -488,7 +491,7 @@ Parallel Pathfinding
     from graphistry import n, e_forward
 
     # g._nodes: cudf.DataFrame[['src', 'dst', ...]]
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(to_fixed_point=False), 
         n({"id": is_in(["Bob", "Charlie"])})
@@ -527,7 +530,7 @@ GPU Execution
     from graphistry import n, e_forward
 
     # Executing pathfinding queries in parallel
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(to_fixed_point=False), 
         n({"id": is_in(["Bob", "Charlie"])})
@@ -543,14 +546,89 @@ This example builds on the previous one, showing how **GFQL** handles parallel e
 
 ---
 
+Complex Pattern Reuse and DAG Structures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+**Objective**: Execute investigations with reusable named patterns and complex DAG dependencies.
 
+**SQL**
 
+.. code-block:: sql
 
+    -- SQL requires multiple CTEs or temp tables for complex pattern reuse
+    WITH suspects AS (
+        SELECT id FROM nodes WHERE risk_score > 8
+    ),
+    contacts AS (
+        SELECT DISTINCT e.dst as id
+        FROM suspects s
+        JOIN edges e ON s.id = e.src
+        WHERE e.type = 'connected'
+    ),
+    evidence AS (
+        SELECT DISTINCT e.dst as id  
+        FROM contacts c
+        JOIN edges e ON c.id = e.src
+        WHERE e.type = 'transaction'
+    )
+    SELECT * FROM nodes n
+    WHERE n.id IN (SELECT id FROM evidence);
 
+**Pandas**
 
+.. code-block:: python
 
+    # Pandas requires intermediate variables and merges
+    suspects = nodes_df[nodes_df['risk_score'] > 8]
+    
+    contacts = edges_df[
+        (edges_df['src'].isin(suspects['id'])) & 
+        (edges_df['type'] == 'connected')
+    ]['dst'].unique()
+    
+    evidence = edges_df[
+        (edges_df['src'].isin(contacts)) & 
+        (edges_df['type'] == 'transaction')
+    ]['dst'].unique()
+    
+    result = nodes_df[nodes_df['id'].isin(evidence)]
 
+**Cypher**
+
+.. code-block:: cypher
+
+    // Cypher WITH clauses for intermediate results
+    MATCH (p:Person) WHERE p.risk_score > 8
+    WITH collect(p) as suspects
+    MATCH (suspects)-[:CONNECTED]-(contacts)
+    WITH suspects, collect(contacts) as contact_nodes  
+    MATCH (contact_nodes)-[:TRANSACTION]->(evidence)
+    RETURN evidence;
+
+**GFQL**
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, e_undirected, ref, gt
+    
+    # Reusable named patterns with DAG dependencies
+    investigation = g.let({
+        'suspects': n({'risk_score': gt(8)}),
+        'contacts': ref('suspects').gfql([e_undirected({'type': 'connected'}), n()]),
+        'evidence': ref('contacts').gfql([e_forward({'type': 'transaction'}), n()])
+    })
+    
+    # Access any binding results
+    suspects_df = investigation._nodes[investigation._nodes['suspects']]
+    evidence_df = investigation._nodes[investigation._nodes['evidence']]
+
+**Explanation**:
+
+- **SQL/Pandas**: Require verbose intermediate variables and complex joins for pattern reuse
+- **Cypher**: WITH clauses provide some reuse but limited to linear dependencies  
+- **GFQL**: Let bindings enable true DAG patterns where any binding can reference multiple previous bindings, providing both clarity and performance benefits through query optimization
+
+---
 
 GFQL Functions and Equivalents
 ------------------------------
