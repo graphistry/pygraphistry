@@ -389,6 +389,11 @@ jobs:
       run: |
         ./bin/build.sh
 
+    - name: Validate py.typed in wheel
+      run: |
+        unzip -l dist/graphistry*.whl | grep -q "graphistry/py.typed" || (echo "ERROR: py.typed marker missing from wheel - users won't get type information" && exit 1)
+        echo "✅ py.typed marker confirmed in wheel distribution"
+
   
   test-docs:
     needs: [changes, python-lint-types]
