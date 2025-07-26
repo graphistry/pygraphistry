@@ -78,7 +78,7 @@ adults_df = result._nodes[result._nodes['adults']]
 connection_edges = result._edges[result._edges['connections']]
 ```
 
-### ChainRef (Reference to Named Bindings)
+### Ref (Reference to Named Bindings)
 
 The `ref()` function creates references to named bindings within a Let:
 

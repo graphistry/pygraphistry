@@ -47,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"Ref"`, `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -145,10 +145,10 @@ chain([
 ```python
 ASTLet({
     'persons': n({'type': 'Person'}),
-    'adults': ASTChainRef('persons', [n({'age': ge(18)})]),
-    'connections': ASTChainRef('adults', [
+    'adults': ASTRef('persons', [n({'age': ge(18)})]),
+    'connections': ASTRef('adults', [
         e_forward({'type': 'knows'}),
-        ASTChainRef('adults')
+        ASTRef('adults')
     ])
 })
 ```
@@ -163,7 +163,7 @@ ASTLet({
       "filter_dict": {"type": "Person"}
     },
     "adults": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "persons",
       "chain": [{
         "type": "Node",
@@ -173,7 +173,7 @@ ASTLet({
       }]
     },
     "connections": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "adults",
       "chain": [
         {
@@ -182,7 +182,7 @@ ASTLet({
           "edge_match": {"type": "knows"}
         },
         {
-          "type": "ChainRef",
+          "type": "Ref",
           "ref": "adults",
           "chain": []
         }
@@ -192,11 +192,11 @@ ASTLet({
 }
 ```
 
-### ChainRef (Reference to Named Binding)
+### Ref (Reference to Named Binding)
 
 **Python**:
 ```python
-ASTChainRef('base_pattern', [
+ASTRef('base_pattern', [
     e_forward({'status': 'active'}),
     n({'verified': True})
 ])
@@ -205,7 +205,7 @@ ASTChainRef('base_pattern', [
 **Wire Format**:
 ```json
 {
-  "type": "ChainRef",
+  "type": "Ref",
   "ref": "base_pattern",
   "chain": [
     {
@@ -791,11 +791,11 @@ g.chain([
 ```python
 g.gfql(ASTLet({
     'suspicious_ips': n({'risk_score': gt(80)}),
-    'lateral_movement': ASTChainRef('suspicious_ips', [
+    'lateral_movement': ASTRef('suspicious_ips', [
         e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
         n({'type': 'server'})
     ]),
-    'escalation': ASTChainRef('lateral_movement', [
+    'escalation': ASTRef('lateral_movement', [
         e_forward({'type': 'privilege_change'}),
         n({'admin': True})
     ])
@@ -814,7 +814,7 @@ g.gfql(ASTLet({
       }
     },
     "lateral_movement": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "suspicious_ips",
       "chain": [
         {
@@ -832,7 +832,7 @@ g.gfql(ASTLet({
       ]
     },
     "escalation": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "lateral_movement",
       "chain": [
         {
@@ -856,7 +856,7 @@ g.gfql(ASTLet({
 ```python
 g.gfql(ASTLet({
     'high_value': n({'amount': gt(100000)}),
-    'connected': ASTChainRef('high_value', [
+    'connected': ASTRef('high_value', [
         e_forward({'type': 'transfer'}, hops=2)
     ]),
     'analyzed': ASTCall('compute_cugraph', {
@@ -878,7 +878,7 @@ g.gfql(ASTLet({
       }
     },
     "connected": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "high_value",
       "chain": [
         {
@@ -910,7 +910,7 @@ g.gfql(ASTLet({
 4. **Validate before sending**: Use JSON Schema validation
 5. **Handle unknown fields**: Ignore unrecognized fields for compatibility
 6. **Let bindings**: Define bindings in dependency order (referenced names must be defined first)
-7. **ChainRef validation**: Ensure referenced names exist in the Let binding scope
+7. **Ref validation**: Ensure referenced names exist in the Let binding scope
 8. **RemoteGraph security**: Protect authentication tokens in transit and storage
 9. **Call operations**: Only use function names from the safelist
 10. **Parameter validation**: Ensure Call parameters match expected types
