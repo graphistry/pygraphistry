@@ -543,14 +543,89 @@ This example builds on the previous one, showing how **GFQL** handles parallel e
 
 ---
 
+Complex Pattern Reuse and DAG Structures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+**Objective**: Execute investigations with reusable named patterns and complex DAG dependencies.
 
+**SQL**
 
+.. code-block:: sql
 
+    -- SQL requires multiple CTEs or temp tables for complex pattern reuse
+    WITH suspects AS (
+        SELECT id FROM nodes WHERE risk_score > 8
+    ),
+    contacts AS (
+        SELECT DISTINCT e.dst as id
+        FROM suspects s
+        JOIN edges e ON s.id = e.src
+        WHERE e.type = 'connected'
+    ),
+    evidence AS (
+        SELECT DISTINCT e.dst as id  
+        FROM contacts c
+        JOIN edges e ON c.id = e.src
+        WHERE e.type = 'transaction'
+    )
+    SELECT * FROM nodes n
+    WHERE n.id IN (SELECT id FROM evidence);
 
+**Pandas**
 
+.. code-block:: python
 
+    # Pandas requires intermediate variables and merges
+    suspects = nodes_df[nodes_df['risk_score'] > 8]
+    
+    contacts = edges_df[
+        (edges_df['src'].isin(suspects['id'])) & 
+        (edges_df['type'] == 'connected')
+    ]['dst'].unique()
+    
+    evidence = edges_df[
+        (edges_df['src'].isin(contacts)) & 
+        (edges_df['type'] == 'transaction')
+    ]['dst'].unique()
+    
+    result = nodes_df[nodes_df['id'].isin(evidence)]
 
+**Cypher**
+
+.. code-block:: cypher
+
+    // Cypher WITH clauses for intermediate results
+    MATCH (p:Person) WHERE p.risk_score > 8
+    WITH collect(p) as suspects
+    MATCH (suspects)-[:CONNECTED]-(contacts)
+    WITH suspects, collect(contacts) as contact_nodes  
+    MATCH (contact_nodes)-[:TRANSACTION]->(evidence)
+    RETURN evidence;
+
+**GFQL**
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, e_undirected, ref, gt
+    
+    # Reusable named patterns with DAG dependencies
+    investigation = g.chain_let({
+        'suspects': n({'risk_score': gt(8)}),
+        'contacts': ref('suspects').chain([e_undirected({'type': 'connected'}), n()]),
+        'evidence': ref('contacts').chain([e_forward({'type': 'transaction'}), n()])
+    })
+    
+    # Access any binding results
+    suspects_df = investigation._nodes[investigation._nodes['suspects']]
+    evidence_df = investigation._nodes[investigation._nodes['evidence']]
+
+**Explanation**:
+
+- **SQL/Pandas**: Require verbose intermediate variables and complex joins for pattern reuse
+- **Cypher**: WITH clauses provide some reuse but limited to linear dependencies  
+- **GFQL**: Let bindings enable true DAG patterns where any binding can reference multiple previous bindings, providing both clarity and performance benefits through query optimization
+
+---
 
 GFQL Functions and Equivalents
 ------------------------------
