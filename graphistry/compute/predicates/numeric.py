@@ -1,5 +1,4 @@
-from typing import Any, Union
-import pandas as pd
+from typing import Union
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT

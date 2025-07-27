@@ -1,4 +1,4 @@
-from typing import Union, Optional, List
+from typing import Union
 import copy, logging, pandas as pd, numpy as np
 
 from graphistry.PlotterBase import Plottable

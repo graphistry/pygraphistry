@@ -1,8 +1,7 @@
 import logging
-from typing import Any, List, Optional, Tuple, TYPE_CHECKING, Union
-import pandas as pd
+from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
+from graphistry.Engine import EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict

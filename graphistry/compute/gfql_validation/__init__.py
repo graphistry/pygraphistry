@@ -1,6 +1,6 @@
 """GFQL validation and related utilities."""
 
-from graphistry.compute.gfql.validate import (
+from graphistry.compute.gfql_validation.validate import (
     ValidationIssue,
     Schema,
     validate_syntax,
@@ -12,7 +12,7 @@ from graphistry.compute.gfql.validate import (
     suggest_fixes
 )
 
-from graphistry.compute.gfql.exceptions import (
+from graphistry.compute.gfql_validation.exceptions import (
     GFQLException,
     GFQLValidationError,
     GFQLSyntaxError,

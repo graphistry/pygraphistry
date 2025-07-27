@@ -1,10 +1,8 @@
-from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional, cast
-from typing_extensions import Literal
+from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional
 from collections import Counter
 from inspect import getmodule
 import numpy as np
 import pandas as pd
-import logging
 import warnings
 
 from graphistry.Engine import Engine, resolve_engine
@@ -225,7 +223,6 @@ def dbscan_predict_sklearn(X: pd.DataFrame, model: Any) -> np.ndarray:
 def dbscan_predict_cuml(X: Any, model: Any) -> Any:
 
     import cudf
-    import cupy as cp
     from sklearn.cluster import DBSCAN as skDBSCAN
     from cuml import DBSCAN
     #assert isinstance(X, cudf.DataFrame), f'Expected cudf.DataFrame, got: {type(X)}'

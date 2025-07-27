@@ -1,5 +1,4 @@
-from typing import Any, Optional
-import pandas as pd
+from typing import Optional
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT

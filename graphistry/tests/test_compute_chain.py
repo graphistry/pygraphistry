@@ -4,7 +4,8 @@ import logging
 import pandas as pd
 
 from common import NoAuthTestCase
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
+from graphistry.compute import is_in
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.util import setup_logger
