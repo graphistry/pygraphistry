@@ -302,14 +302,14 @@ class TestCallInDAG:
         dag1 = ASTLet({
             'with_degrees': ASTCall('get_degrees', {'col': 'deg'})
         })
-        result1 = chain_dag_impl(sample_graph, dag1, EngineAbstract.PANDAS)
+        result1 = chain_let_impl(sample_graph, dag1, EngineAbstract.PANDAS)
         assert 'deg' in result1._nodes.columns
         
         # Then filter - use the graph that has degrees
         dag2 = ASTLet({
             'filtered': ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': 2}})
         })
-        result2 = chain_dag_impl(result1, dag2, EngineAbstract.PANDAS)
+        result2 = chain_let_impl(result1, dag2, EngineAbstract.PANDAS)
         
         # Should have nodes with degree 2
         assert len(result2._nodes) > 0
