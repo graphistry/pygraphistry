@@ -201,6 +201,84 @@ analysis = (trans_df
 
 **Note:** Wire protocol returns the filtered graph; aggregations require client-side processing.
 
+## WITH Clause Mapping: Let Bindings
+
+Cypher's `WITH` clause for intermediate variables maps to GFQL's Let bindings for reusable patterns.
+
+### Basic WITH Pattern
+
+**Cypher:**
+```cypher
+MATCH (u:User)-[:FRIEND]->(f)
+WITH u, count(f) as friend_count
+MATCH (u)-[:TRANSACTION]->(t:Transaction)
+WHERE friend_count > 5
+```
+
+**Python:**
+```python
+g.let({
+    'social_users': n({'type': 'User'}).chain([e_forward({'type': 'FRIEND'}), n()]),
+    'high_social': ref('social_users', [n({'friend_count': gt(5)})]),
+    'transactions': ref('high_social').chain([e_forward({'type': 'TRANSACTION'}), n({'type': 'Transaction'})])
+})
+```
+
+**Wire Protocol:**
+```json
+{"type": "Let", "bindings": {
+  "social_users": {"type": "Chain", "chain": [
+    {"type": "Node", "filter_dict": {"type": "User"}},
+    {"type": "Edge", "direction": "forward", "edge_match": {"type": "FRIEND"}},
+    {"type": "Node"}
+  ]},
+  "high_social": {"type": "ChainRef", "ref": "social_users", "chain": [
+    {"type": "Node", "filter_dict": {"friend_count": {"type": "GT", "val": 5}}}
+  ]},
+  "transactions": {"type": "ChainRef", "ref": "high_social", "chain": [
+    {"type": "Edge", "direction": "forward", "edge_match": {"type": "TRANSACTION"}},
+    {"type": "Node", "filter_dict": {"type": "Transaction"}}
+  ]}
+}}
+```
+
+### Pattern Reuse
+
+**Cypher:**
+```cypher
+MATCH (p:Person {risk_score: > 8})
+WITH p as suspects
+MATCH (suspects)-[:CONNECTED]-(contacts)
+WITH suspects, contacts
+MATCH (contacts)-[:TRANSACTION]->(evidence)
+```
+
+**Python:**
+```python
+g.let({
+    'suspects': n({'type': 'Person', 'risk_score': gt(8)}),
+    'contacts': ref('suspects').chain([e_undirected({'type': 'CONNECTED'}), n()]),
+    'evidence': ref('contacts').chain([e_forward({'type': 'TRANSACTION'}), n()])
+})
+```
+
+**Wire Protocol:**
+```json
+{"type": "Let", "bindings": {
+  "suspects": {"type": "Node", "filter_dict": {"type": "Person", "risk_score": {"type": "GT", "val": 8}}},
+  "contacts": {"type": "ChainRef", "ref": "suspects", "chain": [
+    {"type": "Edge", "direction": "undirected", "edge_match": {"type": "CONNECTED"}},
+    {"type": "Node"}
+  ]},
+  "evidence": {"type": "ChainRef", "ref": "contacts", "chain": [
+    {"type": "Edge", "direction": "forward", "edge_match": {"type": "TRANSACTION"}},
+    {"type": "Node"}
+  ]}
+}}
+```
+
+**Note:** GFQL Let bindings provide more flexibility than Cypher WITH - patterns can reference multiple previous bindings and form complex DAG structures.
+
 ## DataFrame Operations Mapping
 
 | Cypher Feature | Python DataFrame Operation | Notes |
@@ -226,8 +304,7 @@ analysis = (trans_df
 ## Not Supported
 - `OPTIONAL MATCH` - No equivalent (would need outer joins)
 - `CREATE`, `DELETE`, `SET` - GFQL is read-only
-- `WITH` clauses - Requires intermediate variables
-- Multiple `MATCH` patterns - Use separate chains or joins
+- Multiple disconnected `MATCH` patterns - Use separate chains or joins
 
 ## Best Practices
 

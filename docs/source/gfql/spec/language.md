@@ -45,10 +45,11 @@ GFQL programs are declarative graph-to-graph transformations:
 - Enable use cases like search, filter, enrich, and traverse
 - Express *what* to find (ex: Cypher), not *how* to find it (ex: Gremlin)
 
-#### Chains
+#### Chains and DAGs
 
 Path pattern expressions for matching graph structures:
-- Express graph patterns as sequences of node and edge matching operations
+- **Chains**: Express linear graph patterns as sequences of node and edge matching operations
+- **DAGs**: Use Let bindings to define reusable named operations and complex directed acyclic patterns
 - Similar to Cypher patterns but decomposed into composable steps
 - Define paths through the graph: start nodes → edges → end nodes
 - Each operation refines the pattern match based on previous results
@@ -81,13 +82,21 @@ Type system matching modern data formats:
 :caption: GFQL Grammar in Extended Backus-Naur Form
 
 (* Entry point *)
-query ::= chain
+query ::= chain | let_query
 
 (* Chain - path pattern expression *)
 chain ::= "[" operation ("," operation)* "]"
 
+(* Let query - DAG pattern at top level *)
+let_query ::= "{" binding ("," binding)* "}"
+
 (* Operations *)
-operation ::= node_matcher | edge_matcher
+operation ::= node_matcher | edge_matcher | let_op | ref_op
+
+(* Let bindings for DAG patterns *)
+let_op ::= "let(" "{" binding ("," binding)* "}" ")"
+binding ::= identifier ":" operation
+ref_op ::= "ref(" identifier ("," "[" operation ("," operation)* "]")? ")"
 
 (* Node Matcher *)
 node_matcher ::= "n(" node_params? ")"
@@ -330,7 +339,7 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
 Query execution returns filtered node and edge datasets. In the Python embedding:
 
 ```python
-result = g.chain([...])
+result = g.gfql([...])
 nodes_df = result._nodes  # Filtered nodes
 edges_df = result._edges  # Filtered edges
 ```
@@ -340,7 +349,7 @@ edges_df = result._edges  # Filtered edges
 Operations with `name` parameter add boolean columns to mark matched entities:
 
 ```python
-result = g.chain([
+result = g.gfql([
     n({"type": "person"}, name="people"),
     e_forward(name="connections"),
     n({"active": True}, name="active_targets")
@@ -360,6 +369,119 @@ people_nodes = result._nodes.query("people == True")
 ```
 
 This pattern is essential for extracting specific subsets from complex graph traversals.
+
+## Call Operations, Let Bindings, and Security
+
+### Call Operations and Let Bindings
+
+GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
+
+```python
+call(function: str, params: dict) -> ASTCall
+```
+
+Call operations enable:
+- Graph algorithms (PageRank, community detection)
+- Layout computations (ForceAtlas2, Graphviz)
+- Data transformations (filtering, collapsing)
+- Visual encodings (color, size, icons)
+
+### Safelist Architecture
+
+For security and stability, Call operations are restricted to a predefined safelist of methods. This prevents:
+- Arbitrary code execution
+- Access to filesystem or network operations
+- Modification of global state
+- Unsafe graph operations
+
+#### Safelist Categories
+
+**Graph Analysis**
+- `get_degrees`, `get_indegrees`, `get_outdegrees`: Calculate node degrees
+- `compute_cugraph`: Run GPU algorithms (pagerank, louvain, etc.)
+- `compute_igraph`: Run CPU algorithms
+- `get_topological_levels`: Analyze DAG structure
+
+**Filtering & Transformation**
+- `filter_nodes_by_dict`, `filter_edges_by_dict`: Filter by attributes
+- `hop`: Traverse graph with conditions
+- `drop_nodes`, `keep_nodes`: Node selection
+- `collapse`: Merge nodes by attribute
+- `prune_self_edges`: Remove self-loops
+- `materialize_nodes`: Generate node table
+
+**Layout**
+- `layout_cugraph`: GPU-accelerated layouts
+- `layout_igraph`: CPU-based layouts
+- `layout_graphviz`: Graphviz layouts
+- `fa2_layout`: ForceAtlas2 layout
+
+**Visual Encoding**
+- `encode_point_color`, `encode_edge_color`: Color mapping
+- `encode_point_size`: Size mapping
+- `encode_point_icon`: Icon mapping
+
+**Metadata**
+- `name`: Set visualization name
+- `description`: Set visualization description
+
+### Parameter Validation
+
+Call operations enforce strict parameter validation:
+
+1. **Type Validation**: Parameters must match expected types
+   ```python
+   call('hop', {'hops': 2})        # Valid: integer
+   call('hop', {'hops': 'two'})    # Error: E201 type mismatch
+   ```
+
+2. **Required Parameters**: Missing required parameters raise errors
+   ```python
+   call('filter_nodes_by_dict', {})  # Error: E105 missing filter_dict
+   ```
+
+3. **Unknown Parameters**: Extra parameters are rejected
+   ```python
+   call('hop', {'steps': 2})  # Error: E303 unknown parameter
+   ```
+
+### Schema Effects
+
+Many Call operations modify the graph schema by adding columns:
+
+```python
+# get_degrees adds degree columns
+call('get_degrees', {
+    'col': 'degree',
+    'col_in': 'in_degree',
+    'col_out': 'out_degree'
+})
+# Schema effect: adds 3 new node columns
+
+# compute_cugraph adds result column
+call('compute_cugraph', {
+    'alg': 'pagerank',
+    'out_col': 'pr_score'
+})
+# Schema effect: adds 'pr_score' node column
+```
+
+### Security Considerations
+
+1. **No Direct Code Execution**: Call operations cannot execute arbitrary Python code
+2. **No System Access**: Methods cannot access filesystem, network, or system resources
+3. **Validated Parameters**: All inputs are type-checked and validated
+4. **Deterministic Effects**: Operations have predictable, documented effects
+5. **No State Mutation**: Operations return new graphs without modifying originals
+
+### Error Handling
+
+Call operations use GFQL's standard error codes:
+- **E303**: Function not in safelist
+- **E105**: Missing required parameter
+- **E201**: Parameter type mismatch
+- **E303**: Unknown parameter
+- **E301**: Required column not found (runtime)
 
 ## Best Practices
 

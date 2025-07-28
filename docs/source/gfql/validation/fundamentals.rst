@@ -51,7 +51,7 @@ Built-in Validation
 GFQL validates automatically - no separate validation calls needed:
 
 * **Syntax validation**: Happens during chain construction
-* **Schema validation**: Happens by default during ``g.chain()`` execution
+* **Schema validation**: Happens by default during ``g.gfql()`` execution
 * **Structured errors**: Error codes (E1xx, E2xx, E3xx) for programmatic handling
 
 Error Types
@@ -85,13 +85,13 @@ Missing Columns
 
    # Wrong - column doesn't exist
    try:
-       result = g.chain([n({'category': 'VIP'})])
+       result = g.gfql([n({'category': 'VIP'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Column "category" does not exist
        print(f"Suggestion: {e.context.get('suggestion')}")
    
    # Correct - use existing columns
-   result = g.chain([n({'type': 'customer'})])
+   result = g.gfql([n({'type': 'customer'})])
 
 Type Mismatches
 ^^^^^^^^^^^^^^^
@@ -100,13 +100,13 @@ Type Mismatches
 
    # Wrong - string value on numeric column
    try:
-       result = g.chain([n({'score': 'high'})])
+       result = g.gfql([n({'score': 'high'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Type mismatch
    
    # Correct - use numeric predicate
    from graphistry.compute.predicates.numeric import gt
-   result = g.chain([n({'score': gt(80)})])
+   result = g.gfql([n({'score': gt(80)})])
 
 Temporal Comparisons
 ^^^^^^^^^^^^^^^^^^^^
@@ -117,12 +117,12 @@ Temporal Comparisons
    from graphistry.compute.predicates.numeric import gt, lt
    
    # Compare datetime columns
-   result = g.chain([
+   result = g.gfql([
        n({'created_at': gt(pd.Timestamp('2024-01-01'))})
    ])
    
    # Find recent activity (last 7 days)
-   result = g.chain([
+   result = g.gfql([
        e_forward({
            'timestamp': gt(pd.Timestamp.now() - pd.Timedelta(days=7))
        })
@@ -139,39 +139,28 @@ GFQL validates automatically - just write your queries and run them:
 .. code-block:: python
 
    # Validation happens automatically
-   result = g.chain([n({'type': 'customer'})])
+   result = g.gfql([n({'type': 'customer'})])
    
    # Errors are caught and reported clearly
    try:
-       result = g.chain([n({'invalid_column': 'value'})])
+       result = g.gfql([n({'invalid_column': 'value'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")
 
-Pre-Execution Validation Options
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Advanced: Manual Validation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-You have two options for validating queries:
-
-1. **Validate-only** (no execution): Use ``validate_chain_schema()`` to check compatibility without running the query
-2. **Validate-and-run**: Use ``g.gfql(..., validate_schema=True)`` to validate before execution
+For advanced users who need to validate before execution:
 
 .. code-block:: python
 
-   # Method 1: Validate-only (no execution)
+   # Validate syntax without running
+   chain = Chain([n(), e_forward()])
+   errors = chain.validate(collect_all=True)
+   
+   # Pre-validate against schema (rarely needed)
    from graphistry.compute.validate_schema import validate_chain_schema
-   
-   try:
-       validate_chain_schema(g, chain)  # Only validates, doesn't execute
-       print("Chain is valid for this graph schema")
-   except GFQLSchemaError as e:
-       print(f"Schema incompatibility: {e}")
-   
-   # Method 2: Validate-and-run
-   try:
-       result = g.gfql(chain.chain, validate_schema=True)  # Validates, then executes if valid
-       print(f"Query executed: {len(result._nodes)} nodes")
-   except GFQLSchemaError as e:
-       print(f"Validation failed, query not executed: {e}")
+   schema_errors = validate_chain_schema(g, chain, collect_all=True)
 
 Error Collection
 ^^^^^^^^^^^^^^^^
