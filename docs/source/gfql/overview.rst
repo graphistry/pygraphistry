@@ -48,7 +48,7 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 
 - **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
 - **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
-- **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
+- **Query**: Run graph pattern matching using method `gfql()` in a style similar to the popoular OpenCypher graph query language
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
@@ -176,7 +176,7 @@ Example: Run GFQL queries with GPU dataframes.
     g_gpu = graphistry.edges(e_gdf, 'src', 'dst').nodes(n_gdf, 'id')
 
     # Run GFQL query (executes on GPU)
-    g_result = g_gpu.chain([ ... ])  # Your GFQL query here
+    g_result = g_gpu.gfql([ ... ])  # Your GFQL query here
     print('Number of resulting edges:', len(g_result._edges))
 
 **Forcing GPU Mode**
@@ -185,7 +185,7 @@ Example: Explicitly set the engine to ensure GPU execution.
 
 .. code-block:: python
 
-    g_result = g_gpu.chain([ ... ], engine='cudf')
+    g_result = g_gpu.gfql([ ... ], engine='cudf')
 
 Run Remotely
 ~~~~~~~~~~~~~
@@ -248,7 +248,7 @@ Example: Visualize high PageRank nodes.
     g_enriched = g_result.compute_cugraph('pagerank')
 
     # Filter nodes with high PageRank
-    g_high_pagerank = g_enriched.chain([
+    g_high_pagerank = g_enriched.gfql([
         n(query='pagerank > 0.1'), e(), n(query='pagerank > 0.1')
     ])
 
