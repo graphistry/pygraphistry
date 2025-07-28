@@ -14,7 +14,8 @@ logger = setup_logger(__name__)
 def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-         output: Optional[str] = None) -> Plottable:
+         output: Optional[str] = None,
+         allow_fragments: bool = False) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
     
@@ -24,6 +25,7 @@ def gfql(self: Plottable,
     :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, or dict
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
+    :param allow_fragments: Allow single ASTObject fragments (default: False for safety)
     :returns: Resulting Plottable
     :rtype: Plottable
     
@@ -82,6 +84,12 @@ def gfql(self: Plottable,
         return chain_impl(self, query.chain, engine)
     elif isinstance(query, ASTObject):
         # Single ASTObject -> execute as single-item chain
+        if not allow_fragments:
+            raise TypeError(
+                "Single ASTObject fragments are not allowed by default. "
+                "Use a List[ASTObject], Chain, or ASTLet instead, "
+                "or set allow_fragments=True to enable fragments."
+            )
         logger.debug('GFQL executing single ASTObject as chain')
         if output is not None:
             logger.warning('output parameter ignored for chain queries')
