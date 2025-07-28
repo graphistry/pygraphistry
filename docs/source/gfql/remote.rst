@@ -14,13 +14,13 @@ Run chain remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()])
+    g2 = g1.gfql_remote([n(), e(), n()])
     assert len(g2._nodes) <= len(g1._nodes)
 
-Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
+Method :meth:`gfql_remote <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote>` runs chain remotely and fetched the computed graph
 
 - **chain**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
-- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`chain_remote_shape <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote_shape>` to return only metadata.
+- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`gfql_remote_shape <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote_shape>` to return only metadata.
 - **node_col_subset**: Optionally limit which node attributes are returned to an allowlist.
 - **edge_col_subset**: Optionally limit which edge attributes are returned to an allowlist.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
@@ -40,7 +40,7 @@ Run on GPU remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()], engine='cudf')
+    g2 = g1.gfql_remote([n(), e(), n()], engine='cudf')
     assert len(g2._nodes) <= len(g1._nodes)
 
 CPU
@@ -51,7 +51,7 @@ Run on CPU remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()], engine='pandas')
+    g2 = g1.gfql_remote([n(), e(), n()], engine='pandas')
 
 
 
@@ -68,8 +68,8 @@ Explicit uploads via :meth:`upload <graphistry.PlotterBase.PlotterBase.upload>` 
     g2 = g1.upload()
     assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
 
-    g3a = g2.chain_remote([n()])
-    g3b = g2.chain_remote([n(), e(), n()])
+    g3a = g2.gfql_remote([n()])
+    g3b = g2.gfql_remote([n(), e(), n()])
     assert len(g3a._nodes) >= len(g3b._nodes)
 
 
@@ -86,7 +86,7 @@ If data is already uploaded and your user has access to it, such as from a previ
     g1 = graphistry.bind(dataset_id='abc123')
     assert g1._nodes is None, "Binding does not fetch data"
 
-    connected_graph_g = g1.chain_remote([n(), e()])
+    connected_graph_g = g1.gfql_remote([n(), e()])
     connected_nodes_df = connected_graph_g._nodes
     print(connected_nodes_df.shape)
 
@@ -102,7 +102,7 @@ Return only nodes
 
 .. code-block:: python
 
-  g1.chain_remote([n(), e(), n()], output_type="nodes")
+  g1.gfql_remote([n(), e(), n()], output_type="nodes")
 
 Return only nodes and specific columns
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -110,7 +110,7 @@ Return only nodes and specific columns
 .. code-block:: python
 
   cols = [g1._node, 'time']
-  g2b = g1.chain_remote(
+  g2b = g1.gfql_remote(
     [n(), e(), n()],
     output_type="nodes",
     node_col_subset=cols)
@@ -122,7 +122,7 @@ Return only edges
 
 .. code-block:: python
 
-  g2a = g1.chain_remote([n(), e(), n()], output_type="edges")
+  g2a = g1.gfql_remote([n(), e(), n()], output_type="edges")
 
 Return only edges and specific columns
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -130,7 +130,7 @@ Return only edges and specific columns
 .. code-block:: python
 
   cols = [g1._source, g1._destination, 'time']
-  g2b = g1.chain_remote([n(), e(), n()],
+  g2b = g1.gfql_remote([n(), e(), n()],
     output_type="edges",
     edge_col_subset=cols)
   assert len(g2b._edges.columns) == len(cols)
@@ -141,7 +141,7 @@ Return metadata but not the actual graph
 .. code-block:: python
 
     from graphistry import n, e
-    shape_df = g1.chain_remote_shape([n(), e(), n()])
+    shape_df = g1.gfql_remote_shape([n(), e(), n()])
     assert len(shape_df) == 2
     print(shape_df)
 
@@ -170,7 +170,7 @@ Run remote python on the current graph
     # Upload any local graph data to the remote server
     g2 = g1.upload()
 
-    g3 = g2.chain_remote_python(my_remote_trim_graph_task)
+    g3 = g2.gfql_remote_python(my_remote_trim_graph_task)
 
     assert len(g3._nodes) == 10
     assert len(g3._edges) == 10
@@ -208,3 +208,105 @@ Run Python on an existing graph, return JSON
   obj = g.remote_python_json(first_n_edges_shape)
 
   assert obj['num_edges'] == 10
+
+
+Using Let for Complex Remote Queries
+------------------------------------
+
+The ``let`` feature is particularly powerful in remote mode where you cannot use Python escape hatches. It allows you to express complex multi-step graph programs entirely in GFQL.
+
+Basic Let Usage
+~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, ref
+    
+    # Complex analysis with named, reusable patterns
+    analysis = g1.gfql_remote({
+        # Find suspicious accounts
+        'suspicious': n({'risk_score': {'$gt': 0.8}}),
+        
+        # Get their transaction network
+        'tx_network': ref('suspicious').gfql([
+            n(),
+            e_forward({'type': 'transaction'}),
+            n()
+        ]),
+        
+        # Find high-value transactions in that network
+        'high_value': ref('tx_network').gfql([
+            e({'amount': {'$gt': 10000}})
+        ])
+    })
+    
+    # Access individual results
+    suspicious_accounts = analysis['suspicious']
+    high_value_txns = analysis['high_value']
+
+PageRank-Guided Remote Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Combine graph algorithms with pattern matching in a single remote query:
+
+.. code-block:: python
+
+    # Run PageRank and explore influential neighborhoods
+    investigation = g1.gfql_remote({
+        # Compute centrality metrics remotely
+        'ranked': g1.compute_pagerank(columns=['pagerank']),
+        
+        # Find top influencers
+        'influencers': ref('ranked').gfql([
+            n(node_query='pagerank > 0.02')
+        ]),
+        
+        # Get 2-hop neighborhoods
+        'influence_zones': ref('influencers').gfql([
+            n(),
+            e_forward(hops=2),
+            n(name='influenced')
+        ]),
+        
+        # Find transactions between influencers
+        'influencer_txns': ref('influencers').gfql([
+            n(),
+            e_forward({'type': 'transaction'}),
+            n({'_n': ref('influencers')._nodes.index})
+        ])
+    }, output='influence_zones')  # Return only the influence zones
+    
+    # Visualize with PageRank-based sizing
+    investigation.encode_point_size('pagerank').plot()
+
+Remote-Only Operations
+~~~~~~~~~~~~~~~~~~~~~
+
+Some operations are only practical in remote mode due to data size:
+
+.. code-block:: python
+
+    # Large-scale pattern mining
+    patterns = g1.gfql_remote({
+        # Find all triangles (computationally intensive)
+        'triangles': g1.gfql([
+            n(name='a'),
+            e_forward(),
+            n(name='b'),
+            e_forward(),
+            n(name='c'),
+            e_forward(),
+            n({'_n': ref('a')._nodes.index})
+        ]),
+        
+        # Filter to specific triangle types
+        'fraud_triangles': ref('triangles').gfql([
+            n({'a': True, 'type': 'account'}),
+            e({'type': 'transaction'}),
+            n({'b': True, 'type': 'merchant'}),
+            e({'type': 'payment'}),
+            n({'c': True, 'type': 'account'})
+        ])
+    }, engine='cudf')  # Force GPU for performance
+    
+    print(f"Found {len(patterns['fraud_triangles']._edges)} fraud triangles")

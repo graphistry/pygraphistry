@@ -176,7 +176,7 @@ Usage Examples
     from graphistry import n, gt, lt
 
     # Find nodes where age is greater than 18 and less than 30
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         n({ "age": gt(18) }),
         n({ "age": lt(30) })
     ])
@@ -188,7 +188,7 @@ Usage Examples
     from graphistry import n, is_in
 
     # Find nodes of type 'person' or 'company'
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         n({ "type": is_in(["person", "company"]) })
     ])
 
@@ -199,7 +199,7 @@ Usage Examples
     from graphistry import e_forward, contains
 
     # Find edges where the relation contains 'friend'
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         e_forward({ "relation": contains("friend") })
     ])
 
@@ -210,7 +210,7 @@ Usage Examples
     from graphistry import n, eq, gt
 
     # Find 'person' nodes with age greater than 18
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         n({
             "type": eq("person"),
             "age": gt(18)
