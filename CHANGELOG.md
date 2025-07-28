@@ -6,6 +6,17 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## Dev
+### Added
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
 
 ## [0.41.2 - 2025-08-28]
 
@@ -15,7 +26,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * shared types in `embed_types.py` and `umap_types.py`
 * Add `mode_action` to `.privacy`
 * Fixed `contains`, `startswith`, `endswith`, and `match` predicates to prevent error when run with cuDF
- 
 
 ## [0.41.1 - 2025-08-15]
 
@@ -45,13 +55,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.41.0 - 2025-07-26]
 
 ### Added
-* Typing: Add PEP 561 type distribution support (#714)
-  * Add py.typed marker file to enable type checking with mypy, pyright, and PyCharm
-  * Configure MANIFEST.in and setup.cfg to include py.typed in source and wheel distributions
-  * Add CI validation to prevent regressions where py.typed might be accidentally removed
-  * Enables accurate type information and autocompletion for PyGraphistry APIs
+* GFQL: Add comprehensive validation framework with detailed error reporting
+  * Built-in validation: `Chain()` constructor validates syntax automatically
+  * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
+  * Pre-execution validation: `g.chain(ops, validate_schema=True)` catches errors before execution
+  * Structured error types: `GFQLValidationError`, `GFQLSyntaxError`, `GFQLTypeError`, `GFQLSchemaError`
+  * Error codes (E1xx syntax, E2xx type, E3xx schema) for programmatic error handling
+  * Collect-all mode: `validate(collect_all=True)` returns all errors instead of fail-fast
+  * JSON validation: `Chain.from_json()` validates during parsing for safe LLM integration
+  * Helpful error suggestions for common mistakes
+  * Example notebook: `demos/gfql/gfql_validation_fundamentals.ipynb`
 
 ### Fixed
+* Docs: Fix case sensitivity in server toctree to link concurrency.rst (#723)
 * Docs: Fix notebook validation error in hop_and_chain_graph_pattern_mining.ipynb by adding missing 'outputs' field to code cell
 
 ### Infra
