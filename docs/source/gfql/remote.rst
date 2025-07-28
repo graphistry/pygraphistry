@@ -221,11 +221,12 @@ Basic Let Usage
 .. code-block:: python
 
     from graphistry import n, e_forward, ref
+    from graphistry.compute import gt
     
     # Complex analysis with named, reusable patterns
     analysis = g1.gfql_remote({
         # Find suspicious accounts
-        'suspicious': n({'risk_score': {'$gt': 0.8}}),
+        'suspicious': n({'risk_score': gt(0.8)}),
         
         # Get their transaction network
         'tx_network': ref('suspicious').gfql([
@@ -236,7 +237,7 @@ Basic Let Usage
         
         # Find high-value transactions in that network
         'high_value': ref('tx_network').gfql([
-            e({'amount': {'$gt': 10000}})
+            e({'amount': gt(10000)})
         ])
     })
     
