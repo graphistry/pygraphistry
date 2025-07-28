@@ -1,7 +1,7 @@
 from .ComputeMixin import ComputeMixin
 from .ast import (
     n, e, e_forward, e_reverse, e_undirected,
-    let, remote, ref
+    let, remote, ref, call
 )
 from .chain import Chain
 from .predicates.is_in import (
@@ -61,7 +61,7 @@ __all__ = [
     'ComputeMixin', 'Chain',
     # AST nodes
     'n', 'e', 'e_forward', 'e_reverse', 'e_undirected',
-    'let', 'remote', 'ref',
+    'let', 'remote', 'ref', 'call',
     # Predicates
     'is_in', 'IsIn',
     'duplicated', 'Duplicated',

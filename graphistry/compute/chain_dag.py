@@ -3,7 +3,7 @@ from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge
+from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
 from .execution_context import ExecutionContext
 
 logger = setup_logger(__name__)
@@ -291,6 +291,10 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
             output_type="all",  # Get full graph (nodes and edges)
             engine=cast(Literal["pandas", "cudf"], engine.value)
         )
+    elif isinstance(ast_obj, ASTCall):
+        # Execute method call with validation
+        from .call_executor import execute_call
+        result = execute_call(g, ast_obj.function, ast_obj.params, engine)
     else:
         # Other AST object types not yet implemented
         raise NotImplementedError(f"Execution of {type(ast_obj).__name__} not yet implemented")
@@ -315,7 +319,7 @@ def chain_dag_impl(g: Plottable, dag: ASTLet,
     :param output: Name of binding to return (default: last executed)
     :returns: Result from specified or last executed node
     :rtype: Plottable
-    :raises TypeError: If dag is not an ASTQueryDAG
+    :raises TypeError: If dag is not an ASTLet
     :raises RuntimeError: If node execution fails
     :raises ValueError: If output binding not found
     """
