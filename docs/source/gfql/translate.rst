@@ -384,12 +384,19 @@ Community Detection and Clustering
 
 .. code-block:: python
 
+    # Using compute_cugraph directly
     # g._nodes: df[['id', 'louvain']]
     g.compute_cugraph('louvain')._nodes
 
+    # Or using GFQL's call operation
+    from graphistry import Let, call
+    
+    # g._nodes: df[['id', 'louvain']]
+    Let('communities', call('louvain')).run(g)._nodes
+
 **Explanation**:
 
-- **GFQL**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box.
+- **GFQL**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. The :func:`call <graphistry.compute.Call.call>` operation in GFQL provides a unified interface to invoke these algorithms within GFQL queries. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box.
 
 ---
 
