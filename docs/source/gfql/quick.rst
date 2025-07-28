@@ -14,10 +14,47 @@ Basic Usage
 
     g.gfql(ops=[...], engine=EngineAbstract.AUTO)
 
-:meth:`chain <graphistry.compute.chain>` sequences multiple matchers for more complex patterns of paths and subgraphs
+:meth:`gfql <graphistry.PlotterBase.PlotterBase.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
 - **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
+
+Let Bindings and Call Operations
+---------------------------------
+
+**Let Bindings**
+
+.. code-block:: python
+
+    from graphistry import Let, n, e_forward, call
+    
+    # Sequential computations with named results
+    (Let('high_degree', n(query='degree > 10'))
+     .Let('clusters', call('louvain'))
+     .Let('subgraph', n({'cluster': 0}).gfql([e_forward(), n()]))
+     .run(g))
+
+:class:`Let <graphistry.compute.Let.Let>` enables sequential operations with named intermediate results:
+
+- Store results of queries, algorithms, or computations
+- Reference previous results in subsequent operations
+- Chain multiple operations cleanly
+
+**Call Operations**
+
+.. code-block:: python
+
+    # Call graph algorithms within GFQL
+    Let('result', call('pagerank')).run(g)
+    
+    # With parameters
+    Let('result', call('louvain', resolution=0.5)).run(g)
+
+:func:`call <graphistry.compute.Call.call>` invokes graph algorithms and computations:
+
+- Integrates with cuGraph, igraph, and other libraries
+- Returns results as node/edge attributes
+- See :doc:`call` for available operations
 
 Node Matchers
 -------------
