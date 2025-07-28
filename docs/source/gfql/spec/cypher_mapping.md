@@ -107,6 +107,42 @@ g.gfql([
 | `n.val IS NULL` | `is_null()` | `{"type": "IsNull"}` |
 | `n.val IS NOT NULL` | `not_null()` | `{"type": "NotNull"}` |
 
+### Query Structuring
+
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `WITH` clauses | `Let` bindings | `{"type": "Let", "name": "var", "value": {...}}` |
+| `CALL` procedures | `call()` operations | `{"type": "Call", "function": "name", "params": {...}}` |
+
+**WITH Clause Translation:**
+```cypher
+MATCH (u:User) 
+WITH u, count(*) as degree 
+WHERE degree > 5
+```
+
+**Python:**
+```python
+g.gfql(Let('high_degree_users', [
+    n({"type": "User"}),
+    call('get_degrees', {'col': 'degree'}),
+    n(query='degree > 5')
+]))
+```
+
+**Call Operation Translation:**
+```cypher
+CALL algo.pagerank() YIELD node, score
+```
+
+**Python:**
+```python
+g.gfql([
+    n(),
+    call('pagerank', {'out_col': 'score'})
+])
+```
+
 ## Complete Examples
 
 ### Friend of Friend
@@ -226,7 +262,6 @@ analysis = (trans_df
 ## Not Supported
 - `OPTIONAL MATCH` - No equivalent (would need outer joins)
 - `CREATE`, `DELETE`, `SET` - GFQL is read-only
-- `WITH` clauses - Requires intermediate variables
 - Multiple `MATCH` patterns - Use separate chains or joins
 
 ## Best Practices
