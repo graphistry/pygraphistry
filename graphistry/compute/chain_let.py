@@ -215,7 +215,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_let_impl(g, ast_obj, engine.value)
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -231,7 +231,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, engine.value)
+            result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
