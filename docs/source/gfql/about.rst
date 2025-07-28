@@ -220,15 +220,36 @@ You can explicitly set the engine to ensure GPU execution.
 - `engine='cudf'` forces the use of the GPU-accelerated engine.
 - Useful when you want to ensure the query runs on the GPU.
 
-Integration with PyData Ecosystem
----------------------------------
+Integration with PyData Ecosystem using Let and Call
+-----------------------------------------------------
 
-GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`.
+GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`. The `let` and `call` features enable powerful integrations while maintaining remote execution capabilities.
 
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 GFQL can be combined with graph algorithms in two ways: using Python escape hatches or pure GFQL with `let` bindings.
+
+**Example: Compute PageRank on the resulting graph**
+
+::
+
+    # Assuming g_result is the result from a GFQL query
+
+    # Compute PageRank using cuGraph (GPU)
+    g_enriched = g_result.compute_cugraph('pagerank')
+
+    # View top nodes by PageRank
+    top_nodes = g_enriched._nodes.sort_values('pagerank', ascending=False).head(5)
+    print('Top nodes by PageRank:')
+    print(top_nodes[['id', 'pagerank']])
+
+**Explanation:**
+
+- `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
+- The enriched graph now contains a `pagerank` column in the nodes dataframe.
+
+Now let's see how to integrate such algorithms into more complex workflows:
 
 **Python Escape Hatch Approach:**
 
@@ -273,25 +294,6 @@ The pure GFQL approach with `let` is especially powerful for:
 - **Composability**: Named intermediate results can be reused
 - **Readability**: Clear step-by-step logic
 - **Performance**: No data movement between steps
-
-**Example: Compute PageRank on the resulting graph**
-
-::
-
-    # Assuming g_result is the result from a GFQL query
-
-    # Compute PageRank using cuGraph (GPU)
-    g_enriched = g_result.compute_cugraph('pagerank')
-
-    # View top nodes by PageRank
-    top_nodes = g_enriched._nodes.sort_values('pagerank', ascending=False).head(5)
-    print('Top nodes by PageRank:')
-    print(top_nodes[['id', 'pagerank']])
-
-**Explanation:**
-
-- `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
-- The enriched graph now contains a `pagerank` column in the nodes dataframe.
 
 9. Visualizing the Graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~
