@@ -126,7 +126,7 @@ class TestGFQL:
         assert result is not None
     
     def test_gfql_with_single_ast_object(self):
-        """Test gfql with single ASTObject wraps in list"""
+        """Test gfql with single ASTObject requires allow_fragments=True"""
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c'],
             'type': ['person', 'person', 'company']
@@ -134,9 +134,13 @@ class TestGFQL:
         edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        # Single ASTObject should work
-        result = g.gfql(n({'type': 'person'}))
+        # Single ASTObject should fail by default
+        with pytest.raises(TypeError) as exc:
+            result = g.gfql(n({'type': 'person'}))
+        assert "allow_fragments=True" in str(exc.value)
         
+        # But work with allow_fragments=True
+        result = g.gfql(n({'type': 'person'}), allow_fragments=True)
         assert len(result._nodes) == 2
         assert all(result._nodes['type'] == 'person')
     
