@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
+from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 
 from graphistry.Plottable import Plottable

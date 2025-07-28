@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time
 from dateutil import parser as date_parser  # type: ignore[import]
@@ -6,7 +6,6 @@ import pandas as pd
 import pytz  # type: ignore[import]
 
 from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
-from graphistry.utils.json import JSONVal
 
 
 class TemporalValue(ABC):

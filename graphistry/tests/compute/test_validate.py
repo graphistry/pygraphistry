@@ -4,13 +4,14 @@ import pandas as pd
 import pytest
 from typing import List
 
-from graphistry.compute.gfql.validate import (
+from graphistry.compute.gfql import (
     validate_syntax, validate_schema, validate_query,
     extract_schema, extract_schema_from_dataframes,
     format_validation_errors, suggest_fixes,
-    ValidationIssue, Schema,
-    _format_error, _get_type_category
+    ValidationIssue, Schema
 )
+# Import internals directly from the module
+from graphistry.compute.gfql.validate.validate import _format_error, _get_type_category
 from graphistry.compute.ast import n, e_forward, e_reverse, e
 from graphistry.compute.predicates.numeric import gt, lt, between
 from graphistry.compute.predicates.str import contains, startswith
