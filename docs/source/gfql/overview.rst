@@ -64,7 +64,7 @@ Example: Find all nodes where the `type` is `"person"`.
 
     from graphistry import n
 
-    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
+    people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
     print('Number of person nodes:', len(people_nodes_df))
 
 **Visualize 2-Hop Edge Sequences with an Attribute**
@@ -75,7 +75,7 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
 
     from graphistry import n, e_forward
 
-    g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
+    g_2_hops = g.chain([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
 
 **Find Nodes 1-2 Hops Away and Label Each Hop**
@@ -86,7 +86,7 @@ Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
 
     from graphistry import n, e_undirected
 
-    g_2_hops = g.gfql([
+    g_2_hops = g.chain([
         n({g._node: "a"}),
         e_undirected(name="hop1"),
         e_undirected(name="hop2")
@@ -106,12 +106,12 @@ Example: Find recent transactions using temporal predicates.
     import pandas as pd
 
     # Find transactions after a specific date
-    recent = g.gfql([
+    recent = g.chain([
         n(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))})
     ])
     
     # Find transactions in a date range during business hours
-    business_hours_txns = g.gfql([
+    business_hours_txns = g.chain([
         n(edge_match={
             "date": between(date(2023, 6, 1), date(2023, 6, 30)),
             "time": between(time(9, 0), time(17, 0))
@@ -126,7 +126,7 @@ Example: Find transaction nodes between two kinds of risky nodes.
 
     from graphistry import n, e_forward, e_reverse
 
-    g_risky = g.gfql([
+    g_risky = g.chain([
         n({"risk1": True}),
         e_forward(to_fixed_point=True),
         n({"type": "transaction"}, name="hit"),
@@ -144,7 +144,7 @@ Example: Filter nodes and edges by multiple types.
 
     from graphistry import n, e_forward, e_reverse, is_in
 
-    g_filtered = g.gfql([
+    g_filtered = g.chain([
         n({"type": is_in(["person", "company"])}),
         e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
         n({"type": is_in(["transaction", "account"])}, name="hit"),
@@ -153,39 +153,6 @@ Example: Filter nodes and edges by multiple types.
     ])
     hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
     print('Number of filtered hits:', len(hits))
-
-**Sequence Complex Analysis with Let**
-
-Example: Use ``let`` to create reusable named patterns for multi-step graph analysis.
-
-.. code-block:: python
-
-    from graphistry import n, e_forward, ref
-    
-    # PageRank-guided analysis: find influencers and their impact zones
-    analysis = g.let({
-        # Compute centrality metrics
-        'ranked': g.compute_pagerank(columns=['pagerank']),
-        
-        # Find high-influence nodes
-        'influencers': ref('ranked').gfql([
-            n(node_query='pagerank > 0.01')
-        ]),
-        
-        # Analyze their immediate networks
-        'influence_network': ref('influencers').gfql([
-            n(),
-            e_forward(hops=2),
-            n(name='influenced')
-        ])
-    })
-    
-    # Access results
-    influential_nodes = analysis['influencers']._nodes
-    print(f'Found {len(influential_nodes)} influencers')
-    
-    # Visualize the influence network
-    analysis['influence_network'].encode_point_size('pagerank').plot()
 
 Leveraging GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -229,7 +229,7 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
 
 .. code-block:: python
 
-    g2 = g1.gfql([
+    g2 = g1.chain([
         n(),
         e(edge_query="vulnName == 'MS08067 (NetAPI)' & `time(max)` > 1421430000"),
         n(),
@@ -239,48 +239,6 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
     g2.plot()
 
 This GFQL query filters the edges based on the vulnerability name and time, then returns the matching nodes and edges for visualization.
-
-
-Sequencing Programs with Let
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For more complex analyses, GFQL's ``let`` feature allows you to create named, reusable graph patterns that can reference each other. This is particularly powerful for multi-step graph algorithms and investigations.
-
-**Example: PageRank-Guided Exploration**
-
-Imagine you want to find important nodes using PageRank, then explore everything within 2 hops of the high-scoring nodes:
-
-.. code-block:: python
-
-    # Run PageRank and explore high-scoring neighborhoods
-    g_analysis = g1.let({
-        # Step 1: Compute PageRank for all nodes
-        'ranked': g1.compute_pagerank(columns=['pagerank']),
-        
-        # Step 2: Filter to high PageRank nodes (top influencers)
-        'influencers': ref('ranked').gfql([
-            n(node_query='pagerank > 0.02')
-        ]),
-        
-        # Step 3: Get 2-hop neighborhoods around influencers
-        'influence_zone': ref('influencers').gfql([
-            n(),
-            e(hops=2),
-            n()
-        ])
-    })
-    
-    # Visualize the influence zones with PageRank-based sizing
-    g_analysis['influence_zone'].encode_point_size('pagerank').plot()
-
-This example demonstrates how ``let`` enables you to:
-
-1. **Sequence operations**: Each step builds on previous results
-2. **Name intermediate results**: Makes complex queries readable and debuggable
-3. **Combine algorithms with traversals**: Mix graph algorithms (PageRank) with pattern matching
-4. **Create reusable analysis pipelines**: Save and share investigation patterns
-
-The ``let`` syntax is especially powerful in remote mode where you can't use Python escape hatches, allowing you to express complex graph programs entirely in GFQL.
 
 
 Utilizing Hypergraphs

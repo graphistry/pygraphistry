@@ -45,11 +45,10 @@ GFQL programs are declarative graph-to-graph transformations:
 - Enable use cases like search, filter, enrich, and traverse
 - Express *what* to find (ex: Cypher), not *how* to find it (ex: Gremlin)
 
-#### Chains and DAGs
+#### Chains
 
 Path pattern expressions for matching graph structures:
-- **Chains**: Express linear graph patterns as sequences of node and edge matching operations
-- **DAGs**: Use Let bindings to define reusable named operations and complex directed acyclic patterns
+- Express graph patterns as sequences of node and edge matching operations
 - Similar to Cypher patterns but decomposed into composable steps
 - Define paths through the graph: start nodes → edges → end nodes
 - Each operation refines the pattern match based on previous results
@@ -82,21 +81,13 @@ Type system matching modern data formats:
 :caption: GFQL Grammar in Extended Backus-Naur Form
 
 (* Entry point *)
-query ::= chain | let_query
+query ::= chain
 
 (* Chain - path pattern expression *)
 chain ::= "[" operation ("," operation)* "]"
 
-(* Let query - DAG pattern at top level *)
-let_query ::= "{" binding ("," binding)* "}"
-
 (* Operations *)
-operation ::= node_matcher | edge_matcher | let_op | ref_op
-
-(* Let bindings for DAG patterns *)
-let_op ::= "let(" "{" binding ("," binding)* "}" ")"
-binding ::= identifier ":" operation
-ref_op ::= "ref(" identifier ("," "[" operation ("," operation)* "]")? ")"
+operation ::= node_matcher | edge_matcher
 
 (* Node Matcher *)
 node_matcher ::= "n(" node_params? ")"
@@ -370,9 +361,9 @@ people_nodes = result._nodes.query("people == True")
 
 This pattern is essential for extracting specific subsets from complex graph traversals.
 
-## Call Operations, Let Bindings, and Security
+## Call Operations and Security
 
-### Call Operations and Let Bindings
+### Call Operations
 
 GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
 
