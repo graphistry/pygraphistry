@@ -80,7 +80,7 @@ class ASTSerializable(ABC):
                         else:
                             from graphistry.compute.exceptions import ErrorCode
                             errors.append(GFQLValidationError(
-                                ErrorCode.E001,
+                                ErrorCode.E201,
                                 f"Validation error in child: {str(e)}",
                                 value=str(child)
                             ))
