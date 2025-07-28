@@ -328,7 +328,7 @@ def _validate_call_op(
     errors: List[GFQLSchemaError] = []
     
     # Import safelist to get schema effects
-    from graphistry.compute.call_safelist import SAFELIST_V1
+    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
     
     # Check if method is in safelist
     if op.function not in SAFELIST_V1:
