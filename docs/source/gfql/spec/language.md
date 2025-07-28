@@ -281,86 +281,6 @@ is_year_end()       # Last day of year
 is_leap_year()      # Is leap year
 ```
 
-## Type System
-
-### Value Types
-
-1. **Scalars**
-   - `number`: int, float
-   - `string`: Text values
-   - `boolean`: True/False
-   - `null`: None
-
-2. **Temporal Types**
-   - `datetime`: Timestamp with optional timezone
-   - `date`: Calendar date
-   - `time`: Time of day
-
-3. **Collections**
-   - `list`: Ordered sequence of values
-
-### Type Coercion
-
-GFQL performs automatic type coercion:
-- Python datetime → pandas Timestamp
-- Numeric types → appropriate precision
-- Collections → lists for `is_in()`
-
-## Execution Model
-
-### Declarative Pattern Matching
-
-GFQL follows a declarative execution model similar to Neo4j's Cypher:
-
-1. **Pattern Declaration**: Chains express path patterns in the graph
-   - Users declare graph patterns as sequences of node and edge constraints
-   - Patterns specify *what* paths to match, not *how* to find them
-   - The engine optimizes pattern matching based on data characteristics
-
-2. **Set-Based Operations**: All operations work on sets of entities
-   - No explicit iteration or traversal order
-   - Results include all matching patterns in the graph
-   - Current GFQL engines use a novel bulk-oriented execution model that is asymptotically faster than traditional iterative approaches used for Cypher, but this is not a requirement of the language itself
-
-3. **Lazy Evaluation**: Chains define pattern transformations without immediate execution
-   - Allows engines to optimize path finding and pattern matching strategies
-\
-### Result Access
-
-Query execution returns filtered node and edge datasets. In the Python embedding:
-
-```python
-result = g.chain([...])
-nodes_df = result._nodes  # Filtered nodes
-edges_df = result._edges  # Filtered edges
-```
-
-### Named Results
-
-Operations with `name` parameter add boolean columns to mark matched entities:
-
-```python
-result = g.chain([
-    n({"type": "person"}, name="people"),
-    e_forward(name="connections"),
-    n({"active": True}, name="active_targets")
-])
-
-# Access all matched nodes and edges:
-all_nodes = result._nodes
-all_edges = result._edges
-
-# Access specific matched nodes/edges using pandas filtering:
-people_nodes = result._nodes[result._nodes["people"]]
-connection_edges = result._edges[result._edges["connections"]]
-active_nodes = result._nodes[result._nodes["active_targets"]]
-
-# Or using standard pandas query syntax:
-people_nodes = result._nodes.query("people == True")
-```
-
-This pattern is essential for extracting specific subsets from complex graph traversals.
-
 ## Call Operations and Security
 
 ### Call Operations
@@ -473,6 +393,86 @@ Call operations use GFQL's standard error codes:
 - **E201**: Parameter type mismatch
 - **E303**: Unknown parameter
 - **E301**: Required column not found (runtime)
+
+## Type System
+
+### Value Types
+
+1. **Scalars**
+   - `number`: int, float
+   - `string`: Text values
+   - `boolean`: True/False
+   - `null`: None
+
+2. **Temporal Types**
+   - `datetime`: Timestamp with optional timezone
+   - `date`: Calendar date
+   - `time`: Time of day
+
+3. **Collections**
+   - `list`: Ordered sequence of values
+
+### Type Coercion
+
+GFQL performs automatic type coercion:
+- Python datetime → pandas Timestamp
+- Numeric types → appropriate precision
+- Collections → lists for `is_in()`
+
+## Execution Model
+
+### Declarative Pattern Matching
+
+GFQL follows a declarative execution model similar to Neo4j's Cypher:
+
+1. **Pattern Declaration**: Chains express path patterns in the graph
+   - Users declare graph patterns as sequences of node and edge constraints
+   - Patterns specify *what* paths to match, not *how* to find them
+   - The engine optimizes pattern matching based on data characteristics
+
+2. **Set-Based Operations**: All operations work on sets of entities
+   - No explicit iteration or traversal order
+   - Results include all matching patterns in the graph
+   - Current GFQL engines use a novel bulk-oriented execution model that is asymptotically faster than traditional iterative approaches used for Cypher, but this is not a requirement of the language itself
+
+3. **Lazy Evaluation**: Chains define pattern transformations without immediate execution
+   - Allows engines to optimize path finding and pattern matching strategies
+\
+### Result Access
+
+Query execution returns filtered node and edge datasets. In the Python embedding:
+
+```python
+result = g.chain([...])
+nodes_df = result._nodes  # Filtered nodes
+edges_df = result._edges  # Filtered edges
+```
+
+### Named Results
+
+Operations with `name` parameter add boolean columns to mark matched entities:
+
+```python
+result = g.chain([
+    n({"type": "person"}, name="people"),
+    e_forward(name="connections"),
+    n({"active": True}, name="active_targets")
+])
+
+# Access all matched nodes and edges:
+all_nodes = result._nodes
+all_edges = result._edges
+
+# Access specific matched nodes/edges using pandas filtering:
+people_nodes = result._nodes[result._nodes["people"]]
+connection_edges = result._edges[result._edges["connections"]]
+active_nodes = result._nodes[result._nodes["active_targets"]]
+
+# Or using standard pandas query syntax:
+people_nodes = result._nodes.query("people == True")
+```
+
+This pattern is essential for extracting specific subsets from complex graph traversals.
 
 ## Best Practices
 
