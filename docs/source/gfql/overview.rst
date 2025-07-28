@@ -64,7 +64,7 @@ Example: Find all nodes where the `type` is `"person"`.
 
     from graphistry import n
 
-    people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
+    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
     print('Number of person nodes:', len(people_nodes_df))
 
 **Visualize 2-Hop Edge Sequences with an Attribute**
@@ -75,7 +75,7 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
 
     from graphistry import n, e_forward
 
-    g_2_hops = g.chain([n(), e_forward({"interesting": True}, hops=2) ])
+    g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
 
 **Find Nodes 1-2 Hops Away and Label Each Hop**
@@ -86,7 +86,7 @@ Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
 
     from graphistry import n, e_undirected
 
-    g_2_hops = g.chain([
+    g_2_hops = g.gfql([
         n({g._node: "a"}),
         e_undirected(name="hop1"),
         e_undirected(name="hop2")
@@ -106,12 +106,12 @@ Example: Find recent transactions using temporal predicates.
     import pandas as pd
 
     # Find transactions after a specific date
-    recent = g.chain([
+    recent = g.gfql([
         n(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))})
     ])
     
     # Find transactions in a date range during business hours
-    business_hours_txns = g.chain([
+    business_hours_txns = g.gfql([
         n(edge_match={
             "date": between(date(2023, 6, 1), date(2023, 6, 30)),
             "time": between(time(9, 0), time(17, 0))
@@ -126,7 +126,7 @@ Example: Find transaction nodes between two kinds of risky nodes.
 
     from graphistry import n, e_forward, e_reverse
 
-    g_risky = g.chain([
+    g_risky = g.gfql([
         n({"risk1": True}),
         e_forward(to_fixed_point=True),
         n({"type": "transaction"}, name="hit"),
@@ -144,7 +144,7 @@ Example: Filter nodes and edges by multiple types.
 
     from graphistry import n, e_forward, e_reverse, is_in
 
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         n({"type": is_in(["person", "company"])}),
         e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
         n({"type": is_in(["transaction", "account"])}, name="hit"),
@@ -203,7 +203,7 @@ Example: Bind to remote data and run queries on remote GPU resources.
 
     g = graphistry.bind(dataset_id='my-dataset-id')
 
-    nodes_df = g.chain_remote([ n() ])._nodes
+    nodes_df = g.gfql_remote([ n() ])._nodes
 
 **Upload Data and Run GPU Python Remotely**
 
