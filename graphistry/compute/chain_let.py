@@ -215,7 +215,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_dag_impl(g, ast_obj, engine.value)
+        result = chain_let_impl(g, ast_obj, engine.value)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -236,7 +236,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
-        # For chain_dag, we execute nodes in a simpler way than chain()
+        # For chain_let, we execute nodes in a simpler way than chain()
         # No wavefront propagation - just filter the graph's nodes
         node_obj = cast(ASTNode, ast_obj)
         if node_obj.filter_dict or node_obj.query:
@@ -254,7 +254,7 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         if node_obj._name:
             result = result.nodes(result._nodes.assign(**{node_obj._name: True}))
     elif isinstance(ast_obj, ASTEdge):
-        # For chain_dag, execute edge operations using hop()
+        # For chain_let, execute edge operations using hop()
         # This is simpler than the full chain() wavefront approach
         result = g.hop(
             nodes=None,  # Start from all nodes
@@ -305,10 +305,10 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
     return result
 
 
-def chain_dag_impl(g: Plottable, dag: ASTLet, 
+def chain_let_impl(g: Plottable, dag: ASTLet, 
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
                   output: Optional[str] = None) -> Plottable:
-    """Internal implementation of chain_dag execution
+    """Internal implementation of chain_let execution
     
     Validates DAG, determines execution order, and executes nodes
     in topological order.
@@ -335,7 +335,7 @@ def chain_dag_impl(g: Plottable, dag: ASTLet,
     
     # Resolve engine
     engine_concrete = resolve_engine(engine, g)
-    logger.debug('chain_dag engine: %s => %s', engine, engine_concrete)
+    logger.debug('chain_let engine: %s => %s', engine, engine_concrete)
     
     # Materialize nodes if needed (following chain.py pattern)
     g = g.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
@@ -381,7 +381,7 @@ def chain_dag_impl(g: Plottable, dag: ASTLet,
         return last_result
 
 
-def chain_dag(self: Plottable, dag: ASTLet,
+def chain_let(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
              output: Optional[str] = None) -> Plottable:
     """
@@ -405,7 +405,7 @@ def chain_dag(self: Plottable, dag: ASTLet,
         dag = ASTLet({
             'people': n({'type': 'person'})
         })
-        result = g.chain_dag(dag)
+        result = g.chain_let(dag)
     
     **Example: Linear dependencies**
     
@@ -417,7 +417,7 @@ def chain_dag(self: Plottable, dag: ASTLet,
             'start': n({'type': 'person'}),
             'friends': ASTRef('start', [e(), n()])
         })
-        result = g.chain_dag(dag)
+        result = g.chain_let(dag)
     
     **Example: Diamond pattern**
     
@@ -430,9 +430,9 @@ def chain_dag(self: Plottable, dag: ASTLet,
             'branch2': ASTRef('transactions', [e()]), 
             'merged': g.union(ASTRef('branch1'), ASTRef('branch2'))
         })
-        result = g.chain_dag(dag)  # Returns last executed
+        result = g.chain_let(dag)  # Returns last executed
         
         # Or select specific output
-        people_result = g.chain_dag(dag, output='people')
+        people_result = g.chain_let(dag, output='people')
     """
-    return chain_dag_impl(self, dag, engine, output)
+    return chain_let_impl(self, dag, engine, output)

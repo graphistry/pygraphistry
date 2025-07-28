@@ -638,10 +638,10 @@ class ASTLet(ASTObject):
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
-        # Let bindings don't use wavefronts - execute via chain_dag_impl
-        from graphistry.compute.chain_dag import chain_dag_impl
+        # Let bindings don't use wavefronts - execute via chain_let_impl
+        from graphistry.compute.chain_let import chain_let_impl
         from graphistry.Engine import EngineAbstract
-        return chain_dag_impl(g, self, EngineAbstract(engine.value))
+        return chain_let_impl(g, self, EngineAbstract(engine.value))
     
     def reverse(self) -> 'ASTLet':
         raise NotImplementedError("Let reversal not supported")
@@ -831,7 +831,7 @@ class ASTCall(ASTObject):
         Raises:
             GFQLTypeError: If method not in safelist or parameters invalid
         """
-        # For chain_dag, we don't use wavefronts, just execute the call
+        # For chain_let, we don't use wavefronts, just execute the call
         from graphistry.compute.call_executor import execute_call
         return execute_call(g, self.function, self.params, engine)
     
