@@ -78,7 +78,7 @@ adults_df = result._nodes[result._nodes['adults']]
 connection_edges = result._edges[result._edges['connections']]
 ```
 
-### Ref (Reference to Named Bindings)
+### ChainRef (Reference to Named Bindings)
 
 The `ref()` function creates references to named bindings within a Let:
 
@@ -141,7 +141,7 @@ result = g.gfql(let({
 }))
 ```
 
-## Call Operations and Let Bindings
+## Call Operations
 
 GFQL supports calling Plottable methods through the `call()` function, providing a safe way to invoke graph transformations and analysis operations.
 

@@ -228,51 +228,6 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-GFQL can be combined with graph algorithms in two ways: using Python escape hatches or pure GFQL with `let` bindings.
-
-**Python Escape Hatch Approach:**
-
-::
-
-    # Traditional Python approach - requires local execution
-    # Step 1: Filter graph
-    g_filtered = g.gfql([n({'type': 'person'}), e(), n()])
-    
-    # Step 2: Compute PageRank (Python escape)
-    g_with_pr = g_filtered.compute_pagerank(columns=['pagerank'])
-    
-    # Step 3: Filter high PageRank nodes (Python escape)
-    high_pr_nodes = g_with_pr._nodes[g_with_pr._nodes['pagerank'] > 0.02]
-    g_high_pr = g_with_pr.nodes(high_pr_nodes)
-    
-    # Step 4: Get neighborhoods
-    g_result = g_high_pr.gfql([n(), e(hops=2), n()])
-
-**Pure GFQL Approach with Let:**
-
-::
-
-    # Pure GFQL - can run entirely on remote GPU
-    g_result = g.let({
-        # Step 1: Filter to persons
-        'persons': n({'type': 'person'}),
-        
-        # Step 2: Compute PageRank
-        'ranked': ref('persons').call('compute_pagerank', {'columns': ['pagerank']}),
-        
-        # Step 3: Filter high PageRank nodes  
-        'influencers': ref('ranked').gfql([n(node_query='pagerank > 0.02')]),
-        
-        # Step 4: Get 2-hop neighborhoods
-        'influence_zones': ref('influencers').gfql([n(), e(hops=2), n()])
-    })['influence_zones']
-
-The pure GFQL approach with `let` is especially powerful for:
-- **Remote execution**: Entire computation stays on the GPU server
-- **Composability**: Named intermediate results can be reused
-- **Readability**: Clear step-by-step logic
-- **Performance**: No data movement between steps
-
 **Example: Compute PageRank on the resulting graph**
 
 ::
@@ -383,33 +338,11 @@ Additional parameters enable controlling options such as the execution `engine` 
 Conclusion and Next Steps
 -------------------------
 
-9. Advanced: Let Bindings for Reusable Patterns
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For complex analysis requiring reusable components, use Let bindings to create DAG patterns:
-
-**Example: Multi-step investigation with named components**
-
-::
-
-    investigation = g.let({
-        'suspects': n({'risk_score': gt(8)}),
-        'contacts': ref('suspects').chain([e_undirected(), n()]),
-        'evidence': ref('contacts').chain([e_forward({'type': 'transaction'}), n()])
-    })
-
-**Explanation:**
-
-- `let()` creates named bindings that can reference each other.
-- `ref('suspects')` references the named suspects pattern.
-- Enables complex investigations with reusable, composable parts.
-
 Congratulations! You've covered the basics of GFQL in just 10 minutes. You've learned how to:
 
 - Query and filter nodes and edges using GFQL.
 - Chain multiple hops and apply advanced predicates.
 - Leverage GPU acceleration for high-performance graph querying.
-- Create reusable patterns with Let bindings for complex analysis.
 - Integrate GFQL with graph algorithms and visualization tools.
 
 **Next Steps:**
