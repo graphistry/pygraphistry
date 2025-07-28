@@ -268,6 +268,7 @@ GFQL can be combined with graph algorithms in two ways: using Python escape hatc
     })['influence_zones']
 
 The pure GFQL approach with `let` is especially powerful for:
+
 - **Remote execution**: Entire computation stays on the GPU server
 - **Composability**: Named intermediate results can be reused
 - **Readability**: Clear step-by-step logic
