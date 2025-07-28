@@ -540,7 +540,8 @@ class TestErrorHandling:
             g.gfql("not a dag")
         assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
         
-        with pytest.raises(AssertionError) as exc_info:
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql({'dict': 'not allowed'})
         assert "binding value must be ASTObject" in str(exc_info.value)
     

@@ -14,13 +14,15 @@ class TestLetValidation:
     
     def test_let_invalid_key_type(self):
         """Let with non-string key should fail"""
-        with pytest.raises(AssertionError, match="binding key must be string"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="binding key must be string"):
             dag = ASTLet({123: n()})
             dag.validate()
     
     def test_let_invalid_value_type(self):
         """Let with non-ASTObject value should fail"""
-        with pytest.raises(AssertionError, match="binding value must be ASTObject"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="binding value must be ASTObject"):
             dag = ASTLet({'a': 'not an AST object'})
             dag.validate()
     
@@ -47,19 +49,22 @@ class TestRemoteGraphValidation:
     
     def test_remoteGraph_invalid_dataset_type(self):
         """RemoteGraph with non-string dataset_id should fail"""
-        with pytest.raises(AssertionError, match="dataset_id must be a string"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="dataset_id must be a string"):
             rg = ASTRemoteGraph(123)
             rg.validate()
     
     def test_remoteGraph_empty_dataset(self):
         """RemoteGraph with empty dataset_id should fail"""
-        with pytest.raises(AssertionError, match="dataset_id cannot be empty"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="dataset_id cannot be empty"):
             rg = ASTRemoteGraph('')
             rg.validate()
     
     def test_remoteGraph_invalid_token_type(self):
         """RemoteGraph with non-string token should fail"""
-        with pytest.raises(AssertionError, match="token must be string or None"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="token must be string or None"):
             rg = ASTRemoteGraph('dataset', token=123)
             rg.validate()
 
@@ -77,25 +82,29 @@ class TestRefValidation:
     
     def test_ref_invalid_ref_type(self):
         """Ref with non-string ref should fail"""
-        with pytest.raises(AssertionError, match="ref must be a string"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="ref must be a string"):
             cr = ASTRef(123, [])
             cr.validate()
     
     def test_ref_empty_ref(self):
         """Ref with empty ref should fail"""
-        with pytest.raises(AssertionError, match="ref cannot be empty"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="ref cannot be empty"):
             cr = ASTRef('', [])
             cr.validate()
     
     def test_ref_invalid_chain_type(self):
         """Ref with non-list chain should fail"""
-        with pytest.raises(AssertionError, match="chain must be a list"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="chain must be a list"):
             cr = ASTRef('ref', 'not a list')
             cr.validate()
     
     def test_ref_invalid_chain_element(self):
         """Ref with non-ASTObject in chain should fail"""
-        with pytest.raises(AssertionError, match="must be ASTObject"):
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError, match="must be ASTObject"):
             cr = ASTRef('ref', [n(), 'not an AST object'])
             cr.validate()
     

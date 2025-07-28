@@ -34,7 +34,14 @@ class ASTSerializable(ABC):
             self._validate_fields()
             # Validate children
             for child in self._get_child_validators():
-                child.validate(collect_all=False)
+                if hasattr(child, 'validate'):
+                    # Check if validate method accepts collect_all parameter
+                    import inspect
+                    sig = inspect.signature(child.validate)
+                    if 'collect_all' in sig.parameters:
+                        child.validate(collect_all=False)
+                    else:
+                        child.validate()
             return None
 
         # Collect all errors mode
@@ -54,9 +61,29 @@ class ASTSerializable(ABC):
 
         # Collect child validation errors
         for child in self._get_child_validators():
-            child_errors = child.validate(collect_all=True)
-            if child_errors:
-                errors.extend(child_errors)
+            if hasattr(child, 'validate'):
+                # Check if validate method accepts collect_all parameter
+                import inspect
+                sig = inspect.signature(child.validate)
+                if 'collect_all' in sig.parameters:
+                    child_errors = child.validate(collect_all=True)
+                    if child_errors:
+                        errors.extend(child_errors)
+                else:
+                    # Old-style validate without collect_all
+                    try:
+                        child.validate()
+                    except Exception as e:
+                        from graphistry.compute.exceptions import GFQLValidationError
+                        if isinstance(e, GFQLValidationError):
+                            errors.append(e)
+                        else:
+                            from graphistry.compute.exceptions import ErrorCode
+                            errors.append(GFQLValidationError(
+                                ErrorCode.E001,
+                                f"Validation error in child: {str(e)}",
+                                value=str(child)
+                            ))
 
         return errors
 
