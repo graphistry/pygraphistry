@@ -259,7 +259,7 @@ Combine graph algorithms with pattern matching in a single remote query:
         
         # Find top influencers
         'influencers': ref('ranked').gfql([
-            n(node_query='pagerank > 0.02')
+            n(node_query='pagerank > 0.02', name='is_influencer')
         ]),
         
         # Get 2-hop neighborhoods
@@ -273,7 +273,7 @@ Combine graph algorithms with pattern matching in a single remote query:
         'influencer_txns': ref('influencers').gfql([
             n(),
             e_forward({'type': 'transaction'}),
-            n({'_n': ref('influencers')._nodes.index})
+            n({'is_influencer': True})
         ])
     }, output='influence_zones')  # Return only the influence zones
     
@@ -297,7 +297,7 @@ Some operations are only practical in remote mode due to data size:
             e_forward(),
             n(name='c'),
             e_forward(),
-            n({'_n': ref('a')._nodes.index})
+            n({'a': True})
         ]),
         
         # Filter to specific triangle types
