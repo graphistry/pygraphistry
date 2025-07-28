@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from graphistry.utils.json import JSONVal, serialize_to_json_val
 
@@ -68,11 +68,11 @@ class ASTSerializable(ABC):
         """
         pass
 
-    def _get_child_validators(self) -> List['ASTSerializable']:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Override in subclasses to return child AST nodes that need validation.
 
         Returns:
-            List of child AST nodes to validate
+            Sequence of child AST nodes to validate
         """
         return []
 
