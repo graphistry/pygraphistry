@@ -250,14 +250,28 @@ Anomaly Detection using RGCN Graph Neural Networks
     score2 = pd.Series(to_cpu(g2._score(g2._triplets)).numpy())
 
     # df[['score', 'is_low_score', ...]]
-    df.assign(
+    df_with_scores = df.assign(
         score=score2,
         is_low_score=(score2 < (score2.mean() - 2 * score2.std()))
     )
+    
+    # Use GFQL to explore anomalous edges and their connected nodes
+    from graphistry import n, e_forward
+    
+    # Update graph with anomaly scores
+    g3 = g2.edges(df_with_scores)
+    
+    # Find all anomalous edges and their connected nodes
+    g4 = g3.gfql([
+        n(),                                    # Start from any node
+        e_forward({'is_low_score': True}),      # Traverse anomalous edges
+        n(name='anomaly_connected')             # Mark connected nodes
+    ])
+    print(f'Found {len(g4._edges)} anomalous edges')
 
 **Explanation**:
 
-This example provides an introduction to building and training a basic Relational Graph Convolutional Network (RGCN) using :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.embed`. See the :doc:`SSH logs RGCN demo notebook <../demos/more_examples/graphistry_features/embed/simple-ssh-logs-rgcn-anomaly-detector>` for more on this example.
+This example provides an introduction to building and training a basic Relational Graph Convolutional Network (RGCN) using :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.embed`. It then demonstrates using GFQL to filter and explore the anomalous edges detected by the model. See the :doc:`SSH logs RGCN demo notebook <../demos/more_examples/graphistry_features/embed/simple-ssh-logs-rgcn-anomaly-detector>` for more on this example.
 
 ---
 
@@ -272,10 +286,20 @@ Cluster labeling with DBSCAN
 
     g2 = g1.umap().dbscan(eps=0.5, min_samples=5)  # Apply DBSCAN clustering
     print('labels: ', g2._nodes['_dbscan'])
+    
+    # Use GFQL to filter by cluster and explore one hop from cluster 0
+    from graphistry import n, e_forward
+    
+    g3 = g2.gfql([
+        n({'_dbscan': 0}),  # Start from nodes in cluster 0
+        e_forward(),        # Traverse one hop
+        n()                 # To any connected nodes
+    ])
+    print(f'Cluster 0 and its 1-hop neighbors: {len(g3._nodes)} nodes')
 
 **Explanation**:
 
-This example illustrates how to apply DBSCAN clustering using :meth:`graphistry.compute.cluster.ClusterMixin.dbscan` to label graph data after reducing dimensionality with UMAP.
+This example illustrates how to apply DBSCAN clustering using :meth:`graphistry.compute.cluster.ClusterMixin.dbscan` to label graph data after reducing dimensionality with UMAP. It then shows how to use GFQL to filter and explore specific clusters, such as finding all nodes in cluster 0 and their immediate neighbors.
 
 ---
 
@@ -313,12 +337,27 @@ Semantic Search in Graphs
     results_df, query_vector = g2.search('my natural language query => df hits', ...)
 
     g3 = g2.search_graph('my natural language query => graph', ...)
-    g3.plot()
+    
+    # Use GFQL to explore the search results and their context
+    from graphistry import n, e_forward
+    
+    # Find all nodes in search results and their 2-hop neighbors
+    g4 = g3.gfql([
+        n(name='search_hit'),     # Mark nodes from search results
+        e_forward(hops=2),        # Explore 2 hops out
+        n(name='context')         # Mark context nodes
+    ])
+    
+    # Filter to only highly connected search results
+    high_degree_hits = g4._nodes.query('search_hit')[g4.get_degrees()['degree'] > 5]
+    print(f'Found {len(high_degree_hits)} highly connected search results')
+    
+    g4.plot()
 
 
 **Explanation**:
 
-This example showcases how to perform semantic searches within graph data using embeddings. For further details on implementing semantic search, see the **Semantic Search** section in our documentation.
+This example showcases how to perform semantic searches within graph data using embeddings, then use GFQL to explore the search results and their graph context. The combination allows finding not just matching nodes but understanding their relationships and importance in the graph structure. For further details on implementing semantic search, see the **Semantic Search** section in our documentation.
 
 ---
 
@@ -334,19 +373,41 @@ Knowledge Graph Embeddings
       g2 = g1.embed(relation='relationship_column_of_interest')
 
       g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
-      g3.plot()
+      
+      # Use GFQL to explore predicted relationships
+      from graphistry import n, e_forward
+      
+      # Find entities with many predicted connections
+      g4 = g3.gfql([
+          n(),                                          # Start from any entity
+          e_forward({'predicted': True}, name='pred'),  # Traverse predicted edges
+          n(name='predicted_target')                    # Mark predicted targets
+      ])
+      
+      # Analyze specific relationship patterns
+      g5 = g3.gfql([
+          n({'type': 'entity_k'}),                      # Start from specific entity type
+          e_forward({
+              'relationship_column_of_interest': 'relationship_1',
+              'predicted': True
+          }),                                           # Follow specific predicted relationships
+          n({'type': 'entity_l'}, name='new_connection') # Find new connections
+      ])
+      
+      print(f'Found {len(g5._edges)} new predicted relationships of type relationship_1')
+      g5.plot()
 
-      # Score over any set of entities and/or relations. 
-      g4 = g2.predict_links(
+      # Score over any set of entities and/or relations
+      g6 = g2.predict_links(
         source=['entity_k'], 
-        relation=['relationship_1', 'relationship_4', ..], 
-        destination=['entity_l', 'entity_m', ..], 
+        relation=['relationship_1', 'relationship_4'], 
+        destination=['entity_l', 'entity_m'], 
         threshold=0.9,  # score threshold
         return_dataframe=False)  # return graph vs _edges df
 
 **Explanation**:
 
-This example describes how to train models for knowledge graph embeddings with **GFQL** and how to predict relationships between entities. Shows using both :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.embed`, :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.predict_links_all`, and :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.predict_links`.
+This example describes how to train models for knowledge graph embeddings and predict relationships between entities. It then demonstrates using GFQL to explore and analyze the predicted relationships, finding patterns and new connections in the knowledge graph. Shows using :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.embed`, :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.predict_links_all`, and :meth:`graphistry.embed_utils.HeterographEmbedModuleMixin.predict_links` in combination with GFQL queries.
 
 
 
