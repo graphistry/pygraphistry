@@ -383,6 +383,30 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'description': is_string
         },
         'description': 'Set visualization description'
+    },
+
+    # Layout with community detection
+    'group_in_a_box_layout': {
+        'allowed_params': {
+            'partition_alg', 'partition_params', 'layout_alg', 'layout_params',
+            'x', 'y', 'w', 'h', 'encode_colors', 'colors', 'partition_key', 'engine'
+        },
+        'required_params': set(),
+        'param_validators': {
+            'partition_alg': is_string_or_none,
+            'partition_params': is_dict,
+            'layout_alg': lambda v: v is None or is_string(v) or callable(v),
+            'layout_params': is_dict,
+            'x': lambda v: isinstance(v, (int, float)),
+            'y': lambda v: isinstance(v, (int, float)),
+            'w': lambda v: v is None or isinstance(v, (int, float)),
+            'h': lambda v: v is None or isinstance(v, (int, float)),
+            'encode_colors': is_bool,
+            'colors': lambda v: v is None or is_list_of_strings(v),
+            'partition_key': is_string_or_none,
+            'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
+        },
+        'description': 'Group-in-a-box layout with community detection'
     }
 }
 
