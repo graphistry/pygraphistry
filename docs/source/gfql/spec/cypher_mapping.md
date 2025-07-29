@@ -306,6 +306,153 @@ g.let({
 - `CREATE`, `DELETE`, `SET` - GFQL is read-only
 - Multiple disconnected `MATCH` patterns - Use separate chains or joins
 
+## Procedure and Function Mapping
+
+GFQL Call operations provide functionality similar to Neo4j procedures (especially APOC), with additional GPU acceleration and visualization capabilities.
+
+### Basic Procedure Calls
+
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `CALL algo.pageRank()` | `call('compute_cugraph', {'alg': 'pagerank'})` | `{"type": "ASTCall", "function": "compute_cugraph", "params": {"alg": "pagerank"}}` |
+| `CALL apoc.algo.louvain()` | `call('compute_cugraph', {'alg': 'louvain'})` | `{"type": "ASTCall", "function": "compute_cugraph", "params": {"alg": "louvain"}}` |
+| `CALL apoc.path.expand(n, '>KNOWS', null, 1, 3)` | `call('hop', {'hops': 3, 'edge_match': {'type': 'KNOWS'}})` | `{"type": "ASTCall", "function": "hop", "params": {"hops": 3, "edge_match": {"type": "KNOWS"}}}` |
+| `CALL apoc.degree.in(n)` | `call('get_indegrees')` | `{"type": "ASTCall", "function": "get_indegrees", "params": {}}` |
+
+### Algorithm Mapping
+
+#### Graph Algorithms
+
+| APOC/algo.* | GFQL Call | Description |
+|-------------|-----------|-------------|
+| `apoc.algo.pageRank` | `call('compute_cugraph', {'alg': 'pagerank', 'out_col': 'pr_score'})` | PageRank centrality (GPU) |
+| `apoc.algo.betweenness` | `call('compute_cugraph', {'alg': 'betweenness_centrality'})` | Betweenness centrality |
+| `apoc.algo.closeness` | `call('compute_igraph', {'alg': 'closeness'})` | Closeness centrality (CPU) |
+| `apoc.algo.louvain` | `call('compute_cugraph', {'alg': 'louvain', 'out_col': 'community'})` | Community detection |
+| `algo.shortestPath` | `call('compute_cugraph', {'alg': 'sssp'})` | Single-source shortest path |
+| `algo.unionFind` | `call('compute_cugraph', {'alg': 'connected_components'})` | Connected components |
+
+#### Path Operations
+
+| APOC/apoc.path.* | GFQL Call | Description |
+|------------------|-----------|-------------|
+| `apoc.path.expand` | `call('hop', {'hops': N})` | N-hop expansion |
+| `apoc.path.expandConfig` | `call('hop', {'hops': N, 'edge_match': {...}})` | Filtered expansion |
+| `apoc.path.spanningTree` | Use `hop` with `to_fixed_point=True` | Expand to fixed point |
+| `apoc.path.subgraphNodes` | `call('hop', {'return_as_wave_front': False})` | All nodes in path |
+
+#### Utility Operations
+
+| APOC/apoc.* | GFQL Call | Description |
+|-------------|-----------|-------------|
+| `apoc.create.nodes` | `call('materialize_nodes')` | Create nodes from edges |
+| `apoc.graph.fromData` | Direct DataFrame construction | Build from data |
+| `apoc.degree.*` | `call('get_degrees')`, `call('get_indegrees')`, etc. | Degree calculations |
+| `apoc.nodes.collapse` | `call('collapse', {'column': 'attr'})` | Merge nodes by attribute |
+
+### Complete Example: PageRank with Filtering
+
+**Cypher with APOC:**
+```cypher
+MATCH (n:Person) WHERE n.age > 30
+WITH collect(n) as nodes
+CALL apoc.algo.pageRank(nodes) YIELD node, score
+RETURN node.name, score
+ORDER BY score DESC LIMIT 10
+```
+
+**GFQL Python:**
+```python
+result = g.gfql([
+    n({'type': 'Person', 'age': gt(30)}),
+    call('compute_cugraph', {
+        'alg': 'pagerank',
+        'out_col': 'pagerank_score',
+        'params': {'alpha': 0.85}
+    })
+])
+top_10 = result._nodes.nlargest(10, 'pagerank_score')[['name', 'pagerank_score']]
+```
+
+**GFQL Wire Protocol:**
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {
+      "type": "Node",
+      "filter_dict": {
+        "type": "Person",
+        "age": {"type": "GT", "val": 30}
+      }
+    },
+    {
+      "type": "ASTCall",
+      "function": "compute_cugraph",
+      "params": {
+        "alg": "pagerank",
+        "out_col": "pagerank_score",
+        "params": {"alpha": 0.85}
+      }
+    }
+  ]
+}
+```
+
+### GFQL-Exclusive Features
+
+These Call operations have no direct APOC equivalent:
+
+#### Visual Encoding
+```python
+# Color nodes by community
+call('encode_point_color', {
+    'column': 'community',
+    'palette': ['blue', 'red', 'green']
+})
+
+# Size nodes by importance
+call('encode_point_size', {
+    'column': 'pagerank_score',
+    'as_continuous': True
+})
+
+# Set node icons by type
+call('encode_point_icon', {
+    'column': 'node_type',
+    'categorical_mapping': {
+        'person': 'user',
+        'company': 'building'
+    }
+})
+```
+
+#### GPU-Accelerated Layouts
+```python
+# Force-directed layout
+call('layout_cugraph', {
+    'layout': 'force_atlas2',
+    'params': {'iterations': 500}
+})
+
+# Hierarchical layout
+call('layout_graphviz', {
+    'prog': 'dot',
+    'directed': True
+})
+```
+
+### Performance Advantages
+
+GFQL Call operations offer significant performance benefits:
+
+1. **GPU Acceleration**: `compute_cugraph` methods run on NVIDIA GPUs
+2. **Bulk Operations**: Process entire graphs vs node-by-node iteration
+3. **DataFrame Integration**: Zero-copy transitions between graph and tabular operations
+4. **Parallel Execution**: All operations vectorized for CPU/GPU parallelism
+
+For complete Call operation reference, see the [Built-in Call Reference](../builtin_calls.rst).
+
 ## Best Practices
 
 1. **Direct Translation First**: Try pure GFQL before adding DataFrame operations
