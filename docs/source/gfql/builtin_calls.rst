@@ -100,6 +100,34 @@ Layout Algorithms
         call('fa2_layout')
         call('fa2_layout', {'iterations': 500})
 
+**group_in_a_box_layout**
+    Apply group-in-a-box layout that organizes nodes into rectangular regions by community.
+    
+    .. code-block:: python
+    
+        # Basic usage - auto-detect communities
+        call('group_in_a_box_layout')
+        
+        # Use specific partition algorithm
+        call('group_in_a_box_layout', {
+            'partition_alg': 'louvain',
+            'engine': 'cpu'
+        })
+        
+        # Use existing partition column
+        call('group_in_a_box_layout', {
+            'partition_key': 'department',
+            'encode_colors': True
+        })
+        
+        # Full control over layout
+        call('group_in_a_box_layout', {
+            'partition_alg': 'louvain',
+            'layout_alg': 'force_atlas2',
+            'x': 0, 'y': 0, 'w': 1000, 'h': 1000,
+            'colors': ['#ff0000', '#00ff00', '#0000ff']
+        })
+
 Graph Structure
 ~~~~~~~~~~~~~~~
 
@@ -228,6 +256,7 @@ GPU-accelerated methods include:
 - hop
 - filter operations
 - most graph algorithms
+- group_in_a_box_layout (when engine='gpu')
 
 See Also
 --------

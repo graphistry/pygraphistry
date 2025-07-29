@@ -37,6 +37,8 @@ When translating from Cypher, you'll encounter three scenarios:
 - **Dataframe-native**: Zero-cost transitions between graph and tabular operations
 - **GPU acceleration**: Massively parallel execution on NVIDIA hardware
 - **Heterogeneous graphs**: No schema constraints on types or properties
+- **Integrated visualization**: Built-in layouts like `group_in_a_box_layout` for community visualization
+- **Algorithm chaining**: Seamlessly combine community detection with layout algorithms
 
 ## Quick Example
 
