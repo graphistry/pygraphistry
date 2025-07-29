@@ -61,13 +61,13 @@ You can filter nodes based on their properties using the `n()` function.
 
     from graphistry import n
 
-    people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
+    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
     print('Number of person nodes:', len(people_nodes_df))
 
 **Explanation:**
 
 - `n({"type": "person"})` filters nodes where the `type` property is `"person"`.
-- `g.chain([...])` applies the chain of operations to the graph `g`.
+- `g.gfql([...])` applies the chain of operations to the graph `g`.
 - `._nodes` retrieves the resulting nodes dataframe.
 
 2. Find 2-Hop Edge Sequences with an Attribute
@@ -81,7 +81,7 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 
     from graphistry import e_forward
 
-    g_2_hops = g.chain([ e_forward({"interesting": True}, hops=2) ])
+    g_2_hops = g.gfql([ e_forward({"interesting": True}, hops=2) ])
     print('Number of edges in 2-hop paths:', len(g_2_hops._edges))
     g_2_hops.plot()
 
@@ -101,7 +101,7 @@ Label hops in your traversal to analyze specific relationships.
 
     from graphistry import n, e_undirected
 
-    g_2_hops = g.chain([
+    g_2_hops = g.gfql([
         n({g._node: "a"}), 
         e_undirected(name="hop1"), 
         e_undirected(name="hop2")
@@ -127,7 +127,7 @@ Chain multiple traversals to find patterns between nodes.
 
     from graphistry import n, e_forward, e_reverse
 
-    g_risky = g.chain([
+    g_risky = g.gfql([
         n({"risk1": True}),
         e_forward(to_fixed_point=True),
         n({"type": "transaction"}, name="hit"),
@@ -155,7 +155,7 @@ Use the `is_in` predicate to filter nodes or edges by multiple values.
 
     from graphistry import n, e_forward, e_reverse, is_in
 
-    g_filtered = g.chain([
+    g_filtered = g.gfql([
         n({"type": is_in(["person", "company"])}),
         e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
         n({"type": is_in(["transaction", "account"])}, name="hit"),
@@ -195,7 +195,7 @@ GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU
     g_gpu = graphistry.edges(e_gdf, 'src', 'dst').nodes(n_gdf, 'id')
 
     # Run GFQL query (executes on GPU)
-    g_result = g_gpu.chain([ ... ])
+    g_result = g_gpu.gfql([ ... ])
     print('Number of resulting edges:', len(g_result._edges))
 
 **Explanation:**
@@ -213,7 +213,7 @@ You can explicitly set the engine to ensure GPU execution.
 
 ::
 
-    g_result = g_gpu.chain([ ... ], engine='cudf')
+    g_result = g_gpu.gfql([ ... ], engine='cudf')
 
 **Explanation:**
 
@@ -259,7 +259,7 @@ Use PyGraphistry's visualization capabilities to explore your graph.
     from graphistry import n, e
 
     # Filter nodes with high PageRank
-    g_high_pagerank = g_enriched.chain([
+    g_high_pagerank = g_enriched.gfql([
         n(query='pagerank > 0.1'), 
         e(), 
         n(query='pagerank > 0.1')
@@ -284,7 +284,7 @@ You may want to run GFQL remotely because the data is remote or a GPU is availab
 
     from graphistry import n, e
 
-    g2 = g1.chain_remote([n(), e(), n()])
+    g2 = g1.gfql_remote([n(), e(), n()])
 
 **Example: Run GFQL remotely, and decouple the upload step**
 
@@ -294,7 +294,7 @@ You may want to run GFQL remotely because the data is remote or a GPU is availab
 
     g2 = g1.upload()
     assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
-    g3 = g2.chain_remote([n(), e(), n()])
+    g3 = g2.gfql_remote([n(), e(), n()])
 
 Additional parameters enable controlling options such as the execution `engine` and what is returned 
 
@@ -307,8 +307,8 @@ Additional parameters enable controlling options such as the execution `engine` 
 
     g2 = graphistry.bind(dataset_id='my-dataset-id')
 
-    nodes_df = g2.chain_remote([n()])._nodes
-    edges_df = g2.chain_remote([e()])._edges
+    nodes_df = g2.gfql_remote([n()])._nodes
+    edges_df = g2.gfql_remote([e()])._edges
 
 **Example: Run Python on remote GPUs over remote data**
 
