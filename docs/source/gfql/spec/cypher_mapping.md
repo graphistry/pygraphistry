@@ -37,6 +37,8 @@ When translating from Cypher, you'll encounter three scenarios:
 - **Dataframe-native**: Zero-cost transitions between graph and tabular operations
 - **GPU acceleration**: Massively parallel execution on NVIDIA hardware
 - **Heterogeneous graphs**: No schema constraints on types or properties
+- **Integrated visualization**: Built-in layouts like `group_in_a_box_layout` for community visualization
+- **Algorithm chaining**: Seamlessly combine community detection with layout algorithms
 
 ## Quick Example
 
@@ -48,7 +50,7 @@ WHERE p.age > 30
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "Person", "age": gt(30)}, name="p"),
     e_forward({"type": "FOLLOWS"}, name="r"),
     n({"type": "Person"}, name="q")
@@ -107,6 +109,42 @@ g.chain([
 | `n.val IS NULL` | `is_null()` | `{"type": "IsNull"}` |
 | `n.val IS NOT NULL` | `not_null()` | `{"type": "NotNull"}` |
 
+### Query Structuring
+
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `WITH` clauses | `Let` bindings | `{"type": "Let", "name": "var", "value": {...}}` |
+| `CALL` procedures | `call()` operations | `{"type": "Call", "function": "name", "params": {...}}` |
+
+**WITH Clause Translation:**
+```cypher
+MATCH (u:User) 
+WITH u, count(*) as degree 
+WHERE degree > 5
+```
+
+**Python:**
+```python
+g.gfql(Let('high_degree_users', [
+    n({"type": "User"}),
+    call('get_degrees', {'col': 'degree'}),
+    n(query='degree > 5')
+]))
+```
+
+**Call Operation Translation:**
+```cypher
+CALL algo.pagerank() YIELD node, score
+```
+
+**Python:**
+```python
+g.gfql([
+    n(),
+    call('pagerank', {'out_col': 'score'})
+])
+```
+
 ## Complete Examples
 
 ### Friend of Friend
@@ -119,7 +157,7 @@ WHERE fof.active = true
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "User", "name": "Alice"}),
     e_forward({"type": "FRIEND"}, hops=2),
     n({"type": "User", "active": True}, name="fof")
@@ -145,7 +183,7 @@ WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "Account"}),
     e_forward({
         "type": "TRANSFER", 
@@ -183,7 +221,7 @@ LIMIT 10
 **Python:**
 ```python
 # Step 1: Graph pattern
-result = g.chain([
+result = g.gfql([
     n({"type": "User"}),
     e_forward({"type": "TRANSACTION", "date": gt(date(2024,1,1))}, name="trans"),
     n({"type": "Merchant"})
@@ -226,7 +264,6 @@ analysis = (trans_df
 ## Not Supported
 - `OPTIONAL MATCH` - No equivalent (would need outer joins)
 - `CREATE`, `DELETE`, `SET` - GFQL is read-only
-- `WITH` clauses - Requires intermediate variables
 - Multiple `MATCH` patterns - Use separate chains or joins
 
 ## Best Practices
