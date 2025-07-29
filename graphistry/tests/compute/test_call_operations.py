@@ -151,6 +151,60 @@ class TestASTCall:
         # so we don't test it here
 
 
+class TestGroupInABoxExecution:
+    """Test actual execution of group_in_a_box_layout."""
+    
+    @pytest.fixture
+    def simple_graph(self):
+        """Create a simple graph for testing."""
+        edges_df = pd.DataFrame({
+            'source': [0, 1, 2, 3, 4, 5],
+            'target': [1, 2, 0, 4, 5, 3]
+        })
+        nodes_df = pd.DataFrame({
+            'node': [0, 1, 2, 3, 4, 5],
+            'type': ['A', 'A', 'A', 'B', 'B', 'B']
+        })
+        return CGFull()\
+            .edges(edges_df)\
+            .nodes(nodes_df)\
+            .bind(source='source', destination='target', node='node')
+    
+    def test_group_in_a_box_basic(self, simple_graph):
+        """Test basic group_in_a_box_layout execution."""
+        result = execute_call(
+            simple_graph,
+            'group_in_a_box_layout',
+            {'engine': 'cpu'},
+            Engine.PANDAS
+        )
+        
+        # Should still have same number of nodes/edges
+        assert len(result._nodes) == len(simple_graph._nodes)
+        assert len(result._edges) == len(simple_graph._edges)
+        
+        # Should have position columns
+        assert 'x' in result._nodes.columns
+        assert 'y' in result._nodes.columns
+    
+    def test_group_in_a_box_with_partition_key(self, simple_graph):
+        """Test group_in_a_box_layout with existing partition key."""
+        result = execute_call(
+            simple_graph,
+            'group_in_a_box_layout',
+            {
+                'partition_key': 'type',
+                'engine': 'cpu',
+                'encode_colors': True
+            },
+            Engine.PANDAS
+        )
+        
+        # Should have positions
+        assert 'x' in result._nodes.columns
+        assert 'y' in result._nodes.columns
+
+
 class TestCallExecution:
     """Test call execution functionality."""
     
@@ -392,3 +446,40 @@ class TestGraphAlgorithmCalls:
             'fa2_params': {'iterations': 500}
         })
         assert params['fa2_params']['iterations'] == 500
+    
+    def test_group_in_a_box_layout_params(self):
+        """Test group_in_a_box_layout parameter validation."""
+        # Valid params with all types
+        params = validate_call_params('group_in_a_box_layout', {
+            'partition_alg': 'louvain',
+            'partition_params': {'resolution': 1.0},
+            'layout_alg': 'force_atlas2',
+            'layout_params': {'iterations': 100},
+            'x': 0,
+            'y': 0,
+            'w': 1000,
+            'h': 1000,
+            'encode_colors': True,
+            'colors': ['#ff0000', '#00ff00'],
+            'partition_key': 'community',
+            'engine': 'cpu'
+        })
+        assert params['partition_alg'] == 'louvain'
+        assert params['engine'] == 'cpu'
+        
+        # Minimal params (all optional)
+        params = validate_call_params('group_in_a_box_layout', {})
+        assert params == {}
+        
+        # Test type validations
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('group_in_a_box_layout', {
+                'x': 'not_a_number'  # Should be numeric
+            })
+        assert exc_info.value.code == ErrorCode.E201
+        
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('group_in_a_box_layout', {
+                'engine': 'invalid_engine'  # Should be in allowed list
+            })
+        assert exc_info.value.code == ErrorCode.E201
