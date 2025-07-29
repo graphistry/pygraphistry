@@ -32,6 +32,7 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
     }))
 
 All Call operations:
+
 - Validate parameters against type and value constraints
 - Return a modified graph (immutable - original is unchanged)
 - Can add columns to nodes or edges (schema effects)
@@ -166,6 +167,7 @@ Run CPU-based graph algorithms using igraph.
 **Supported Algorithms:**
 
 Similar to cuGraph but on CPU, including:
+
 - **pagerank**: PageRank centrality
 - **community_multilevel**: Louvain community detection
 - **betweenness**: Betweenness centrality
@@ -405,6 +407,7 @@ Compute GPU-accelerated graph layouts.
      - Animation frames
 
 **Supported Layouts:**
+
 - **force_atlas2**: Force-directed layout
 
 **Example:**
@@ -473,6 +476,7 @@ Compute CPU-based graph layouts using igraph.
      - Animation frames
 
 **Supported Layouts:**
+
 - **kamada_kawai**: Kamada-Kawai layout
 - **fruchterman_reingold**: Fruchterman-Reingold force-directed
 - **circle**: Circular layout
@@ -541,6 +545,7 @@ Compute layouts using Graphviz algorithms.
      - Animation frames
 
 **Supported Programs:**
+
 - **dot**: Hierarchical layout
 - **neato**: Spring model layout
 - **fdp**: Force-directed layout
@@ -1233,6 +1238,7 @@ Call operations validate all parameters and will raise specific errors:
         print(f"Error {e.code}: {e.message}")  # E201: Type mismatch
 
 Common Error Codes:
+
 - **E303**: Function not in safelist
 - **E105**: Missing required parameter
 - **E201**: Parameter type mismatch
