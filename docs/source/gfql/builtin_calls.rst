@@ -44,7 +44,7 @@ Graph Analysis Methods
 compute_cugraph
 ~~~~~~~~~~~~~~~
 
-Run GPU-accelerated graph algorithms using cuGraph.
+Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai/cugraph>`_, part of the `NVIDIA RAPIDS <https://rapids.ai/>`_ ecosystem.
 
 **Parameters:**
 
@@ -128,10 +128,15 @@ Run GPU-accelerated graph algorithms using cuGraph.
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
 
+**Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
+
+.. note::
+   For workloads taking 5 seconds to 5 hours on CPU, consider using :ref:`gfql-remote` to offload computation to a GPU-enabled server.
+
 compute_igraph
 ~~~~~~~~~~~~~~
 
-Run CPU-based graph algorithms using igraph.
+Run CPU-based graph algorithms using `igraph <https://igraph.org/>`_, the comprehensive network analysis library.
 
 **Parameters:**
 
@@ -202,6 +207,11 @@ Similar to cuGraph but on CPU, including:
     ])
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
+
+**Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
+
+.. note::
+   For graphs with millions of edges, consider using ``compute_cugraph`` with a GPU for 10-50x speedup, or :ref:`gfql-remote` if no local GPU is available.
 
 get_degrees
 ~~~~~~~~~~~
@@ -575,7 +585,10 @@ Compute layouts using Graphviz algorithms.
 fa2_layout
 ~~~~~~~~~~
 
-Apply ForceAtlas2 layout algorithm.
+Apply ForceAtlas2 layout algorithm (CPU-based implementation).
+
+.. note::
+   This is a CPU-based ForceAtlas2 implementation. For GPU acceleration, use ``call('layout_cugraph', {'layout': 'force_atlas2'})`` instead.
 
 **Parameters:**
 
@@ -1297,5 +1310,5 @@ See Also
 --------
 
 - :ref:`gfql-quick` - GFQL quick reference
-- :ref:`gfql-spec` - Complete GFQL specification  
-- :ref:`gfql-predicates` - Predicate reference for filtering
+- :ref:`gfql-specifications` - Complete GFQL specification  
+- :ref:`gfql-predicates-quick` - Predicate reference for filtering

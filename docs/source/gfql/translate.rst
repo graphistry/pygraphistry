@@ -425,7 +425,7 @@ GFQL provides built-in graph algorithms through the Call operation, similar to N
 
     from graphistry import call, n, e_forward, gt
     
-    # PageRank (GPU-accelerated)
+    # PageRank (GPU-accelerated for large graphs)
     top_pagerank = g.gfql([
         call('compute_cugraph', {
             'alg': 'pagerank',
@@ -434,15 +434,25 @@ GFQL provides built-in graph algorithms through the Call operation, similar to N
         })
     ])._nodes.nlargest(10, 'pagerank_score')
     
-    # Betweenness Centrality
+    # Betweenness Centrality (CPU version for precise results)
     g_centrality = g.gfql([
-        call('compute_cugraph', {
-            'alg': 'betweenness_centrality',
-            'out_col': 'betweenness'
+        call('compute_igraph', {
+            'alg': 'betweenness',
+            'out_col': 'betweenness_score',
+            'directed': True
         })
     ])
     
-    # Path operations using hop
+    # Built-in degree calculation (optimized internal method)
+    g_degrees = g.gfql([
+        call('get_degrees', {
+            'col': 'total_degree',
+            'col_in': 'in_degree', 
+            'col_out': 'out_degree'
+        })
+    ])
+    
+    # Path operations using hop (graph-native traversal)
     paths = g.gfql([
         n({'name': 'Alice'}),
         call('hop', {
@@ -469,8 +479,8 @@ GFQL provides built-in graph algorithms through the Call operation, similar to N
      - call('compute_cugraph', {'alg': 'louvain'})
      - GPU-accelerated
    * - apoc.algo.betweenness
-     - call('compute_cugraph', {'alg': 'betweenness_centrality'})
-     - GPU-accelerated
+     - call('compute_igraph', {'alg': 'betweenness'})
+     - CPU for accuracy
    * - apoc.path.expand
      - call('hop', {'hops': N})
      - Bulk parallel execution
@@ -480,6 +490,9 @@ GFQL provides built-in graph algorithms through the Call operation, similar to N
    * - apoc.algo.community
      - call('compute_igraph', {'alg': 'community_multilevel'})
      - CPU alternative
+   * - apoc.degree.*
+     - call('get_degrees', {'col': 'degree'})
+     - Built-in optimized
    * - apoc.graph.generate
      - Use Python graph generators
      - Direct DataFrame creation
@@ -511,17 +524,19 @@ Beyond APOC procedures, GFQL Call operations provide:
         })
     ])
     
-    # Combined analysis and visualization
+    # Combined analysis and visualization (mixing backends)
     g_analyzed = g.gfql([
-        # Filter to important nodes
+        # Filter to important nodes (built-in method)
         call('get_degrees', {'col': 'degree'}),
         n({'degree': gt(10)}),
-        # Run community detection
+        # Run community detection (GPU for speed)
         call('compute_cugraph', {'alg': 'louvain', 'out_col': 'community'}),
+        # Calculate closeness (CPU-only algorithm)
+        call('compute_igraph', {'alg': 'closeness', 'out_col': 'closeness'}),
         # Color by community
         call('encode_point_color', {'column': 'community'}),
-        # Size by degree
-        call('encode_point_size', {'column': 'degree'})
+        # Size by closeness centrality
+        call('encode_point_size', {'column': 'closeness'})
     ])
 
 **Performance Comparison**
