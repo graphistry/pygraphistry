@@ -94,3 +94,4 @@ docs/source/demos
 # AI assistant working directories
 AI_PROGRESS/
 PLAN.md
+test_env/
