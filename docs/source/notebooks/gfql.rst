@@ -8,6 +8,7 @@ GFQL Graph queries
 
    Intro to graph queries with hop and chain <../demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb>
    GFQL Validation Fundamentals <../demos/gfql/gfql_validation_fundamentals.ipynb>
+   Call Operations <../demos/gfql/call_operations.ipynb>
    DateTime Filtering Examples <../demos/gfql/temporal_predicates.ipynb>
    GPU Benchmarking <../demos/gfql/benchmark_hops_cpu_gpu.ipynb>
    GFQL Remote mode <../demos/gfql/gfql_remote.ipynb>
