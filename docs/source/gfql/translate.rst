@@ -171,7 +171,7 @@ Performing Multi-Hop Traversals
 
 **Explanation**:
 
-- **GFQL**: Starts at node `"Alice"`, performs two forward hops, and obtains nodes two steps away. Results are in `nodes_df`. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
+- **GFQL**: The ``gfql([...])`` pattern is GFQL's equivalent to Cypher's MATCH, but executes as bulk vector joins for performance. Starting at node `"Alice"`, it performs two forward hops and obtains nodes two steps away. Results are standard pandas/cuDF DataFrames. Building on the expressive and performance benefits of the previous 1-hop example, it demonstrates the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
 
 ---
 
@@ -349,19 +349,28 @@ All Paths and Connectivity
 
     # g._edges: df[['src', 'dst', ...]]
     # g._nodes: df[['id', ...]]
+    
+    # Manual path tracking with 'p' attribute
     g.gfql([
-        n({"id": "Alice"}), 
+        n({"id": "Alice", "p": True}), 
         e_forward(
             source_node_query='type == "person"',
             edge_query='type == "friend"',
             destination_node_query='type == "person"',
-            to_fixed_point=True), 
-        n({"id": "Bob"})
+            to_fixed_point=True,
+            name="p"), 
+        n({"id": "Bob", "p": True})
     ])
+    
+    # Filter path elements: result._nodes[result._nodes["p"]] or result._edges[result._edges["p"]]
+
+.. tip::
+   
+   **Manual Path Tracking in GFQL**: Since GFQL doesn't have automatic path annotation, you can manually tag nodes and edges with a boolean attribute (e.g., ``"p": True``) and use the ``name`` parameter to mark traversed edges. This allows you to filter path elements later using standard DataFrame operations.
 
 **Explanation**:
 
-- **GFQL**: Uses `e(to_fixed_point=True)` to find edge sequences of arbitrary length between nodes `"Alice"` and `"Bob"`. The SQL and Pandas version suffer from syntactic and semantic imepedance mismatch with graph tasks on this example.
+- **GFQL**: Uses `e(to_fixed_point=True)` to find edge sequences of arbitrary length between nodes `"Alice"` and `"Bob"`. Manual path tracking is achieved by tagging nodes and edges with attributes. The SQL and Pandas versions suffer from syntactic and semantic impedance mismatch with graph tasks on this example.
 
 ---
 
@@ -396,7 +405,7 @@ Community Detection and Clustering
 
 **Explanation**:
 
-- **GFQL**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. The :func:`call <graphistry.compute.Call.call>` operation in GFQL provides a unified interface to invoke these algorithms within GFQL queries. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box.
+- **GFQL**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. The :func:`call <graphistry.compute.Call.call>` operation in GFQL provides a unified interface to invoke these algorithms within GFQL queries. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box. Unlike Cypher (which uses external APOC/GDS libraries), GFQL integrates GPU-native algorithms directly via ``call(...)``, with support for chaining, filtering, and visualization.
 
 ---
 
@@ -503,10 +512,9 @@ Parallel Pathfinding
 
 **Explanation**:
 
-
-- **Cypher**: Cypher processes paths individually and does not support native parallelism. Libraries like APOC or GDS offer a way to achieve parallel execution, but this adds complexity.
+- **Cypher**: Cannot perform multi-target pathfinding in parallel without APOC or external workarounds. Cypher processes paths individually due to its per-path recursion model, creating performance bottlenecks for multiple targets.
   
-- **GFQL**: GFQL natively supports parallel pathfinding using a bulk wavefront algorithm, processing all paths at once, making it highly efficient in GPU-accelerated environments.
+- **GFQL**: Natively supports parallel pathfinding via wavefront join execution, processing all paths simultaneously. This bulk vector approach, combined with GPU acceleration, delivers significant performance advantages for multi-target scenarios.
 
 ---
 
@@ -717,6 +725,70 @@ GFQL provides built-in graph algorithms through the Call operation, similar to N
      - ~2s
      - ~0.5s
      - ~0.05s
+
+Feature Comparison
+------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 10 10 10 10 15
+
+   * - Feature
+     - GFQL
+     - Cypher
+     - GSQL
+     - SQL
+     - Pandas
+   * - Pattern match
+     - ✅
+     - ✅
+     - ✅
+     - JOIN
+     - ❌
+   * - Multi-hop
+     - ✅
+     - ✅
+     - ✅
+     - CTE
+     - ❌
+   * - Path return (``MATCH p=...``)
+     - 🟡
+     - ✅
+     - ✅
+     - ❌
+     - ❌
+   * - Optional match
+     - ❌
+     - ✅
+     - ✅
+     - LEFT JOIN
+     - ❌
+   * - GPU execution
+     - ✅
+     - ❌
+     - ❌
+     - ❌
+     - ✅ (cuDF)
+   * - Aggregations
+     - 🟡
+     - ✅
+     - ✅
+     - ✅
+     - ✅
+   * - Procedural logic
+     - ❌
+     - ❌
+     - ✅
+     - ✅
+     - ✅
+   * - Visualization
+     - ✅
+     - ❌
+     - ❌
+     - ❌
+     - 🟡
+
+**Legend**: ✅ Native support | 🟡 Partial/Manual support | ❌ Not supported
 
 Tips for Users
 --------------
