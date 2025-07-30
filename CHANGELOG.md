@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * Docs: Fix case sensitivity in server toctree to link concurrency.rst (#723)
+* Logging: stop attaching a handler if one exists, let caller decide how to log
 
 ## [0.41.0 - 2025-07-26]
 
