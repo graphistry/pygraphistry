@@ -752,13 +752,13 @@ Feature Comparison
      - CTE
      - **No**
    * - Path return (``MATCH p=...``)
-     - **Partial**
+     - **Partial**\ :sup:`1`
      - **Yes**
      - **Yes**
      - **No**
      - **No**
    * - Optional match
-     - **No**
+     - **No**\ :sup:`2`
      - **Yes**
      - **Yes**
      - LEFT JOIN
@@ -770,13 +770,13 @@ Feature Comparison
      - **No**
      - **Yes** (cuDF)
    * - Aggregations
-     - **Partial**
+     - **Partial**\ :sup:`3`
      - **Yes**
      - **Yes**
      - **Yes**
      - **Yes**
    * - Procedural logic
-     - **No**
+     - **Partial**\ :sup:`4`
      - **No**
      - **Yes**
      - **Yes**
@@ -786,9 +786,21 @@ Feature Comparison
      - **No**
      - **No**
      - **No**
-     - **Partial**
+     - **Partial**\ :sup:`5`
 
 **Legend**: **Yes** = Native support | **Partial** = Partial/Manual support | **No** = Not supported
+
+**Footnotes**:
+
+:sup:`1` **Path return**: GFQL does not return nested path objects, but users can tag steps (e.g., ``name='p'``, ``path_id``) to simulate ``MATCH p = ... RETURN p``.
+
+:sup:`2` **Optional match**: Not natively supported in GFQL yet, but could be emulated via post-join left merges.
+
+:sup:`3` **Aggregations**: Done outside GFQL using Pandas/cuDF on ``.nodes`` and ``.edges``.
+
+:sup:`4` **Procedural logic**: GFQL core is declarative, but users can compose DAGs via ``Let(...)`` and use embedded Python for loops, filters, and transformation.
+
+:sup:`5` **Visualization**: GFQL includes built-in ``.plot()``/``encode_*()`` methods; Pandas requires external libraries (matplotlib, seaborn, etc.).
 
 Tips for Users
 --------------
