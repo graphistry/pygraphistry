@@ -740,55 +740,55 @@ Feature Comparison
      - SQL
      - Pandas
    * - Pattern match
-     - ✅
-     - ✅
-     - ✅
+     - **Yes**
+     - **Yes**
+     - **Yes**
      - JOIN
-     - ❌
+     - **No**
    * - Multi-hop
-     - ✅
-     - ✅
-     - ✅
+     - **Yes**
+     - **Yes**
+     - **Yes**
      - CTE
-     - ❌
+     - **No**
    * - Path return (``MATCH p=...``)
-     - 🟡
-     - ✅
-     - ✅
-     - ❌
-     - ❌
+     - **Partial**
+     - **Yes**
+     - **Yes**
+     - **No**
+     - **No**
    * - Optional match
-     - ❌
-     - ✅
-     - ✅
+     - **No**
+     - **Yes**
+     - **Yes**
      - LEFT JOIN
-     - ❌
+     - **No**
    * - GPU execution
-     - ✅
-     - ❌
-     - ❌
-     - ❌
-     - ✅ (cuDF)
+     - **Yes**
+     - **No**
+     - **No**
+     - **No**
+     - **Yes** (cuDF)
    * - Aggregations
-     - 🟡
-     - ✅
-     - ✅
-     - ✅
-     - ✅
+     - **Partial**
+     - **Yes**
+     - **Yes**
+     - **Yes**
+     - **Yes**
    * - Procedural logic
-     - ❌
-     - ❌
-     - ✅
-     - ✅
-     - ✅
+     - **No**
+     - **No**
+     - **Yes**
+     - **Yes**
+     - **Yes**
    * - Visualization
-     - ✅
-     - ❌
-     - ❌
-     - ❌
-     - 🟡
+     - **Yes**
+     - **No**
+     - **No**
+     - **No**
+     - **Partial**
 
-**Legend**: ✅ Native support | 🟡 Partial/Manual support | ❌ Not supported
+**Legend**: **Yes** = Native support | **Partial** = Partial/Manual support | **No** = Not supported
 
 Tips for Users
 --------------
