@@ -366,4 +366,4 @@ gt(pd.Timestamp("2023-01-01"))  # Correct: Use pandas Timestamp
 
 - [GFQL Predicates API Reference](../api/gfql/predicates.rst)
 - [GFQL Chain Operations](../api/gfql/chain.rst)
-- [Wire Protocol Reference](wire_protocol_examples.md)
+- [Wire Protocol Reference](spec/wire_protocol_examples.md)
