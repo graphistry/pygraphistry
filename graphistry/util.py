@@ -41,9 +41,14 @@ def setup_logger(name='', verbose=VERBOSE, fullpath=TRACE):
         else:
             logger.setLevel(os.environ['LOG_LEVEL'])
 
-    if not logger.handlers and (verbose is not None or os.environ.get('LOG_LEVEL', None) is not None):
+    if (
+        not bool(logging.getLogger().handlers)
+        and not logger.handlers  # don't double-attach
+        and (verbose is not None or os.environ.get('LOG_LEVEL'))
+    ):
         logger.addHandler(get_handler(short=False))
 
+    logger.propagate = True
     return logger
 
 
