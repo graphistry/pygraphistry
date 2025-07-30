@@ -208,3 +208,106 @@ Run Python on an existing graph, return JSON
   obj = g.remote_python_json(first_n_edges_shape)
 
   assert obj['num_edges'] == 10
+
+
+Using Let for Complex Remote Queries
+------------------------------------
+
+The ``let`` feature is particularly powerful in remote mode where you cannot use Python escape hatches. It allows you to express complex multi-step graph programs entirely in GFQL.
+
+Basic Let Usage
+~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, ref
+    from graphistry.compute import gt
+
+    # Complex analysis with named, reusable patterns
+    analysis = g1.gfql_remote({
+        # Find suspicious accounts
+        'suspicious': n({'risk_score': gt(0.8)}),
+
+        # Get their transaction network
+        'tx_network': ref('suspicious').gfql([
+            n(),
+            e_forward({'type': 'transaction'}),
+            n()
+        ]),
+
+        # Find high-value transactions in that network
+        'high_value': ref('tx_network').gfql([
+            e({'amount': gt(10000)})
+        ])
+    })
+
+    # Access individual results
+    suspicious_accounts = analysis['suspicious']
+    high_value_txns = analysis['high_value']
+
+PageRank-Guided Remote Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Combine graph algorithms with pattern matching in a single remote query:
+
+.. code-block:: python
+
+    # Run PageRank and explore influential neighborhoods
+    investigation = g1.gfql_remote({
+        # Compute centrality metrics remotely
+        'ranked': g1.compute_pagerank(columns=['pagerank']),
+
+        # Find top influencers
+        'influencers': ref('ranked').gfql([
+            n(node_query='pagerank > 0.02', name='is_influencer')
+        ]),
+
+        # Get 2-hop neighborhoods
+        'influence_zones': ref('influencers').gfql([
+            n(),
+            e_forward(hops=2),
+            n(name='influenced')
+        ]),
+
+        # Find transactions between influencers
+        'influencer_txns': ref('influencers').gfql([
+            n(),
+            e_forward({'type': 'transaction'}),
+            n({'is_influencer': True})
+        ])
+    }, output='influence_zones')  # Return only the influence zones
+
+    # Visualize with PageRank-based sizing
+    investigation.encode_point_size('pagerank').plot()
+
+Remote-Only Operations
+~~~~~~~~~~~~~~~~~~~~~
+
+Some operations are only practical in remote mode due to data size:
+
+.. code-block:: python
+
+    # Large-scale pattern mining
+    patterns = g1.gfql_remote({
+        # Find all triangles (computationally intensive)
+        'triangles': g1.gfql([
+            n(name='a'),
+            e_forward(),
+            n(name='b'),
+            e_forward(),
+            n(name='c'),
+            e_forward(),
+            n({'a': True})
+        ]),
+
+        # Filter to specific triangle types
+        'fraud_triangles': ref('triangles').gfql([
+            n({'a': True, 'type': 'account'}),
+            e({'type': 'transaction'}),
+            n({'b': True, 'type': 'merchant'}),
+            e({'type': 'payment'}),
+            n({'c': True, 'type': 'account'})
+        ])
+    }, engine='cudf')  # Force GPU for performance
+
+    print(f"Found {len(patterns['fraud_triangles']._edges)} fraud triangles")

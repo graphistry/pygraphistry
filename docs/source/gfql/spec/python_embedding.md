@@ -42,7 +42,7 @@ Graph edges can be accessed similarly:
 from graphistry import n, e_forward
 
 # Execute a chain
-result = g.chain([
+result = g.gfql([
     n({"type": "person"}),
     e_forward(),
     n()
@@ -51,6 +51,100 @@ result = g.chain([
 # Access results
 nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
+```
+
+## DAG Patterns with Let Bindings
+
+GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which allow you to define named graph operations that can reference each other.
+
+### Let Bindings
+
+```python
+from graphistry import let, ref, n, e_forward
+
+# Define DAG patterns with named bindings
+result = g.gfql(let({
+    'persons': n({'type': 'person'}),
+    'adults': ref('persons', [n({'age': ge(18)})]),
+    'connections': ref('adults', [
+        e_forward({'type': 'knows'}),
+        ref('adults')  # Find connections between adults
+    ])
+}))
+
+# Access individual binding results
+persons_df = result._nodes[result._nodes['persons']]
+adults_df = result._nodes[result._nodes['adults']]
+connection_edges = result._edges[result._edges['connections']]
+```
+
+### Ref (Reference to Named Bindings)
+
+The `ref()` function creates references to named bindings within a Let:
+
+```python
+# Basic reference - just the binding result
+result = g.gfql(let({
+    'base': n({'status': 'active'}),
+    'extended': ref('base')  # Just references 'base'
+}))
+
+# Reference with additional operations
+result = g.gfql(let({
+    'suspects': n({'risk_score': gt(80)}),
+    'lateral_movement': ref('suspects', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})
+    ])
+}))
+```
+
+### Complex DAG Patterns
+
+```python
+# Multi-level analysis pattern
+result = g.gfql(let({
+    # Find high-value accounts
+    'high_value': n({'balance': gt(100000)}),
+
+    # Find transactions from high-value accounts
+    'high_value_txns': ref('high_value', [
+        e_forward({'type': 'transaction', 'amount': gt(10000)})
+    ])
+}))
+```
+
+### Remote Dataset Usage
+
+```python
+from graphistry import remote_dataset
+
+# Load a public dataset
+remote_g = remote_dataset('public-dataset-id')
+result = remote_g.gfql([n({'type': 'user'})])
+
+# Load a private dataset with authentication
+remote_g = remote_dataset('private-dataset-id', token='auth-token')
+
+# Use remote dataset in Let bindings
+result = g.gfql(let({
+    'remote_data': remote_dataset('dataset-123'),
+    'filtered': ref('remote_data', [n({'active': True})])
+}))
+```
+
+## Call Operations and Let Bindings
+
+### Call with Let Bindings
+
+```python
+from graphistry import let, ref, call
+
+# Combine Let bindings with Call operations
+result = g.gfql(let({
+    'ranked': call('pagerank'),
+    'influencers': ref('ranked', [n(node_query='pagerank > 0.02')])
+}))
 ```
 
 ## Engine Selection
@@ -63,9 +157,9 @@ GFQL supports multiple execution engines:
 
 ```python
 # Force specific engine
-g.chain([...], engine='cudf')  # GPU execution
-g.chain([...], engine='pandas')  # CPU execution
-g.chain([...], engine='auto')  # Auto-select
+g.gfql([...], engine='cudf')  # GPU execution
+g.gfql([...], engine='pandas')  # CPU execution
+g.gfql([...], engine='auto')  # Auto-select
 ```
 
 ## Python-Specific Values
@@ -123,7 +217,7 @@ chain = Chain([
 You have two options for validating queries against your data schema:
 
 1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
-2. **Validate-and-run**: Use `g.chain(..., validate_schema=True)` to validate before execution
+2. **Validate-and-run**: Use `g.gfql(..., validate_schema=True)` to validate before execution
 
 ```python
 # Method 1: Validate-only (no execution)
@@ -139,7 +233,7 @@ except GFQLSchemaError as e:
 
 # Method 2: Runtime validation (automatic)
 try:
-    result = g.chain([
+    result = g.gfql([
         n({'missing_column': 'value'})
     ])  # Validates during execution, raises GFQLSchemaError
 except GFQLSchemaError as e:
@@ -147,7 +241,7 @@ except GFQLSchemaError as e:
 
 # Method 3: Validate-and-run (pre-execution validation)
 try:
-    result = g.chain([
+    result = g.gfql([
         n({'missing_column': 'value'})
     ], validate_schema=True)  # Validates first, only executes if valid
 except GFQLSchemaError as e:
@@ -200,7 +294,7 @@ errors = validate_chain_schema(g, chain, collect_all=True)
 from graphistry.compute.exceptions import GFQLValidationError, GFQLSchemaError
 
 try:
-    result = g.chain([
+    result = g.gfql([
         n({'age': 'twenty-five'})  # Type mismatch
     ])
 except GFQLSchemaError as e:
@@ -238,27 +332,27 @@ n({"created": gt(pd.Timestamp("2024-01-01"))})
 print(g._nodes.columns)  # ['id', 'type', 'name']
 
 # Wrong - Column doesn't exist
-g.chain([n({"username": "Alice"})])  # KeyError
+g.gfql([n({"username": "Alice"})])  # KeyError
 
 # Correct - Use existing column
-g.chain([n({"name": "Alice"})])
+g.gfql([n({"name": "Alice"})])
 ```
 
 ### Unsupported Operations
 
 ```python
 # Wrong - Can't aggregate in chain
-# g.chain([n(), e(), count()])
+# g.gfql([n(), e(), count()])
 
 # Correct - Aggregate after chain
-result = g.chain([n(), e()])
+result = g.gfql([n(), e()])
 count = len(result._edges)
 
 # Wrong - OPTIONAL MATCH not supported
 # No direct GFQL equivalent
 
 # Correct - Handle optionality in post-processing
-result = g.chain([n(), e_forward()])
+result = g.gfql([n(), e_forward()])
 # Check for nodes without edges
 nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._source])]
 ```
@@ -271,16 +365,16 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 node_filters = {"type": "User"}
 if min_age:
     node_filters["age"] = gt(min_age)
-g.chain([n(node_filters)])
+g.gfql([n(node_filters)])
 
 # Avoid: Hardcoded query strings
-g.chain([n(query=f"type == 'User' and age > {min_age}")])  # SQL injection risk
+g.gfql([n(query=f"type == 'User' and age > {min_age}")])  # SQL injection risk
 ```
 
 ### Memory Efficiency
 ```python
 # Good: Filter early and use named results
-result = g.chain([
+result = g.gfql([
     n({"active": True}, name="active_users"),  # Filter first
     e_forward({"recent": True})
 ])

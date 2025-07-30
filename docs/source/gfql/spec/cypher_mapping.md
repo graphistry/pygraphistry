@@ -145,6 +145,174 @@ g.gfql([
 ])
 ```
 
+## WITH Clause Mapping: Let Bindings
+
+Cypher's `WITH` clause for intermediate variables maps to GFQL's Let bindings for reusable patterns.
+
+### Basic WITH Pattern
+
+**Cypher:**
+```cypher
+MATCH (u:User)-[:FRIEND]->(f)
+WITH u, count(f) as friend_count
+WHERE friend_count > 5
+MATCH (u)-[:TRANSACTION]->(t:Transaction)
+```
+
+**Python:**
+```python
+from graphistry import Let, n, e_forward, ref, gt
+
+Let('social_users', n({'type': 'User'}).gfql([e_forward({'type': 'FRIEND'}), n()])) \
+    .Let('high_social', ref('social_users').gfql([n({'friend_count': gt(5)})])) \
+    .Let('transactions', ref('high_social').gfql([e_forward({'type': 'TRANSACTION'}), n({'type': 'Transaction'})])) \
+    .run(g)
+```
+
+### Pattern Reuse
+
+**Cypher:**
+```cypher
+MATCH (p:Person {risk_score: > 8})
+WITH p as suspects
+MATCH (suspects)-[:CONNECTED]-(contacts)
+WITH suspects, contacts
+MATCH (contacts)-[:TRANSACTION]->(evidence)
+```
+
+**Python:**
+```python
+Let('suspects', n({'type': 'Person', 'risk_score': gt(8)})) \
+    .Let('contacts', ref('suspects').gfql([e_undirected({'type': 'CONNECTED'}), n()])) \
+    .Let('evidence', ref('contacts').gfql([e_forward({'type': 'TRANSACTION'}), n()])) \
+    .run(g)
+```
+
+**Note:** GFQL Let bindings provide more flexibility than Cypher WITH - patterns can reference multiple previous bindings and form complex DAG structures.
+
+## Procedure and Function Mapping
+
+GFQL Call operations provide functionality similar to Neo4j procedures (especially APOC), with additional GPU acceleration and visualization capabilities.
+
+### Basic Procedure Calls
+
+| Cypher | Python | Wire Protocol |
+|--------|--------|---------------|
+| `CALL algo.pageRank()` | `call('compute_cugraph', {'alg': 'pagerank'})` | `{"type": "ASTCall", "function": "compute_cugraph", "params": {"alg": "pagerank"}}` |
+| `CALL apoc.algo.louvain()` | `call('compute_cugraph', {'alg': 'louvain'})` | `{"type": "ASTCall", "function": "compute_cugraph", "params": {"alg": "louvain"}}` |
+| `CALL apoc.path.expand(n, '>KNOWS', null, 1, 3)` | `call('hop', {'hops': 3, 'edge_match': {'type': 'KNOWS'}})` | `{"type": "ASTCall", "function": "hop", "params": {"hops": 3, "edge_match": {"type": "KNOWS"}}}` |
+| `CALL apoc.degree.in(n)` | `call('get_indegrees')` | `{"type": "ASTCall", "function": "get_indegrees", "params": {}}` |
+
+### GPU vs CPU Decision Guide
+
+Before choosing between `compute_cugraph` (GPU) and `compute_igraph` (CPU), consider:
+
+**When to use GPU (`compute_cugraph`):**
+- Large graphs (>100K edges)
+- NVIDIA GPU available (CUDA-enabled)
+- Batch processing multiple algorithms
+- Real-time interactive analytics
+- Algorithms: pagerank, louvain, betweenness_centrality, etc.
+
+**When to use CPU (`compute_igraph`):**
+- Smaller graphs (<100K edges)
+- No GPU available
+- Need algorithms not in cuGraph
+- Development/testing environments
+- Algorithms: all centrality measures, community detection, paths
+
+**Performance Guidelines:**
+- GPU can be 10-50x faster on large graphs
+- CPU more efficient for graphs <10K edges
+- GPU requires data transfer overhead
+- CPU has more algorithm variety
+
+### Algorithm Mapping
+
+#### Comprehensive Algorithm Comparison
+
+| APOC/algo.* | GFQL GPU (cuGraph) | GFQL CPU (igraph) | Notes |
+|-------------|-------------------|-------------------|--------|
+| `apoc.algo.pageRank` | `call('compute_cugraph', {'alg': 'pagerank'})` | `call('compute_igraph', {'alg': 'pagerank'})` | GPU 10-50x faster on large graphs |
+| `apoc.algo.betweenness` | `call('compute_cugraph', {'alg': 'betweenness_centrality'})` | `call('compute_igraph', {'alg': 'betweenness'})` | GPU version handles directed graphs better |
+| `apoc.algo.closeness` | Not available | `call('compute_igraph', {'alg': 'closeness'})` | CPU-only algorithm |
+| `apoc.algo.louvain` | `call('compute_cugraph', {'alg': 'louvain'})` | `call('compute_igraph', {'alg': 'community_multilevel'})` | Different names, same algorithm |
+| `algo.shortestPath` | `call('compute_cugraph', {'alg': 'sssp'})` | `call('compute_igraph', {'alg': 'shortest_paths'})` | GPU version is single-source only |
+| `algo.unionFind` | `call('compute_cugraph', {'alg': 'connected_components'})` | `call('compute_igraph', {'alg': 'clusters'})` | GPU version faster for large graphs |
+| `apoc.algo.eigenvector` | `call('compute_cugraph', {'alg': 'eigenvector_centrality'})` | `call('compute_igraph', {'alg': 'eigenvector_centrality'})` | Similar performance |
+| `apoc.algo.katz` | `call('compute_cugraph', {'alg': 'katz_centrality'})` | Not available | GPU-only algorithm |
+| `algo.degree` | Not needed - use `call('get_degrees')` | Not needed - use `call('get_degrees')` | Built-in GFQL operation |
+| `apoc.algo.hits` | `call('compute_cugraph', {'alg': 'hits'})` | `call('compute_igraph', {'alg': 'hub_score'})` + `authority_score` | GPU computes both, CPU needs two calls |
+| `apoc.algo.triangleCount` | `call('compute_cugraph', {'alg': 'triangle_count'})` | `call('compute_igraph', {'alg': 'transitivity_local_undirected'})` | Different output formats |
+| `apoc.algo.kcore` | `call('compute_cugraph', {'alg': 'k_core'})` | `call('compute_igraph', {'alg': 'coreness'})` | Similar functionality |
+
+#### Algorithm Availability Matrix
+
+**GPU-Exclusive (cuGraph only):**
+- `katz_centrality` - Katz centrality measure
+- `bfs` - Breadth-first search from source
+- `sssp` - Single-source shortest path
+- `strongly_connected_components` - For directed graphs
+
+**CPU-Exclusive (igraph only):**
+- `closeness` - Closeness centrality
+- `harmonic_centrality` - Harmonic centrality
+- `constraint` - Burt's constraint
+- `diversity` - Vertex diversity
+- `maximal_cliques` - Find all maximal cliques
+- `modularity` - Calculate modularity score
+- Many statistical and layout algorithms
+
+**Available in Both:**
+- PageRank (different parameter names)
+- Community detection (louvain/community_multilevel)
+- Betweenness centrality
+- Eigenvector centrality
+- Connected components (connected_components/clusters)
+- Degree calculations
+- Triangle counting (different output formats)
+
+### Algorithm Examples: GPU vs CPU Comparison
+
+#### Example 1: PageRank with Filtering
+
+**Cypher with APOC:**
+```cypher
+MATCH (n:Person) WHERE n.age > 30
+WITH collect(n) as nodes
+CALL apoc.algo.pageRank(nodes) YIELD node, score
+RETURN node.name, score
+ORDER BY score DESC LIMIT 10
+```
+
+**GFQL GPU Version (for large graphs >100K edges):**
+```python
+# Use GPU acceleration for large-scale processing
+result = g.gfql([
+    n({'type': 'Person', 'age': gt(30)}),
+    call('compute_cugraph', {
+        'alg': 'pagerank',
+        'out_col': 'pagerank_score',
+        'params': {'alpha': 0.85, 'max_iter': 100}
+    })
+])
+top_10 = result._nodes.nlargest(10, 'pagerank_score')[['name', 'pagerank_score']]
+```
+
+**GFQL CPU Version (for smaller graphs or no GPU):**
+```python
+# Use CPU for smaller graphs or when GPU unavailable
+result = g.gfql([
+    n({'type': 'Person', 'age': gt(30)}),
+    call('compute_igraph', {
+        'alg': 'pagerank',
+        'out_col': 'pagerank_score',
+        'params': {'damping': 0.85}  # Note: igraph uses 'damping' not 'alpha'
+    })
+])
+top_10 = result._nodes.nlargest(10, 'pagerank_score')[['name', 'pagerank_score']]
+```
+
 ## Complete Examples
 
 ### Friend of Friend

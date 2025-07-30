@@ -443,7 +443,7 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
 Query execution returns filtered node and edge datasets. In the Python embedding:
 
 ```python
-result = g.chain([...])
+result = g.gfql([...])
 nodes_df = result._nodes  # Filtered nodes
 edges_df = result._edges  # Filtered edges
 ```
@@ -453,7 +453,7 @@ edges_df = result._edges  # Filtered edges
 Operations with `name` parameter add boolean columns to mark matched entities:
 
 ```python
-result = g.chain([
+result = g.gfql([
     n({"type": "person"}, name="people"),
     e_forward(name="connections"),
     n({"active": True}, name="active_targets")
