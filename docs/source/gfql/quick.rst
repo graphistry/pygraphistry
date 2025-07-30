@@ -3,7 +3,7 @@
 GFQL Quick Reference
 ====================
 
-This quick reference page provides short examples of various parameters and usage patterns.
+This quick reference page provides short examples of various parameters and usage patterns. For creating graphs from your data, see :ref:`loading-graph-data`.
 
 Basic Usage
 -----------

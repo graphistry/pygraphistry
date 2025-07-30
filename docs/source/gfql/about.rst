@@ -43,7 +43,7 @@ Basic Concepts
 
 Before we begin with examples, let's understand some basic concepts:
 
-- **Nodes and Edges:** In GFQL, graphs are represented using dataframes for nodes and edges.
+- **Nodes and Edges:** In GFQL, graphs are represented using dataframes for nodes and edges. See :ref:`loading-graph-data` for details on creating graphs from your data.
 - **Chaining:** GFQL queries are constructed by chaining operations that filter and traverse the graph.
 - **Predicates:** Conditions applied to nodes or edges to filter them based on properties.
 

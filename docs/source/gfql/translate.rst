@@ -10,6 +10,8 @@ Introduction
 
 GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar with SQL, Cypher, or dataframe like Pandas and Spark. By comparing equivalent queries across these languages, you can quickly grasp GFQL's syntax, benefits, and start utilizing its powerful graph querying capabilities within your workflows.
 
+GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing. See :ref:`loading-graph-data` for details on creating graphs from your data.
+
 Who Is This Guide For?
 ----------------------
 
