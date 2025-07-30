@@ -132,7 +132,7 @@ pytest Fixtures
        chain = Chain(operations)  # Should not raise
        
        # Test schema validation
-       result = sample_plottable.chain(operations)  # Should not raise
+       result = sample_plottable.gfql(operations)  # Should not raise
        assert len(result._nodes) > 0
    
    def test_invalid_query_syntax(sample_plottable):
@@ -144,7 +144,7 @@ pytest Fixtures
        operations = [n({'missing_column': eq('value')})]
        
        with pytest.raises(GFQLValidationError) as exc_info:
-           result = sample_plottable.chain(operations)  # Schema validation fails
+           result = sample_plottable.gfql(operations)  # Schema validation fails
        assert exc_info.value.code == 'E301'  # Column not found
 
 API Integration
@@ -238,7 +238,7 @@ Instead of generating Python code directly, generate JSON and use GFQL's validat
 .. code-block:: python
 
    # DON'T: Generate Python code (security risk)
-   # query = f"g.chain([n({{'user_id': '{user_input}'}})])"
+   # query = f"g.gfql([n({{'user_id': '{user_input}'}})])"
    # eval(query)  # NEVER DO THIS
    
    # DO: Generate JSON and validate
@@ -253,7 +253,7 @@ Instead of generating Python code directly, generate JSON and use GFQL's validat
    # Safe parsing with validation
    from graphistry.compute.chain import Chain
    chain = Chain.from_json(query_json, validate=True)
-   result = g.chain(chain.chain)
+   result = g.gfql(chain.chain)
 
 **Key Security Features**
 

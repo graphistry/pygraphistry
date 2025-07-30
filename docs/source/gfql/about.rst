@@ -220,13 +220,15 @@ You can explicitly set the engine to ensure GPU execution.
 - `engine='cudf'` forces the use of the GPU-accelerated engine.
 - Useful when you want to ensure the query runs on the GPU.
 
-Integration with PyData Ecosystem
----------------------------------
+Integration with PyData Ecosystem using Let and Call
+-----------------------------------------------------
 
-GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`.
+GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`. The `let` and `call` features enable powerful integrations while maintaining remote execution capabilities.
 
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+GFQL can be combined with graph algorithms in two ways: using Python escape hatches or pure GFQL with `let` bindings.
 
 **Example: Compute PageRank on the resulting graph**
 
@@ -246,6 +248,46 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 
 - `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
 - The enriched graph now contains a `pagerank` column in the nodes dataframe.
+
+Now let's see how to integrate such algorithms into more complex workflows:
+
+**Python Escape Hatch Approach:**
+
+::
+
+    # Traditional Python approach - requires local execution
+    # Step 1: Filter graph
+    g_filtered = g.gfql([n({'type': 'person'}), e(), n()])
+    
+    # Step 2: Compute PageRank (Python escape)
+    g_with_pr = g_filtered.compute_cugraph('pagerank')
+    
+    # Step 3: Filter high PageRank nodes (Python escape)
+    high_pr_nodes = g_with_pr._nodes[g_with_pr._nodes['pagerank'] > 0.02]
+    g_high_pr = g_with_pr.nodes(high_pr_nodes)
+    
+    # Step 4: Get neighborhoods
+    g_result = g_high_pr.gfql([n(), e(hops=2), n()])
+
+**Pure GFQL Approach with Let:**
+
+::
+
+    # Pure GFQL - can run entirely on remote GPU
+    from graphistry import Let, n, e, call
+    
+    g_result = Let('persons', n({'type': 'person'})) \
+        .Let('ranked', call('compute_cugraph', {'alg': 'pagerank'})) \
+        .Let('influencers', n(query='pagerank > 0.02')) \
+        .Let('influence_zones', [n(), e(hops=2), n()]) \
+        .run(g)
+
+The pure GFQL approach with `let` is especially powerful for:
+
+- **Remote execution**: Entire computation stays on the GPU server
+- **Composability**: Named intermediate results can be reused
+- **Readability**: Clear step-by-step logic
+- **Performance**: No data movement between steps
 
 9. Visualizing the Graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -336,6 +378,28 @@ Additional parameters enable controlling options such as the execution `engine` 
     g2 = g.python_remote_g(compute_shape)
     print(g2._nodes)
 
+9. Advanced: Let Bindings for Reusable Patterns
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For complex analysis requiring reusable components, use Let bindings to create DAG patterns:
+
+**Example: Multi-step investigation with named components**
+
+::
+
+    from graphistry import Let, n, e_undirected, e_forward, ref, gt
+    
+    investigation = Let('suspects', n({'risk_score': gt(8)})) \
+        .Let('contacts', ref('suspects').gfql([e_undirected(), n()])) \
+        .Let('evidence', ref('contacts').gfql([e_forward({'type': 'transaction'}), n()])) \
+        .run(g)
+
+**Explanation:**
+
+- `Let()` creates named bindings that can reference each other.
+- `ref('suspects')` references the named suspects pattern.
+- Enables complex investigations with reusable, composable parts.
+
 Conclusion and Next Steps
 -------------------------
 
@@ -344,6 +408,7 @@ Congratulations! You've covered the basics of GFQL in just 10 minutes. You've le
 - Query and filter nodes and edges using GFQL.
 - Chain multiple hops and apply advanced predicates.
 - Leverage GPU acceleration for high-performance graph querying.
+- Create reusable patterns with Let bindings for complex analysis.
 - Integrate GFQL with graph algorithms and visualization tools.
 
 **Next Steps:**

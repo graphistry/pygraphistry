@@ -187,6 +187,32 @@ Example: Explicitly set the engine to ensure GPU execution.
 
     g_result = g_gpu.gfql([ ... ], engine='cudf')
 
+Sequence Complex Analysis with Let
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use Let bindings to create reusable graph patterns and compose complex analyses:
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, ref
+    
+    analysis = g.let({
+        # Compute PageRank for influence analysis
+        'ranked': call('compute_cugraph', {'alg': 'pagerank'}),
+        
+        # Find high-influence nodes
+        'influencers': ref('ranked').gfql([
+            n(node_query='pagerank > 0.01')
+        ]),
+        
+        # Analyze their immediate networks
+        'influence_network': ref('influencers').gfql([
+            n(),
+            e_forward(hops=2),
+            n()
+        ])
+    })
+
 Run Remotely
 ~~~~~~~~~~~~~
 
