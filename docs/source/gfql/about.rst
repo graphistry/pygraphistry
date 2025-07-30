@@ -274,12 +274,12 @@ Now let's see how to integrate such algorithms into more complex workflows:
 ::
 
     # Pure GFQL - can run entirely on remote GPU
-    from graphistry import Let, n, e, call
+    from graphistry import let, n, e, call
     
-    g_result = Let('persons', n({'type': 'person'})) \
-        .Let('ranked', call('compute_cugraph', {'alg': 'pagerank'})) \
-        .Let('influencers', n(query='pagerank > 0.02')) \
-        .Let('influence_zones', [n(), e(hops=2), n()]) \
+    g_result = let('persons', n({'type': 'person'})) \
+        .let('ranked', call('compute_cugraph', {'alg': 'pagerank'})) \
+        .let('influencers', n(query='pagerank > 0.02')) \
+        .let('influence_zones', [n(), e(hops=2), n()]) \
         .run(g)
 
 The pure GFQL approach with `let` is especially powerful for:
@@ -387,17 +387,17 @@ For complex analysis requiring reusable components, use Let bindings to create D
 
 ::
 
-    from graphistry import Let, n, e_undirected, e_forward, ref, gt
+    from graphistry import let, n, e_undirected, e_forward, ref, gt
     
-    investigation = Let('suspects', n({'risk_score': gt(8)})) \
-        .Let('contacts', ref('suspects').gfql([e_undirected(), n()])) \
-        .Let('evidence', ref('contacts').gfql([e_forward({'type': 'transaction'}), n()])) \
+    investigation = let('suspects', n({'risk_score': gt(8)})) \
+        .let('contacts', ref('suspects', [e_undirected(), n()])) \
+        .let('evidence', ref('contacts', [e_forward({'type': 'transaction'}), n()])) \
         .run(g)
 
 **Explanation:**
 
-- `Let()` creates named bindings that can reference each other.
-- `ref('suspects')` references the named suspects pattern.
+- `let()` creates named bindings that can reference each other.
+- `ref('suspects', [...])` references the named suspects pattern and applies operations.
 - Enables complex investigations with reusable, composable parts.
 
 Conclusion and Next Steps

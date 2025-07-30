@@ -243,24 +243,24 @@ This GFQL query filters the edges based on the vulnerability name and time, then
 Sequencing Programs with Let
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For more complex analyses, GFQL's ``Let`` feature allows you to create named, reusable graph patterns that can reference each other. This is particularly powerful for multi-step graph algorithms and investigations.
+For more complex analyses, GFQL's ``let`` feature allows you to create named, reusable graph patterns that can reference each other. This is particularly powerful for multi-step graph algorithms and investigations.
 
 **Example: Finding and visualizing influence zones of high-value nodes**
 
 .. code-block:: python
 
-    from graphistry import Let, n, e, ref, call
+    from graphistry import let, n, e, ref, call
     
-    g_analysis = Let('ranked', call('compute_cugraph', {'alg': 'pagerank', 'out_col': 'pagerank'})) \
-        .Let('influencers', ref('ranked').gfql([n(query='pagerank > 0.02')])) \
-        .Let('contacts', ref('influencers').gfql([e(), n()])) \
-        .Let('influence_zone', ref('contacts').gfql([e(), n()])) \
+    g_analysis = let('ranked', call('compute_cugraph', {'alg': 'pagerank', 'out_col': 'pagerank'})) \
+        .let('influencers', ref('ranked', [n(query='pagerank > 0.02')])) \
+        .let('contacts', ref('influencers', [e(), n()])) \
+        .let('influence_zone', ref('contacts', [e(), n()])) \
         .run(g1)
 
     # Visualize the influence zones with PageRank-based sizing
     g_analysis.encode_point_size('pagerank').plot()
 
-This example demonstrates how ``Let`` enables you to:
+This example demonstrates how ``let`` enables you to:
 
 1. **Sequence operations**: Each step builds on previous results
 2. **Reuse computations**: Reference earlier results with ``ref()``

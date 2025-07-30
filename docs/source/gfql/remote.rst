@@ -229,14 +229,14 @@ Basic Let Usage
         'suspicious': n({'risk_score': gt(0.8)}),
 
         # Get their transaction network
-        'tx_network': ref('suspicious').gfql([
+        'tx_network': ref('suspicious', [
             n(),
             e_forward({'type': 'transaction'}),
             n()
         ]),
 
         # Find high-value transactions in that network
-        'high_value': ref('tx_network').gfql([
+        'high_value': ref('tx_network', [
             e({'amount': gt(10000)})
         ])
     })
@@ -258,19 +258,19 @@ Combine graph algorithms with pattern matching in a single remote query:
         'ranked': g1.compute_pagerank(columns=['pagerank']),
 
         # Find top influencers
-        'influencers': ref('ranked').gfql([
+        'influencers': ref('ranked', [
             n(node_query='pagerank > 0.02', name='is_influencer')
         ]),
 
         # Get 2-hop neighborhoods
-        'influence_zones': ref('influencers').gfql([
+        'influence_zones': ref('influencers', [
             n(),
             e_forward(hops=2),
             n(name='influenced')
         ]),
 
         # Find transactions between influencers
-        'influencer_txns': ref('influencers').gfql([
+        'influencer_txns': ref('influencers', [
             n(),
             e_forward({'type': 'transaction'}),
             n({'is_influencer': True})
@@ -301,7 +301,7 @@ Some operations are only practical in remote mode due to data size:
         ]),
 
         # Filter to specific triangle types
-        'fraud_triangles': ref('triangles').gfql([
+        'fraud_triangles': ref('triangles', [
             n({'a': True, 'type': 'account'}),
             e({'type': 'transaction'}),
             n({'b': True, 'type': 'merchant'}),
