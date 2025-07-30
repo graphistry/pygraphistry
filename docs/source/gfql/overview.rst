@@ -46,7 +46,7 @@ Key GFQL Concepts
 
 GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
 
-- **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
+- **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless. See :ref:`loading-graph-data` for how to create graphs from your data.
 - **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
 - **Query**: Run graph pattern matching using method `gfql()` in a style similar to the popoular OpenCypher graph query language
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
