@@ -22,7 +22,7 @@ See also:
    builtin_calls
    predicates/quick
    datetime_filtering
-   wire_protocol_examples
+   spec/wire_protocol_examples
 
 .. toctree::
    :maxdepth: 2

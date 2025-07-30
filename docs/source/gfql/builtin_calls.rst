@@ -626,6 +626,12 @@ group_in_a_box_layout
 
 Apply group-in-a-box layout that organizes nodes into rectangular regions by community.
 
+PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
+
+**References:**
+- Paper: `Group-in-a-box Layout for Multi-faceted Analysis of Communities <https://www.cs.umd.edu/users/ben/papers/Rodrigues2011Group.pdf>`_
+- Blog post: `GPU Group-In-A-Box Layout for Larger Social Media Investigations <https://www.graphistry.com/blog/gpu-group-in-a-box-layout-for-larger-social-media-investigations>`_
+
 **Parameters:**
 
 .. list-table::
