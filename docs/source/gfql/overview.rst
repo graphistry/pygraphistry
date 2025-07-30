@@ -194,19 +194,19 @@ Use Let bindings to create reusable graph patterns and compose complex analyses:
 
 .. code-block:: python
 
-    from graphistry import n, e_forward, ref
+    from graphistry import n, e_forward, ref, call
     
     analysis = g.let({
         # Compute PageRank for influence analysis
         'ranked': call('compute_cugraph', {'alg': 'pagerank'}),
         
         # Find high-influence nodes
-        'influencers': ref('ranked').gfql([
+        'influencers': ref('ranked', [
             n(node_query='pagerank > 0.01')
         ]),
         
         # Analyze their immediate networks
-        'influence_network': ref('influencers').gfql([
+        'influence_network': ref('influencers', [
             n(),
             e_forward(hops=2),
             n()

@@ -164,10 +164,10 @@ MATCH (u)-[:TRANSACTION]->(t:Transaction)
 
 **Python:**
 ```python
-from graphistry import Let, n, e_forward, ref, gt
+from graphistry import let, n, e_forward, ref, gt
 
-Let('social_users', n({'type': 'User'}).gfql([e_forward({'type': 'FRIEND'}), n()])) \
-    .Let('high_social', ref('social_users').gfql([n({'friend_count': gt(5)})])) \
+let('social_users', [n({'type': 'User'}), e_forward({'type': 'FRIEND'}), n()]) \
+    .let('high_social', ref('social_users', [n({'friend_count': gt(5)})])) \
     # ...
     .run(g)
 ```
@@ -185,9 +185,9 @@ MATCH (contacts)-[:TRANSACTION]->(evidence)
 
 **Python:**
 ```python
-Let('suspects', n({'type': 'Person', 'risk_score': gt(8)})) \
-    .Let('contacts', ref('suspects').gfql([e_undirected({'type': 'CONNECTED'}), n()])) \
-    .Let('evidence', ref('contacts').gfql([e_forward({'type': 'TRANSACTION'}), n()])) \
+let('suspects', n({'type': 'Person', 'risk_score': gt(8)})) \
+    .let('contacts', ref('suspects', [e_undirected({'type': 'CONNECTED'}), n()])) \
+    .let('evidence', ref('contacts', [e_forward({'type': 'TRANSACTION'}), n()])) \
     .run(g)
 ```
 
