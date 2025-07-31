@@ -11,6 +11,6 @@ You can set access control policies on all of your uploaded data via `graphistry
    :maxdepth: 2
 
    register
-   Concurrency
+   concurrency
    privacy
 
