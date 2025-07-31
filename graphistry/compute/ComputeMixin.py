@@ -7,6 +7,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
+from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .chain_remote import (
     chain_remote as chain_remote_base,
@@ -481,6 +482,12 @@ class ComputeMixin(Plottable):
 
     # chain_let removed from public API - use gfql() instead
     # (chain_let_base still available internally for gfql dispatch)
+    
+    # Commented out to remove from public API - use gfql() instead
+    # def chain_let(self, *args, **kwargs):
+    #     """Execute a DAG of named graph operations with dependency resolution."""
+    #     return chain_let_base(self, *args, **kwargs)
+    # chain_let.__doc__ = chain_let_base.__doc__
     
     def gfql(self, *args, **kwargs):
         return gfql_base(self, *args, **kwargs)
