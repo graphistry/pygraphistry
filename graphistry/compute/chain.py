@@ -182,11 +182,18 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
     logger.debug('-----------[ combine %s ---------------]', kind)
 
-    # df[[id]]
-    out_df = concat([
-        getattr(g_step, df_fld)[[id]]
-        for (_, g_step) in steps
-    ]).drop_duplicates(subset=[id])
+    # df[[id]] - with defensive checks for column existence
+    dfs_to_concat = []
+    for (op, g_step) in steps:
+        step_df = getattr(g_step, df_fld)
+        if id not in step_df.columns:
+            step_id = getattr(g_step, '_node' if kind == 'nodes' else '_edge')
+            raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
+                           f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
+                           f"Operation: {op}")
+        dfs_to_concat.append(step_df[[id]])
+    
+    out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':

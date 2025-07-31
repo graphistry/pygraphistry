@@ -2,10 +2,12 @@ from abc import abstractmethod
 import logging
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
 from typing_extensions import Literal
+import pandas as pd
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLValidationError
-import pandas as pd
+    from graphistry.compute.chain import Chain
+
 from graphistry.Engine import Engine
 
 from graphistry.Plottable import Plottable
@@ -656,7 +658,7 @@ class ASTLet(ASTObject):
     forming a directed acyclic graph (DAG) of computations.
     
     :param bindings: Dictionary mapping names to graph operations
-    :type bindings: Dict[str, ASTObject]
+    :type bindings: Dict[str, Union[ASTObject, Chain, Plottable]]
     
     :raises GFQLTypeError: If bindings is not a dict or contains invalid keys/values
     
@@ -667,14 +669,53 @@ class ASTLet(ASTObject):
             'friends': ASTRef('persons', [e_forward({'rel': 'friend'})])
         })
     """
-    def __init__(self, bindings: Dict[str, 'ASTObject']) -> None:
+    bindings: Dict[str, Union['ASTObject', 'Chain', Plottable]]
+    
+    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', Plottable, dict]], validate: bool = True) -> None:
         """Initialize Let with named bindings.
         
-        :param bindings: Dictionary mapping names to AST operations
-        :type bindings: Dict[str, ASTObject]
+        :param bindings: Dictionary mapping names to GraphOperation instances or JSON dicts
+        :type bindings: Dict[str, Union[ASTObject, Chain, Plottable, dict]]
+        :param validate: Whether to validate the bindings immediately
+        :type validate: bool
         """
         super().__init__()
-        self.bindings = bindings
+        
+        # Process mixed JSON/native objects
+        processed_bindings = {}
+        for name, value in bindings.items():
+            if isinstance(value, dict):
+                # JSON dict - check type and convert if valid
+                if 'type' not in value:
+                    raise ValueError(f"JSON binding '{name}' missing 'type' field")
+                
+                obj_type = value.get('type')
+                # Check if it's a valid GraphOperation type
+                if obj_type in ['Node', 'Edge']:
+                    # These are wavefront matchers, not allowed
+                    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"binding value cannot be {obj_type} (wavefront matcher)",
+                        field=f"bindings.{name}",
+                        value=obj_type,
+                        suggestion="Use operations that produce Plottable objects like Chain, Ref, Call, RemoteGraph, or Let"
+                    )
+                elif obj_type == 'Chain':
+                    # Import and convert Chain
+                    from graphistry.compute.chain import Chain
+                    processed_bindings[name] = Chain.from_json(value, validate=False)
+                else:
+                    # Convert other AST types
+                    processed_bindings[name] = from_json(value, validate=False)
+            else:
+                # Native object - use as-is
+                processed_bindings[name] = value
+        
+        self.bindings = processed_bindings
+        
+        if validate:
+            self.validate()
     
     def _validate_fields(self) -> None:
         """Validate Let fields."""
@@ -696,20 +737,40 @@ class ASTLet(ASTObject):
                     field=f"bindings.{k}",
                     value=type(k).__name__
                 )
-            if not isinstance(v, ASTObject):
+            # Check if value is a valid GraphOperation type
+            # Import here to avoid circular imports
+            from graphistry.compute.chain import Chain
+            
+            # GraphOperation includes specific AST types that produce Plottable objects
+            # Excludes ASTNode/ASTEdge which are wavefront matchers
+            if isinstance(v, (ASTNode, ASTEdge)):
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    "binding value must be ASTObject",
+                    f"binding value cannot be {type(v).__name__} (wavefront matcher)",
                     field=f"bindings.{k}",
-                    value=type(v).__name__
+                    value=type(v).__name__,
+                    suggestion="Use operations that produce Plottable objects like ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Chain, or Plottable instances"
+                )
+            elif not isinstance(v, (ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "binding value must be a GraphOperation (Plottable, Chain, ASTRef, ASTCall, ASTRemoteGraph, or ASTLet)",
+                    field=f"bindings.{k}",
+                    value=type(v).__name__,
+                    suggestion="Use operations that produce Plottable objects, not wavefront matchers"
                 )
         # TODO: Check for cycles in DAG
         return None
     
     def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return child AST nodes that need validation."""
-        # ASTObject inherits from ASTSerializable, so this is safe
-        return list(self.bindings.values())
+        # Only return objects that inherit from ASTSerializable
+        # Plottable instances don't need validation
+        children = []
+        for v in self.bindings.values():
+            if isinstance(v, ASTSerializable):
+                children.append(v)
+        return children
     
     def to_json(self, validate: bool = True) -> dict:
         """Convert Let to JSON representation.
@@ -739,7 +800,19 @@ class ASTLet(ASTObject):
         :raises AssertionError: If 'bindings' field is missing
         """
         assert 'bindings' in d, "Let missing bindings"
-        bindings = {k: cast(ASTObject, from_json(v, validate=validate)) for k, v in d['bindings'].items()}
+        
+        # Import here to avoid circular imports
+        from graphistry.compute.chain import Chain
+        
+        bindings = {}
+        for k, v in d['bindings'].items():
+            # Handle Chain objects specially
+            if isinstance(v, dict) and v.get('type') == 'Chain':
+                bindings[k] = Chain.from_json(v, validate=validate)
+            else:
+                # Regular AST objects
+                bindings[k] = cast(ASTObject, from_json(v, validate=validate))
+        
         out = cls(bindings=bindings)
         if validate:
             out.validate()

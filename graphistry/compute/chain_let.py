@@ -1,4 +1,4 @@
-from typing import Dict, Set, List, Optional, Tuple, Union, cast
+from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
@@ -6,16 +6,22 @@ from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
 from .execution_context import ExecutionContext
 
+if TYPE_CHECKING:
+    from graphistry.compute.chain import Chain
+
 logger = setup_logger(__name__)
 
 
-def extract_dependencies(ast_obj: ASTObject) -> Set[str]:
-    """Recursively find all ASTRef references in an AST object
+def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set[str]:
+    """Recursively find all ASTRef references in an AST object or GraphOperation
     
-    :param ast_obj: AST object to analyze
+    :param ast_obj: AST object or GraphOperation to analyze
     :returns: Set of referenced binding names
     :rtype: Set[str]
     """
+    from graphistry.compute.chain import Chain
+    from graphistry.Plottable import Plottable
+    
     deps = set()
     
     if isinstance(ast_obj, ASTRef):
@@ -29,14 +35,24 @@ def extract_dependencies(ast_obj: ASTObject) -> Set[str]:
         for binding in ast_obj.bindings.values():
             deps.update(extract_dependencies(binding))
     
-    # Other AST types (ASTNode, ASTEdge, ASTRemoteGraph) have no dependencies
+    elif isinstance(ast_obj, Chain):
+        # Chain may contain ASTRef operations
+        for op in ast_obj.chain:
+            if isinstance(op, ASTObject):
+                deps.update(extract_dependencies(op))
+    
+    elif isinstance(ast_obj, Plottable):
+        # Plottable instances have no dependencies
+        pass
+    
+    # Other AST types (ASTCall, ASTRemoteGraph) have no dependencies
     return deps
 
 
-def build_dependency_graph(bindings: Dict[str, ASTObject]) -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
+def build_dependency_graph(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]) -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
     """Build dependency and dependent mappings from bindings
     
-    :param bindings: Dictionary of name -> AST object bindings
+    :param bindings: Dictionary of name -> GraphOperation bindings
     :returns: Tuple of (dependencies dict, dependents dict)
     :rtype: Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]
     """
@@ -56,11 +72,11 @@ def build_dependency_graph(bindings: Dict[str, ASTObject]) -> Tuple[Dict[str, Se
     return dependencies, dependents
 
 
-def validate_dependencies(bindings: Dict[str, ASTObject], 
+def validate_dependencies(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']], 
                         dependencies: Dict[str, Set[str]]) -> None:
     """Check for missing references and self-cycles
     
-    :param bindings: Dictionary of available bindings
+    :param bindings: Dictionary of available GraphOperation bindings
     :param dependencies: Dictionary of dependencies per binding
     :raises ValueError: If missing references or self-cycles found
     """
@@ -117,7 +133,7 @@ def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
     return None
 
 
-def topological_sort(bindings: Dict[str, ASTObject],
+def topological_sort(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']],
                     dependencies: Dict[str, Set[str]],
                     dependents: Dict[str, Set[str]]) -> List[str]:
     """Kahn's algorithm for topological sort"""
@@ -154,13 +170,13 @@ def topological_sort(bindings: Dict[str, ASTObject],
     return result
 
 
-def determine_execution_order(bindings: Dict[str, ASTObject]) -> List[str]:
+def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]) -> List[str]:
     """Determine topological execution order for DAG bindings
     
     Validates dependencies and computes execution order that respects
     all dependencies. Detects cycles and missing references.
     
-    :param bindings: Dictionary of name -> AST object bindings
+    :param bindings: Dictionary of name -> GraphOperation bindings
     :returns: List of binding names in execution order
     :rtype: List[str]
     :raises ValueError: If cycles detected or references missing
@@ -189,26 +205,27 @@ def determine_execution_order(bindings: Dict[str, ASTObject]) -> List[str]:
     return topological_sort(bindings, dependencies, dependents)
 
 
-def execute_node(name: str, ast_obj: ASTObject, g: Plottable, 
+def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable, 
                 context: ExecutionContext, engine: Engine) -> Plottable:
     """Execute a single node in the DAG
     
-    Handles different AST object types:
+    Handles different GraphOperation types:
     - ASTLet: Recursive let execution
     - ASTRef: Reference resolution and chain execution
-    - ASTNode: Node filtering operations
-    - ASTEdge: Edge traversal operations
-    - Others: NotImplementedError
+    - ASTCall: Method calls on graphs
+    - ASTRemoteGraph: Remote graph loading
+    - Chain: Chain operations on graphs
+    - Plottable: Direct graph instances
     
     :param name: Binding name for this node
-    :param ast_obj: AST object to execute
+    :param ast_obj: GraphOperation to execute
     :param g: Input graph
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
     :returns: Resulting Plottable
     :rtype: Plottable
     :raises ValueError: If reference not found in context
-    :raises NotImplementedError: For unsupported AST types
+    :raises NotImplementedError: For unsupported types
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
     
@@ -303,8 +320,18 @@ def execute_node(name: str, ast_obj: ASTObject, g: Plottable,
         from .gfql.call_executor import execute_call
         result = execute_call(g, ast_obj.function, ast_obj.params, engine)
     else:
-        # Other AST object types not yet implemented
-        raise NotImplementedError(f"Execution of {type(ast_obj).__name__} not yet implemented")
+        # Check if it's a Chain or Plottable
+        from graphistry.compute.chain import Chain
+        if isinstance(ast_obj, Chain):
+            # Execute the chain operations
+            from .chain import chain as chain_impl
+            result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value))
+        elif isinstance(ast_obj, Plottable):
+            # Direct Plottable instance - just return it
+            result = ast_obj
+        else:
+            # Other AST object types not yet implemented
+            raise NotImplementedError(f"Execution of {type(ast_obj).__name__} not yet implemented")
     
     # Store result in context
     context.set_binding(name, result)

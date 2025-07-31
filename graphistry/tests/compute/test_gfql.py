@@ -20,7 +20,7 @@ class TestGFQLAPI:
         assert hasattr(g, 'chain')
         assert callable(g.chain)
         
-        # Should NOT have chain_let in public API
+        # chain_let should not be in public API - removed from ComputeMixin
         assert not hasattr(g, 'chain_let')
 
 
@@ -73,10 +73,10 @@ class TestGFQL:
         edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        # Execute as DAG
+        # Execute as DAG - wrap n() in Chain for GraphOperation
         dag = ASTLet({
-            'people': n({'type': 'person'}),
-            'companies': n({'type': 'company'})
+            'people': Chain([n({'type': 'person'})]),
+            'companies': Chain([n({'type': 'company'})])
         })
         
         result = g.gfql(dag)
@@ -91,13 +91,12 @@ class TestGFQL:
         edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        # Dict should convert to DAG
-        result = g.gfql({
-            'people': n({'type': 'person'}),
-            'companies': n({'type': 'company'})
-        })
+        # Dict convenience should auto-wrap ASTNode/ASTEdge in Chain
+        result = g.gfql({'people': n({'type': 'person'})})
         
-        assert result is not None
+        # Should have filtered to people only  
+        assert len(result._nodes) == 2
+        assert all(result._nodes['type'] == 'person')
     
     def test_gfql_output_with_dag(self):
         """Test gfql output parameter works with DAG"""
@@ -108,7 +107,7 @@ class TestGFQL:
         edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
-        # Execute with output selection
+        # Dict convenience with output parameter
         result = g.gfql({
             'people': n({'type': 'person'}),
             'companies': n({'type': 'company'})
@@ -170,12 +169,13 @@ class TestGFQL:
         
         assert len(chain_result._nodes) == 2
         
-        # chain_let should no longer exist as public method
+        # chain_let should be removed from public API - use gfql() instead
         assert not hasattr(g, 'chain_let'), "chain_let should be removed from public API"
         
         # gfql should work for both patterns
         gfql_chain = g.gfql([n({'type': 'person'})])
         assert len(gfql_chain._nodes) == 2
         
+        # Dict convenience should now work with auto-wrapping
         gfql_dag = g.gfql({'people': n({'type': 'person'})})
         assert len(gfql_dag._nodes) == 2

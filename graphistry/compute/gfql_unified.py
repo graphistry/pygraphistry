@@ -4,7 +4,7 @@ from typing import List, Union, Optional
 from graphistry.Plottable import Plottable
 from graphistry.Engine import EngineAbstract
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet
+from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 
@@ -69,7 +69,15 @@ def gfql(self: Plottable,
     """
     # Handle dict convenience first (convert to ASTLet)
     if isinstance(query, dict):
-        query = ASTLet(query)
+        # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
+        wrapped_dict = {}
+        for key, value in query.items():
+            if isinstance(value, (ASTNode, ASTEdge)):
+                logger.debug(f'Auto-wrapping {type(value).__name__} in Chain for dict key "{key}"')
+                wrapped_dict[key] = Chain([value])
+            else:
+                wrapped_dict[key] = value
+        query = ASTLet(wrapped_dict)
     
     # Dispatch based on type - check specific types before generic
     if isinstance(query, ASTLet):
