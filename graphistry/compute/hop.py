@@ -379,9 +379,26 @@ def hop(self: Plottable,
             raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges).reset_index()
         EDGE_ID = 'index'
+        # Defensive check: ensure 'index' column exists after reset_index()
+        if EDGE_ID not in edges_indexed.columns:
+            # Fallback: if reset_index() didn't create 'index' column, use range index
+            edges_indexed = edges_indexed.reset_index(drop=False)
+            if 'index' not in edges_indexed.columns:
+                # Last resort: create a range index column manually
+                edges_indexed['index'] = range(len(edges_indexed))
     else:
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
         EDGE_ID = g2._edge
+        # Defensive check: ensure edge binding column exists
+        if EDGE_ID not in edges_indexed.columns:
+            # If the edge binding column is missing, try to recover
+            if EDGE_ID == 'index':
+                # If looking for 'index' but it's missing, create it
+                edges_indexed = edges_indexed.reset_index(drop=False)
+                if 'index' not in edges_indexed.columns:
+                    edges_indexed['index'] = range(len(edges_indexed))
+            else:
+                raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
 
     if g2._node is None:
         raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
