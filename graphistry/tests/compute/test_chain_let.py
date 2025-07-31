@@ -407,7 +407,8 @@ class TestEdgeExecution:
         """Test DAG with both node and edge operations"""
         # TODO: Complex runtime execution error in hop() and combine_steps - binding inconsistency
         # This requires deeper fixes to maintain graph bindings across operations
-        pytest.skip("Runtime binding inconsistency - complex fix needed in execution engine")
+        # TEMPORARILY ENABLED FOR INVESTIGATION
+        # pytest.skip("Runtime binding inconsistency - complex fix needed in execution engine")
         
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c', 'd'],
@@ -514,7 +515,7 @@ class TestNodeExecution:
         """Test DAG execution with both node and chain reference"""
         # TODO: Same runtime execution error in chain combine_steps - missing 'index' column 
         # This is an implementation issue in the execution engine, not GraphOperation validation
-        pytest.skip("Runtime KeyError in chain execution - needs fix in combine_steps implementation")
+        # pytest.skip("Runtime KeyError in chain execution - needs fix in combine_steps implementation")
         
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c', 'd'],
@@ -773,7 +774,7 @@ class TestDiamondPatterns:
         """Test diamond pattern executes correctly"""
         # TODO: Runtime execution error in combine_steps - missing 'index' column in ASTRef chains
         # This is an implementation issue in the execution engine, not GraphOperation validation
-        pytest.skip("Runtime KeyError in ASTRef chain execution - needs fix in combine_steps implementation")
+        # pytest.skip("Runtime KeyError in ASTRef chain execution - needs fix in combine_steps implementation")
         
         nodes_df = pd.DataFrame({
             'id': ['a', 'b', 'c', 'd', 'e'],
@@ -829,7 +830,7 @@ class TestDiamondPatterns:
         """Test parallel branches execute independently"""
         # TODO: Runtime execution error in combine_steps - missing 'index' column in ASTRef chains
         # This is an implementation issue in the execution engine, not GraphOperation validation
-        pytest.skip("Runtime KeyError in ASTRef chain execution - needs fix in combine_steps implementation")
+        # pytest.skip("Runtime KeyError in ASTRef chain execution - needs fix in combine_steps implementation")
         
         nodes_df = pd.DataFrame({
             'id': list('abcdefgh'),
