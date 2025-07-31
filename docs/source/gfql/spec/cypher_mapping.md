@@ -165,8 +165,9 @@ MATCH (u)-[:TRANSACTION]->(t:Transaction)
 **Python:**
 ```python
 from graphistry import let, n, e_forward, ref, gt
+from graphistry.compute.chain import Chain
 
-let('social_users', [n({'type': 'User'}), e_forward({'type': 'FRIEND'}), n()]) \
+let('social_users', Chain([n({'type': 'User'}), e_forward({'type': 'FRIEND'}), n()])) \
     .let('high_social', ref('social_users', [n({'friend_count': gt(5)})])) \
     # ...
     .run(g)
@@ -185,7 +186,7 @@ MATCH (contacts)-[:TRANSACTION]->(evidence)
 
 **Python:**
 ```python
-let('suspects', n({'type': 'Person', 'risk_score': gt(8)})) \
+let('suspects', Chain([n({'type': 'Person', 'risk_score': gt(8)})])) \
     .let('contacts', ref('suspects', [e_undirected({'type': 'CONNECTED'}), n()])) \
     .let('evidence', ref('contacts', [e_forward({'type': 'TRANSACTION'}), n()])) \
     .run(g)

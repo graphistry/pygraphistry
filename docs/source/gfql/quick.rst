@@ -19,6 +19,44 @@ Basic Usage
 - **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
+Let Bindings and Call Operations
+---------------------------------
+
+**Let Bindings**
+
+.. code-block:: python
+
+    from graphistry import Let, n, e_forward, call
+    from graphistry.compute.chain import Chain
+    
+    # Sequential computations with named results
+    (Let('high_degree', Chain([n(query='degree > 10')]))
+     .Let('clusters', call('louvain'))
+     .Let('subgraph', Chain([n({'cluster': 0}), e_forward(), n()]))
+     .run(g))
+
+:class:`Let <graphistry.compute.Let.Let>` enables sequential operations with named intermediate results:
+
+- Store results of queries, algorithms, or computations
+- Reference previous results in subsequent operations
+- Chain multiple operations cleanly
+
+**Call Operations**
+
+.. code-block:: python
+
+    # Call graph algorithms within GFQL
+    Let('result', call('pagerank')).run(g)
+    
+    # With parameters
+    Let('result', call('louvain', resolution=0.5)).run(g)
+
+:func:`call <graphistry.compute.Call.call>` invokes graph algorithms and computations:
+
+- Integrates with cuGraph, igraph, and other libraries
+- Returns results as node/edge attributes
+- See :doc:`call` for available operations
+
 Node Matchers
 -------------
 

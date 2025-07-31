@@ -275,11 +275,12 @@ Now let's see how to integrate such algorithms into more complex workflows:
 
     # Pure GFQL - can run entirely on remote GPU
     from graphistry import let, n, e, call
+    from graphistry.compute.chain import Chain
     
-    g_result = let('persons', n({'type': 'person'})) \
+    g_result = let('persons', Chain([n({'type': 'person'})])) \
         .let('ranked', call('compute_cugraph', {'alg': 'pagerank'})) \
-        .let('influencers', n(query='pagerank > 0.02')) \
-        .let('influence_zones', [n(), e(hops=2), n()]) \
+        .let('influencers', Chain([n(query='pagerank > 0.02')])) \
+        .let('influence_zones', Chain([n(), e(hops=2), n()])) \
         .run(g)
 
 The pure GFQL approach with `let` is especially powerful for:
