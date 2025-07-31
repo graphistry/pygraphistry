@@ -1,8 +1,9 @@
 """Tests for Let bindings and related AST nodes validation"""
 import pytest
 from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n, e
+from graphistry.compute.chain import Chain
 from graphistry.compute.execution_context import ExecutionContext
-from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
 class TestLetValidation:
@@ -10,32 +11,37 @@ class TestLetValidation:
     
     def test_let_valid(self):
         """Valid Let should pass validation"""
-        dag = ASTLet({'a': n(), 'b': e()})
+        # Now requires GraphOperations - wrap n()/e() in Chain
+        dag = ASTLet({
+            'a': Chain([n()]),  # Chain produces a Plottable
+            'b': Chain([e()])   # Chain produces a Plottable
+        })
         dag.validate()  # Should not raise
     
     def test_let_invalid_key_type(self):
         """Let with non-string key should fail"""
         # Note: This validation happens at runtime in _validate_fields
-        dag = ASTLet({123: n()})  # type: ignore
+        # Use valid GraphOperation but invalid key
+        dag = ASTLet({123: Chain([n()])}, validate=False)  # type: ignore
         with pytest.raises(GFQLTypeError) as exc_info:
             dag.validate()
-        assert exc_info.value.code == "invalid-filter-key"
+        assert exc_info.value.code == ErrorCode.E102
         assert "binding key must be string" in str(exc_info.value)
     
     def test_let_invalid_value_type(self):
-        """Let with non-ASTObject value should fail"""
-        dag = ASTLet({'a': 'not an AST object'})  # type: ignore
+        """Let with non-GraphOperation value should fail"""
+        dag = ASTLet({'a': 'not an AST object'}, validate=False)  # type: ignore
         with pytest.raises(GFQLTypeError) as exc_info:
             dag.validate()
-        assert exc_info.value.code == "type-mismatch"
-        assert "binding value must be ASTObject" in str(exc_info.value)
+        assert exc_info.value.code == ErrorCode.E201
+        assert "GraphOperation" in str(exc_info.value)
     
     def test_let_nested_validation(self):
         """Let should validate nested objects"""
         # This should work - nested validation of valid objects
         dag = ASTLet({
-            'a': n({'type': 'person'}),
-            'b': ASTRemoteGraph('dataset123')
+            'a': Chain([n({'type': 'person'})]),  # Wrap in Chain
+            'b': ASTRemoteGraph('dataset123')     # Already valid GraphOperation
         })
         dag.validate()
 
