@@ -299,7 +299,7 @@ class TestExecutionContext:
     
     def test_chain_ref_in_dag_execution(self):
         """Test ASTRef works in DAG execution (fails on chain ops)"""
-        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        _g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')  # noqa: F841
         
         # Create a simple mock that can be executed
         class MockExecutable(ASTObject):
@@ -318,7 +318,7 @@ class TestExecutionContext:
         # Create DAG with mock executable - should fail validation
         # MockExecutable is not a valid GraphOperation
         with pytest.raises(GFQLTypeError) as exc_info:
-            dag = ASTLet({
+            _dag = ASTLet({  # noqa: F841
                 'first': MockExecutable(),
                 'second': ASTRef('first', [])  # Empty chain should work
             })
