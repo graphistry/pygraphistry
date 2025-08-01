@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 # GraphOperation represents values that can be bound in let()
 # These are operations that produce Plottable objects
 GraphOperation = Union[
-    'Plottable',       # Direct graph instances
-    'Chain',           # Chain operations
-    'ASTRef',         # References to other bindings
-    'ASTCall',        # Method calls on graphs
-    'ASTRemoteGraph', # Remote graph references
-    'ASTLet',         # Nested let bindings
+    'Plottable',        # Direct graph instances
+    'Chain',            # Chain operations
+    'ASTRef',           # References to other bindings
+    'ASTCall',          # Method calls on graphs
+    'ASTRemoteGraph',   # Remote graph references
+    'ASTLet',           # Nested let bindings
 ]
