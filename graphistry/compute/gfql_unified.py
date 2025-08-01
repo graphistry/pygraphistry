@@ -77,7 +77,7 @@ def gfql(self: Plottable,
                 wrapped_dict[key] = Chain([value])
             else:
                 wrapped_dict[key] = value
-        query = ASTLet(wrapped_dict)
+        query = ASTLet(wrapped_dict)  # type: ignore
     
     # Dispatch based on type - check specific types before generic
     if isinstance(query, ASTLet):
