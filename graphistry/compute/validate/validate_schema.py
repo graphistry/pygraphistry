@@ -39,10 +39,11 @@ def validate_chain_schema(
         GFQLSchemaError: If collect_all=False and validation fails
     """
     # Handle Chain objects
+    chain_ops: List[ASTObject]
     if hasattr(ops, 'chain'):
         chain_ops = cast(List[ASTObject], ops.chain)
     else:
-        chain_ops = ops
+        chain_ops = cast(List[ASTObject], ops)
 
     errors: List[GFQLSchemaError] = []
 

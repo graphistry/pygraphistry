@@ -682,7 +682,7 @@ class ASTLet(ASTObject):
         super().__init__()
         
         # Process mixed JSON/native objects
-        processed_bindings = {}
+        processed_bindings: Dict[str, Any] = {}
         for name, value in bindings.items():
             if isinstance(value, dict):
                 # JSON dict - check type and convert if valid
@@ -704,15 +704,17 @@ class ASTLet(ASTObject):
                 elif obj_type == 'Chain':
                     # Import and convert Chain
                     from graphistry.compute.chain import Chain
-                    processed_bindings[name] = Chain.from_json(value, validate=False)
+                    chain_obj = Chain.from_json(value, validate=False)
+                    processed_bindings[name] = chain_obj  # type: ignore
                 else:
                     # Convert other AST types
-                    processed_bindings[name] = from_json(value, validate=False)
+                    ast_obj = from_json(value, validate=False)
+                    processed_bindings[name] = ast_obj  # type: ignore
             else:
                 # Native object - use as-is
                 processed_bindings[name] = value
         
-        self.bindings = processed_bindings
+        self.bindings = processed_bindings  # type: ignore
         
         if validate:
             self.validate()
@@ -782,9 +784,16 @@ class ASTLet(ASTObject):
         """
         if validate:
             self.validate()
+        bindings_json = {}
+        for k, v in self.bindings.items():
+            if hasattr(v, 'to_json'):
+                bindings_json[k] = v.to_json()
+            else:
+                # Plottable doesn't have to_json
+                raise ValueError(f"Cannot serialize {type(v).__name__} to JSON")
         return {
             'type': 'Let',
-            'bindings': {k: v.to_json() for k, v in self.bindings.items()}
+            'bindings': bindings_json
         }
     
     @classmethod
@@ -804,18 +813,16 @@ class ASTLet(ASTObject):
         # Import here to avoid circular imports
         from graphistry.compute.chain import Chain
         
-        bindings = {}
+        bindings: Dict[str, Any] = {}
         for k, v in d['bindings'].items():
             # Handle Chain objects specially
             if isinstance(v, dict) and v.get('type') == 'Chain':
                 bindings[k] = Chain.from_json(v, validate=validate)
             else:
                 # Regular AST objects
-                bindings[k] = cast(ASTObject, from_json(v, validate=validate))
+                bindings[k] = from_json(v, validate=validate)
         
-        out = cls(bindings=bindings)
-        if validate:
-            out.validate()
+        out = cls(bindings=bindings, validate=validate)  # type: ignore
         return out
     
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
