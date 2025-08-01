@@ -1,11 +1,11 @@
 from abc import abstractmethod
 import logging
-from typing import Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+from typing import (
+    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+)
 from typing_extensions import Literal
-import pandas as pd
 
 if TYPE_CHECKING:
-    from graphistry.compute.exceptions import GFQLValidationError
     from graphistry.compute.chain import Chain
 
 from graphistry.Engine import Engine

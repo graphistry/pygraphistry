@@ -1,6 +1,6 @@
 """GraphOperation type definition for let() bindings.
 
-GraphOperation represents types that can be bound in let() statements - 
+GraphOperation represents types that can be bound in let() statements -
 operations that produce or reference Plottable objects.
 """
 from typing import Union, TYPE_CHECKING
