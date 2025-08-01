@@ -85,7 +85,7 @@ class TestGraphOperationTypeConstraints:
         """Test that plain dicts are rejected."""
         # Plain dict without 'type' field should fail in constructor
         with pytest.raises(ValueError) as exc_info:
-            let_dag = ASTLet({'invalid': {'foo': 'bar'}})
+            _let_dag = ASTLet({'invalid': {'foo': 'bar'}})  # noqa: F841
             
         assert "missing 'type' field" in str(exc_info.value)
         
