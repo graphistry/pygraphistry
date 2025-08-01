@@ -68,6 +68,96 @@ g.chain([...], engine='pandas')  # CPU execution
 g.chain([...], engine='auto')  # Auto-select
 ```
 
+## DAG Patterns with Let Bindings
+
+GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which allow you to define named graph operations that can reference each other.
+
+### Let Bindings
+
+```python
+from graphistry import let, ref, n, e_forward, ge
+from graphistry.compute.chain import Chain
+
+# Define DAG patterns with named bindings
+result = g.gfql(let({
+    'persons': Chain([n({'type': 'person'})]),  # Chain wraps wavefront operations
+    'adults': ref('persons', [n({'age': ge(18)})]),  # n() in ref chain is OK
+    'connections': ref('adults', [
+        e_forward({'type': 'knows'}),
+        ref('adults')  # Find connections between adults
+    ])
+}))
+
+# Access individual binding results
+persons_df = result._nodes[result._nodes['persons']]
+adults_df = result._nodes[result._nodes['adults']]
+connection_edges = result._edges[result._edges['connections']]
+```
+
+### GraphOperation Type Constraints
+
+Let bindings only accept **GraphOperation** values - operations that produce or reference complete graph objects (Plottable). The accepted types are:
+
+- **Chain**: Wraps wavefront operations (n(), e()) to produce a Plottable
+- **Plottable**: Direct graph instances  
+- **ASTRef**: References to other bindings
+- **ASTCall**: Method calls on graphs (e.g., call('pagerank'))
+- **ASTRemoteGraph**: Remote graph references
+- **ASTLet**: Nested let bindings
+
+**Not accepted** (will raise E201 error):
+- **ASTNode** (n()): Wavefront matcher that needs context
+- **ASTEdge** (e()): Wavefront matcher that needs context
+
+```python
+# ❌ Wrong - bare n() is a wavefront matcher
+let({'users': n({'type': 'user'})})  # Raises E201
+
+# ✅ Correct - Chain wraps wavefront operations  
+let({'users': Chain([n({'type': 'user'})])})
+
+# ✅ Also correct - call() returns a Plottable
+let({'ranked': call('pagerank')})
+```
+
+### Ref (Reference to Named Bindings)
+
+The `ref()` function creates references to named bindings within a Let:
+
+```python
+from graphistry import gt
+
+# Basic reference - just the binding result
+result = g.gfql(let({
+    'base': Chain([n({'status': 'active'})]),  # Chain wraps the node operation
+    'extended': ref('base')  # Just references 'base'
+}))
+
+# Reference with additional operations
+result = g.gfql(let({
+    'suspects': Chain([n({'risk_score': gt(80)})]),  # Chain wraps initial operation
+    'lateral_movement': ref('suspects', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})  # n() in ref chain doesn't need Chain wrapper
+    ])
+}))
+```
+
+### Complex DAG Patterns
+
+```python
+# Multi-level analysis pattern
+result = g.gfql(let({
+    # Find high-value accounts
+    'high_value': Chain([n({'balance': gt(100000)})]),  # Chain wraps the node operation
+
+    # Find transactions from high-value accounts
+    'high_value_txns': ref('high_value', [
+        e_forward({'type': 'transaction', 'amount': gt(10000)})
+    ])
+}))
+```
+
 ## Python-Specific Values
 
 ### Temporal Values
@@ -166,7 +256,7 @@ GFQL uses structured exceptions with error codes:
   - E105: Missing required field
 
 - **GFQLTypeError** (E2xx): Type mismatches
-  - E201: Wrong value type (e.g., string instead of dict)
+  - E201: Invalid GraphOperation in let() binding (e.g., bare n() or e() without Chain wrapper)
   - E202: Predicate type mismatch
   - E204: Invalid name type
 
@@ -211,6 +301,22 @@ except GFQLSchemaError as e:
     # Schema error [E302]: Type mismatch: column "age" is numeric but filter value is string
     # Field: age
     # Suggestion: Use a numeric value like age=25
+
+# Example: GraphOperation constraint error
+from graphistry.compute.exceptions import GFQLTypeError
+
+try:
+    result = g.gfql(let({
+        'users': n({'type': 'user'})  # Bare n() without Chain wrapper
+    }))
+except GFQLTypeError as e:
+    print(f"Type error [{e.code}]: {e.message}")
+    print(f"Field: {e.context.get('field')}")
+    print(f"Suggestion: {e.context.get('suggestion')}")
+    # Output:
+    # Type error [E201]: binding value cannot be ASTNode (wavefront matcher)
+    # Field: bindings.users
+    # Suggestion: Use operations that produce Plottable objects. Consider wrapping in Chain([...]) or using call(), remote_graph(), or nested let()
 ```
 
 ## Common Errors and Validation
@@ -302,6 +408,56 @@ if engine == 'cudf':
 # Convert results back to pandas if needed for compatibility
 result_pandas = result._nodes.to_pandas() if hasattr(result._nodes, 'to_pandas') else result._nodes
 ```
+
+## Migration Guide: GraphOperation Constraints
+
+If you have existing code using let() bindings with bare n() or e() operations, you'll need to update them to use Chain wrappers:
+
+### Basic Migration
+
+```python
+# ❌ Old pattern (no longer supported)
+result = g.gfql(let({
+    'users': n({'type': 'user'}),
+    'active': n({'active': True})
+}))
+
+# ✅ New pattern (wrap in Chain)
+result = g.gfql(let({
+    'users': Chain([n({'type': 'user'})]),
+    'active': Chain([n({'active': True})])
+}))
+```
+
+### Chain Already Required for Multi-Step Operations
+
+```python
+# ✅ This pattern already works (list becomes Chain)
+result = g.gfql(let({
+    'path': [n({'type': 'user'}), e_forward(), n()]  # Already a chain
+}))
+
+# ✅ Explicitly using Chain (equivalent)
+result = g.gfql(let({
+    'path': Chain([n({'type': 'user'}), e_forward(), n()])
+}))
+```
+
+### Why This Change?
+
+- **ASTNode/ASTEdge** are wavefront matchers that track position in traversal
+- **let() bindings** need complete graph operations that produce Plottable results
+- **Chain** wraps wavefront operations to produce a complete graph
+
+### Quick Reference
+
+| Old Pattern | New Pattern | Notes |
+|------------|-------------|-------|
+| `n()` | `Chain([n()])` | Wrap single node operations |
+| `e()` | `Chain([e()])` | Wrap single edge operations |
+| `[n(), e(), n()]` | `Chain([n(), e(), n()])` | Already works, explicit is clearer |
+| `call('pagerank')` | `call('pagerank')` | No change needed |
+| `remote_dataset('id')` | `remote_dataset('id')` | No change needed |
 
 ## See Also
 
