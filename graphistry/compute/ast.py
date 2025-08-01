@@ -741,7 +741,7 @@ class ASTLet(ASTObject):
                 )
             # Check if value is a valid GraphOperation type
             # Import here to avoid circular imports
-            from graphistry.compute.chain import Chain
+            from graphistry.compute.chain import Chain  # noqa: F402
             
             # GraphOperation includes specific AST types that produce Plottable objects
             # Excludes ASTNode/ASTEdge which are wavefront matchers
