@@ -787,7 +787,7 @@ class ASTLet(ASTObject):
         bindings_json = {}
         for k, v in self.bindings.items():
             if hasattr(v, 'to_json'):
-                bindings_json[k] = v.to_json()
+                bindings_json[k] = v.to_json()  # type: ignore
             else:
                 # Plottable doesn't have to_json
                 raise ValueError(f"Cannot serialize {type(v).__name__} to JSON")
