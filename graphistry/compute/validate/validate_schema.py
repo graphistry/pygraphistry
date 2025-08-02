@@ -41,7 +41,7 @@ def validate_chain_schema(
     # Handle Chain objects
     chain_ops: List[ASTObject]
     if hasattr(ops, 'chain'):
-        chain_ops = cast(List[ASTObject], ops.chain)
+        chain_ops = cast(List[ASTObject], ops.chain)  # type: ignore
     else:
         chain_ops = cast(List[ASTObject], ops)
 
