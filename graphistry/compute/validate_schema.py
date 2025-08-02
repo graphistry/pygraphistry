@@ -121,7 +121,7 @@ def _validate_querydag_op(op: ASTLet, g: Plottable, collect_all: bool) -> List[G
     for binding_name, binding_value in op.bindings.items():
         try:
             # Recursively validate each binding as if it's a single operation
-            binding_errors = validate_chain_schema(g, [binding_value], collect_all=True)
+            binding_errors = validate_chain_schema(g, [binding_value], collect_all=True)  # type: ignore
             
             # Add binding context to errors
             if binding_errors:
