@@ -78,6 +78,7 @@ ai/
 │   ├── gpu/                # GPU/CUDA development notes
 │   └── connectors/         # Database connector patterns
 └── prompts/                # Reusable workflow templates
+    ├── PLAN.md                   # Task planning template with strict execution protocol
     ├── LINT_TYPES_CHECK.md       # Code quality enforcement (with P0-P5)
     ├── CONVENTIONAL_COMMITS.md   # Git commit workflow with PyGraphistry conventions
     ├── IMPLEMENTATION_PLAN.md    # [TODO] Feature implementation tracking
@@ -132,11 +133,12 @@ When adding a new guide:
 - **Load when**: Adding/fixing database integrations
 
 ### Prompt Templates
+- **PLAN.md**: Task planning template with strict execution protocol for multi-step work
 - **LINT_TYPES_CHECK.md**: Code quality enforcement with P0-P5 priorities
 - **CONVENTIONAL_COMMITS.md**: Git commit workflow following PyGraphistry conventions
 - **IMPLEMENTATION_PLAN.md** [TODO]: Systematic feature implementation
 - **USER_TESTING_PLAYBOOK.md** [TODO]: AI-driven testing workflows
-- **Load when**: Starting new tasks, creating commits, fixing code quality issues
+- **Load when**: Starting new tasks, creating commits, fixing code quality issues, planning complex work
 
 ## 🧪 Testing Quick Reference
 

@@ -93,6 +93,6 @@ docs/source/demos
 
 # AI assistant working directories
 AI_PROGRESS/
-PLAN.md
+/PLAN.md
 plans/
 tmp/
