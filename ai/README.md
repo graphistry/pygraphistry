@@ -1,4 +1,4 @@
-# ai_code_notes
+# ai
 
 Specialized documentation for AI assistants working on PyGraphistry. These guides supplement the main CLAUDE.md with detailed, topic-specific information.
 
@@ -37,18 +37,19 @@ WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/t
 
 ```
 CLAUDE.md                    # General guide (< 500 lines)
-├── ai_code_notes/          # Specialized guides
+├── ai/                    # Specialized guides
 │   ├── README.md           # This file - overview & quick ref
-│   ├── gfql/              # GFQL patterns & optimization
-│   ├── gpu/               # GPU/RAPIDS best practices  
-│   ├── connectors/        # Database-specific patterns
-│   └── prompt_templates/  # Reusable workflows
+│   ├── docs/              # Documentation guides
+│   │   ├── gfql/          # GFQL patterns & optimization
+│   │   ├── gpu/           # GPU/RAPIDS best practices  
+│   │   └── connectors/    # Database-specific patterns
+│   └── prompts/           # Reusable workflow templates
 └── AI_PROGRESS/           # Task tracking (gitignored)
 ```
 
 ### When to Use Each Level
 - **CLAUDE.md**: Start here for general PyGraphistry development
-- **ai_code_notes/**: Load specific guides only when working on that topic
+- **ai/**: Load specific guides only when working on that topic
 - **AI_PROGRESS/**: Track multi-session work and complex implementations
 
 ## 🚀 Status Tracking Conventions
@@ -71,11 +72,12 @@ CLAUDE.md                    # General guide (< 500 lines)
 ## 📁 Directory Structure
 
 ```
-ai_code_notes/
-├── gfql/                    # GFQL-specific patterns and guidelines
-├── gpu/                     # GPU/CUDA development notes
-├── connectors/              # Database connector patterns
-└── prompt_templates/        # Reusable workflow templates
+ai/
+├── docs/                    # Documentation guides
+│   ├── gfql/               # GFQL-specific patterns and guidelines
+│   ├── gpu/                # GPU/CUDA development notes
+│   └── connectors/         # Database connector patterns
+└── prompts/                # Reusable workflow templates
     ├── LINT_TYPES_CHECK.md       # Code quality enforcement (with P0-P5)
     ├── CONVENTIONAL_COMMITS.md   # Git commit workflow with PyGraphistry conventions
     ├── IMPLEMENTATION_PLAN.md    # [TODO] Feature implementation tracking
@@ -221,7 +223,7 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 ### Before Committing
 1. Run Docker tests: `cd docker && WITH_BUILD=0 ./test-cpu-local.sh`
 2. Update CHANGELOG.md under `## [Development]`
-3. Use conventional commit: `fix(scope): description` (see `prompt_templates/CONVENTIONAL_COMMITS.md`)
+3. Use conventional commit: `fix(scope): description` (see `prompts/CONVENTIONAL_COMMITS.md`)
 4. Remove debug code and Claude comments
 
 ## 📝 AI_PROGRESS Tracking
