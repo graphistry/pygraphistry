@@ -44,13 +44,13 @@ CLAUDE.md                    # General guide (< 500 lines)
 │   │   ├── gpu/           # GPU/RAPIDS best practices  
 │   │   └── connectors/    # Database-specific patterns
 │   └── prompts/           # Reusable workflow templates
-└── AI_PROGRESS/           # Task tracking (gitignored)
+└── plans/                 # Task tracking (gitignored)
 ```
 
 ### When to Use Each Level
 - **CLAUDE.md**: Start here for general PyGraphistry development
 - **ai/**: Load specific guides only when working on that topic
-- **AI_PROGRESS/**: Track multi-session work and complex implementations
+- **plans/**: Track multi-session work and complex implementations
 
 ## 🚀 Status Tracking Conventions
 
@@ -220,7 +220,7 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 1. Follow functional programming patterns
 2. Add type annotations to new code
 3. Use appropriate priority (P0-P5) for issues
-4. Track complex work in AI_PROGRESS/
+4. Track complex work in plans/
 
 ### Before Committing
 1. Run Docker tests: `cd docker && WITH_BUILD=0 ./test-cpu-local.sh`
@@ -228,11 +228,11 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 3. Use conventional commit: `fix(scope): description` (see `prompts/CONVENTIONAL_COMMITS.md`)
 4. Remove debug code and Claude comments
 
-## 📝 AI_PROGRESS Tracking
+## 📝 Task Planning & Tracking
 
 For multi-session or complex work:
 ```
-AI_PROGRESS/task_name/
+plans/task_name/
 ├── implementation_plan.md  # Phases and approach
 ├── progress.md            # Current status (update each session)
 ├── insights.md            # Learnings and recommendations

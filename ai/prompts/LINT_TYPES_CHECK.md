@@ -3,7 +3,7 @@
 <!-- FILE TRACKING HEADER - FILL IN WHEN FILE CREATED -->
 ```
 Run Name: lint_check_[YYYY_MM_DD_HHMMSS]
-Main File: AI_PROGRESS/lint_check_[YYYY_MM_DD_HHMMSS]/progress.md
+Main File: plans/lint_check_[YYYY_MM_DD_HHMMSS]/progress.md
 Created: [YYYY-MM-DD HH:MM:SS]
 Status: [IN_PROGRESS/COMPLETE/BLOCKED]
 ```
@@ -26,7 +26,7 @@ cd docker && WITH_TYPECHECK=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 1. **Start without creating files** - Run Steps 1-2 first
 2. **MANDATORY: FIX ALL FIXABLE ISSUES** - You MUST attempt to fix every error found
-3. **Create AI_PROGRESS file only if needed**:
+3. **Create plans file only if needed**:
    - When manual fixes are required
    - When Step 3 indicates iteration needed
    - When complex issues found
@@ -35,7 +35,7 @@ cd docker && WITH_TYPECHECK=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 6. **Ask about file deletion** in interactive mode (after showing report)
 
 ### File Structure
-- **Main tracking file**: `AI_PROGRESS/lint_check_[YYYY_MM_DD_HHMMSS]/progress.md`
+- **Main tracking file**: `plans/lint_check_[YYYY_MM_DD_HHMMSS]/progress.md`
   - This is the ONLY file that tracks overall progress across all iterations
   - Always update this file when iterating back with progress updates
   - Include the run name at the top of each update for easy tracking
@@ -209,7 +209,7 @@ NOT valid reasons for BLOCKED:
 ### Step 4: Final Report and Cleanup
 **Started**: [YYYY-MM-DD HH:MM:SS]
 **Purpose**: Generate comprehensive report and handle file cleanup
-**Action**: Print final summary and manage AI_PROGRESS file
+**Action**: Print final summary and manage plans file
 
 <!-- FILL IN: Final report -->
 ```
@@ -231,7 +231,7 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh
 
 File Status:
 - progress.md created: Yes/No
-- Location: AI_PROGRESS/lint_check_[date]/progress.md
+- Location: plans/lint_check_[date]/progress.md
 
 Result: ✅ CLEAN / 🔧 IMPROVED / 🛑 BLOCKED
 ```
@@ -406,7 +406,7 @@ mypy graphistry/embed_utils.py
 
 **Execution Mode**: 
 - [ ] **Direct Fix** - Simple issues, fix immediately
-- [ ] **Tracked Fix** - Create AI_PROGRESS file to track iterations
+- [ ] **Tracked Fix** - Create plans file to track iterations
 - [ ] **Task Mode** - Complex issues need full implementation plan
 
 ## Task Mode Actions
@@ -417,7 +417,7 @@ This section is for DOCUMENTING fixes you've already made, not planning future f
 If you haven't fixed anything yet, GO BACK and start fixing!
 
 ### Task Created:
-**Task Name**: `AI_PROGRESS/lint_check_[YYYY_MM_DD_HHMMSS]/`
+**Task Name**: `plans/lint_check_[YYYY_MM_DD_HHMMSS]/`
 
 **Files Created**:
 - [ ] `progress.md` - Main tracking file (ALWAYS created, tracks all iterations)
@@ -476,7 +476,7 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh
 
 File Status:
 - progress.md created: Yes
-- Location: AI_PROGRESS/lint_check_2024_01_15_143000/progress.md
+- Location: plans/lint_check_2024_01_15_143000/progress.md
 
 Result: ✅ CLEAN
 
