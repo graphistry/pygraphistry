@@ -274,6 +274,7 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 - Visualizes the subgraph consisting of high PageRank nodes.
 
 10. Run remotely
+~~~~~~~~~~~~~~~~
 
 You may want to run GFQL remotely because the data is remote or a GPU is available remotely:
 
