@@ -25,8 +25,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e .[docs] && \
     python3 -m ipykernel install --sys-prefix --name python3
 
-# Step 5: Copy the build script into the container
+# Step 5: Copy the build script and config files into the container
 COPY docs/docker/build-docs.sh /build-docs.sh
+COPY .rstcheck.cfg /docs/.rstcheck.cfg
 COPY docs/source /docs/source
 COPY demos /docs/source/demos
 COPY docs/test_notebooks /docs/test_notebooks
