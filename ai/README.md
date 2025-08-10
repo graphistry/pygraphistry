@@ -23,8 +23,8 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
 
 # Validate RST documentation syntax
-./bin/validate-docs.sh            # All docs
-./bin/validate-docs.sh --changed  # Only modified files
+./docs/validate-docs.sh            # All docs
+./docs/validate-docs.sh --changed  # Only modified files
 
 # Note: Direct script execution requires local environment setup
 # ./bin/lint.sh && ./bin/typecheck.sh
