@@ -327,13 +327,13 @@ Additional parameters enable controlling options such as the execution `engine` 
 
 ::
 
-        def compute_shape(g):
-            g2 = g.materialize_nodes()
-            return g2
-    
-        g = graphistry.bind(dataset_id='my-dataset-id')
-        g2 = g.python_remote_g(compute_shape)
-        print(g2._nodes)
+    def compute_shape(g):
+        g2 = g.materialize_nodes()
+        return g2
+
+    g = graphistry.bind(dataset_id='my-dataset-id')
+    g2 = g.python_remote_g(compute_shape)
+    print(g2._nodes)
 
 Conclusion and Next Steps
 -------------------------
