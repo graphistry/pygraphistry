@@ -395,8 +395,43 @@ jobs:
         echo "✅ py.typed marker confirmed in wheel distribution"
 
   
+  lint-docs-rst:
+    needs: changes
+    # Run if docs changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install docs dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e .[docs]
+    
+    - name: Validate RST syntax
+      run: |
+        if [ -f .rstcheck.cfg ]; then
+          echo "Using .rstcheck.cfg configuration"
+        else
+          echo "Warning: .rstcheck.cfg not found"
+        fi
+        # Run validation script if it exists, otherwise run rstcheck directly
+        if [ -f bin/validate-docs.sh ]; then
+          ./bin/validate-docs.sh
+        else
+          find docs -name "*.rst" -exec rstcheck --config .rstcheck.cfg {} +
+        fi
+
   test-docs:
-    needs: [changes, python-lint-types]
+    needs: [changes, python-lint-types, lint-docs-rst]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
     if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
