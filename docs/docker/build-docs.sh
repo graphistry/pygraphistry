@@ -8,7 +8,8 @@ python3 -c "import sys; print('Python path:', sys.path); import graphistry; prin
 if [ -x "/docs/validate-docs.sh" ]; then
     (cd /docs && ./validate-docs.sh)
 else
-    echo "WARNING: validate-docs.sh not found or not executable, skipping RST validation"
+    echo "ERROR: validate-docs.sh not found or not executable"
+    exit 1
 fi
 
 build_html() {
