@@ -314,11 +314,11 @@ Remote Mode
 
       # ensure method is called "task" and takes a single argument "g"
       g3 = g2.python_remote_g("""
-def task(g):
-    return (g
-        .nodes(g._nodes[:10])
-        .edges(g._edges[:10])
-    )
+          def task(g):
+              return (g
+                  .nodes(g._nodes[:10])
+                  .edges(g._edges[:10])
+              )
       """)
 
 Advanced Usage
