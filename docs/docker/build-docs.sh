@@ -11,15 +11,9 @@ if [ -f "/.rstcheck.cfg" ]; then
 elif [ -f "/docs/.rstcheck.cfg" ]; then
     CONFIG_FILE="/docs/.rstcheck.cfg"
 else
-    # Create minimal config if not found
-    CONFIG_FILE="/tmp/.rstcheck.cfg"
-    cat > "$CONFIG_FILE" << 'EOF'
-[rstcheck]
-ignore_roles = meth,class,ref,doc,attr,mod,func,data,const,exc,obj,any
-ignore_directives = automodule,autoclass,autofunction,toctree,literalinclude,code-block
-ignore_messages = (Hyperlink target "[^"]*" is not referenced\.$)
-report_level = ERROR
-EOF
+    echo "ERROR: .rstcheck.cfg not found in expected locations (/ or /docs/)"
+    echo "The Docker build should have copied docs/.rstcheck.cfg to /docs/.rstcheck.cfg"
+    exit 1
 fi
 
 # Run rstcheck on all RST files, fail on errors
