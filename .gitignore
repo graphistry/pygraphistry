@@ -92,7 +92,8 @@ jupyter_dev/
 docs/source/demos
 
 # AI assistant working directories
-AI_PROGRESS/  # Legacy - kept for backward compatibility
+# Legacy - kept for backward compatibility
+AI_PROGRESS/
 /PLAN.md
 plans/
 tmp/
