@@ -118,11 +118,11 @@ elif [ -n "$1" ]; then
     # Check specific file(s) provided as arguments
     FILES="$@"
 else
-    # Check all RST files in docs/
-    echo_info "Checking all RST files in docs/..."
-    FILES=$(find docs -name "*.rst" 2>/dev/null || true)
+    # Check all RST files in docs/source/ (matching Docker behavior)
+    echo_info "Checking all RST files in docs/source/..."
+    FILES=$(find docs/source -name "*.rst" 2>/dev/null || true)
     if [ -z "$FILES" ]; then
-        echo_warning "No RST files found in docs/"
+        echo_warning "No RST files found in docs/source/"
         exit 0
     fi
 fi

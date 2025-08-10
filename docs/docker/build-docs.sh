@@ -6,12 +6,10 @@ python3 -c "import sys; print('Python path:', sys.path); import graphistry; prin
 
 # Validate RST syntax before building docs
 echo "Validating RST documentation syntax..."
-if [ -f "/.rstcheck.cfg" ]; then
-    CONFIG_FILE="/.rstcheck.cfg"
-elif [ -f "/docs/.rstcheck.cfg" ]; then
+if [ -f "/docs/.rstcheck.cfg" ]; then
     CONFIG_FILE="/docs/.rstcheck.cfg"
 else
-    echo "ERROR: .rstcheck.cfg not found in expected locations (/ or /docs/)"
+    echo "ERROR: .rstcheck.cfg not found at /docs/.rstcheck.cfg"
     echo "The Docker build should have copied docs/.rstcheck.cfg to /docs/.rstcheck.cfg"
     exit 1
 fi
