@@ -188,7 +188,7 @@ Run Python on an existing graph, return a table
   def first_n_edges(g):
       return g._edges[:10]
 
-  some_edges_df = g.remote_python_table(first_n_edges)
+  some_edges_df = g.python_remote_table(first_n_edges)
 
   assert len(some_edges_df) == 10
 
@@ -205,6 +205,6 @@ Run Python on an existing graph, return JSON
   def first_n_edges_shape(g):
       return {'num_edges': len(g._edges[:10])}
 
-  obj = g.remote_python_json(first_n_edges_shape)
+  obj = g.python_remote_json(first_n_edges_shape)
 
   assert obj['num_edges'] == 10
