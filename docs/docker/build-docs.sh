@@ -4,6 +4,35 @@ set -ex
 # Debug: Check if graphistry is importable
 python3 -c "import sys; print('Python path:', sys.path); import graphistry; print('Graphistry imported successfully from:', graphistry.__file__)" || echo "WARNING: Cannot import graphistry"
 
+# Validate RST syntax before building docs
+echo "Validating RST documentation syntax..."
+if [ -f "/.rstcheck.cfg" ]; then
+    CONFIG_FILE="/.rstcheck.cfg"
+elif [ -f "/docs/.rstcheck.cfg" ]; then
+    CONFIG_FILE="/docs/.rstcheck.cfg"
+else
+    # Create minimal config if not found
+    CONFIG_FILE="/tmp/.rstcheck.cfg"
+    cat > "$CONFIG_FILE" << 'EOF'
+[rstcheck]
+ignore_roles = meth,class,ref,doc,attr,mod,func,data,const,exc,obj,any
+ignore_directives = automodule,autoclass,autofunction,toctree,literalinclude,code-block
+ignore_messages = (Hyperlink target "[^"]*" is not referenced\.$)
+report_level = ERROR
+EOF
+fi
+
+# Run rstcheck on all RST files, fail on errors
+if command -v rstcheck &> /dev/null; then
+    find /docs/source -name "*.rst" -exec rstcheck --config "$CONFIG_FILE" {} + || {
+        echo "RST validation failed! Fix the errors above before building docs."
+        exit 1
+    }
+    echo "RST validation passed!"
+else
+    echo "WARNING: rstcheck not installed, skipping RST validation"
+fi
+
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
 }
