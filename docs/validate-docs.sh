@@ -11,20 +11,20 @@ fi
 # Determine config path based on current directory
 if [ -f ".rstcheck.cfg" ]; then
     CONFIG_PATH=".rstcheck.cfg"
-    SOURCE_PATH="source/**/*.rst"
+    DEFAULT_SOURCE="source/**/*.rst"
 elif [ -f "docs/.rstcheck.cfg" ]; then
     CONFIG_PATH="docs/.rstcheck.cfg"
-    SOURCE_PATH="docs/source/**/*.rst"
+    DEFAULT_SOURCE="docs/source/**/*.rst"
 else
     echo "Error: Could not find .rstcheck.cfg"
     exit 1
 fi
 
-# Validate RST files
-if [ "$1" = "--changed" ]; then
-    # Check only changed files
-    git diff --name-only HEAD -- '*.rst' | xargs -r rstcheck --config "$CONFIG_PATH"
+# If no args provided, check all source files
+if [ $# -eq 0 ]; then
+    # Use eval to properly expand the glob pattern
+    eval "exec rstcheck --config \"$CONFIG_PATH\" $DEFAULT_SOURCE"
 else
-    # Check all source files  
-    rstcheck --config "$CONFIG_PATH" $SOURCE_PATH
+    # Pass through all arguments to rstcheck, adding our config
+    exec rstcheck --config "$CONFIG_PATH" "$@"
 fi
