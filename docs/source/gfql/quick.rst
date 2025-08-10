@@ -313,13 +313,12 @@ Remote Mode
       g2 = g1.upload()
 
       # ensure method is called "task" and takes a single argument "g"
-      g3 = g2.chain_remote_python("""
-          def task(g):
-              return (g
-                  .nodes(g._nodes[:10])
-                  .edges(g._edges[:10])
-              )
-          my_remote_trim_graph_task(g)
+      g3 = g2.python_remote_g("""
+def task(g):
+    return (g
+        .nodes(g._nodes[:10])
+        .edges(g._edges[:10])
+    )
       """)
 
 Advanced Usage
