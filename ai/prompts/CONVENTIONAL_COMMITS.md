@@ -2,7 +2,7 @@
 
 <!-- FILE TRACKING HEADER - FILL IN WHEN FILE CREATED -->
 ```
-File: AI_PROGRESS/commits_[YYYY_MM_DD_HHMMSS]/progress.md
+File: plans/commits_[YYYY_MM_DD_HHMMSS]/progress.md
 Run Name: commits_[YYYY_MM_DD_HHMMSS]
 Created: [YYYY-MM-DD HH:MM:SS]
 Status: [IN_PROGRESS/COMPLETE/BLOCKED]
