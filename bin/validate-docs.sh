@@ -47,10 +47,15 @@ if ! command -v rstcheck &> /dev/null; then
     exit 1
 fi
 
-# Check if config file exists
-CONFIG_FILE=".rstcheck.cfg"
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo_warning "No .rstcheck.cfg found, creating default config..."
+# Check if config file exists (try multiple locations)
+if [ -f "docs/.rstcheck.cfg" ]; then
+    CONFIG_FILE="docs/.rstcheck.cfg"
+elif [ -f ".rstcheck.cfg" ]; then
+    CONFIG_FILE=".rstcheck.cfg"
+else
+    echo_warning "No .rstcheck.cfg found, creating default config in docs/..."
+    CONFIG_FILE="docs/.rstcheck.cfg"
+    mkdir -p docs
     cat > "$CONFIG_FILE" << 'EOF'
 [rstcheck]
 # Ignore Sphinx-specific roles that are not part of standard RST
@@ -94,7 +99,7 @@ ignore_messages = (Hyperlink target "[^"]*" is not referenced\.$)
 # Report level: ERROR, WARNING, INFO
 report_level = WARNING
 EOF
-    echo_success "Created .rstcheck.cfg"
+    echo_success "Created $CONFIG_FILE"
 fi
 
 # Determine what files to check
