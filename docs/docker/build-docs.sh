@@ -6,7 +6,7 @@ python3 -c "import sys; print('Python path:', sys.path); import graphistry; prin
 
 # Validate RST syntax before building docs
 if [ -x "/docs/validate-docs.sh" ]; then
-    cd /docs && ./validate-docs.sh
+    (cd /docs && ./validate-docs.sh)
 else
     echo "WARNING: validate-docs.sh not found or not executable, skipping RST validation"
 fi
