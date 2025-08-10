@@ -170,7 +170,7 @@ Run remote python on the current graph
     # Upload any local graph data to the remote server
     g2 = g1.upload()
 
-    g3 = g2.chain_remote_python(my_remote_trim_graph_task)
+    g3 = g2.python_remote_g(my_remote_trim_graph_task)
 
     assert len(g3._nodes) == 10
     assert len(g3._edges) == 10
