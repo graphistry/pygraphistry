@@ -5,24 +5,10 @@ set -ex
 python3 -c "import sys; print('Python path:', sys.path); import graphistry; print('Graphistry imported successfully from:', graphistry.__file__)" || echo "WARNING: Cannot import graphistry"
 
 # Validate RST syntax before building docs
-echo "Validating RST documentation syntax..."
-if [ -f "/docs/.rstcheck.cfg" ]; then
-    CONFIG_FILE="/docs/.rstcheck.cfg"
+if [ -x "/docs/validate-docs.sh" ]; then
+    cd /docs && ./validate-docs.sh
 else
-    echo "ERROR: .rstcheck.cfg not found at /docs/.rstcheck.cfg"
-    echo "The Docker build should have copied docs/.rstcheck.cfg to /docs/.rstcheck.cfg"
-    exit 1
-fi
-
-# Run rstcheck on all RST files, fail on errors
-if command -v rstcheck &> /dev/null; then
-    find /docs/source -name "*.rst" -exec rstcheck --config "$CONFIG_FILE" {} + || {
-        echo "RST validation failed! Fix the errors above before building docs."
-        exit 1
-    }
-    echo "RST validation passed!"
-else
-    echo "WARNING: rstcheck not installed, skipping RST validation"
+    echo "WARNING: validate-docs.sh not found or not executable, skipping RST validation"
 fi
 
 build_html() {

@@ -28,6 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Step 5: Copy the build script and config files into the container
 COPY docs/docker/build-docs.sh /build-docs.sh
 COPY docs/.rstcheck.cfg /docs/.rstcheck.cfg
+COPY docs/validate-docs.sh /docs/validate-docs.sh
 COPY docs/source /docs/source
 COPY demos /docs/source/demos
 COPY docs/test_notebooks /docs/test_notebooks
