@@ -22,6 +22,11 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 # Run specific tests fast
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
 
+# Validate RST documentation syntax
+./docs/validate-docs.sh                           # All docs
+./docs/validate-docs.sh docs/source/gfql/*.rst   # Specific files
+git diff --name-only HEAD -- '*.rst' | xargs ./docs/validate-docs.sh  # Changed files
+
 # Note: Direct script execution requires local environment setup
 # ./bin/lint.sh && ./bin/typecheck.sh
 ```

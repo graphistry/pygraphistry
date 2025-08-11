@@ -34,6 +34,7 @@ dev_extras = {
       'myst-parser==4.0.0',
       'nbsphinx==0.9.5',
       'pygments>2.10',
+      'rstcheck[sphinx]>=6.0',  # RST validation for documentation
       'sphinx==8.0.2',
       #'sphinx_autodoc_typehints==1.11.1',
       'sphinx-copybutton==0.5.2',

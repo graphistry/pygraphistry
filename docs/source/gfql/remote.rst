@@ -170,7 +170,7 @@ Run remote python on the current graph
     # Upload any local graph data to the remote server
     g2 = g1.upload()
 
-    g3 = g2.chain_remote_python(my_remote_trim_graph_task)
+    g3 = g2.python_remote_g(my_remote_trim_graph_task)
 
     assert len(g3._nodes) == 10
     assert len(g3._edges) == 10
@@ -188,7 +188,7 @@ Run Python on an existing graph, return a table
   def first_n_edges(g):
       return g._edges[:10]
 
-  some_edges_df = g.remote_python_table(first_n_edges)
+  some_edges_df = g.python_remote_table(first_n_edges)
 
   assert len(some_edges_df) == 10
 
@@ -205,6 +205,6 @@ Run Python on an existing graph, return JSON
   def first_n_edges_shape(g):
       return {'num_edges': len(g._edges[:10])}
 
-  obj = g.remote_python_json(first_n_edges_shape)
+  obj = g.python_remote_json(first_n_edges_shape)
 
   assert obj['num_edges'] == 10

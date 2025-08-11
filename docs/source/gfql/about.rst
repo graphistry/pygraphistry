@@ -274,6 +274,7 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 - Visualizes the subgraph consisting of high PageRank nodes.
 
 10. Run remotely
+~~~~~~~~~~~~~~~~
 
 You may want to run GFQL remotely because the data is remote or a GPU is available remotely:
 
@@ -327,13 +328,13 @@ Additional parameters enable controlling options such as the execution `engine` 
 
 ::
 
-        def compute_shape(g):
-            g2 = g.materialize_nodes()
-            return g2
-    
-        g = graphistry.bind(dataset_id='my-dataset-id')
-        g2 = g.python_remote_g(compute_shape)
-        print(g2._nodes)
+    def compute_shape(g):
+        g2 = g.materialize_nodes()
+        return g2
+
+    g = graphistry.bind(dataset_id='my-dataset-id')
+    g2 = g.python_remote_g(compute_shape)
+    print(g2._nodes)
 
 Conclusion and Next Steps
 -------------------------

@@ -4,6 +4,14 @@ set -ex
 # Debug: Check if graphistry is importable
 python3 -c "import sys; print('Python path:', sys.path); import graphistry; print('Graphistry imported successfully from:', graphistry.__file__)" || echo "WARNING: Cannot import graphistry"
 
+# Validate RST syntax before building docs
+if [ -x "/docs/validate-docs.sh" ]; then
+    (cd /docs && ./validate-docs.sh)
+else
+    echo "ERROR: validate-docs.sh not found or not executable"
+    exit 1
+fi
+
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
 }

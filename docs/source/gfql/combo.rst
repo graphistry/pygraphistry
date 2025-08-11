@@ -305,8 +305,8 @@ Semantic Search in Graphs
 
 .. code-block:: python
 
-     g2 = g1.featurize(
-        X = ['text_col_1', .., 'text_col_n'],
+    g2 = g1.featurize(
+        X = ['text_col_1', 'text_col_n'],  # ... more columns
         kind='nodes',
         model_name = "paraphrase-MiniLM-L6-v2")
     
@@ -331,16 +331,16 @@ Knowledge Graph Embeddings
 
 .. code-block:: python
 
-      g2 = g1.embed(relation='relationship_column_of_interest')
+    g2 = g1.embed(relation='relationship_column_of_interest')
 
-      g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
-      g3.plot()
+    g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
+    g3.plot()
 
-      # Score over any set of entities and/or relations. 
-      g4 = g2.predict_links(
+    # Score over any set of entities and/or relations. 
+    g4 = g2.predict_links(
         source=['entity_k'], 
-        relation=['relationship_1', 'relationship_4', ..], 
-        destination=['entity_l', 'entity_m', ..], 
+        relation=['relationship_1', 'relationship_4'],  # ... more relationships
+        destination=['entity_l', 'entity_m'],  # ... more entities
         threshold=0.9,  # score threshold
         return_dataframe=False)  # return graph vs _edges df
 
