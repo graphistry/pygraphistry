@@ -1417,5 +1417,5 @@ See Also
 --------
 
 - :ref:`gfql-quick` - GFQL quick reference
-- :ref:`gfql-specifications` - Complete GFQL specification  
+- :doc:`spec/index` - Complete GFQL specification  
 - :ref:`gfql-predicates-quick` - Predicate reference for filtering
