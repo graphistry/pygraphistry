@@ -9,7 +9,6 @@ See also:
    :maxdepth: 1
 
    10min
-   loading_graph_data
    uiguide
    layout/intro
    layout/catalog
