@@ -9,7 +9,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * Docs: Fix case sensitivity in server toctree to link concurrency.rst (#723)
+* Docs: Correct hallucinated method names in GFQL documentation (#732)
+  * Fixed `chain_remote_python` → `python_remote_g` (non-existent method)
+  * Fixed `remote_python_table` → `python_remote_table`
+  * Fixed `remote_python_json` → `python_remote_json`
+  * Fixed code indentation issues in about.rst and combo.rst
 * Logging: stop attaching a handler if one exists, let caller decide how to log
+
+### Infra
+* Docs: Add RST validation tooling to prevent documentation syntax errors
+  * Added rstcheck configuration to validate RST files
+  * Integrated validation into Docker build process
+  * Added validation script for local development
 
 ## [0.41.0 - 2025-07-26]
 
