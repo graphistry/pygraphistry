@@ -1096,7 +1096,7 @@ from graphistry.compute.chain import Chain
 pattern = Chain([n(), e(), n()])
 pattern_json = pattern.to_json()
 pattern2 = Chain.from_json(pattern_json)
-g.chain(pattern2).plot()
+g.gfql(pattern2).plot()
 ```
 
 Benefit from automatic GPU acceleration by passing in GPU dataframes:

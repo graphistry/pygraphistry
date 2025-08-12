@@ -229,7 +229,7 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
 
 .. code-block:: python
 
-    g2 = g1.chain([
+    g2 = g1.gfql([
         n(),
         e(edge_query="vulnName == 'MS08067 (NetAPI)' & `time(max)` > 1421430000"),
         n(),
@@ -239,6 +239,33 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
     g2.plot()
 
 This GFQL query filters the edges based on the vulnerability name and time, then returns the matching nodes and edges for visualization.
+
+Sequencing Programs with Let
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For more complex analyses, GFQL's ``let`` feature allows you to create named, reusable graph patterns that can reference each other. This is particularly powerful for multi-step graph algorithms and investigations.
+
+**Example: Finding and visualizing influence zones of high-value nodes**
+
+.. code-block:: python
+
+    from graphistry import let, n, e, ref, call
+    
+    g_analysis = let('ranked', call('compute_cugraph', {'alg': 'pagerank', 'out_col': 'pagerank'})) \
+        .let('influencers', ref('ranked', [n(query='pagerank > 0.02')])) \
+        .let('contacts', ref('influencers', [e(), n()])) \
+        .let('influence_zone', ref('contacts', [e(), n()])) \
+        .run(g1)
+
+    # Visualize the influence zones with PageRank-based sizing
+    g_analysis.encode_point_size('pagerank').plot()
+
+This example demonstrates how ``let`` enables you to:
+
+1. **Sequence operations**: Each step builds on previous results
+2. **Reuse computations**: Reference earlier results with ``ref()``
+3. **Name intermediate results**: Makes complex queries readable
+4. **Compose algorithms**: Combine graph algorithms with traversals
 
 
 Utilizing Hypergraphs
