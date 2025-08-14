@@ -40,7 +40,7 @@ class TestChainRemoteAuth:
             mock_post.return_value = mock_response
             
             # Call chain_remote without providing api_token
-            result = chain_remote_generic(
+            chain_remote_generic(
                 mock_plottable,
                 chain,
                 api_token=None,  # Force it to get token from session
@@ -77,7 +77,7 @@ class TestChainRemoteAuth:
             mock_post.return_value = mock_response
             
             # Call without api_token to force session usage
-            result = chain_remote_generic(
+            chain_remote_generic(
                 mock_plottable,
                 chain,
                 api_token=None,
@@ -109,7 +109,7 @@ class TestChainRemoteAuth:
             mock_post.return_value = mock_response
             
             # Call with explicit api_token
-            result = chain_remote_generic(
+            chain_remote_generic(
                 mock_plottable,
                 chain,
                 api_token="explicit_token_789",
@@ -148,7 +148,7 @@ class TestPythonRemoteAuth:
             mock_post.return_value = mock_response
             
             # Call without api_token
-            result = python_remote_g(
+            python_remote_g(
                 mock_plottable,
                 code,
                 api_token=None,
@@ -184,7 +184,7 @@ class TestPythonRemoteAuth:
             mock_response.content = b'{"nodes": [], "edges": []}'  # Add bytes content
             mock_post.return_value = mock_response
             
-            result = python_remote_g(
+            python_remote_g(
                 mock_plottable,
                 code,
                 api_token=None,
@@ -230,7 +230,7 @@ class TestClientIsolation:
             mock_post.return_value = mock_response
             
             # Call chain_remote for client1
-            result1 = chain_remote_generic(
+            chain_remote_generic(
                 client1,
                 chain,
                 api_token=None,
@@ -241,7 +241,7 @@ class TestClientIsolation:
             assert mock_post.call_args[1]['headers']['Authorization'] == "Bearer client1_token"
             
             # Call chain_remote for client2
-            result2 = chain_remote_generic(
+            chain_remote_generic(
                 client2,
                 chain,
                 api_token=None,
