@@ -28,9 +28,8 @@ def chain_remote_generic(
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
-        from graphistry.pygraphistry import PyGraphistry
-        PyGraphistry.refresh()
-        api_token = PyGraphistry.api_token()
+        self._pygraphistry.refresh()
+        api_token = self.session.api_token
 
     if not dataset_id:
         dataset_id = self._dataset_id
