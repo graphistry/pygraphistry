@@ -129,13 +129,19 @@ class TestPythonRemoteAuth:
     def test_python_remote_uses_instance_session_refresh(self):
         """Verify python_remote calls self._pygraphistry.refresh()"""
         
-        mock_plottable = Mock()
+        # Import Plottable for type checking
+        from graphistry.Plottable import Plottable
+        
+        mock_plottable = Mock(spec=Plottable)
         mock_plottable.session = Mock()
         mock_plottable.session.api_token = "python_token_123"
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_python"
         mock_plottable.base_url_server = Mock(return_value="https://test.server")
         mock_plottable._edges = pd.DataFrame()
+        mock_plottable._nodes = None
+        mock_plottable.edges = Mock(return_value=mock_plottable)
+        mock_plottable.nodes = Mock(return_value=mock_plottable)
         
         code = "def task(g): return g"
         
@@ -165,7 +171,9 @@ class TestPythonRemoteAuth:
     def test_python_remote_gets_token_from_session(self):
         """Verify python_remote accesses self.session.api_token"""
         
-        mock_plottable = Mock()
+        from graphistry.Plottable import Plottable
+        
+        mock_plottable = Mock(spec=Plottable)
         mock_session = Mock()
         mock_session.api_token = "python_session_456"
         mock_plottable.session = mock_session
@@ -173,6 +181,9 @@ class TestPythonRemoteAuth:
         mock_plottable._dataset_id = "dataset_python2"
         mock_plottable.base_url_server = Mock(return_value="https://test.server")
         mock_plottable._edges = pd.DataFrame()
+        mock_plottable._nodes = None
+        mock_plottable.edges = Mock(return_value=mock_plottable)
+        mock_plottable.nodes = Mock(return_value=mock_plottable)
         
         code = "def task(g): return g"
         
