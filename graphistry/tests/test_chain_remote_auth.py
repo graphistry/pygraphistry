@@ -10,7 +10,7 @@ from unittest.mock import Mock, MagicMock, patch, PropertyMock
 import pandas as pd
 
 from graphistry.compute.chain_remote import chain_remote_generic
-from graphistry.compute.python_remote import python_remote_g
+from graphistry.compute.python_remote import python_remote_generic
 
 
 class TestChainRemoteAuth:
@@ -23,6 +23,7 @@ class TestChainRemoteAuth:
         mock_plottable = Mock()
         mock_plottable.session = Mock()
         mock_plottable.session.api_token = "test_token_123"
+        mock_plottable.session.certificate_validation = True
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_123"
         mock_plottable.base_url_server = Mock(return_value="https://test.server")
@@ -60,6 +61,7 @@ class TestChainRemoteAuth:
         mock_plottable = Mock()
         mock_session = Mock()
         mock_session.api_token = "session_token_456"
+        mock_session.certificate_validation = True
         mock_plottable.session = mock_session
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_456"
@@ -94,6 +96,7 @@ class TestChainRemoteAuth:
         mock_plottable = Mock()
         mock_plottable.session = Mock()
         mock_plottable.session.api_token = "session_token"
+        mock_plottable.session.certificate_validation = True
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_789"
         mock_plottable.base_url_server = Mock(return_value="https://test.server")
@@ -132,6 +135,7 @@ class TestPythonRemoteAuth:
         mock_plottable = Mock()
         mock_plottable.session = Mock()
         mock_plottable.session.api_token = "python_token_123"
+        mock_plottable.session.certificate_validation = True  # Add certificate_validation
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_python"
         mock_plottable.base_url_server = Mock(return_value="https://test.server")
@@ -148,12 +152,12 @@ class TestPythonRemoteAuth:
             mock_post.return_value = mock_response
             
             # Call without api_token
-            python_remote_g(
+            python_remote_generic(
                 mock_plottable,
                 code,
                 api_token=None,
                 format='json',
-                output_type='all'
+                output_type='json'
             )
             
             # Verify refresh was called
@@ -168,6 +172,7 @@ class TestPythonRemoteAuth:
         mock_plottable = Mock()
         mock_session = Mock()
         mock_session.api_token = "python_session_456"
+        mock_session.certificate_validation = True  # Add certificate_validation
         mock_plottable.session = mock_session
         mock_plottable._pygraphistry = Mock()
         mock_plottable._dataset_id = "dataset_python2"
@@ -184,12 +189,12 @@ class TestPythonRemoteAuth:
             mock_response.content = b'{"nodes": [], "edges": []}'  # Add bytes content
             mock_post.return_value = mock_response
             
-            python_remote_g(
+            python_remote_generic(
                 mock_plottable,
                 code,
                 api_token=None,
                 format='json',
-                output_type='all'
+                output_type='json'
             )
             
             # Verify correct token was used
@@ -206,6 +211,7 @@ class TestClientIsolation:
         client1 = Mock()
         client1.session = Mock()
         client1.session.api_token = "client1_token"
+        client1.session.certificate_validation = True
         client1._pygraphistry = Mock()
         client1._dataset_id = "dataset1"
         client1.base_url_server = Mock(return_value="https://test.server")
@@ -215,6 +221,7 @@ class TestClientIsolation:
         client2 = Mock()
         client2.session = Mock()
         client2.session.api_token = "client2_token"
+        client2.session.certificate_validation = True
         client2._pygraphistry = Mock()
         client2._dataset_id = "dataset2"
         client2.base_url_server = Mock(return_value="https://test.server")
