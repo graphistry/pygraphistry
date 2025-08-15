@@ -15,6 +15,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Fixed `remote_python_json` → `python_remote_json`
   * Fixed code indentation issues in about.rst and combo.rst
 * Logging: stop attaching a handler if one exists, let caller decide how to log
+* Session: Fix missing certificate_validation support in remote operations (#734)
+  * Fixed `chain_remote_generic()` to respect `self.session.certificate_validation`
+  * Fixed `python_remote_generic()` to respect `self.session.certificate_validation`
+  * Added comprehensive test coverage for certificate validation behavior
+  * Ensures SSL verification can be properly disabled when needed for self-signed certificates
 
 ### Infra
 * Docs: Add RST validation tooling to prevent documentation syntax errors
