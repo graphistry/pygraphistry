@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## Dev
 
 ### Fixed
+* Auth: Fix `chain_remote()` and `python_remote_g()` to use client session instead of global singleton (#733)
+  * Fixes authentication errors when using `client.register()` with API keys
+  * Ensures proper session isolation for multi-client scenarios
 * Docs: Fix case sensitivity in server toctree to link concurrency.rst (#723)
 * Docs: Correct hallucinated method names in GFQL documentation (#732)
   * Fixed `chain_remote_python` → `python_remote_g` (non-existent method)
