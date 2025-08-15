@@ -145,7 +145,7 @@ def python_remote_generic(
         "Content-Type": "application/json",
     }
 
-    response = requests.post(url, headers=headers, json=request_body)
+    response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
     response.raise_for_status()
 
