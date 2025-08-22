@@ -349,7 +349,7 @@ class KustoMixin(Plottable):
             raise ValueError(f"Expected 2 results, got {len(results)}")
         nodes = pd.DataFrame(results[0].data, columns=results[0].column_names)
         edges = pd.DataFrame(results[1].data, columns=results[1].column_names)
-        return self.nodes(nodes, node='Graphistry_NodeId').edges(edges, source='g_src', destination='g_dst')  # type: ignore
+        return self.nodes(nodes, node='g_NodeId').edges(edges, source='g_src', destination='g_dst')  # type: ignore
 
 
     def _kql(self, query: str) -> List[KustoQueryResult]:
