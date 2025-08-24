@@ -8,8 +8,10 @@ from graphistry.models.compute.dbscan import DBSCANEngine
 from graphistry.models.compute.umap import UMAPEngineConcrete
 from graphistry.models.compute.features import GraphEntityKind
 from graphistry.plugins_types.cugraph_types import CuGraphKind
+from graphistry.plugins_types.embed_types import ProtoSymbolic, XSymbolic, YSymbolic
 from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
-from graphistry.privacy import Mode as PrivacyMode, Privacy
+from graphistry.plugins_types.umap_types import UMAPEngine
+from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstract
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
@@ -644,7 +646,7 @@ class Plottable(Protocol):
     ) -> 'Plottable':
         ...
 
-    def privacy(self, mode: Optional[PrivacyMode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None) -> 'Plottable':
+    def privacy(self, mode: Optional[PrivacyMode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None, mode_action: Optional[ModeAction] = None) -> 'Plottable':
         ...
 
     def to_cudf(self) -> 'Plottable':
@@ -787,4 +789,115 @@ class Plottable(Protocol):
                     fit_umap_embedding: bool = True,
                     umap_transform_kwargs: Dict[str, Any] = {}
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], 'Plottable']:
+        ...
+
+    def umap_lazy_init(
+        self,
+        res: "Plottable",
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        engine: UMAPEngine = "auto",
+        suffix: str = "",
+        umap_kwargs: dict[str, Any] = {},
+        umap_fit_kwargs: dict[str, Any] = {},
+        umap_transform_kwargs: dict[str, Any] = {},
+    ) -> "Plottable":
+        ...
+
+
+    def umap_fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.DataFrame | None = None,
+        umap_fit_kwargs: dict[str, Any] = {},
+    ) -> "Plottable":
+        ...
+
+    def umap(
+        self,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
+        kind: GraphEntityKind | None = "nodes",
+        scale: float = 1.0,
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        suffix: str = "",
+        play: int | None = 0,
+        encode_position: bool = True,
+        encode_weight: bool = True,
+        dbscan: bool = False,
+        engine: UMAPEngine = "auto",
+        feature_engine: str = "auto",
+        inplace: bool = False,
+        memoize: bool = True,
+        umap_kwargs: dict[str, Any] = {},
+        umap_fit_kwargs: dict[str, Any] = {},
+        umap_transform_kwargs: dict[str, Any] = {},
+        **featurize_kwargs: Any,
+    ) -> "Plottable":
+        ...
+
+
+    def filter_weighted_edges(
+        self,
+        scale: float = 1.0,
+        index_to_nodes_dict: dict | None = None,
+        inplace: bool = False,
+        kind: GraphEntityKind = "nodes",
+    ) -> "Plottable | None":
+        ...
+
+
+    def search_graph(
+        self,
+        query: str,
+        scale: float = 0.5,
+        top_n: int = 100,
+        thresh: float = 5000,
+        broader: bool = False,
+        inplace: bool = False,
+    ) -> 'Plottable':
+        ...
+
+    def search(
+        self,
+        query: str,
+        cols=None,
+        thresh: float = 5000,
+        fuzzy: bool = True,
+        top_n: int = 10,
+    ):
+        ...
+
+    def embed(
+        self,
+        relation:str,
+        proto: ProtoSymbolic = 'DistMult',
+        embedding_dim: int = 32,
+        use_feat: bool = False,
+        X: XSymbolic = None,
+        epochs: int = 2,
+        batch_size: int = 32,
+        train_split: Union[float, int] = 0.8,
+        sample_size: int = 1000, 
+        num_steps: int = 50,
+        lr: float = 1e-2,
+        inplace: Optional[bool] = False,
+        device: Optional['str'] = "cpu",
+        evaluate: bool = True,
+        *args,
+        **kwargs,
+    ) -> 'Plottable':
         ...

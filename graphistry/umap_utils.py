@@ -865,8 +865,7 @@ class UMAPMixin(MIXIN_BASE):
         if dbscan:
             res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)  # type: ignore
 
-        if not inplace:
-            return res
+        return res
 
     def _bind_xy_from_umap(
         self,
