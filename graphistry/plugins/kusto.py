@@ -446,7 +446,7 @@ def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
             df = df.explode(col, ignore_index=True)
 
         # flatten dict rows
-        dict_rows = df[col].apply(lambda v: isinstance(v, dict))
+        dict_rows: pd.Series = df[col].apply(lambda v: isinstance(v, dict))
         if dict_rows.any():
             flat = pd.json_normalize(df.loc[dict_rows, col].tolist(), sep='.').add_prefix(f"{col}.")
             flat.index = df.loc[dict_rows].index

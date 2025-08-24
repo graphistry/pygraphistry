@@ -18,8 +18,9 @@ from graphistry.utils.lazy_import import (
 )
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
-from .feature_utils import (FeatureMixin, XSymbolic, YSymbolic,
+from .feature_utils import (FeatureMixin,
                             resolve_feature_engine)
+from graphistry.plugins_types.embed_types import XSymbolic, YSymbolic
 from .PlotterBase import Plottable, PlotterBase
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
@@ -198,7 +199,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
     std = desc[config.WEIGHT]["std"]
     max_val = desc[config.WEIGHT]["max"] + eps
     min_val = desc[config.WEIGHT]["min"] - eps
-    thresh = np.max(
+    thresh: float = np.max(
         [max_val - scale, min_val]
     )  # if std =0 we add eps so we still have scale in the equation
 
@@ -614,7 +615,7 @@ class UMAPMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        kind: str = "nodes",
+        kind: GraphEntityKind = "nodes",
         scale: float = 1.0,
         n_neighbors: int = 12,
         min_dist: float = 0.1,

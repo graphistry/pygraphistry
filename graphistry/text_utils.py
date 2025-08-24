@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Tuple, Union, Optional, cast
 from inspect import getmodule
 from logging import getLogger
 import pandas as pd
@@ -21,7 +21,7 @@ else:
 logger = getLogger(__name__)
 
 
-QueryVector = NDArray[np.float32] | NDArray[np.float64]
+QueryVector = Union[NDArray[np.float32], NDArray[np.float64]]
 
 
 class SearchToGraphMixin(MIXIN_BASE):
@@ -55,7 +55,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             X.values
         )  # self._build_search_index(X, angular, n_trees, faiss=False)
 
-    def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float) -> tuple[pd.DataFrame, QueryVector]:
+    def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float) -> Tuple[pd.DataFrame, QueryVector]:
         # Use the loaded featurizers to transform the dataframe
         result = self.transform(qdf, None, kind="nodes", return_graph=False)
         assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
@@ -70,7 +70,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
         return results, vect
 
-    def _query(self, query: str, top_n: int, thresh: float) -> tuple[pd.DataFrame, QueryVector | None]:
+    def _query(self, query: str, top_n: int, thresh: float) -> Tuple[pd.DataFrame, Optional[QueryVector]]:
         # build the query dataframe
         if not hasattr(self, "search_index"):
             self.build_index()
@@ -131,7 +131,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         thresh: float = 5000,
         fuzzy: bool = True,
         top_n: int = 10,
-    ) -> tuple[pd.DataFrame, QueryVector | None]:
+    ) -> Tuple[pd.DataFrame, Optional[QueryVector]]:
         """Natural language query over nodes that returns a dataframe of results sorted by relevance column "distance".
 
             If node data is not yet feature-encoded (and explicit edges are given),

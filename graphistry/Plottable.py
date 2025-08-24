@@ -804,9 +804,9 @@ class Plottable(Protocol):
         metric: str = "euclidean",
         engine: UMAPEngine = "auto",
         suffix: str = "",
-        umap_kwargs: dict[str, Any] = {},
-        umap_fit_kwargs: dict[str, Any] = {},
-        umap_transform_kwargs: dict[str, Any] = {},
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
     ) -> "Plottable":
         ...
 
@@ -814,8 +814,8 @@ class Plottable(Protocol):
     def umap_fit(
         self,
         X: pd.DataFrame,
-        y: pd.DataFrame | None = None,
-        umap_fit_kwargs: dict[str, Any] = {},
+        y: Optional[pd.DataFrame] = None,
+        umap_fit_kwargs: Dict[str, Any] = {},
     ) -> "Plottable":
         ...
 
@@ -823,7 +823,7 @@ class Plottable(Protocol):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        kind: GraphEntityKind | None = "nodes",
+        kind: GraphEntityKind = "nodes",
         scale: float = 1.0,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -834,7 +834,7 @@ class Plottable(Protocol):
         n_components: int = 2,
         metric: str = "euclidean",
         suffix: str = "",
-        play: int | None = 0,
+        play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
         dbscan: bool = False,
@@ -842,9 +842,9 @@ class Plottable(Protocol):
         feature_engine: str = "auto",
         inplace: bool = False,
         memoize: bool = True,
-        umap_kwargs: dict[str, Any] = {},
-        umap_fit_kwargs: dict[str, Any] = {},
-        umap_transform_kwargs: dict[str, Any] = {},
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
         **featurize_kwargs: Any,
     ) -> "Plottable":
         ...
@@ -853,10 +853,10 @@ class Plottable(Protocol):
     def filter_weighted_edges(
         self,
         scale: float = 1.0,
-        index_to_nodes_dict: dict | None = None,
+        index_to_nodes_dict: Optional[Dict] = None,
         inplace: bool = False,
         kind: GraphEntityKind = "nodes",
-    ) -> "Plottable | None":
+    ) -> Optional["Plottable"]:
         ...
 
 
