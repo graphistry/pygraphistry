@@ -341,15 +341,15 @@ class KustoMixin(Plottable):
                 graph_viz.plot()
         """
         if snap_name:
-            graph_query = f'graph("{graph_name}", "{snap_name}") | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
+            graph_query = f'graph("{graph_name}", "{snap_name}") | graph-to-table nodes as N with_node_id=g_NodeId, edges as E with_source_id=g_src with_target_id=g_dst; N;E'
         else:
-            graph_query = f'graph("{graph_name}") | graph-to-table nodes as N with_node_id=NodeId, edges as E with_source_id=src with_target_id=dst; N;E'
+            graph_query = f'graph("{graph_name}") | graph-to-table nodes as N with_node_id=g_NodeId, edges as E with_source_id=g_src with_target_id=g_dst; N;E'
         results = self._kql(graph_query)
         if len(results) != 2:
             raise ValueError(f"Expected 2 results, got {len(results)}")
         nodes = pd.DataFrame(results[0].data, columns=results[0].column_names)
         edges = pd.DataFrame(results[1].data, columns=results[1].column_names)
-        return self.nodes(nodes, node='NodeId').edges(edges, source='src', destination='dst')  # type: ignore
+        return self.nodes(nodes, node='g_NodeId').edges(edges, source='g_src', destination='g_dst')  # type: ignore
 
 
     def _kql(self, query: str) -> List[KustoQueryResult]:
