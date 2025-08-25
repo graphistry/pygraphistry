@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Fixed
+* Improve types by surfacing more on `Plottable`
+  * `umap`, `search` and `embed`
+  * shared types in `embed_types.py` and `umap_types.py`
+* Add `mode_action` to `.privacy`
+ 
+
 ## [0.41.1 - 2025-08-15]
 
 ### Fixed

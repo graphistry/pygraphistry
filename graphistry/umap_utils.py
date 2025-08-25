@@ -18,8 +18,9 @@ from graphistry.utils.lazy_import import (
 )
 from . import constants as config
 from .constants import CUML, UMAP_LEARN
-from .feature_utils import (FeatureMixin, XSymbolic, YSymbolic,
+from .feature_utils import (FeatureMixin,
                             resolve_feature_engine)
+from graphistry.plugins_types.embed_types import XSymbolic, YSymbolic
 from .PlotterBase import Plottable, PlotterBase
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
@@ -198,7 +199,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
     std = desc[config.WEIGHT]["std"]
     max_val = desc[config.WEIGHT]["max"] + eps
     min_val = desc[config.WEIGHT]["min"] - eps
-    thresh = np.max(
+    thresh: float = np.max(
         [max_val - scale, min_val]
     )  # if std =0 we add eps so we still have scale in the equation
 
@@ -610,11 +611,73 @@ class UMAPMixin(MIXIN_BASE):
 
         return featurize_kwargs
 
+    @overload
     def umap(
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        kind: str = "nodes",
+        kind: GraphEntityKind = "nodes",
+        scale: float = 1.0,
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        suffix: str = "",
+        play: Optional[int] = 0,
+        encode_position: bool = True,
+        encode_weight: bool = True,
+        dbscan: bool = False,
+        engine: UMAPEngine = "auto",
+        feature_engine: str = "auto",
+        inplace: Literal[False] = False,
+        memoize: bool = True,
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
+        **featurize_kwargs,
+    ) -> Plottable:
+        ...
+
+    @overload
+    def umap(
+        self,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
+        kind: GraphEntityKind = "nodes",
+        scale: float = 1.0,
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        suffix: str = "",
+        play: Optional[int] = 0,
+        encode_position: bool = True,
+        encode_weight: bool = True,
+        dbscan: bool = False,
+        engine: UMAPEngine = "auto",
+        feature_engine: str = "auto",
+        inplace: Literal[True] = ...,
+        memoize: bool = True,
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
+        **featurize_kwargs,
+    ) -> None:
+        ...
+
+    def umap(
+        self,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
+        kind: GraphEntityKind = "nodes",
         scale: float = 1.0,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -637,7 +700,7 @@ class UMAPMixin(MIXIN_BASE):
         umap_fit_kwargs: Dict[str, Any] = {},
         umap_transform_kwargs: Dict[str, Any] = {},
         **featurize_kwargs,
-    ):
+    ) -> Optional[Plottable]:
         """UMAP the featurized nodes or edges data, or pass in your own X, y (optional) dataframes of values
         
         Example
@@ -867,6 +930,7 @@ class UMAPMixin(MIXIN_BASE):
 
         if not inplace:
             return res
+        return None
 
     def _bind_xy_from_umap(
         self,
