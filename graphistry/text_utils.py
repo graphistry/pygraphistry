@@ -68,7 +68,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         results = self.search_index.search_df(vect, self._nodes, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
 
-        return results, vect
+        return results, cast(QueryVector, vect)
 
     def _query(self, query: str, top_n: int, thresh: float) -> Tuple[pd.DataFrame, Optional[QueryVector]]:
         # build the query dataframe
