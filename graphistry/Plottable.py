@@ -819,6 +819,68 @@ class Plottable(Protocol):
     ) -> "Plottable":
         ...
 
+    @overload
+    def umap(
+        self,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
+        kind: GraphEntityKind = "nodes",
+        scale: float = 1.0,
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        suffix: str = "",
+        play: Optional[int] = 0,
+        encode_position: bool = True,
+        encode_weight: bool = True,
+        dbscan: bool = False,
+        engine: UMAPEngine = "auto",
+        feature_engine: str = "auto",
+        inplace: Literal[False] = False,
+        memoize: bool = True,
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
+        **featurize_kwargs: Any,
+    ) -> "Plottable":
+        ...
+
+    @overload
+    def umap(
+        self,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
+        kind: GraphEntityKind = "nodes",
+        scale: float = 1.0,
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        suffix: str = "",
+        play: Optional[int] = 0,
+        encode_position: bool = True,
+        encode_weight: bool = True,
+        dbscan: bool = False,
+        engine: UMAPEngine = "auto",
+        feature_engine: str = "auto",
+        inplace: Literal[True] = ...,
+        memoize: bool = True,
+        umap_kwargs: Dict[str, Any] = {},
+        umap_fit_kwargs: Dict[str, Any] = {},
+        umap_transform_kwargs: Dict[str, Any] = {},
+        **featurize_kwargs: Any,
+    ) -> None:
+        ...
+
     def umap(
         self,
         X: XSymbolic = None,
@@ -846,7 +908,7 @@ class Plottable(Protocol):
         umap_fit_kwargs: Dict[str, Any] = {},
         umap_transform_kwargs: Dict[str, Any] = {},
         **featurize_kwargs: Any,
-    ) -> "Plottable":
+    ) -> Optional["Plottable"]:
         ...
 
 
