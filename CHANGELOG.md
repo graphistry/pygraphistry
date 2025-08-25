@@ -8,13 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## Dev
 
 ### Fixed
-
-* Type annotations: Add proper overload signatures for `umap()` method to correctly handle `inplace` parameter return types
-* Type annotations: Fix type compatibility issues between `Plottable` protocol and implementation classes
-* Type annotations: Correct import paths for `XSymbolic`, `YSymbolic`, and `ProtoSymbolic` types
-* Type annotations: Fix `QueryVector` type casting in `text_utils.py`
-* Type annotations: Replace Python 3.10+ union syntax (`|`) with `Union` for compatibility
-* Type annotations: Replace `dict` with `Dict` type hints for Python 3.8 compatibility
+* Improve types by surfacing more on `Plottable`
+  * `umap`, `search` and `embed`
+  * shared types in `embed_types.py` and `umap_types.py`
+* Add `mode_action` to `.privacy`
  
 
 ## [0.41.1 - 2025-08-15]
