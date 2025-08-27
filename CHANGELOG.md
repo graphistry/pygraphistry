@@ -12,6 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `umap`, `search` and `embed`
   * shared types in `embed_types.py` and `umap_types.py`
 * Add `mode_action` to `.privacy`
+* Fixed `contains`, `startswith`, `endswith`, and `match` predicates to prevent error when run with cuDF
  
 
 ## [0.41.1 - 2025-08-15]
