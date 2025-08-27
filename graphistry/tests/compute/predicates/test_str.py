@@ -72,10 +72,10 @@ def test_contains_pandas_na_default():
     s = pd.Series(['Mouse', 'dog', None, 'house'])
     predicate = contains('og')
     result = predicate(s)
-    assert result[0] == False
-    assert result[1] == True
+    assert result[0] is False
+    assert result[1] is True
     assert pd.isna(result[2])
-    assert result[3] == False
+    assert result[3] is False
 
 
 def test_contains_pandas_na_false():
@@ -127,10 +127,10 @@ def test_contains_cudf_na_handling():
     s = cudf.Series(['Mouse', 'dog', None, 'house'])
     predicate = contains('og')
     result = predicate(s).to_pandas()
-    assert result[0] == False
-    assert result[1] == True
+    assert result[0] is False
+    assert result[1] is True
     assert pd.isna(result[2])
-    assert result[3] == False
+    assert result[3] is False
     
     # Test NA=False
     predicate = contains('og', na=False)
@@ -190,9 +190,9 @@ def test_startswith_pandas_na_handling():
     s = pd.Series(['Mouse', None, 'house'])
     predicate = startswith('ho')
     result = predicate(s)
-    assert result[0] == False
+    assert result[0] is False
     assert pd.isna(result[1])
-    assert result[2] == True
+    assert result[2] is True
     
     # Test with na parameter
     predicate = startswith('ho', na=False)
@@ -221,9 +221,9 @@ def test_startswith_cudf_na_handling():
     # Default NA handling
     predicate = startswith('ho')
     result = predicate(s).to_pandas()
-    assert result[0] == False
+    assert result[0] is False
     assert pd.isna(result[1])
-    assert result[2] == True
+    assert result[2] is True
     
     # NA=False
     predicate = startswith('ho', na=False)
@@ -248,9 +248,9 @@ def test_endswith_pandas_na_handling():
     s = pd.Series(['Mouse', None, 'house'])
     predicate = endswith('se')
     result = predicate(s)
-    assert result[0] == True
+    assert result[0] is True
     assert pd.isna(result[1])
-    assert result[2] == True
+    assert result[2] is True
     
     # Test with na parameter
     predicate = endswith('se', na=False)
@@ -279,9 +279,9 @@ def test_endswith_cudf_na_handling():
     # Default NA handling
     predicate = endswith('se')
     result = predicate(s).to_pandas()
-    assert result[0] == True
+    assert result[0] is True
     assert pd.isna(result[1])
-    assert result[2] == True
+    assert result[2] is True
     
     # NA=False
     predicate = endswith('se', na=False)
@@ -315,9 +315,9 @@ def test_match_pandas_na_handling():
     s = pd.Series(['123', None, 'abc'])
     predicate = match(r'\d+')
     result = predicate(s)
-    assert result[0] == True
+    assert result[0] is True
     assert pd.isna(result[1])
-    assert result[2] == False
+    assert result[2] is False
     
     # Test with na=False
     predicate = match(r'\d+', na=False)
@@ -357,9 +357,9 @@ def test_match_cudf_na_handling():
     # Default NA handling
     predicate = match(r'\d+')
     result = predicate(s).to_pandas()
-    assert result[0] == True
+    assert result[0] is True
     assert pd.isna(result[1])
-    assert result[2] == False
+    assert result[2] is False
     
     # NA=False
     predicate = match(r'\d+', na=False)
