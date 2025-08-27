@@ -63,7 +63,7 @@ def test_contains_pandas_case_insensitive():
     s = pd.Series(['Mouse', 'dog', 'HOUSE', 'house'])
     predicate = contains('house', case=False)
     result = predicate(s)
-    expected = pd.Series([False, False, True, True])  # Mouse doesn't contain 'house'
+    expected = pd.Series([False, False, True, True])
     pd.testing.assert_series_equal(result, expected)
 
 
@@ -114,7 +114,7 @@ def test_contains_cudf_case_insensitive():
     s = cudf.Series(['Mouse', 'dog', 'HOUSE', 'house'])
     predicate = contains('house', case=False)
     result = predicate(s)
-    expected = cudf.Series([False, False, True, True])  # Mouse doesn't contain 'house'
+    expected = cudf.Series([False, False, True, True])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
