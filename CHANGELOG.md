@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.41.2 - 2025-08-28]
+
 ### Fixed
 * Improve types by surfacing more on `Plottable`
   * `umap`, `search` and `embed`
