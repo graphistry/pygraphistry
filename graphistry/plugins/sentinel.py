@@ -517,14 +517,25 @@ class SentinelMixin(Plottable):
             # Process each table in the response
             for table in response.tables:
                 rows = [list(row) for row in table.rows]
-                col_names = [col.name for col in table.columns]
-                col_types = [col.type for col in table.columns]
+
+                # Handle different column formats
+                if hasattr(table.columns[0], 'name') if table.columns else False:
+                    # Columns are objects with name/type attributes
+                    col_names = [col.name for col in table.columns]
+                    col_types = [col.type for col in table.columns]
+                else:
+                    # Columns are strings (column names only)
+                    col_names = list(table.columns)
+                    col_types = ['string'] * len(col_names)  # Default to string type
+
+                # Handle table name
+                table_name = getattr(table, 'name', None)
 
                 results.append(SentinelQueryResult(
                     data=rows,
                     column_names=col_names,
                     column_types=col_types,
-                    table_name=table.name
+                    table_name=table_name
                 ))
                 row_lengths.append((len(rows), len(col_names)))
 
