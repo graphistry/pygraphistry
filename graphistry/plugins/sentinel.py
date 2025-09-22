@@ -446,8 +446,14 @@ class SentinelMixin(Plottable):
                 print(f"Found {len(tables)} tables")
                 print(tables.head(10))
         """
-        query = "union withsource=TableName * | distinct TableName | sort by TableName asc"
-        return self.kql(query, timespan=timedelta(minutes=5))
+        # Use Usage table to get all table names - this avoids union conflicts
+        query = """
+        Usage
+        | where TimeGenerated > ago(30d)
+        | distinct DataType
+        | sort by DataType asc
+        """
+        return self.kql(query, timespan=timedelta(days=30))
 
     def sentinel_schema(self, table: str) -> pd.DataFrame:
         """Get schema information for a specific table.
