@@ -38,6 +38,7 @@ class SentinelMixin(Plottable):
         client_secret: Optional[str] = None,
         credential: Optional["TokenCredential"] = None,
         default_timespan: Optional[timedelta] = None,
+        use_device_auth: bool = False,
     ) -> Plottable:
         """Configure Microsoft Sentinel Log Analytics connection settings.
 
@@ -59,6 +60,8 @@ class SentinelMixin(Plottable):
         :type credential: Optional[TokenCredential]
         :param default_timespan: Default time range for queries (defaults to 24 hours)
         :type default_timespan: Optional[timedelta]
+        :param use_device_auth: Use device code authentication (shows code and URL)
+        :type use_device_auth: bool
         :returns: Self for method chaining
         :rtype: Plottable
 
@@ -82,6 +85,16 @@ class SentinelMixin(Plottable):
                     client_secret="your-client-secret"
                 )
 
+        **Example: Device code authentication (interactive)**
+            ::
+
+                import graphistry
+                g = graphistry.configure_sentinel(
+                    workspace_id="12345678-1234-1234-1234-123456789abc",
+                    use_device_auth=True
+                )
+                # This will show a code and URL for authentication
+
         **Example: Custom credential**
             ::
 
@@ -101,6 +114,7 @@ class SentinelMixin(Plottable):
             client_secret=client_secret,
             credential=credential,
             default_timespan=default_timespan or timedelta(hours=24),
+            use_device_auth=use_device_auth,
         )
         return self
 
@@ -531,11 +545,12 @@ def init_sentinel_client(cfg: SentinelConfig) -> "LogsQueryClient":
     Authentication precedence:
     1. Custom credential object (if provided)
     2. Service Principal (if credentials provided)
-    3. DefaultAzureCredential (tries multiple methods automatically)
+    3. Device code authentication (if use_device_auth=True)
+    4. DefaultAzureCredential (tries multiple methods automatically)
 
     For Azure CLI auth: Run 'az login' before using this method.
     """
-    from azure.identity import DefaultAzureCredential, ClientSecretCredential
+    from azure.identity import DefaultAzureCredential, ClientSecretCredential, DeviceCodeCredential
     from azure.monitor.query import LogsQueryClient
 
     try:
@@ -551,6 +566,12 @@ def init_sentinel_client(cfg: SentinelConfig) -> "LogsQueryClient":
                 client_secret=cfg.client_secret
             )
             logger.info(f"Using Service Principal authentication for workspace {cfg.workspace_id}")
+        elif cfg.use_device_auth:
+            credential = DeviceCodeCredential(
+                tenant_id=cfg.tenant_id  # Optional, uses common tenant if not provided
+            )
+            logger.info(f"Using Device Code authentication for workspace {cfg.workspace_id}")
+            logger.info("You will be prompted to visit a URL and enter a code to authenticate")
         else:
             credential = DefaultAzureCredential()
             logger.info(f"Using DefaultAzureCredential (Azure CLI, Managed Identity, etc.) for workspace {cfg.workspace_id}")

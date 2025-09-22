@@ -66,5 +66,8 @@ class SentinelConfig:
     default_timespan: timedelta = timedelta(hours=24)
     """Default time range for queries when not specified"""
 
+    use_device_auth: bool = False
+    """Use device code authentication flow"""
+
     _client: Optional[LogsQueryClient] = None
     """Cached client instance (internal use)"""
