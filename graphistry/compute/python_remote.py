@@ -108,9 +108,8 @@ def python_remote_generic(
             raise ValueError("Invalid code")
 
     if not api_token:
-        from graphistry.pygraphistry import PyGraphistry
-        PyGraphistry.refresh()
-        api_token = PyGraphistry.api_token()
+        self._pygraphistry.refresh()
+        api_token = self.session.api_token
 
     if not dataset_id:
         dataset_id = self._dataset_id
@@ -146,7 +145,7 @@ def python_remote_generic(
         "Content-Type": "application/json",
     }
 
-    response = requests.post(url, headers=headers, json=request_body)
+    response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
     response.raise_for_status()
 
