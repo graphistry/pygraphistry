@@ -28,8 +28,9 @@ def chain_remote_generic(
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
-        self._pygraphistry.refresh()
-        api_token = self.session.api_token
+        from graphistry.pygraphistry import PyGraphistry
+        PyGraphistry.refresh()
+        api_token = PyGraphistry.api_token()
 
     if not dataset_id:
         dataset_id = self._dataset_id
@@ -85,7 +86,7 @@ def chain_remote_generic(
         "Content-Type": "application/json",
     }
 
-    response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
+    response = requests.post(url, headers=headers, json=request_body)
 
     response.raise_for_status()
 

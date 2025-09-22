@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple, cast
 
-from graphistry.plugins_types.embed_types import XSymbolic, ProtoSymbolic, TT
 from graphistry.utils.lazy_import import lazy_embed_import
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
@@ -18,12 +17,18 @@ def check_cudf():
         
 
 if TYPE_CHECKING:
+    _, torch, _, _, _, _, _, _ = lazy_embed_import()
+    TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
+    TT = Any
     MIXIN_BASE = object
+    torch = Any
 
 has_cudf, cudf = check_cudf()
 
+XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
+ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
 
 
 # Custom handler that doesn't add newlines (for tqdm compatibility)

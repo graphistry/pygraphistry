@@ -1,12 +1,7 @@
-from typing import TYPE_CHECKING, Tuple, Union, Optional, cast
+from typing import TYPE_CHECKING, cast
 from inspect import getmodule
 from logging import getLogger
 import pandas as pd
-import numpy as np
-from numpy.typing import NDArray
-
-if TYPE_CHECKING:
-    from graphistry.Plottable import Plottable
 
 from .feature_utils import FeatureMixin
 from .ai_utils import search_to_df, FaissVectorSearch
@@ -19,9 +14,6 @@ else:
     MIXIN_BASE = object
 
 logger = getLogger(__name__)
-
-
-QueryVector = Union[NDArray[np.float32], NDArray[np.float64]]
 
 
 class SearchToGraphMixin(MIXIN_BASE):
@@ -55,7 +47,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             X.values
         )  # self._build_search_index(X, angular, n_trees, faiss=False)
 
-    def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float) -> Tuple[pd.DataFrame, QueryVector]:
+    def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         result = self.transform(qdf, None, kind="nodes", return_graph=False)
         assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
@@ -68,9 +60,9 @@ class SearchToGraphMixin(MIXIN_BASE):
         results = self.search_index.search_df(vect, self._nodes, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
 
-        return results, cast(QueryVector, vect)
+        return results, vect
 
-    def _query(self, query: str, top_n: int, thresh: float) -> Tuple[pd.DataFrame, Optional[QueryVector]]:
+    def _query(self, query: str, top_n: int, thresh: float):
         # build the query dataframe
         if not hasattr(self, "search_index"):
             self.build_index()
@@ -131,7 +123,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         thresh: float = 5000,
         fuzzy: bool = True,
         top_n: int = 10,
-    ) -> Tuple[pd.DataFrame, Optional[QueryVector]]:
+    ):
         """Natural language query over nodes that returns a dataframe of results sorted by relevance column "distance".
 
             If node data is not yet feature-encoded (and explicit edges are given),
@@ -199,7 +191,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         thresh: float = 5000,
         broader: bool = False,
         inplace: bool = False,
-    ) -> "Plottable":
+    ):
         """Input a natural language query and return a graph of results.
             See help(g.search) for more information
 

@@ -14,24 +14,8 @@ class Contains(ASTPredicate):
         self.regex = regex
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
-        # workaround cuDF not supporting 'case' and 'na' parameters https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.contains/
-        if is_cudf:
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = self.pat.lower() if isinstance(self.pat, str) else self.pat
-                result = s_modified.str.contains(pat_modified, regex=self.regex, flags=self.flags)
-            else:
-                result = s.str.contains(self.pat, regex=self.regex, flags=self.flags)
-
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
-        else:
-            return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
-
+        return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
+    
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -89,17 +73,7 @@ class Startswith(ASTPredicate):
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
-        # workaround cuDF not supporting 'na' parameter
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.startswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.contains.html#pandas.Series.str.startswith
-        if is_cudf:
-            result = s.str.startswith(self.pat)
-            return result.fillna(self.na) if self.na is not None else result
-        else:
-            # pandas supports the na parameter directly
-            return s.str.startswith(self.pat, self.na)
+        return s.str.startswith(self.pat, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -133,16 +107,10 @@ class Endswith(ASTPredicate):
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        # workaround cuDF not supporting 'na' parameter
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.endswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.contains.html#pandas.Series.str.endswith
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
-        if is_cudf:
-            result = s.str.endswith(self.pat)
-            return result.fillna(self.na) if self.na is not None else result
-        else:
-            return s.str.endswith(self.pat, self.na)
+        """
+        Return whether a given pattern is at the end of a string
+        """
+        return s.str.endswith(self.pat, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -175,24 +143,8 @@ class Match(ASTPredicate):
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        # workaround cuDF not supporting 'case' and 'na' parameters https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.match/
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
-        if is_cudf:
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = self.pat.lower() if isinstance(self.pat, str) else self.pat
-                result = s_modified.str.match(pat_modified, flags=self.flags)
-            else:
-                result = s.str.match(self.pat, flags=self.flags)
-
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
-        else:
-            return s.str.match(self.pat, self.case, self.flags, self.na)
-
+        return s.str.match(self.pat, self.case, self.flags, self.na)
+    
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
