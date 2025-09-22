@@ -209,7 +209,253 @@ class SentinelMixin(Plottable):
         except Exception as e:
             raise SentinelConnectionError(f"Health check failed: {e}") from e
 
-    # Query methods will be added next...
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        unwrap_nested: Optional[bool] = None,
+        single_table: Literal[True] = True,
+        include_statistics: bool = False
+    ) -> pd.DataFrame:
+        ...
+
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        unwrap_nested: Optional[bool] = None,
+        single_table: Literal[False],
+        include_statistics: bool = False
+    ) -> List[pd.DataFrame]:
+        ...
+
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        unwrap_nested: Optional[bool] = None,
+        single_table: bool = True,
+        include_statistics: bool = False
+    ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        ...
+
+    def kql(
+        self,
+        query: str,
+        *,
+        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        unwrap_nested: Optional[bool] = None,
+        single_table: bool = True,
+        include_statistics: bool = False
+    ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        """Execute KQL query and return result tables as DataFrames.
+
+        Submits a Kusto Query Language (KQL) query to Microsoft Sentinel (Log Analytics)
+        and returns the results. By default, expects a single table result and returns
+        it as a DataFrame. If multiple tables are returned, only the first is returned
+        with a warning. Set single_table=False to get all result tables.
+
+        :param query: KQL query string to execute
+        :type query: str
+        :param timespan: Time range for the query (default: 24 hours)
+        :type timespan: Optional[Union[timedelta, tuple[datetime, datetime]]]
+        :param unwrap_nested: Strategy for handling nested/dynamic columns
+        :type unwrap_nested: Optional[bool]
+        :param single_table: If True, return single DataFrame; if False, return list
+        :type single_table: bool
+        :param include_statistics: Include query statistics in DataFrame attrs
+        :type include_statistics: bool
+        :returns: Single DataFrame if single_table=True, else list of DataFrames
+        :rtype: Union[pd.DataFrame, List[pd.DataFrame]]
+
+        **unwrap_nested semantics:**
+
+        - **True**: Always attempt to unwrap nested columns; raise on failure
+        - **None**: Use heuristic - unwrap if the result looks nested
+        - **False**: Never attempt to unwrap nested columns
+
+        **Example: Basic security query (single table mode)**
+            ::
+
+                import graphistry
+                from datetime import timedelta
+                g = graphistry.configure_sentinel(...)
+
+                query = '''
+                SecurityEvent
+                | where TimeGenerated > ago(1d)
+                | where EventID == 4625  // Failed logon
+                | project TimeGenerated, Account, Computer, IpAddress
+                | take 1000
+                '''
+
+                # Query last 7 days
+                df = g.kql(query, timespan=timedelta(days=7))
+                print(f"Found {len(df)} failed logon events")
+
+        **Example: Get all tables as list**
+            ::
+
+                # Always get a list of all tables
+                dfs = g.kql(query, single_table=False)
+                df = dfs[0]
+
+        **Example: Query with specific time range**
+            ::
+
+                from datetime import datetime, timedelta
+
+                # Query specific time window
+                start = datetime(2024, 1, 1)
+                end = datetime(2024, 1, 7)
+                df = g.kql(query, timespan=(start, end))
+
+        **Example: Multi-table query**
+            ::
+
+                query = '''
+                SecurityEvent | summarize Count=count() by EventID | top 5 by Count;
+                SecurityAlert | take 10
+                '''
+
+                # With single_table=False, returns all tables
+                frames = g.kql(query, single_table=False)
+                events_df = frames[0]
+                alerts_df = frames[1]
+        """
+        results = self._sentinel_query(query, timespan=timespan)
+
+        if not results:
+            if single_table:
+                raise ValueError("Query returned no results")
+            return []
+
+        dfs: List[pd.DataFrame] = []
+
+        for result in results:
+            # Determine if we should unwrap nested data
+            do_unwrap = (
+                unwrap_nested is True or
+                (unwrap_nested is None and _should_unwrap(result))
+            )
+
+            if do_unwrap:
+                try:
+                    df_unwrapped = _unwrap_nested(result)
+                    dfs.append(df_unwrapped)
+                    continue
+                except Exception as exc:
+                    if unwrap_nested is True:
+                        raise RuntimeError(f"Failed to unwrap nested data: {exc}") from exc
+                    # Heuristic miss - fall back to flat table
+                    pass
+
+            # Default: flat table
+            if not result.column_names:
+                # Safety fallback
+                dfs.append(pd.DataFrame(result.data))
+            else:
+                dfs.append(pd.DataFrame(result.data, columns=result.column_names))
+
+        # Auto-unbox single table result if requested
+        if single_table:
+            if len(dfs) > 1:
+                logger.warning(f"Query returned {len(dfs)} tables, returning first table only")
+            return dfs[0]
+
+        return dfs
+
+    def kql_last(
+        self,
+        query: str,
+        *,
+        hours: float = 1,
+        **kwargs
+    ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+        """Execute KQL query for the last N hours.
+
+        Convenience wrapper for kql() that automatically sets the timespan
+        to the last N hours from now.
+
+        :param query: KQL query string to execute
+        :type query: str
+        :param hours: Number of hours to look back (default: 1)
+        :type hours: float
+        :param kwargs: Additional arguments passed to kql()
+        :returns: Query results as DataFrame(s)
+        :rtype: Union[pd.DataFrame, List[pd.DataFrame]]
+
+        **Example: Get security alerts from last 24 hours**
+            ::
+
+                import graphistry
+                g = graphistry.configure_sentinel(...)
+
+                alerts = g.kql_last('''
+                    SecurityAlert
+                    | project TimeGenerated, AlertName, Severity
+                    | order by TimeGenerated desc
+                ''', hours=24)
+
+        **Example: Get recent failed logins (last hour)**
+            ::
+
+                # Default is 1 hour
+                recent_failures = g.kql_last('''
+                    SecurityEvent
+                    | where EventID == 4625
+                    | summarize FailCount=count() by Account
+                ''')
+        """
+        return self.kql(query, timespan=timedelta(hours=hours), **kwargs)
+
+    def sentinel_tables(self) -> pd.DataFrame:
+        """List all available tables in the Log Analytics workspace.
+
+        :returns: DataFrame with table names
+        :rtype: pd.DataFrame
+
+        **Example**
+            ::
+
+                import graphistry
+                g = graphistry.configure_sentinel(...)
+
+                # Get list of all tables
+                tables = g.sentinel_tables()
+                print(f"Found {len(tables)} tables")
+                print(tables.head(10))
+        """
+        query = "union withsource=TableName * | distinct TableName | sort by TableName asc"
+        return self.kql(query, timespan=timedelta(minutes=5))
+
+    def sentinel_schema(self, table: str) -> pd.DataFrame:
+        """Get schema information for a specific table.
+
+        :param table: Name of the table to inspect
+        :type table: str
+        :returns: DataFrame with column names and types
+        :rtype: pd.DataFrame
+
+        **Example**
+            ::
+
+                import graphistry
+                g = graphistry.configure_sentinel(...)
+
+                # Get schema for SecurityEvent table
+                schema = g.sentinel_schema("SecurityEvent")
+                print(schema[['ColumnName', 'DataType']])
+        """
+        query = f"{table} | getschema"
+        return self.kql(query, timespan=timedelta(minutes=5))
+
     def _sentinel_query(
         self,
         query: str,
@@ -314,3 +560,96 @@ def init_sentinel_client(cfg: SentinelConfig) -> "LogsQueryClient":
 
     except Exception as exc:
         raise SentinelConnectionError(f"Failed to initialize Sentinel client: {exc}") from exc
+
+
+# Sentinel Utils - adapted from Kusto plugin
+def _is_dynamic(val: Any) -> bool:
+    """Check if value is a nested/dynamic JSON type."""
+    return isinstance(val, (dict, list))
+
+
+def _unwrap_nested(result: SentinelQueryResult) -> pd.DataFrame:
+    """
+    Transform a Sentinel result whose columns contain nested/dynamic objects.
+
+    - dict          -> dot-flattened
+    - list[dict]    -> explode + flatten
+    - list[scalar]  -> keep as-is
+    """
+    df = pd.DataFrame(result.data, columns=result.column_names)
+    if not result.column_types:
+        return df
+
+    for col, col_type in zip(result.column_names, result.column_types):
+        # Check for dynamic/object types (common in Sentinel)
+        if col_type.lower() in ["dynamic", "object", "string"]:
+            # Check if column contains JSON strings that need parsing
+            if col_type.lower() == "string" and len(df) > 0:
+                try:
+                    # Try to parse first non-null value as JSON
+                    sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                    if sample and isinstance(sample, str) and (sample.startswith('{') or sample.startswith('[')):
+                        import json
+                        df[col] = df[col].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
+                except (json.JSONDecodeError, IndexError):
+                    continue  # Not JSON, keep as string
+
+            # Handle lists of dicts - need to explode
+            list_of_dicts = df[col].apply(
+                lambda v: isinstance(v, list) and (not v or all(isinstance(x, dict) for x in v))
+            )
+            if list_of_dicts.any():
+                df[col] = df[col].where(
+                    list_of_dicts,
+                    df[col].apply(lambda x: [x] if pd.notna(x) else x)
+                )
+                df = df.explode(col, ignore_index=True)
+
+            # Flatten dict columns
+            dict_rows = df[col].apply(lambda v: isinstance(v, dict))
+            if dict_rows.any():
+                flat = pd.json_normalize(df.loc[dict_rows, col].tolist(), sep='.').add_prefix(f"{col}.")
+                flat.index = df.loc[dict_rows].index
+                df = df.join(flat, how='left')
+                df[col] = df[col].mask(dict_rows, pd.NA)
+
+        # Drop column if all values are NA after processing
+        if df[col].isna().all():
+            df = df.drop(columns=[col])
+
+    # Clean up - replace pd.NA with None for consistency
+    df = df.astype(object).where(pd.notna(df), None)
+    return df.reset_index(drop=True)
+
+
+def _should_unwrap(result: SentinelQueryResult, sample_rows: int = 5) -> bool:
+    """
+    Decide whether result looks like it contains nested/dynamic columns.
+
+    Strategy:
+      1. Check column types for 'dynamic' or 'object'
+      2. Inspect sample rows for dict/list values
+      3. Check for JSON strings
+    """
+    # Check column types
+    if result.column_types:
+        for col_type in result.column_types:
+            if col_type.lower() in ["dynamic", "object"]:
+                return True
+
+    # Sample data for nested structures
+    for col_idx in range(len(result.column_names)):
+        sample = (row[col_idx] for row in result.data[:sample_rows] if row)
+        for val in sample:
+            if _is_dynamic(val):
+                return True
+            # Check for JSON strings
+            if isinstance(val, str) and val and (val.startswith('{') or val.startswith('[')):
+                try:
+                    import json
+                    json.loads(val)
+                    return True
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+    return False
