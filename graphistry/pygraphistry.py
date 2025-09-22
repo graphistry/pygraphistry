@@ -1971,6 +1971,7 @@ class GraphistryClient(AuthManagerProtocol):
         client_secret: Optional[str] = None,
         credential: Optional[Any] = None,
         default_timespan: Optional[Any] = None,
+        use_device_auth: bool = False,
     ) -> Plotter:
         return cast(Plotter, self._plotter().configure_sentinel(
             workspace_id=workspace_id,
@@ -1978,7 +1979,8 @@ class GraphistryClient(AuthManagerProtocol):
             client_id=client_id,
             client_secret=client_secret,
             credential=credential,
-            default_timespan=default_timespan
+            default_timespan=default_timespan,
+            use_device_auth=use_device_auth
         ))
     configure_sentinel.__doc__ = Plotter.configure_sentinel.__doc__
 
