@@ -59,7 +59,7 @@ class TestSentinelMixin(unittest.TestCase):
     def test_configure_sentinel_custom_timespan(self):
         """Test Sentinel configuration with custom default timespan."""
         custom_timespan = timedelta(days=7)
-        result = self.plotter.configure_sentinel(
+        self.plotter.configure_sentinel(
             workspace_id=self.workspace_id,
             default_timespan=custom_timespan
         )
@@ -331,7 +331,7 @@ class TestSentinelAuthentication(unittest.TestCase):
         mock_credential_class.return_value = mock_credential
 
         config = SentinelConfig(workspace_id="test-workspace")
-        client = init_sentinel_client(config)
+        init_sentinel_client(config)
 
         mock_credential_class.assert_called_once()
         mock_client_class.assert_called_once_with(mock_credential)
@@ -351,7 +351,7 @@ class TestSentinelAuthentication(unittest.TestCase):
             client_id="client",
             client_secret="secret"
         )
-        client = init_sentinel_client(config)
+        init_sentinel_client(config)
 
         mock_credential_class.assert_called_once_with(
             tenant_id="tenant",
@@ -371,7 +371,7 @@ class TestSentinelAuthentication(unittest.TestCase):
             credential=custom_credential
         )
 
-        client = init_sentinel_client(config)
+        init_sentinel_client(config)
 
         mock_client_class.assert_called_once_with(custom_credential)
 

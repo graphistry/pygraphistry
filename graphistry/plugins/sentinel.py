@@ -355,8 +355,8 @@ class SentinelMixin(Plottable):
         for result in results:
             # Determine if we should unwrap nested data
             do_unwrap = (
-                unwrap_nested is True or
-                (unwrap_nested is None and _should_unwrap(result))
+                unwrap_nested is True
+                or (unwrap_nested is None and _should_unwrap(result))
             )
 
             if do_unwrap:
