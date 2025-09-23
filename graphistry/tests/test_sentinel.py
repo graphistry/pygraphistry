@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import List
 
+from graphistry.plugins.sentinel import SentinelMixin
 from graphistry.plugins_types.sentinel_types import (
     SentinelConfig,
     SentinelConnectionError,
