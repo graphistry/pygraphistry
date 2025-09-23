@@ -1,14 +1,20 @@
 import time
 import pandas as pd
-from typing import Any, List, Optional, TYPE_CHECKING, Union, overload, Literal
+from typing import Any, List, Optional, TYPE_CHECKING, Union, overload, Literal, Tuple
 from datetime import datetime, timedelta
 
 if TYPE_CHECKING:
     from azure.monitor.query import LogsQueryClient
     from azure.core.credentials import TokenCredential
+    from azure.core.exceptions import HttpResponseError
+    from azure.identity import DefaultAzureCredential, ClientSecretCredential, DeviceCodeCredential
 else:
     LogsQueryClient = Any
     TokenCredential = Any
+    HttpResponseError = Any
+    DefaultAzureCredential = Any
+    ClientSecretCredential = Any
+    DeviceCodeCredential = Any
 
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -228,7 +234,7 @@ class SentinelMixin(Plottable):
         self,
         query: str,
         *,
-        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
         single_table: Literal[True] = True,
         include_statistics: bool = False
@@ -240,7 +246,7 @@ class SentinelMixin(Plottable):
         self,
         query: str,
         *,
-        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
         single_table: Literal[False],
         include_statistics: bool = False
@@ -252,7 +258,7 @@ class SentinelMixin(Plottable):
         self,
         query: str,
         *,
-        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
         single_table: bool = True,
         include_statistics: bool = False
@@ -263,7 +269,7 @@ class SentinelMixin(Plottable):
         self,
         query: str,
         *,
-        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
         single_table: bool = True,
         include_statistics: bool = False
@@ -479,7 +485,7 @@ class SentinelMixin(Plottable):
     def _sentinel_query(
         self,
         query: str,
-        timespan: Optional[Union[timedelta, tuple[datetime, datetime]]] = None
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None
     ) -> List[SentinelQueryResult]:
         """Execute KQL query and return raw results.
 
