@@ -41,7 +41,9 @@ def validate_chain_schema(
     # Handle Chain objects
     chain_ops: List[ASTObject]
     if hasattr(ops, 'chain'):
-        chain_ops = cast(List[ASTObject], ops.chain)  # type: ignore
+        # ops is a Chain object, so access its chain attribute
+        # The chain attribute is guaranteed to be List[ASTObject] at runtime
+        chain_ops = cast(List[ASTObject], getattr(ops, 'chain'))
     else:
         chain_ops = cast(List[ASTObject], ops)
 
@@ -58,6 +60,13 @@ def validate_chain_schema(
             op_errors = _validate_node_op(op, node_columns, g._nodes, collect_all)
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
+        else:
+            # For new AST types (ASTLet, ASTRef, ASTCall, ASTRemoteGraph),
+            # they have their own _validate_fields() methods called during construction
+            # Schema validation at this level is not applicable since they don't directly
+            # filter on dataframe columns like ASTNode/ASTEdge do
+            # Just skip validation for these types
+            pass
 
         # Add operation index to all errors
         for e in op_errors:
