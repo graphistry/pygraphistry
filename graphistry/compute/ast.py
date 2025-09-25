@@ -1,8 +1,13 @@
 from abc import abstractmethod
 import logging
-from typing import Any, TYPE_CHECKING, Dict, Optional, Union, cast
+from typing import (
+    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+)
 from typing_extensions import Literal
-import pandas as pd
+
+if TYPE_CHECKING:
+    from graphistry.compute.chain import Chain
+
 from graphistry.Engine import Engine
 
 from graphistry.Plottable import Plottable
@@ -175,7 +180,7 @@ class ASTNode(ASTObject):
                 ErrorCode.E205, "query must be a string", field="query", value=type(self.query).__name__
             )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         if self.filter_dict:
@@ -372,7 +377,7 @@ class ASTEdge(ASTObject):
                     ErrorCode.E205, f"{query_name} must be a string", field=query_name, value=type(query_value).__name__
                 )
 
-    def _get_child_validators(self) -> list:
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return predicates that need validation."""
         children = []
         for filter_dict in [self.source_node_match, self.edge_match, self.destination_node_match]:
@@ -642,9 +647,546 @@ class ASTEdgeUndirected(ASTEdge):
 e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
 
+
+##############################################################################
+
+
+class ASTLet(ASTObject):
+    """Let-bindings for named graph operations in a DAG.
+    
+    Allows defining reusable graph operations that can reference each other,
+    forming a directed acyclic graph (DAG) of computations.
+    
+    :param bindings: Dictionary mapping names to graph operations
+    :type bindings: Dict[str, Union[ASTObject, Chain, Plottable]]
+    
+    :raises GFQLTypeError: If bindings is not a dict or contains invalid keys/values
+    
+    **Example::**
+    
+        dag = ASTLet({
+            'persons': n({'type': 'person'}),
+            'friends': ASTRef('persons', [e_forward({'rel': 'friend'})])
+        })
+    """
+    bindings: Dict[str, Union['ASTObject', 'Chain', Plottable]]
+    
+    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', Plottable, dict]], validate: bool = True) -> None:
+        """Initialize Let with named bindings.
+        
+        :param bindings: Dictionary mapping names to GraphOperation instances or JSON dicts
+        :type bindings: Dict[str, Union[ASTObject, Chain, Plottable, dict]]
+        :param validate: Whether to validate the bindings immediately
+        :type validate: bool
+        """
+        super().__init__()
+        
+        # Process mixed JSON/native objects
+        processed_bindings: Dict[str, Any] = {}
+        for name, value in bindings.items():
+            if isinstance(value, dict):
+                # JSON dict - check type and convert if valid
+                if 'type' not in value:
+                    raise ValueError(f"JSON binding '{name}' missing 'type' field")
+                
+                obj_type = value.get('type')
+                # Check if it's a valid GraphOperation type
+                if obj_type in ['Node', 'Edge']:
+                    # These are wavefront matchers, not allowed
+                    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"binding value cannot be {obj_type} (wavefront matcher)",
+                        field=f"bindings.{name}",
+                        value=obj_type,
+                        suggestion="Use operations that produce Plottable objects like Chain, Ref, Call, RemoteGraph, or Let"
+                    )
+                elif obj_type == 'Chain':
+                    # Import and convert Chain
+                    from graphistry.compute.chain import Chain
+                    chain_obj = Chain.from_json(value, validate=False)
+                    processed_bindings[name] = chain_obj  # type: ignore
+                else:
+                    # Convert other AST types
+                    ast_obj = from_json(value, validate=False)
+                    processed_bindings[name] = ast_obj  # type: ignore
+            else:
+                # Native object - use as-is
+                processed_bindings[name] = value
+        
+        self.bindings = processed_bindings  # type: ignore
+        
+        if validate:
+            self.validate()
+    
+    def _validate_fields(self) -> None:
+        """Validate Let fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.bindings, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "bindings must be a dictionary",
+                field="bindings",
+                value=type(self.bindings).__name__
+            )
+        
+        for k, v in self.bindings.items():
+            if not isinstance(k, str):
+                raise GFQLTypeError(
+                    ErrorCode.E102,
+                    "binding key must be string",
+                    field=f"bindings.{k}",
+                    value=type(k).__name__
+                )
+            # Check if value is a valid GraphOperation type
+            # Import here to avoid circular imports
+            from graphistry.compute.chain import Chain  # noqa: F402
+            
+            # GraphOperation includes specific AST types that produce Plottable objects
+            # Excludes ASTNode/ASTEdge which are wavefront matchers
+            if isinstance(v, (ASTNode, ASTEdge)):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    f"binding value cannot be {type(v).__name__} (wavefront matcher)",
+                    field=f"bindings.{k}",
+                    value=type(v).__name__,
+                    suggestion="Use operations that produce Plottable objects like ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Chain, or Plottable instances"
+                )
+            elif not isinstance(v, (ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "binding value must be a GraphOperation (Plottable, Chain, ASTRef, ASTCall, ASTRemoteGraph, or ASTLet)",
+                    field=f"bindings.{k}",
+                    value=type(v).__name__,
+                    suggestion="Use operations that produce Plottable objects, not wavefront matchers"
+                )
+        # TODO: Check for cycles in DAG
+        return None
+    
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        # Only return objects that inherit from ASTSerializable
+        # Plottable instances don't need validation
+        children = []
+        for v in self.bindings.values():
+            if isinstance(v, ASTSerializable):
+                children.append(v)
+        return children
+    
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert Let to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
+        if validate:
+            self.validate()
+        bindings_json = {}
+        for k, v in self.bindings.items():
+            if hasattr(v, 'to_json'):
+                bindings_json[k] = v.to_json()  # type: ignore
+            else:
+                # Plottable doesn't have to_json
+                raise ValueError(f"Cannot serialize {type(v).__name__} to JSON")
+        return {
+            'type': 'Let',
+            'bindings': bindings_json
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
+        """Create ASTLet from JSON representation.
+        
+        :param d: JSON dictionary with 'bindings' field
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTLet instance
+        :rtype: ASTLet
+        :raises AssertionError: If 'bindings' field is missing
+        """
+        assert 'bindings' in d, "Let missing bindings"
+        
+        # Import here to avoid circular imports
+        from graphistry.compute.chain import Chain
+        
+        bindings: Dict[str, Any] = {}
+        for k, v in d['bindings'].items():
+            # Handle Chain objects specially
+            if isinstance(v, dict) and v.get('type') == 'Chain':
+                bindings[k] = Chain.from_json(v, validate=validate)
+            else:
+                # Regular AST objects
+                bindings[k] = from_json(v, validate=validate)
+        
+        out = cls(bindings=bindings, validate=validate)  # type: ignore
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # Let bindings don't use wavefronts - execute via chain_let_impl
+        from graphistry.compute.chain_let import chain_let_impl
+        from graphistry.Engine import EngineAbstract
+        return chain_let_impl(g, self, EngineAbstract(engine.value))
+    
+    def reverse(self) -> 'ASTLet':
+        raise NotImplementedError("Let reversal not supported")
+
+
+class ASTRemoteGraph(ASTObject):
+    """Load a graph from Graphistry server.
+    
+    Allows fetching previously uploaded graphs by dataset ID,
+    optionally with an authentication token.
+    
+    :param dataset_id: Unique identifier of the dataset on the server
+    :type dataset_id: str
+    :param token: Optional authentication token
+    :type token: Optional[str]
+    
+    :raises GFQLTypeError: If dataset_id is not a string or is empty
+    
+    **Example::**
+    
+        # Fetch public dataset
+        remote = ASTRemoteGraph('my-dataset-id')
+        
+        # Fetch private dataset with token
+        remote = ASTRemoteGraph('private-dataset', token='auth-token')
+    """
+    def __init__(self, dataset_id: str, token: Optional[str] = None) -> None:
+        """Initialize RemoteGraph with dataset ID and optional token.
+        
+        :param dataset_id: Unique identifier of the dataset
+        :type dataset_id: str
+        :param token: Optional authentication token
+        :type token: Optional[str]
+        """
+        super().__init__()
+        self.dataset_id = dataset_id
+        self.token = token
+    
+    def _validate_fields(self) -> None:
+        """Validate RemoteGraph fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.dataset_id, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "dataset_id must be a string",
+                field="dataset_id",
+                value=type(self.dataset_id).__name__
+            )
+        
+        if len(self.dataset_id) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "dataset_id cannot be empty",
+                field="dataset_id",
+                value=self.dataset_id
+            )
+        
+        if self.token is not None and not isinstance(self.token, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "token must be string or None",
+                field="token",
+                value=type(self.token).__name__
+            )
+    
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert RemoteGraph to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
+        if validate:
+            self.validate()
+        result = {
+            'type': 'RemoteGraph',
+            'dataset_id': self.dataset_id
+        }
+        if self.token is not None:
+            result['token'] = self.token
+        return result
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRemoteGraph':
+        """Create ASTRemoteGraph from JSON representation.
+        
+        :param d: JSON dictionary with 'dataset_id' field
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTRemoteGraph instance
+        :rtype: ASTRemoteGraph
+        :raises AssertionError: If 'dataset_id' field is missing
+        """
+        assert 'dataset_id' in d, "RemoteGraph missing dataset_id"
+        out = cls(
+            dataset_id=d['dataset_id'],
+            token=d.get('token')
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        # Implementation in PR 1.3
+        raise NotImplementedError("RemoteGraph loading will be implemented in PR 1.3")
+    
+    def reverse(self) -> 'ASTRemoteGraph':
+        raise NotImplementedError("RemoteGraph reversal not supported")
+
+
+class ASTRef(ASTObject):
+    """Execute a chain of operations starting from a DAG binding reference.
+    
+    Allows building graph operations that start from a named binding
+    defined in an ASTLet (DAG) and apply additional operations.
+    
+    :param ref: Name of the binding to reference from the DAG
+    :type ref: str
+    :param chain: List of operations to apply to the referenced graph
+    :type chain: List[ASTObject]
+    
+    :raises GFQLTypeError: If ref is not a string or chain is not a list
+    
+    **Example::**
+    
+        # Reference 'persons' binding and find their friends
+        friends = ASTRef('persons', [e_forward({'rel': 'friend'})])
+    """
+    def __init__(self, ref: str, chain: List['ASTObject']) -> None:
+        """Initialize Ref with reference name and operation chain.
+        
+        :param ref: Name of the binding to reference
+        :type ref: str
+        :param chain: List of operations to apply
+        :type chain: List[ASTObject]
+        """
+        super().__init__()
+        self.ref = ref
+        self.chain = chain
+    
+    def _validate_fields(self) -> None:
+        """Validate Ref fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.ref, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "ref must be a string",
+                field="ref",
+                value=type(self.ref).__name__
+            )
+        
+        if len(self.ref) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "ref cannot be empty",
+                field="ref",
+                value=self.ref
+            )
+        
+        if not isinstance(self.chain, list):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "chain must be a list",
+                field="chain",
+                value=type(self.chain).__name__
+            )
+        
+        for i, op in enumerate(self.chain):
+            if not isinstance(op, ASTObject):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    f"chain[{i}] must be ASTObject",
+                    field=f"chain[{i}]",
+                    value=type(op).__name__
+                )
+    
+    def _get_child_validators(self) -> Sequence['ASTSerializable']:
+        """Return child AST nodes that need validation."""
+        # ASTObject inherits from ASTSerializable, so this is safe
+        return self.chain
+    
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert Ref to JSON representation.
+        
+        :param validate: Whether to validate before serialization
+        :type validate: bool
+        :returns: JSON-serializable dictionary
+        :rtype: dict
+        """
+        if validate:
+            self.validate()
+        return {
+            'type': 'Ref',
+            'ref': self.ref,
+            'chain': [op.to_json() for op in self.chain]
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRef':
+        """Create ASTRef from JSON representation.
+        
+        :param d: JSON dictionary with 'ref' and 'chain' fields
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTRef instance
+        :rtype: ASTRef
+        :raises AssertionError: If 'ref' or 'chain' fields are missing
+        """
+        assert 'ref' in d, "Ref missing ref"
+        assert 'chain' in d, "Ref missing chain"
+        out = cls(
+            ref=d['ref'],
+            chain=[from_json(op, validate=validate) for op in d['chain']]
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        raise NotImplementedError(
+            "ASTRef cannot be used directly in chain(). "
+            "It must be used within an ASTLet/chain_let() context."
+        )
+    
+    def reverse(self) -> 'ASTRef':
+        # Reverse the chain operations
+        return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain)])
+
+
+class ASTCall(ASTObject):
+    """Call a method on the current graph with validated parameters.
+    
+    Allows safe execution of Plottable methods through GFQL with parameter
+    validation and schema checking.
+    
+    Attributes:
+        function: Name of the method to call (must be in safelist)
+        params: Dictionary of parameters to pass to the method
+    """
+    def __init__(self, function: str, params: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize a Call operation.
+        
+        Args:
+            function: Name of the Plottable method to call
+            params: Optional dictionary of parameters for the method
+        """
+        super().__init__()
+        self.function = function
+        self.params = params or {}
+    
+    def _validate_fields(self) -> None:
+        """Validate Call fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        
+        if not isinstance(self.function, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "function must be a string",
+                field="function",
+                value=type(self.function).__name__
+            )
+        
+        if len(self.function) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "function name cannot be empty",
+                field="function",
+                value=self.function
+            )
+        
+        if not isinstance(self.params, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "params must be a dictionary",
+                field="params",
+                value=type(self.params).__name__
+            )
+    
+    def to_json(self, validate: bool = True) -> dict:
+        """Convert Call to JSON representation.
+        
+        Args:
+            validate: If True, validate before serialization
+            
+        Returns:
+            Dictionary with type, function, and params fields
+        """
+        if validate:
+            self.validate()
+        return {
+            'type': 'Call',
+            'function': self.function,
+            'params': self.params
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict, validate: bool = True) -> 'ASTCall':
+        """Create ASTCall from JSON representation.
+        
+        :param d: JSON dictionary with 'function' field and optional 'params'
+        :type d: dict
+        :param validate: Whether to validate after creation
+        :type validate: bool
+        :returns: New ASTCall instance
+        :rtype: ASTCall
+        :raises AssertionError: If 'function' field is missing
+        
+        **Example::**
+        
+            call_json = {'type': 'Call', 'function': 'hop', 'params': {'steps': 2}}
+            call = ASTCall.from_json(call_json)
+        """
+        assert 'function' in d, "Call missing function"
+        out = cls(
+            function=d['function'],
+            params=d.get('params', {})
+        )
+        if validate:
+            out.validate()
+        return out
+    
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        """Execute the method call on the graph.
+        
+        Args:
+            g: Graph to operate on
+            prev_node_wavefront: Previous node wavefront (unused)
+            target_wave_front: Target wavefront (unused)
+            engine: Execution engine (pandas/cudf)
+            
+        Returns:
+            New Plottable with method results
+            
+        Raises:
+            GFQLTypeError: If method not in safelist or parameters invalid
+        """
+        # For chain_let, we don't use wavefronts, just execute the call
+        from graphistry.compute.gfql.call_executor import execute_call
+        return execute_call(g, self.function, self.params, engine)
+    
+    def reverse(self) -> 'ASTCall':
+        # Most method calls cannot be reversed
+        raise NotImplementedError(f"Method '{self.function}' cannot be reversed")
+
+
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]:
     from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 
     if not isinstance(o, dict):
@@ -652,10 +1194,10 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node' or 'Edge'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
         )
 
-    out: Union[ASTNode, ASTEdge]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -680,12 +1222,34 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge]:
                 "Edge missing required 'direction' field",
                 suggestion="Add 'direction' field: 'forward', 'reverse', or 'undirected'",
             )
+    elif o['type'] == 'Let':
+        out = ASTLet.from_json(o, validate=validate)
+    elif o['type'] == 'QueryDAG':
+        # For backward compatibility
+        out = ASTLet.from_json(o, validate=validate)
+    elif o['type'] == 'RemoteGraph':
+        out = ASTRemoteGraph.from_json(o, validate=validate)
+    elif o['type'] == 'ChainRef':
+        out = ASTRef.from_json(o, validate=validate)
+    elif o['type'] == 'Ref':
+        out = ASTRef.from_json(o, validate=validate)
+    elif o['type'] == 'Call':
+        out = ASTCall.from_json(o, validate=validate)
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node' or 'Edge'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', 'Ref', or 'Call'",
         )
     return out
+
+
+###############################################################################
+# User-friendly aliases for public API
+
+let = ASTLet  # noqa: E305
+remote = ASTRemoteGraph  # noqa: E305
+ref = ASTRef  # noqa: E305
+call = ASTCall  # noqa: E305

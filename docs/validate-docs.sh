@@ -20,8 +20,11 @@ else
     exit 1
 fi
 
-# If no args provided, check all source files
-if [ $# -eq 0 ]; then
+# Handle different invocation modes
+if [ "$1" = "--changed" ]; then
+    # Check only changed files
+    git diff --name-only HEAD -- '*.rst' | xargs -r rstcheck --config "$CONFIG_PATH"
+elif [ $# -eq 0 ]; then
     # Use eval to properly expand the glob pattern
     eval "exec rstcheck --config \"$CONFIG_PATH\" $DEFAULT_SOURCE"
 else

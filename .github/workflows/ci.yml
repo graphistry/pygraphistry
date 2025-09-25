@@ -394,7 +394,7 @@ jobs:
         unzip -l dist/graphistry*.whl | grep -q "graphistry/py.typed" || (echo "ERROR: py.typed marker missing from wheel - users won't get type information" && exit 1)
         echo "✅ py.typed marker confirmed in wheel distribution"
 
-  
+
   test-docs:
     needs: [changes, python-lint-types]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run

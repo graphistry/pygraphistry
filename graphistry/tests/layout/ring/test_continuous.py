@@ -51,8 +51,8 @@ class Test_continuous_ring(NoAuthTestCase):
         assert not g._nodes.x.isna().any()
         assert not g._nodes.y.isna().any()
         rs = (g._nodes['x'] * g._nodes['x'] + g._nodes['y'] * g._nodes['y']).apply(np.sqrt)
-        assert rs.min() >= MIN_R_DEFAULT
-        assert rs.max() <= MAX_R_DEFAULT
+        assert rs.min() >= MIN_R_DEFAULT - 1e-10  # Allow for floating point precision
+        assert rs.max() <= MAX_R_DEFAULT + 1e-10  # Allow for floating point precision
         assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) > 0
 
     def test_configured_pd(self):
@@ -88,8 +88,8 @@ class Test_continuous_ring(NoAuthTestCase):
         assert not g._nodes.x.isna().any()
         assert not g._nodes.y.isna().any()
         rs = (g._nodes['x'] * g._nodes['x'] + g._nodes['y'] * g._nodes['y']).apply(np.sqrt)
-        assert rs.min() == 500
-        assert rs.max() == 900
+        assert np.isclose(rs.min(), 500, rtol=1e-10)
+        assert np.isclose(rs.max(), 900, rtol=1e-10)
         assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 5
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i
@@ -134,8 +134,8 @@ class Test_continuous_ring(NoAuthTestCase):
         assert not g._nodes.y.isna().any()
         g._nodes = g._nodes.to_pandas()
         rs = (g._nodes['x'] * g._nodes['x'] + g._nodes['y'] * g._nodes['y']).apply(np.sqrt)
-        assert rs.min() == 500
-        assert rs.max() == 900
+        assert np.isclose(rs.min(), 500, rtol=1e-10)
+        assert np.isclose(rs.max(), 900, rtol=1e-10)
         assert len(g._complex_encodings and g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']) == 5
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i

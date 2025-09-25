@@ -1,4 +1,5 @@
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from typing import Any, List, Union
 from inspect import getmodule
 
@@ -6,7 +7,12 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
-from .chain_remote import chain_remote as chain_remote_base, chain_remote_shape as chain_remote_shape_base
+from .chain_let import chain_let as chain_let_base
+from .gfql_unified import gfql as gfql_base
+from .chain_remote import (
+    chain_remote as chain_remote_base,
+    chain_remote_shape as chain_remote_shape_base
+)
 from .python_remote import (
     python_remote_g as python_remote_g_base,
     python_remote_table as python_remote_table_base,
@@ -460,16 +466,82 @@ class ComputeMixin(Plottable):
     filter_edges_by_dict.__doc__ = filter_edges_by_dict_base.__doc__
 
     def chain(self, *args, **kwargs):
+        """
+        .. deprecated:: 2.XX.X
+           Use :meth:`gfql` instead for a unified API that supports both chains and DAGs.
+        """
+        import warnings
+        warnings.warn(
+            "chain() is deprecated. Use gfql() instead for a unified API.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return chain_base(self, *args, **kwargs)
-    chain.__doc__ = chain_base.__doc__
+    # Preserve original docstring after deprecation notice
+    chain.__doc__ = (chain.__doc__ or "") + "\n\n" + (chain_base.__doc__ or "")
+
+    # chain_let removed from public API - use gfql() instead
+    # (chain_let_base still available internally for gfql dispatch)
+    
+    # Commented out to remove from public API - use gfql() instead
+    # def chain_let(self, *args, **kwargs):
+    #     """Execute a DAG of named graph operations with dependency resolution."""
+    #     return chain_let_base(self, *args, **kwargs)
+    # chain_let.__doc__ = chain_let_base.__doc__
+    
+    def gfql(self, *args, **kwargs):
+        return gfql_base(self, *args, **kwargs)
+    gfql.__doc__ = gfql_base.__doc__
 
     def chain_remote(self, *args, **kwargs) -> Plottable:
+        """
+        .. deprecated:: 2.XX.X
+           Use :meth:`gfql_remote` instead for a unified API that supports both chains and DAGs.
+        """
+        import warnings
+        warnings.warn(
+            "chain_remote() is deprecated. Use gfql_remote() instead for a unified API.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return chain_remote_base(self, *args, **kwargs)
-    chain_remote.__doc__ = chain_remote_base.__doc__
+    # Preserve original docstring after deprecation notice
+    chain_remote.__doc__ = (chain_remote.__doc__ or "") + "\n\n" + (chain_remote_base.__doc__ or "")
 
     def chain_remote_shape(self, *args, **kwargs) -> pd.DataFrame:
+        """
+        .. deprecated:: 2.XX.X
+           Use :meth:`gfql_remote_shape` instead for a unified API that supports both chains and DAGs.
+        """
+        import warnings
+        warnings.warn(
+            "chain_remote_shape() is deprecated. Use gfql_remote_shape() instead for a unified API.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return chain_remote_shape_base(self, *args, **kwargs)
-    chain_remote_shape.__doc__ = chain_remote_shape_base.__doc__
+    # Preserve original docstring after deprecation notice
+    chain_remote_shape.__doc__ = (chain_remote_shape.__doc__ or "") + "\n\n" + (chain_remote_shape_base.__doc__ or "")
+
+    def gfql_remote(self, *args, **kwargs) -> Plottable:
+        """Run GFQL query remotely.
+        
+        This is the remote execution version of :meth:`gfql`. It supports both simple chains
+        and complex DAG patterns with Let bindings.
+        
+        See :meth:`chain_remote` for detailed documentation (chain_remote is deprecated).
+        """
+        return chain_remote_base(self, *args, **kwargs)
+    
+    def gfql_remote_shape(self, *args, **kwargs) -> pd.DataFrame:
+        """Get shape metadata for remote GFQL query execution.
+        
+        This is the remote shape version of :meth:`gfql`. Returns metadata about the 
+        resulting graph without downloading the full data.
+        
+        See :meth:`chain_remote_shape` for detailed documentation (chain_remote_shape is deprecated).
+        """
+        return chain_remote_shape_base(self, *args, **kwargs)
 
     def python_remote_g(self, *args, **kwargs) -> Any:
         return python_remote_g_base(self, *args, **kwargs)

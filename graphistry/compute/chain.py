@@ -182,11 +182,18 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
     logger.debug('-----------[ combine %s ---------------]', kind)
 
-    # df[[id]]
-    out_df = concat([
-        getattr(g_step, df_fld)[[id]]
-        for (_, g_step) in steps
-    ]).drop_duplicates(subset=[id])
+    # df[[id]] - with defensive checks for column existence
+    dfs_to_concat = []
+    for (op, g_step) in steps:
+        step_df = getattr(g_step, df_fld)
+        if id not in step_df.columns:
+            step_id = getattr(g_step, '_node' if kind == 'nodes' else '_edge')
+            raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
+                           f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
+                           f"Operation: {op}")
+        dfs_to_concat.append(step_df[[id]])
+    
+    out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
@@ -365,6 +372,9 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     logger.debug('final chain >> %s', ops)
 
     g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    
+    # Store original edge binding to restore it if we add temporary index
+    original_edge = g._edge
 
     if g._edge is None:
         if 'index' in g._edges.columns:
@@ -453,7 +463,9 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
     if added_edge_index:
         final_edges_df = final_edges_df.drop(columns=['index'])
-
-    g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+        # Fix: Restore original edge binding instead of using modified 'index' binding
+        g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+    else:
+        g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
     return g_out
