@@ -13,17 +13,8 @@ provides no additional functionality.
 import warnings
 from typing import TYPE_CHECKING
 
-# Issue deprecation warning on import
-warnings.warn(
-    "graphistry.compute.gfql_validation is deprecated and will be removed in a future version. "
-    "Please use graphistry.compute.gfql instead. "
-    "All functionality is identical - this was a duplicate created during code extraction.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
 # Import everything from the real location
-from graphistry.compute.gfql.validate import (
+from graphistry.compute.gfql.validate import (  # noqa: E402
     ValidationIssue,
     Schema,
     validate_syntax,
@@ -35,13 +26,22 @@ from graphistry.compute.gfql.validate import (
     suggest_fixes
 )
 
-from graphistry.compute.gfql.exceptions import (
+from graphistry.compute.gfql.exceptions import (  # noqa: E402
     GFQLException,
     GFQLValidationError,
     GFQLSyntaxError,
     GFQLSchemaError,
     GFQLTypeError,
     GFQLColumnNotFoundError
+)
+
+# Issue deprecation warning on import
+warnings.warn(
+    "graphistry.compute.gfql_validation is deprecated and will be removed in a future version. "
+    "Please use graphistry.compute.gfql instead. "
+    "All functionality is identical - this was a duplicate created during code extraction.",
+    DeprecationWarning,
+    stacklevel=2
 )
 
 # Re-export everything to maintain backwards compatibility
