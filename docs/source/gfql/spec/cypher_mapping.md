@@ -48,7 +48,7 @@ WHERE p.age > 30
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "Person", "age": gt(30)}, name="p"),
     e_forward({"type": "FOLLOWS"}, name="r"),
     n({"type": "Person"}, name="q")
@@ -119,7 +119,7 @@ WHERE fof.active = true
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "User", "name": "Alice"}),
     e_forward({"type": "FRIEND"}, hops=2),
     n({"type": "User", "active": True}, name="fof")
@@ -145,7 +145,7 @@ WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 
 **Python:**
 ```python
-g.chain([
+g.gfql([
     n({"type": "Account"}),
     e_forward({
         "type": "TRANSFER", 
@@ -183,7 +183,7 @@ LIMIT 10
 **Python:**
 ```python
 # Step 1: Graph pattern
-result = g.chain([
+result = g.gfql([
     n({"type": "User"}),
     e_forward({"type": "TRANSACTION", "date": gt(date(2024,1,1))}, name="trans"),
     n({"type": "Merchant"})

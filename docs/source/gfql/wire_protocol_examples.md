@@ -259,7 +259,7 @@ from graphistry.compute import gt, eq, between
 from datetime import datetime, timedelta
 
 # Multi-hop query with temporal filters
-chain = g.chain([
+chain = g.gfql([
     # Recent transactions
     n(edge_match={
         "timestamp": gt(datetime.now() - timedelta(days=7)),
@@ -429,7 +429,7 @@ from graphistry.compute.ast import Chain
 reconstructed_query = Chain.from_json(received_data)
 
 # 5. Apply to graph data
-result = g.chain(reconstructed_query.queries)
+result = g.gfql(reconstructed_query.queries)
 ```
 
 ## Wire Protocol Structure

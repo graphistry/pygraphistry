@@ -12,9 +12,9 @@ Basic Usage
 
 .. code-block:: python
 
-    g.chain(ops=[...], engine=EngineAbstract.AUTO)
+    g.gfql(ops=[...], engine=EngineAbstract.AUTO)
 
-:meth:`chain <graphistry.compute.chain>` sequences multiple matchers for more complex patterns of paths and subgraphs
+:meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
 - **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
@@ -153,7 +153,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"type": "person"}),
           e_forward({"status": "active"}),
           n({"type": "transaction"})
@@ -163,7 +163,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"id": "start_node"}, name="start"),
           e_forward(name="edge1"),
           n({"level": 2}, name="middle"),
@@ -175,7 +175,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"status": "infected"}),
           e_forward(to_fixed_point=True),
           n(name="reachable")
@@ -185,7 +185,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"type": is_in(["server", "database"])}),
           e_undirected({"protocol": "TCP"}, hops=3),
           n(query="risk_level >= 8")
@@ -195,7 +195,7 @@ Combined Examples
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n(query="age > 30 and country == 'USA'"),
           e_forward(edge_query="weight > 5"),
           n(query="status == 'active'")
@@ -208,7 +208,7 @@ GPU Acceleration
 
   .. code-block:: python
 
-      g.chain([...], engine='cudf')
+      g.gfql([...], engine='cudf')
 
 - **Example with cuDF DataFrames:**
 
@@ -220,7 +220,7 @@ GPU Acceleration
       n_gdf = cudf.from_pandas(node_df)
 
       g = graphistry.nodes(n_gdf, 'node_id').edges(e_gdf, 'src', 'dst')
-      g.chain([...], engine='cudf')
+      g.gfql([...], engine='cudf')
 
 Remote Mode
 -----------
@@ -231,7 +231,7 @@ Remote Mode
 
       g = graphistry.bind(dataset_id='ds-abc-123')
 
-      nodes_df = g.chain_remote([n()])._nodes
+      nodes_df = g.gfql_remote([n()])._nodes
 
 - **Upload graph and run GFQL**
 
@@ -239,28 +239,28 @@ Remote Mode
 
       g2 = g1.upload()
 
-      g3 = g2.chain_remote([n(), e(), n()])
+      g3 = g2.gfql_remote([n(), e(), n()])
 
 - **Enforce CPU and GPU mode on remote GFQL**
 
   .. code-block:: python
 
-      g3a = g2.chain_remote([n(), e(), n()], engine='pandas') 
-      g3b = g2.chain_remote([n(), e(), n()], engine='cudf')
+      g3a = g2.gfql_remote([n(), e(), n()], engine='pandas') 
+      g3b = g2.gfql_remote([n(), e(), n()], engine='cudf')
 
 - **Return only nodes and certain columns**
 
   .. code-block:: python
 
       cols = ['id', 'name']
-      g2b = g1.chain_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
+      g2b = g1.gfql_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
 
 - **Return only edges and certain columns**
 
   .. code-block:: python
 
       cols = ['src', 'dst']
-      g2b = g1.chain_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
+      g2b = g1.gfql_remote([n(), e(), n()], output_type="edges", edge_col_subset=cols)
 
 - **Return only shape metadata**
 
@@ -397,7 +397,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({g._node: "Alice"}),
           e_undirected(hops=3),
           n({g._node: "Bob"})
@@ -419,7 +419,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n({"community": "A"}),
           e_undirected(hops=2),
           n({"community": "B"}, name="bridge_nodes")
@@ -429,7 +429,7 @@ Examples at a Glance
 
   .. code-block:: python
 
-      g.chain([
+      g.gfql([
           n(query="age >= 18"),
           e_forward(edge_query="interaction == 'message'"),
           n(query="location == 'NYC'")

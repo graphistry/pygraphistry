@@ -167,7 +167,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     ```python
     from graphistry import n, e_undirected, is_in
 
-    g2 = g1.chain([
+    g2 = g1.gfql([
       n({'user': 'Biden'}),
       e_undirected(),
       n(name='bridge'),
@@ -186,7 +186,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     import cudf
     g2 = g1.edges(lambda g: cudf.DataFrame(g._edges))
     # GFQL will automaticallly run on a GPU
-    g3 = g2.chain([n(), e(hops=3), n()])
+    g3 = g2.gfql([n(), e(hops=3), n()])
     g3.plot()
     ```
 
@@ -914,7 +914,7 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2},
     destination_node_query='k2 == 2 or k2 == 4',
   )
-  .chain([ # filter to subgraph with Cypher-style GFQL
+  .gfql([ # filter to subgraph with Cypher-style GFQL
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values
@@ -937,14 +937,14 @@ g2.plot() # nodes are values from cols s, d, k1
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
-Both `hop()` and `chain()` (GFQL) match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
+Both `hop()` and `gfql()` (GFQL) match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
 
 * categorical: is_in, duplicated
 * temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
 * numeric: gt, lt, ge, le, eq, ne, between, isna, notna
 * string: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
 
-Both `hop()` and `chain()` will run on GPUs when passing in RAPIDS dataframes. Specify parameter `engine='cudf'` to be sure.
+Both `hop()` and `gfql()` will run on GPUs when passing in RAPIDS dataframes. Specify parameter `engine='cudf'` to be sure.
 
 ### Table to graph
 
@@ -1065,23 +1065,23 @@ g5 = g2.hop(pd.DataFrame({g4._node: g4[g4._node]}), hops=1, direction='undirecte
 g5.plot()
 ```
 
-Rich compound patterns are enabled via `.chain()`:
+Rich compound patterns are enabled via `.gfql()`:
 
 ```python
 from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 
-g2.chain([ n() ])
-g2.chain([ n({"x": 1, "y": True}) ]),
-g2.chain([ n(query='x == 1 and y == True') ]),
-g2.chain([ n({"z": is_in([1,2,4,'z'])}) ]), # multiple valid values
-g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
-g3 = g2.chain([
+g2.gfql([ n() ])
+g2.gfql([ n({"x": 1, "y": True}) ]),
+g2.gfql([ n(query='x == 1 and y == True') ]),
+g2.gfql([ n({"z": is_in([1,2,4,'z'])}) ]), # multiple valid values
+g2.gfql([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
+g3 = g2.gfql([
   n(name="start"),  # tag node matches
   e_forward(hops=3),
   e_forward(name="final_edge"), # tag edge matches
   n(name="end")
 ])
-g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
+g2.gfql(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
 print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
 print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
@@ -1096,7 +1096,7 @@ from graphistry.compute.chain import Chain
 pattern = Chain([n(), e(), n()])
 pattern_json = pattern.to_json()
 pattern2 = Chain.from_json(pattern_json)
-g.chain(pattern2).plot()
+g.gfql(pattern2).plot()
 ```
 
 Benefit from automatic GPU acceleration by passing in GPU dataframes:
@@ -1105,7 +1105,7 @@ Benefit from automatic GPU acceleration by passing in GPU dataframes:
 import cudf
 
 g1 = graphistry.edges(cudf.read_csv('data.csv'), 's', 'd')
-g2 = g1.chain(..., engine='cudf')
+g2 = g1.gfql(..., engine='cudf')
 ```
 
 The parameter `engine` is optional, defaulting to `'auto'`.

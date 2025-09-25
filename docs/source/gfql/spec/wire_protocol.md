@@ -241,7 +241,7 @@ null                // null
 
 **Python**:
 ```python
-g.chain([
+g.gfql([
     n({"customer_id": "C123"}),
     e_forward({
         "type": "purchase",
@@ -284,7 +284,7 @@ g.chain([
 
 **Python**:
 ```python
-g.chain([
+g.gfql([
     n({"ip": is_in(["192.168.1.100", "192.168.1.101"])}),
     e_forward(
         edge_query="port IN [22, 23, 3389]",
