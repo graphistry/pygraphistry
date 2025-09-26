@@ -259,9 +259,16 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             nodes_mask = pd.Series(False, index=g._nodes.index)
             if hasattr(chain_result, '_nodes') and chain_result._nodes is not None:
                 # Mark nodes that are in the chain result as True
-                for idx in chain_result._nodes.index:
-                    if idx in nodes_mask.index:
-                        nodes_mask[idx] = True
+                # Match by node ID value, not by index
+                node_col = g._node if hasattr(g, '_node') else 'id'
+                if node_col in g._nodes.columns and node_col in chain_result._nodes.columns:
+                    result_ids = set(chain_result._nodes[node_col].values)
+                    nodes_mask = g._nodes[node_col].isin(result_ids)
+                else:
+                    # Fall back to index matching if no node column
+                    for idx in chain_result._nodes.index:
+                        if idx in nodes_mask.index:
+                            nodes_mask[idx] = True
 
             # Add the binding name column, preserving existing columns
             # Copy all existing columns from accumulated result (passed as g)

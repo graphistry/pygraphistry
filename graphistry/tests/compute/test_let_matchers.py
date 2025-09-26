@@ -1,14 +1,14 @@
 """Test that Let bindings support matchers (ASTNode/ASTEdge)."""
 
+import os
+import sys
 import pandas as pd
 import pytest
 
-import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from tests.test_compute import CGFull
-from graphistry.compute.ast import n, e_forward, let, ref, ge, ASTNode, ASTEdge
-from graphistry.compute.chain import Chain
+from tests.test_compute import CGFull  # noqa: E402
+from graphistry.compute.ast import n, e_forward, let, ref, ge, ASTNode, ASTEdge  # noqa: E402
+from graphistry.compute.chain import Chain  # noqa: E402
 
 
 class TestLetMatchers:
@@ -127,8 +127,6 @@ class TestLetMatchers:
 
     def test_validate_matcher_types(self):
         """Test that Let validates matcher types properly."""
-        g = CGFull()
-
         # Valid matchers should work
         dag = let({
             'node': ASTNode(),
