@@ -12,7 +12,7 @@ The Call operation in GFQL provides access to a curated set of graph algorithms,
 Overview
 --------
 
-Call operations are invoked using the ``call()`` function within GFQL chains or Let bindings:
+Call operations are invoked using the ``call()`` function within GFQL chains or Let bindings, or using typed builders for better IDE support:
 
 .. code-block:: python
 
@@ -37,6 +37,122 @@ All Call operations:
 - Return a modified graph (immutable - original is unchanged)
 - Can add columns to nodes or edges (schema effects)
 - Are restricted to methods in the safelist for security
+
+Graph Transformation Methods
+----------------------------
+
+hypergraph
+~~~~~~~~~~
+
+Transform event data into entity relationships by connecting entities that appear together in events. This is useful for converting event-based data (logs, transactions, activities) into entity-entity graphs.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - entity_types
+     - list[string]
+     - No
+     - Column names to use as entity types. If None, uses all columns
+   * - opts
+     - dict
+     - No
+     - Additional options to pass to the hypergraph engine
+   * - drop_na
+     - boolean
+     - No
+     - Whether to drop rows with NA values in entity columns (default: True)
+   * - drop_edge_attrs
+     - boolean
+     - No
+     - Whether to drop non-entity attributes from edges (default: True)
+   * - verbose
+     - boolean
+     - No
+     - Whether to print verbose output during transformation (default: False)
+   * - direct
+     - boolean
+     - No
+     - If True, creates direct entity-to-entity edges. If False, keeps hypernodes to show event connections (default: True)
+   * - engine
+     - string
+     - No
+     - Processing engine - 'pandas', 'cudf' (GPU), 'dask' (streaming), or 'auto' (default: 'auto')
+   * - npartitions
+     - integer
+     - No
+     - Number of partitions for Dask processing
+   * - chunksize
+     - integer
+     - No
+     - Chunk size for streaming processing
+
+**Examples:**
+
+.. code-block:: python
+
+    from graphistry.compute import hypergraph
+
+    # Transform user-product interactions into entity graph
+    events_df = pd.DataFrame({
+        'user': ['alice', 'bob', 'alice'],
+        'product': ['laptop', 'phone', 'tablet'],
+        'timestamp': [1, 2, 3]
+    })
+    g = graphistry.nodes(events_df)
+
+    # Simple transformation using typed builder (recommended)
+    hg = g.gfql(hypergraph(entity_types=['user', 'product']))
+
+    # Or using call() directly
+    hg = g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
+
+    # Keep hypernodes to show event connections
+    hg = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        direct=False  # Keep hypernodes
+    ))
+
+    # Use GPU acceleration
+    hg = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        engine='cudf'
+    ))
+
+    # In a DAG with other operations
+    from graphistry.compute import let, ref, n
+
+    result = g.gfql(let({
+        'hg': hypergraph(entity_types=['user', 'product']),
+        'filtered': ref('hg', [n({'type': 'user'})])
+    }))
+
+**Use Cases:**
+
+- **Social Network Analysis**: Transform interaction events (messages, calls) into social graphs
+- **Fraud Detection**: Connect accounts, merchants, and devices from transaction events
+- **Security Analysis**: Link users, IPs, and resources from access logs
+- **Supply Chain**: Connect suppliers, products, and customers from order events
+
+**Schema Effects:**
+
+Creates a new graph structure where:
+
+- Nodes represent unique entities from the specified columns
+- Edges connect entities that appeared in the same event
+- Edge attributes can include event metadata (if drop_edge_attrs=False)
+
+.. note::
+   Hypergraph transformations cannot be mixed with other operations in chains. Use as a single operation or within Let/DAG constructs for complex compositions.
+
+.. note::
+   For large datasets, consider using engine='cudf' for GPU acceleration or engine='dask' for streaming processing.
 
 Graph Analysis Methods
 ----------------------
