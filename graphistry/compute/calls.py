@@ -74,13 +74,13 @@ def hypergraph(
         params['entity_types'] = entity_types
     if opts is not None:
         params['opts'] = opts
-    if drop_na != True:  # Only include if not default
+    if not drop_na:  # Only include if False (not default True)
         params['drop_na'] = drop_na
-    if drop_edge_attrs != True:  # Only include if not default
+    if not drop_edge_attrs:  # Only include if False (not default True)
         params['drop_edge_attrs'] = drop_edge_attrs
-    if verbose != False:  # Only include if not default
+    if verbose:  # Only include if True (not default False)
         params['verbose'] = verbose
-    if direct != True:  # Only include if not default
+    if not direct:  # Only include if False (not default True)
         params['direct'] = direct
     if engine != 'auto':  # Only include if not default
         params['engine'] = engine
