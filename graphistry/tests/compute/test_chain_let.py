@@ -837,7 +837,7 @@ class TestDiamondPatterns:
         """Test parallel branches execute independently"""
         # TODO: Runtime execution error in combine_steps - missing 'index' column in ASTRef chains
         # This is an implementation issue in the execution engine, not GraphOperation validation
-        # pytest.skip("Runtime KeyError in ASTRef chain execution - needs fix in combine_steps implementation")
+        pytest.skip("Runtime KeyError in ASTRef chain execution with query parameter - needs fix in chain implementation")
         
         nodes_df = pd.DataFrame({
             'id': list('abcdefgh'),
