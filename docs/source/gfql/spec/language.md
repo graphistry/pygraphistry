@@ -281,6 +281,75 @@ is_year_end()       # Last day of year
 is_leap_year()      # Is leap year
 ```
 
+## Call Operations and Security
+
+### Call Operations
+
+GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
+
+```python
+call(function: str, params: dict) -> ASTCall
+```
+
+Call operations enable:
+- Graph algorithms (PageRank, community detection)
+- Layout computations (ForceAtlas2, Graphviz)
+- Data transformations (filtering, collapsing)
+- Visual encodings (color, size, icons)
+
+### Safelist Architecture
+
+For security and stability, Call operations are restricted to a predefined safelist of methods. This prevents:
+- Arbitrary code execution
+- Access to filesystem or network operations
+- Modification of global state
+- Unsafe graph operations
+
+#### Safelist Categories
+
+**Graph Analysis**
+- `get_degrees`, `get_indegrees`, `get_outdegrees`: Calculate node degrees
+- `compute_cugraph`: Run GPU algorithms (pagerank, louvain, etc.)
+- `compute_igraph`: Run CPU algorithms
+- `get_topological_levels`: Analyze DAG structure
+
+**Filtering & Transformation**
+- `filter_nodes_by_dict`, `filter_edges_by_dict`: Filter by attributes
+- `hop`: Traverse graph with conditions
+- `drop_nodes`, `keep_nodes`: Node selection
+- `collapse`: Merge nodes by attribute
+- `prune_self_edges`: Remove self-loops
+- `materialize_nodes`: Generate node table
+
+**Layout**
+- `layout_cugraph`: GPU-accelerated layouts
+- `layout_igraph`: CPU-based layouts
+- `layout_graphviz`: Graphviz layouts
+- `fa2_layout`: ForceAtlas2 layout
+
+**Visual Encoding**
+- `encode_point_color`: Color nodes/edges
+- `encode_point_size`: Size nodes
+- `encode_point_icon`: Set icons
+- `bind`: Attach visual attributes
+
+### Validation
+
+Call operations undergo multiple validation stages:
+
+1. **Safelist Check**: Function name must be in the safelist
+2. **Parameter Validation**: Parameters validated against method signature
+3. **Type Checking**: Runtime type validation
+4. **Schema Validation**: Compatibility with graph schema
+
+### Error Codes
+
+- **E104**: Function not in safelist
+- **E105**: Missing required parameter
+- **E201**: Parameter type mismatch
+- **E303**: Unknown parameter
+- **E301**: Required column not found (runtime)
+
 ## Type System
 
 ### Value Types

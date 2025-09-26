@@ -303,6 +303,109 @@ if engine == 'cudf':
 result_pandas = result._nodes.to_pandas() if hasattr(result._nodes, 'to_pandas') else result._nodes
 ```
 
+## DAG Patterns with Let Bindings
+
+GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which allow you to define named graph operations that can reference each other.
+
+### Let Bindings
+
+```python
+from graphistry import let, ref, n, e_forward
+
+# Define DAG patterns with named bindings
+result = g.gfql(let({
+    'persons': n({'type': 'person'}),
+    'adults': ref('persons', [n({'age': ge(18)})]),
+    'connections': ref('adults', [
+        e_forward({'type': 'knows'}),
+        ref('adults')  # Find connections between adults
+    ])
+}))
+
+# Access individual binding results
+persons_df = result._nodes[result._nodes['persons']]
+adults_df = result._nodes[result._nodes['adults']]
+connection_edges = result._edges[result._edges['connections']]
+```
+
+### Ref (Reference to Named Bindings)
+
+The `ref()` function creates references to named bindings within a Let:
+
+```python
+# Basic reference - just the binding result
+result = g.gfql(let({
+    'base': n({'status': 'active'}),
+    'extended': ref('base')  # Just references 'base'
+}))
+
+# Reference with additional operations
+result = g.gfql(let({
+    'suspects': n({'risk_score': gt(80)}),
+    'lateral_movement': ref('suspects', [
+        e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
+        n({'type': 'server'})
+    ])
+}))
+```
+
+### Complex DAG Patterns
+
+```python
+# Multi-level analysis pattern
+result = g.gfql(let({
+    # Find high-value accounts
+    'high_value': n({'balance': gt(100000)}),
+
+    # Find transactions from high-value accounts
+    'large_transfers': ref('high_value', [
+        e_forward({'type': 'transfer', 'amount': gt(10000)}),
+        n()
+    ]),
+
+    # Find suspicious patterns
+    'suspicious': ref('large_transfers', [
+        n({'created_recent': True, 'verified': False})
+    ])
+}))
+```
+
+### Remote Graph References
+
+For distributed computing, `remote()` allows referencing graphs on remote servers:
+
+```python
+from graphistry import remote
+
+# Reference a remote dataset
+result = g.gfql([
+    remote(dataset_id='fraud-network-2024'),
+    n({'risk_score': gt(90)}),
+    e_forward()
+])
+```
+
+## Call Operations with Let Bindings
+
+Call operations can be used within Let bindings for complex workflows:
+
+```python
+result = g.gfql(let({
+    # Initial filtering
+    'suspects': n({'flagged': True}),
+
+    # Compute PageRank on subgraph
+    'ranked': ref('suspects', [
+        call('compute_cugraph', {'alg': 'pagerank'})
+    ]),
+
+    # Find high PageRank nodes
+    'influencers': ref('ranked', [
+        n({'pagerank': gt(0.01)})
+    ])
+}))
+```
+
 ## See Also
 
 - {ref}`gfql-spec-language` - Core language specification

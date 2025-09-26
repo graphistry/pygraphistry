@@ -31,6 +31,10 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 
 ### Supported Message Types
 - `Chain`: Complete query chain
+- `Let`: DAG pattern with named bindings
+- `ChainRef`: Reference to Let binding with optional chain
+- `RemoteGraph`: Reference to remote dataset
+- `Call`: Algorithm/transformation invocation
 - `Node`: Node matcher operation
 - `Edge`: Edge traversal operation
 - Predicates: `GT`, `LT`, `EQ`, `IsIn`, `Between`, etc.
@@ -43,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -132,6 +136,102 @@ chain([
       "filter_dict": {"status": "active"}
     }
   ]
+}
+```
+
+### Let Operation
+
+**Python**:
+```python
+let({
+    'persons': n({'type': 'Person'}),
+    'adults': ref('persons', [n({'age': ge(18)})])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "persons": {
+      "type": "Node",
+      "filter_dict": {"type": "Person"}
+    },
+    "adults": {
+      "type": "ChainRef",
+      "ref": "persons",
+      "chain": [{
+        "type": "Node",
+        "filter_dict": {
+          "age": {"type": "GE", "val": 18}
+        }
+      }]
+    }
+  }
+}
+```
+
+### ChainRef Operation
+
+**Python**:
+```python
+ref('base_nodes', [
+    e_forward({'weight': gt(0.5)}),
+    n({'status': 'active'})
+])
+```
+
+**Wire Format**:
+```json
+{
+  "type": "ChainRef",
+  "ref": "base_nodes",
+  "chain": [
+    {
+      "type": "Edge",
+      "direction": "forward",
+      "edge_match": {"weight": {"type": "GT", "val": 0.5}}
+    },
+    {
+      "type": "Node",
+      "filter_dict": {"status": "active"}
+    }
+  ]
+}
+```
+
+### RemoteGraph Operation
+
+**Python**:
+```python
+remote(dataset_id='fraud-network-2024')
+```
+
+**Wire Format**:
+```json
+{
+  "type": "RemoteGraph",
+  "dataset_id": "fraud-network-2024"
+}
+```
+
+### Call Operation
+
+**Python**:
+```python
+call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Call",
+  "function": "compute_cugraph",
+  "params": {
+    "alg": "pagerank",
+    "damping": 0.85
+  }
 }
 ```
 
