@@ -205,7 +205,7 @@ ref('base_nodes', [
 
 **Python**:
 ```python
-RemoteGraph(dataset_id='fraud-network-2024')
+remote(dataset_id='fraud-network-2024')
 ```
 
 **Wire Format**:

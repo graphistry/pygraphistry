@@ -423,8 +423,8 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
       # Results have x, y coordinates for visualization
       result.plot()
 
-RemoteGraph References
-----------------------
+Remote Graph References
+-----------------------
 
 Reference graphs on remote servers for distributed computing:
 
@@ -432,10 +432,10 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
-      from graphistry import RemoteGraph
+      from graphistry import remote
 
       result = g.gfql([
-          RemoteGraph(dataset_id='fraud-network-2024'),
+          remote(dataset_id='fraud-network-2024'),
           n({'risk_score': gt(90)}),
           e_forward()
       ])
@@ -445,7 +445,7 @@ Reference graphs on remote servers for distributed computing:
   .. code-block:: python
 
       result = g.gfql(let({
-          'remote_data': RemoteGraph(dataset_id='historical-2023'),
+          'remote_data': remote(dataset_id='historical-2023'),
           'high_risk': ref('remote_data', [
               n({'risk_score': gt(95)})
           ]),

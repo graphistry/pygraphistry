@@ -370,16 +370,16 @@ result = g.gfql(let({
 }))
 ```
 
-### RemoteGraph References
+### Remote Graph References
 
-For distributed computing, RemoteGraph allows referencing graphs on remote servers:
+For distributed computing, `remote()` allows referencing graphs on remote servers:
 
 ```python
-from graphistry import RemoteGraph
+from graphistry import remote
 
 # Reference a remote dataset
 result = g.gfql([
-    RemoteGraph(dataset_id='fraud-network-2024'),
+    remote(dataset_id='fraud-network-2024'),
     n({'risk_score': gt(90)}),
     e_forward()
 ])
