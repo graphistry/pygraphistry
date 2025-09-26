@@ -1180,8 +1180,9 @@ class ASTCall(ASTObject):
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
-        # Most method calls cannot be reversed
-        raise NotImplementedError(f"Method '{self.function}' cannot be reversed")
+        # Method calls are transformations that don't need reversal
+        # Return self to act as identity in the reverse pass
+        return self
 
 
 ###

@@ -54,16 +54,35 @@ def gfql(self: Plottable,
         # Select specific output
         friends = g.gfql(result, output='friends')
     
-    **Example: Auto-detection**
-    
+    **Example: Transformations (e.g., hypergraph)**
+
     ::
-    
+
+        from graphistry.compute import hypergraph
+
+        # Simple transformation
+        hg = g.gfql(hypergraph(entity_types=['user', 'product']))
+
+        # Or using call()
+        from graphistry.compute.ast import call
+        hg = g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
+
+        # In a DAG with other operations
+        result = g.gfql(let({
+            'hg': hypergraph(entity_types=['user', 'product']),
+            'filtered': ref('hg', [n({'type': 'user'})])
+        }))
+
+    **Example: Auto-detection**
+
+    ::
+
         # List → chain execution
         g.gfql([n(), e(), n()])
-        
+
         # Single ASTObject → chain execution
         g.gfql(n({'type': 'person'}))
-        
+
         # Dict → DAG execution (convenience)
         g.gfql({'people': n({'type': 'person'})})
     """

@@ -120,16 +120,8 @@ class ComputeMixin(Plottable):
             engine = EngineAbstract(engine)
 
         g = self
-        if g._edges is None:
-            raise ValueError("Missing edges")
-        if g._source is None or g._destination is None:
-            raise ValueError(
-                "Missing source/destination bindings; set via .bind() or .edges()"
-            )
-        if len(g._edges) == 0:
-            return g
-        # TODO use built-ins for igraph/nx/...
 
+        # Check reuse first - if we have nodes and reuse is True, just return
         if reuse:
             if g._nodes is not None and len(g._nodes) > 0:
                 if g._node is None:
@@ -139,6 +131,20 @@ class ComputeMixin(Plottable):
                     # raise ValueError('Must set node id binding, not just nodes; set via .bind() or .nodes()')
                 else:
                     return g
+
+        # Only check for edges if we actually need to materialize
+        if g._edges is None:
+            # If no edges but we have nodes via reuse, that's OK
+            if reuse and g._nodes is not None and len(g._nodes) > 0:
+                return g
+            raise ValueError("Missing edges")
+        if g._source is None or g._destination is None:
+            raise ValueError(
+                "Missing source/destination bindings; set via .bind() or .edges()"
+            )
+        if len(g._edges) == 0:
+            return g
+        # TODO use built-ins for igraph/nx/...
 
         node_id = g._node if g._node is not None else "id"
         engine_concrete : Engine
@@ -525,10 +531,18 @@ class ComputeMixin(Plottable):
 
     def gfql_remote(self, *args, **kwargs) -> Plottable:
         """Run GFQL query remotely.
-        
+
         This is the remote execution version of :meth:`gfql`. It supports both simple chains
-        and complex DAG patterns with Let bindings.
-        
+        and complex DAG patterns with Let bindings, including transformations like hypergraph.
+
+        Example:
+            # Remote hypergraph transformation
+            hg = g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))
+
+            # Or using typed builder
+            from graphistry.compute import hypergraph
+            hg = g.gfql_remote(hypergraph(entity_types=['user', 'product']))
+
         See :meth:`chain_remote` for detailed documentation (chain_remote is deprecated).
         """
         return chain_remote_base(self, *args, **kwargs)

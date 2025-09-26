@@ -350,6 +350,33 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     if isinstance(ops, Chain):
         ops = ops.chain
 
+    # Check for transformation operations that should use let/DAG instead
+    # Exception: Allow single hypergraph call as a special case (top-level transformation)
+    from graphistry.compute.ast import ASTCall
+    hypergraph_calls = [op for op in ops if isinstance(op, ASTCall) and op.function == 'hypergraph']
+
+    if hypergraph_calls:
+        # Allow hypergraph only if it's the sole operation
+        if len(ops) == 1:
+            # Single hypergraph call - execute directly and return
+            from graphistry.compute.gfql.call_executor import execute_call
+            engine_concrete = resolve_engine(engine, self)
+            # We know ops[0] is an ASTCall with hypergraph function
+            hypergraph_call = ops[0]  # This is guaranteed to be ASTCall from the filter above
+            if isinstance(hypergraph_call, ASTCall):
+                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete)
+            else:
+                raise TypeError(f"Expected ASTCall but got {type(hypergraph_call)}")
+        else:
+            # Multiple operations with hypergraph - not allowed in chains
+            raise ValueError(
+                "Hypergraph transformations cannot be mixed with other operations in chains. "
+                "Either use hypergraph alone: g.gfql(call('hypergraph', {...}))\n"
+                "Or use let/DAG syntax for complex compositions:\n"
+                "  g.gfql(let({'transformed': call('hypergraph', {...}), "
+                "'filtered': ref('transformed', [n({...})])}))"
+            )
+
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
 
@@ -372,11 +399,14 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     logger.debug('final chain >> %s', ops)
 
     g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-    
+
     # Store original edge binding to restore it if we add temporary index
     original_edge = g._edge
 
-    if g._edge is None:
+    # Handle node-only graphs (e.g., for hypergraph transformation)
+    if g._edges is None:
+        added_edge_index = False
+    elif g._edge is None:
         if 'index' in g._edges.columns:
             raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
         added_edge_index = True

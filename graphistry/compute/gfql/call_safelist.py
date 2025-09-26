@@ -2,6 +2,33 @@
 
 This module defines which Plottable methods can be called through GFQL
 and their parameter validation rules.
+
+Available Operations:
+    Graph Transformations:
+        - hypergraph: Transform event data into entity relationships
+
+    Graph Traversals:
+        - hop: Multi-hop traversal with configurable direction and depth
+
+    Data Operations:
+        - get_degrees: Calculate node degrees (in/out/total)
+        - filter_edges_by_dict: Filter edges based on attribute values
+        - prune_self_edges: Remove self-referencing edges
+        - materialize_nodes: Compute and materialize node DataFrame
+
+    Layout Operations:
+        - layout_settings: Configure layout algorithm settings
+        - tree_layout: Apply hierarchical tree layout
+
+Usage:
+    from graphistry.compute.ast import call
+    from graphistry.compute.calls import hypergraph  # Typed alternative
+
+    # Using call() with string name
+    g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
+
+    # Using typed builder (recommended for hypergraph)
+    g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
 from typing import Dict, Any
@@ -407,6 +434,27 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
         },
         'description': 'Group-in-a-box layout with community detection'
+    },
+
+    # Hypergraph transformation
+    'hypergraph': {
+        'allowed_params': {
+            'entity_types', 'opts', 'drop_na', 'drop_edge_attrs',
+            'verbose', 'direct', 'engine', 'npartitions', 'chunksize'
+        },
+        'required_params': set(),  # All params are optional
+        'param_validators': {
+            'entity_types': lambda v: v is None or is_list_of_strings(v),
+            'opts': is_dict,
+            'drop_na': is_bool,
+            'drop_edge_attrs': is_bool,
+            'verbose': is_bool,
+            'direct': is_bool,
+            'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'auto'],
+            'npartitions': lambda v: v is None or is_int(v),
+            'chunksize': lambda v: v is None or is_int(v)
+        },
+        'description': 'Transform event data into a hypergraph'
     }
 }
 
