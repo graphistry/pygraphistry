@@ -323,7 +323,7 @@ class TestExecutionContext:
                 'second': ASTRef('first', [])  # Empty chain should work
             })
         
-        assert "GraphOperation" in str(exc_info.value)
+        assert "valid operation" in str(exc_info.value)
         assert "MockExecutable" in str(exc_info.value)
 
 
@@ -469,10 +469,12 @@ class TestNodeExecution:
         node = n({'type': 'person'})
         result = execute_node('people', node, g, context, Engine.PANDAS)
         
-        # Should only have person nodes
-        assert len(result._nodes) == 2
-        assert set(result._nodes['id'].tolist()) == {'a', 'b'}
-        assert all(result._nodes['type'] == 'person')
+        # Should have all nodes with 'people' column marking matches
+        assert len(result._nodes) == 3  # All nodes present
+        assert 'people' in result._nodes.columns  # Has marking column
+        # Check that person nodes are marked True, company is False
+        assert result._nodes[result._nodes['type'] == 'person']['people'].all()
+        assert not result._nodes[result._nodes['type'] == 'company']['people'].any()
     
     def test_node_execution_with_name(self):
         """Test ASTNode adds name column when specified"""
@@ -533,11 +535,13 @@ class TestNodeExecution:
         
         result = g.gfql(dag)
         
-        # Should only have active people
-        assert len(result._nodes) == 1
-        assert result._nodes['id'].iloc[0] == 'a'
-        assert result._nodes['type'].iloc[0] == 'person'
-        assert result._nodes['active'].iloc[0]
+        # Result should have only people nodes (filtered by chain) with active_people column
+        assert len(result._nodes) == 2  # Both person nodes present
+        assert 'active_people' in result._nodes.columns
+        # Check that only the active person is marked True
+        active_mask = result._nodes['active_people'] == True
+        assert active_mask.sum() == 1
+        assert result._nodes[active_mask]['id'].iloc[0] == 'a'
 
 class TestErrorHandling:
     """Test error handling and edge cases"""
@@ -554,7 +558,7 @@ class TestErrorHandling:
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql({'dict': 'not allowed'})
         assert exc_info.value.code == "type-mismatch"
-        assert "binding value must be a GraphOperation" in str(exc_info.value)
+        assert "binding value must be a valid operation" in str(exc_info.value)
     
     def test_node_execution_error_wrapped(self):
         """Test node execution errors are wrapped with context"""

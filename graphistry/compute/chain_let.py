@@ -1,5 +1,6 @@
 from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING
 from typing_extensions import Literal
+import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -243,53 +244,120 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 f"Node '{name}' references '{ast_obj.ref}' which has not been executed yet. "
                 f"Available bindings: {available}"
             ) from e
-        
+
         # Execute the chain on the referenced result
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+
+            # We need to return the full graph with a column marking the filtered results
+            # Start with the original graph g
+            result = g
+
+            # Create a mask for nodes that are in the chain result
+            nodes_mask = pd.Series(False, index=g._nodes.index)
+            if hasattr(chain_result, '_nodes') and chain_result._nodes is not None:
+                # Mark nodes that are in the chain result as True
+                for idx in chain_result._nodes.index:
+                    if idx in nodes_mask.index:
+                        nodes_mask[idx] = True
+
+            # Add the binding name column, preserving existing columns
+            # Copy all existing columns from accumulated result (passed as g)
+            nodes_with_columns = g._nodes.copy()
+            nodes_with_columns[name] = nodes_mask
+            result = result.nodes(nodes_with_columns)
+
+            # Similarly for edges if needed
+            if hasattr(g, '_edges') and g._edges is not None:
+                edges_mask = pd.Series(False, index=g._edges.index)
+                if hasattr(chain_result, '_edges') and chain_result._edges is not None:
+                    for idx in chain_result._edges.index:
+                        if idx in edges_mask.index:
+                            edges_mask[idx] = True
+                # Preserve existing columns
+                edges_with_columns = g._edges.copy()
+                edges_with_columns[name] = edges_mask
+                result = result.edges(edges_with_columns)
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
         # For chain_let, we execute nodes in a simpler way than chain()
-        # No wavefront propagation - just filter the graph's nodes
+        # No wavefront propagation - just mark matching nodes
         node_obj = cast(ASTNode, ast_obj)  # Help mypy understand the type
+
+        # Start with the full graph
+        result = g
+
+        # Create a boolean mask for nodes that match the filter
+        nodes_df = g._nodes
+        mask = pd.Series(False, index=nodes_df.index)
+
         if node_obj.filter_dict or node_obj.query:
-            filtered_g = g
+            # Apply filters to identify matching nodes
+            matching_mask = pd.Series(True, index=nodes_df.index)
+
             if node_obj.filter_dict:
-                filtered_g = filtered_g.filter_nodes_by_dict(node_obj.filter_dict)
+                for key, val in node_obj.filter_dict.items():
+                    if key in nodes_df.columns:
+                        matching_mask = matching_mask & (nodes_df[key] == val)
+
             if node_obj.query:
-                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(node_obj.query))
-            result = filtered_g
+                query_mask = nodes_df.eval(node_obj.query)
+                matching_mask = matching_mask & query_mask
+
+            mask = matching_mask
         else:
-            # Empty filter - return original graph
-            result = g
-        
-        # Add name column if specified
+            # Empty filter matches all nodes
+            mask = pd.Series(True, index=nodes_df.index)
+
+        # Add the name column with the mask, preserving existing columns
+        nodes_with_columns = g._nodes.copy()
+        nodes_with_columns[name] = mask
+        result = result.nodes(nodes_with_columns)
+
+        # Also add node_obj._name if it exists (for chain compatibility)
         if node_obj._name:
-            result = result.nodes(result._nodes.assign(**{node_obj._name: True}))
+            result = result.nodes(result._nodes.assign(**{node_obj._name: mask}))
     elif isinstance(ast_obj, ASTEdge):
-        # For chain_let, execute edge operations using hop()
-        # This is simpler than the full chain() wavefront approach
-        result = g.hop(
-            nodes=None,  # Start from all nodes
-            hops=ast_obj.hops,
-            to_fixed_point=ast_obj.to_fixed_point,
-            direction=ast_obj.direction,
-            source_node_match=ast_obj.source_node_match,
-            edge_match=ast_obj.edge_match,
-            destination_node_match=ast_obj.destination_node_match,
-            source_node_query=ast_obj.source_node_query,
-            edge_query=ast_obj.edge_query,
-            destination_node_query=ast_obj.destination_node_query,
-            return_as_wave_front=False  # Return full graph
-        )
-        
-        # Add name column to edges if specified
-        if ast_obj._name:
-            result = result.edges(result._edges.assign(**{ast_obj._name: True}))
+        # For chain_let, mark edges that match the filter
+        edge_obj = cast(ASTEdge, ast_obj)
+
+        # Start with the full graph
+        result = g
+
+        # Create a boolean mask for edges that match the filter
+        edges_df = g._edges
+        mask = pd.Series(False, index=edges_df.index)
+
+        if edge_obj.edge_match or edge_obj.edge_query:
+            # Apply filters to identify matching edges
+            matching_mask = pd.Series(True, index=edges_df.index)
+
+            if edge_obj.edge_match:
+                for key, val in edge_obj.edge_match.items():
+                    if key in edges_df.columns:
+                        matching_mask = matching_mask & (edges_df[key] == val)
+
+            if edge_obj.edge_query:
+                query_mask = edges_df.eval(edge_obj.edge_query)
+                matching_mask = matching_mask & query_mask
+
+            mask = matching_mask
+        else:
+            # Empty filter matches all edges
+            mask = pd.Series(True, index=edges_df.index)
+
+        # Add the name column with the mask, preserving existing columns
+        edges_with_columns = g._edges.copy()
+        edges_with_columns[name] = mask
+        result = result.edges(edges_with_columns)
+
+        # Also add edge_obj._name if it exists (for chain compatibility)
+        if edge_obj._name:
+            result = result.edges(result._edges.assign(**{edge_obj._name: mask}))
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -386,21 +454,29 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     logger.debug("DAG execution order: %s", order)
     
     # Execute nodes in topological order
-    last_result = g
+    # Start with the original graph and accumulate all binding columns
+    accumulated_result = g
+
     for node_name in order:
         ast_obj = dag.bindings[node_name]
         logger.debug("Executing node '%s' in DAG", node_name)
-        
+
         # Execute the node and store result in context
         try:
-            result = execute_node(node_name, ast_obj, g, context, engine_concrete)
-            last_result = result
+            # Execute node - this adds the binding name as a column
+            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete)
+
+            # Accumulate the new column(s) onto our result
+            accumulated_result = result
+
         except Exception as e:
             # Add context to error
             raise RuntimeError(
                 f"Failed to execute node '{node_name}' in DAG. "
                 f"Error: {type(e).__name__}: {str(e)}"
             ) from e
+
+    last_result = accumulated_result
     
     # Return requested output or last executed result
     if output is not None:
