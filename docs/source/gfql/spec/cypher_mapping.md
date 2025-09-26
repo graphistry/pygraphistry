@@ -2,41 +2,39 @@
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
+Translate existing Cypher workloads to GPU-accelerated GFQL with minimal code changes.
+
 ## Introduction
 
-This specification shows how to translate Cypher queries to both GFQL Python code and Wire Protocol JSON, enabling:
-- Migration from Cypher-based systems
-- Two-stage LLM synthesis: Text → Cypher → GFQL
-- Language-agnostic API integration
-- Secure query generation without code execution
+This specification shows how to translate Cypher queries to both GFQL Python code and :ref:`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
 
-## Conceptual Framework
-
-### Translation Scenarios
+## What Maps 1-to-1
 
 When translating from Cypher, you'll encounter three scenarios:
 
-**1. Direct Translation** - Most pattern matching maps cleanly to pure GFQL  
-**2. Hybrid Approach** - Post-processing operations (RETURN clauses) use dataframes  
+**1. Direct Translation** - Most pattern matching maps cleanly to pure GFQL
+**2. Hybrid Approach** - Post-processing operations (RETURN clauses with aggregations) use df.groupby/agg
 **3. GFQL Advantages** - Some capabilities go beyond what Cypher offers
 
-### What Translates Directly
+### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
 - Path traversals: Variable-length paths use `hops` parameter
 - Pattern composition: Multiple patterns become sequential operations
 
-### What Requires DataFrames
+## When You Need DataFrames
 - Aggregations: COUNT, SUM, AVG → pandas operations
 - Projections: RETURN specific columns → DataFrame selection
 - Sorting/limiting: ORDER BY, LIMIT → DataFrame methods
 - Joins: Multiple disconnected patterns → pandas merge
 
-### GFQL Advantages Beyond Cypher
-- **Rich edge properties**: Query edges as first-class entities
+## GFQL-Only Super-Powers
+- **Edge properties**: Query edges as first-class entities
 - **Dataframe-native**: Zero-cost transitions between graph and tabular operations
-- **GPU acceleration**: Massively parallel execution on NVIDIA hardware
+- **GPU acceleration**: Parallel execution on NVIDIA hardware
 - **Heterogeneous graphs**: No schema constraints on types or properties
+- **Integrated visualization**: Layouts like `group_in_a_box_layout` for community visualization
+- **Algorithm chaining**: Combine community detection with layout algorithms
 
 ## Quick Example
 
@@ -64,7 +62,7 @@ g.gfql([
 ]}
 ```
 
-## Pattern Translations
+## Translation Tables
 
 ### Node Patterns
 
@@ -84,7 +82,7 @@ g.gfql([
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
 | `-[r]-` | `e(name="r")` | `{"type": "Edge", "direction": "undirected", "name": "r"}` |
 | `-[*2]->` | `e_forward(hops=2)` | `{"type": "Edge", "direction": "forward", "hops": 2}` |
-| `-[*1..3]->` | `e_forward(hops=3)` | `{"type": "Edge", "direction": "forward", "hops": 3}` |
+| `-[*1..3]->` | `e_forward(hops=3)` | `{"type": "Edge", "direction": "forward", "hops": 3}` | # upper-bound only; lower bound = 1 |
 | `-[*]->` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
 
@@ -92,11 +90,11 @@ g.gfql([
 
 | Cypher | Python | Wire Protocol |
 |--------|--------|---------------|
+| `n.status = 'active'` | `"active"` | `"active"` | # literal
 | `n.age > 30` | `gt(30)` | `{"type": "GT", "val": 30}` |
 | `n.age >= 50` | `ge(50)` | `{"type": "GE", "val": 50}` |
 | `n.age < 100` | `lt(100)` | `{"type": "LT", "val": 100}` |
 | `n.age <= 50` | `le(50)` | `{"type": "LE", "val": 50}` |
-| `n.status = 'active'` | `"active"` | `"active"` |
 | `n.status <> 'deleted'` | `ne("deleted")` | `{"type": "NE", "val": "deleted"}` |
 | `n.id IN [1,2,3]` | `is_in([1,2,3])` | `{"type": "IsIn", "options": [1,2,3]}` |
 | `n.score BETWEEN 0 AND 100` | `between(0, 100)` | `{"type": "Between", "lower": 0, "upper": 100}` |
