@@ -156,46 +156,44 @@ Example: Filter nodes and edges by multiple types.
 
 **DAG Patterns with Let Bindings**
 
-GFQL's Let bindings enable sophisticated directed acyclic graph (DAG) patterns for complex analysis workflows. Unlike Python's sequential variable assignments, GFQL Let creates a declarative computation graph with automatic dependency resolution.
+GFQL's Let bindings enable you to compose complex graph analyses by defining named subgraphs and operations that can reference each other. Like variables in programming, Let bindings make it easy to manipulate multiple graphs and subgraphs within a single query, while maintaining all the benefits of GFQL like GPU acceleration.
 
-Python approach (sequential execution):
+Traditional Python approach (manual variable management):
 
 .. code-block:: python
 
-    # Traditional Python: Sequential execution, each step runs immediately
-    persons = g.gfql([n({'type': 'person'})])._nodes
-    adults = g.gfql([n({'type': 'person', 'age': ge(18)})])._nodes  # Re-filters from scratch
-    connections = g.gfql([
-        n({'type': 'person', 'age': ge(18)}),  # Must repeat adult filter
-        e_forward({'type': 'knows'}),
-        n({'type': 'person', 'age': ge(18)})  # And again
-    ])
+    # Traditional Python: Manually manage intermediate results
+    persons = g.gfql([n({'type': 'person'})])
+    adults = persons.gfql([n({'age': ge(18)})])
+    friends = adults.gfql([e_forward({'type': 'knows'})])
+    # Each step requires careful tracking of which graph to operate on
 
-GFQL Let approach (declarative DAG):
+GFQL Let approach (declarative DAG with named bindings):
 
 .. code-block:: python
 
     from graphistry import let, ref
 
-    # GFQL Let: Declarative DAG with automatic optimization
+    # GFQL Let: Define a DAG of named operations
     result = g.gfql(let({
         'persons': n({'type': 'person'}),
-        'adults': ref('persons', [n({'age': ge(18)})]),  # Builds on persons
+        'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
         'connections': ref('adults', [
             e_forward({'type': 'knows'}),
-            ref('adults')  # References adults binding directly
+            ref('adults')  # Find connections between adults
         ])
     }))
 
-    # All results computed efficiently in a single pass
+    # Access any named result from the DAG
     adults = result._nodes[result._nodes['adults']]
     connections = result._edges[result._edges['connections']]
 
 Key advantages of GFQL Let:
-- **Single-pass execution**: Entire DAG computed in one optimized operation
-- **Dependency tracking**: Automatic resolution of binding dependencies
-- **Result reuse**: Named bindings avoid redundant computations
-- **Clean semantics**: Declarative approach clearly expresses analysis intent
+- **Named subgraphs**: Create reusable named graph operations like constants in code
+- **Dependency management**: Automatically resolves dependencies between operations
+- **Composability**: Build complex multi-stage analyses from simpler named operations
+- **GPU preservation**: All operations maintain GPU acceleration when available
+- **Clean semantics**: Express complex graph analyses as clear, declarative DAGs
 
 Leveraging GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
