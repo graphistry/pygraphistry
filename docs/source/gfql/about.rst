@@ -273,7 +273,53 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 - Filters nodes where `pagerank > 0.1`.
 - Visualizes the subgraph consisting of high PageRank nodes.
 
-10. Run remotely
+10. Sequencing Programs with Let
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+GFQL's Let bindings enable you to sequence complex graph programs as directed acyclic graphs (DAGs). This allows you to build sophisticated analysis pipelines with named operations that reference each other:
+
+**Example: Multi-stage fraud analysis**
+
+::
+
+    from graphistry import let, ref, call
+
+    result = g.gfql(let({
+        # Stage 1: Find suspicious accounts
+        'suspicious_accounts': n({'risk_score': gt(80), 'created_recent': True}),
+
+        # Stage 2: Trace money flows from suspicious accounts
+        'money_flows': ref('suspicious_accounts', [
+            e_forward({'type': 'transfer', 'amount': gt(10000)}, hops=3),
+            n()
+        ]),
+
+        # Stage 3: Compute PageRank to find central nodes
+        'ranked': ref('money_flows', [
+            call('compute_cugraph', {'alg': 'pagerank'})
+        ]),
+
+        # Stage 4: Identify high-risk clusters
+        'high_risk_clusters': ref('ranked', [
+            n({'pagerank': gt(0.01)}),
+            call('compute_cugraph', {'alg': 'louvain'})
+        ])
+    }))
+
+    # Access results from each stage
+    suspicious = result._nodes[result._nodes['suspicious_accounts']]
+    clusters = result._nodes[result._nodes['high_risk_clusters']]
+    print(f'Found {len(suspicious)} suspicious accounts')
+    print(f'Identified {clusters["community"].nunique()} high-risk clusters')
+
+**Key benefits of Let bindings:**
+
+- **Declarative DAG**: Express complex multi-stage analysis as a clear computation graph
+- **Efficient execution**: All stages execute in a single optimized pass
+- **Named results**: Access intermediate results by name for detailed analysis
+- **Composability**: Build complex patterns from simpler named operations
+
+11. Run remotely
 ~~~~~~~~~~~~~~~~
 
 You may want to run GFQL remotely because the data is remote or a GPU is available remotely:

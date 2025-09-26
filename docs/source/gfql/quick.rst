@@ -321,6 +321,149 @@ Remote Mode
               )
       """)
 
+Let Bindings and DAG Patterns
+-----------------------------
+
+Use Let bindings to create directed acyclic graph (DAG) patterns with named operations:
+
+- **Basic Let with named bindings:**
+
+  .. code-block:: python
+
+      from graphistry import let, ref
+
+      result = g.gfql(let({
+          'suspects': n({'risk_score': gt(80)}),
+          'connections': ref('suspects', [
+              e_forward({'type': 'transaction'}),
+              n()
+          ])
+      }))
+
+      # Access results by name
+      suspects = result._nodes[result._nodes['suspects']]
+      connections = result._edges[result._edges['connections']]
+
+- **Complex DAG with multiple references:**
+
+  .. code-block:: python
+
+      result = g.gfql(let({
+          'high_value': n({'balance': gt(100000)}),
+          'large_transfers': ref('high_value', [
+              e_forward({'type': 'transfer', 'amount': gt(10000)}),
+              n()
+          ]),
+          'suspicious': ref('large_transfers', [
+              n({'created_recent': True, 'verified': False})
+          ])
+      }))
+
+- **Cross-references between bindings:**
+
+  .. code-block:: python
+
+      result = g.gfql(let({
+          'persons': n({'type': 'person'}),
+          'adults': ref('persons', [n({'age': ge(18)})]),
+          'connections': ref('adults', [
+              e_forward({'type': 'knows'}),
+              ref('adults')  # Find connections between adults
+          ])
+      }))
+
+Call Operations
+---------------
+
+Use Call to invoke Plottable methods for graph algorithms and transformations:
+
+- **Compute PageRank:**
+
+  .. code-block:: python
+
+      from graphistry import call
+
+      result = g.gfql([
+          n({'type': 'person'}),
+          call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
+      ])
+
+      # Results have pagerank column
+      top_nodes = result._nodes.sort_values('pagerank', ascending=False).head(10)
+
+- **Community detection with Louvain:**
+
+  .. code-block:: python
+
+      result = g.gfql([
+          n({'active': True}),
+          e_forward(to_fixed_point=True),
+          call('compute_cugraph', {'alg': 'louvain'})
+      ])
+
+      # Results have community column
+      communities = result._nodes.groupby('community').size()
+
+- **Filter and compute within Let:**
+
+  .. code-block:: python
+
+      result = g.gfql(let({
+          'suspects': n({'flagged': True}),
+          'ranked': ref('suspects', [
+              call('compute_cugraph', {'alg': 'pagerank'})
+          ]),
+          'influencers': ref('ranked', [
+              n({'pagerank': gt(0.01)})
+          ])
+      }))
+
+- **Apply layout algorithms:**
+
+  .. code-block:: python
+
+      # ForceAtlas2 layout
+      result = g.gfql([
+          n({'type': is_in(['person', 'company'])}),
+          e_forward(),
+          call('fa2_layout', {'iterations': 100})
+      ])
+
+      # Results have x, y coordinates for visualization
+      result.plot()
+
+RemoteGraph References
+----------------------
+
+Reference graphs on remote servers for distributed computing:
+
+- **Basic remote reference:**
+
+  .. code-block:: python
+
+      from graphistry import RemoteGraph
+
+      result = g.gfql([
+          RemoteGraph(dataset_id='fraud-network-2024'),
+          n({'risk_score': gt(90)}),
+          e_forward()
+      ])
+
+- **Combine remote and local data in Let:**
+
+  .. code-block:: python
+
+      result = g.gfql(let({
+          'remote_data': RemoteGraph(dataset_id='historical-2023'),
+          'high_risk': ref('remote_data', [
+              n({'risk_score': gt(95)})
+          ]),
+          'connections': ref('high_risk', [
+              e_forward({'type': 'transaction'}),
+              n()
+          ])
+      }))
+
 Advanced Usage
 --------------
 
