@@ -10,6 +10,8 @@ Introduction
 
 GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar with SQL, Cypher, or dataframe like Pandas and Spark. By comparing equivalent queries across these languages, you can quickly grasp GFQL's syntax, benefits, and start utilizing its powerful graph querying capabilities within your workflows.
 
+GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
+
 Who Is This Guide For?
 ----------------------
 
@@ -59,11 +61,11 @@ Finding Nodes with Specific Properties
     from graphistry import n
 
     # df[['id', 'type', ...]]
-    g.chain([ n({"type": "person"}) ])._nodes
+    g.gfql([ n({"type": "person"}) ])._nodes
 
 **Explanation**:
 
-- **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.chain([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
+- **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.gfql([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
 
 ---
 
@@ -165,7 +167,7 @@ Performing Multi-Hop Traversals
     from graphistry import n, e_forward
 
     # df[['id', ...]]
-    g.chain([
+    g.gfql([
         n({g._node: "Alice"}), e_forward(), e_forward(), n(name='m')
     ])._nodes.query('m')
 
@@ -208,7 +210,7 @@ Filtering Edges and Nodes with Conditions
     from graphistry import e_forward
 
     # df[['src', 'dst', 'weight', ...]]
-    g.chain([ e_forward(edge_query='weight > 0.5') ])._edges
+    g.gfql([ e_forward(edge_query='weight > 0.5') ])._edges
 
 **Explanation**:
 
@@ -349,7 +351,7 @@ All Paths and Connectivity
 
     # g._edges: df[['src', 'dst', ...]]
     # g._nodes: df[['id', ...]]
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(
             source_node_query='type == "person"',
@@ -437,7 +439,7 @@ Time-Windowed Graph Analytics
 .. code-block:: python
 
     past_week = pd.Timestamp.now() - pd.Timedelta(7)
-    g.chain([
+    g.gfql([
         n({"id": {"$in": ["Alice", "Bob"]}}), 
         e_forward(edge_query=f'timestamp >= "{past_week}"'), 
         n({"id": {"$in": ["Alice", "Bob"]}})
@@ -488,7 +490,7 @@ Parallel Pathfinding
     from graphistry import n, e_forward
 
     # g._nodes: cudf.DataFrame[['src', 'dst', ...]]
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(to_fixed_point=False), 
         n({"id": is_in(["Bob", "Charlie"])})
@@ -527,7 +529,7 @@ GPU Execution
     from graphistry import n, e_forward
 
     # Executing pathfinding queries in parallel
-    g.chain([
+    g.gfql([
         n({"id": "Alice"}), 
         e_forward(to_fixed_point=False), 
         n({"id": is_in(["Bob", "Charlie"])})

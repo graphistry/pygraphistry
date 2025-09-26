@@ -229,7 +229,7 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
 
 .. code-block:: python
 
-    g2 = g1.chain([
+    g2 = g1.gfql([
         n(),
         e(edge_query="vulnName == 'MS08067 (NetAPI)' & `time(max)` > 1421430000"),
         n(),

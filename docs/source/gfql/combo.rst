@@ -25,7 +25,7 @@ Simple Plotting
 
 .. code-block:: python
 
-    g2 = g1.chain(gfql_query)
+    g2 = g1.gfql(gfql_query)
     g2.plot()
 
 **Explanation**:

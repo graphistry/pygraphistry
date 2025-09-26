@@ -14,7 +14,7 @@ Run chain remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()])
+    g2 = g1.gfql_remote([n(), e(), n()])
     assert len(g2._nodes) <= len(g1._nodes)
 
 Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
@@ -40,7 +40,7 @@ Run on GPU remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()], engine='cudf')
+    g2 = g1.gfql_remote([n(), e(), n()], engine='cudf')
     assert len(g2._nodes) <= len(g1._nodes)
 
 CPU
@@ -51,7 +51,7 @@ Run on CPU remotely and fetch results
 .. code-block:: python
 
     from graphistry import n, e
-    g2 = g1.chain_remote([n(), e(), n()], engine='pandas')
+    g2 = g1.gfql_remote([n(), e(), n()], engine='pandas')
 
 
 
@@ -68,8 +68,8 @@ Explicit uploads via :meth:`upload <graphistry.PlotterBase.PlotterBase.upload>` 
     g2 = g1.upload()
     assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
 
-    g3a = g2.chain_remote([n()])
-    g3b = g2.chain_remote([n(), e(), n()])
+    g3a = g2.gfql_remote([n()])
+    g3b = g2.gfql_remote([n(), e(), n()])
     assert len(g3a._nodes) >= len(g3b._nodes)
 
 
@@ -86,7 +86,7 @@ If data is already uploaded and your user has access to it, such as from a previ
     g1 = graphistry.bind(dataset_id='abc123')
     assert g1._nodes is None, "Binding does not fetch data"
 
-    connected_graph_g = g1.chain_remote([n(), e()])
+    connected_graph_g = g1.gfql_remote([n(), e()])
     connected_nodes_df = connected_graph_g._nodes
     print(connected_nodes_df.shape)
 
@@ -102,7 +102,7 @@ Return only nodes
 
 .. code-block:: python
 
-  g1.chain_remote([n(), e(), n()], output_type="nodes")
+  g1.gfql_remote([n(), e(), n()], output_type="nodes")
 
 Return only nodes and specific columns
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -110,7 +110,7 @@ Return only nodes and specific columns
 .. code-block:: python
 
   cols = [g1._node, 'time']
-  g2b = g1.chain_remote(
+  g2b = g1.gfql_remote(
     [n(), e(), n()],
     output_type="nodes",
     node_col_subset=cols)
@@ -122,7 +122,7 @@ Return only edges
 
 .. code-block:: python
 
-  g2a = g1.chain_remote([n(), e(), n()], output_type="edges")
+  g2a = g1.gfql_remote([n(), e(), n()], output_type="edges")
 
 Return only edges and specific columns
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -130,7 +130,7 @@ Return only edges and specific columns
 .. code-block:: python
 
   cols = [g1._source, g1._destination, 'time']
-  g2b = g1.chain_remote([n(), e(), n()],
+  g2b = g1.gfql_remote([n(), e(), n()],
     output_type="edges",
     edge_col_subset=cols)
   assert len(g2b._edges.columns) == len(cols)
