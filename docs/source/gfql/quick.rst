@@ -330,10 +330,12 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
   .. code-block:: python
 
-      from graphistry import let, ref
+      from graphistry import let, ref, Chain
 
+      # Note: Currently, Let bindings must be Chain/Plottable objects, not bare matchers
+      # This will be improved in a future release
       result = g.gfql(let({
-          'suspects': n({'risk_score': gt(80)}),
+          'suspects': Chain([n({'risk_score': gt(80)})]),
           'connections': ref('suspects', [
               e_forward({'type': 'transaction'}),
               n()
@@ -348,8 +350,10 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
   .. code-block:: python
 
+      from graphistry import Chain
+
       result = g.gfql(let({
-          'high_value': n({'balance': gt(100000)}),
+          'high_value': Chain([n({'balance': gt(100000)})]),
           'large_transfers': ref('high_value', [
               e_forward({'type': 'transfer', 'amount': gt(10000)}),
               n()
@@ -359,23 +363,10 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
           ])
       }))
 
-- **Cross-references between bindings:**
-
-  .. code-block:: python
-
-      result = g.gfql(let({
-          'persons': n({'type': 'person'}),
-          'adults': ref('persons', [n({'age': ge(18)})]),
-          'connections': ref('adults', [
-              e_forward({'type': 'knows'}),
-              ref('adults')  # Find connections between adults
-          ])
-      }))
-
 Call Operations
 ---------------
 
-Use Call to invoke Plottable methods for graph algorithms and transformations:
+Run graph algorithms like PageRank, community detection, and layouts directly within your GFQL queries:
 
 - **Compute PageRank:**
 
