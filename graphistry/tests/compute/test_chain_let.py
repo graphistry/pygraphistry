@@ -8,9 +8,6 @@ import pandas as pd
 import pytest
 from unittest.mock import patch, MagicMock
 from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, ASTNode, ASTObject, n, e
-
-# Suppress deprecation warnings for chain() method in this test file
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_let import (
     extract_dependencies, build_dependency_graph, validate_dependencies,
@@ -19,6 +16,9 @@ from graphistry.compute.chain_let import (
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.compute.exceptions import GFQLTypeError
 from graphistry.tests.test_compute import CGFull
+
+# Suppress deprecation warnings for chain() method in this test file
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
 
 
 class TestChainDagHelpers:
