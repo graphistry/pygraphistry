@@ -419,8 +419,15 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
 
     logger.debug('======================== FORWARDS ========================')
 
-    # Forwards
-    # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
+    # Set policy in thread-local for ASTCall operations
+    from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
+    old_policy = getattr(call_thread_local, 'policy', None)
+    if policy:
+        call_thread_local.policy = policy
+
+    try:
+        # Forwards
+        # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
     #  g_step._nodes: The nodes reached in this step
     #  g_step._edges: The edges used to reach those nodes
     # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
@@ -538,4 +545,11 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
                 e.data_size = stats
             raise
 
-    return g_out
+        return g_out
+    finally:
+        # Restore original policy in thread-local
+        if old_policy is None:
+            if hasattr(call_thread_local, 'policy'):
+                delattr(call_thread_local, 'policy')
+        else:
+            call_thread_local.policy = old_policy

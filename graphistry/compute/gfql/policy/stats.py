@@ -28,10 +28,14 @@ def extract_graph_stats(g: 'Plottable') -> Dict[str, int]:
             # Works for pandas, cudf, and most DataFrames
             return len(df)
         except Exception:
-            # Fallback for dask - try compute
+            # Fallback for dask - use persist() then compute()
             try:
-                if hasattr(df, 'compute'):
-                    # For dask DataFrames
+                if hasattr(df, 'persist'):
+                    # For dask DataFrames - persist() caches the computation
+                    persisted = df.persist()
+                    return len(persisted.compute())
+                elif hasattr(df, 'compute'):
+                    # Fallback if no persist method
                     return len(df.compute())
             except Exception:
                 pass

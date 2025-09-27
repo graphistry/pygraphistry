@@ -4,11 +4,15 @@ This module handles the actual execution of safelisted methods
 after parameter validation.
 """
 
+import threading
 from typing import Dict, Any
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+# Thread-local storage for policy context
+_thread_local = threading.local()
 
 
 def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: Engine, policy=None) -> Plottable:
@@ -19,6 +23,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         function: Name of the method to call
         params: Parameters for the method (will be validated)
         engine: Execution engine
+        policy: Optional policy dict, or will use thread-local if available
 
     Returns:
         Result of the method call (usually a new Plottable)
@@ -27,6 +32,10 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         GFQLTypeError: If validation fails or method doesn't exist
         AttributeError: If method doesn't exist on Plottable
     """
+    # Get policy from thread-local if not passed
+    if policy is None:
+        policy = getattr(_thread_local, 'policy', None)
+
     # Call policy phase - before executing call operation
     final_params = params
     final_engine = engine
@@ -54,16 +63,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 # Apply engine modification if present
                 if 'engine' in validated_mods:
                     eng_str = validated_mods['engine']
-                    # Convert string to Engine - 'auto' not valid for Engine enum
-                    if eng_str == 'auto':
-                        # Let the system decide based on available libraries
-                        try:
-                            import cudf
-                            final_engine = Engine.CUDF
-                        except ImportError:
-                            final_engine = Engine.PANDAS
-                    else:
-                        final_engine = Engine(eng_str)
+                    # Use standard engine resolution
+                    from graphistry.Engine import resolve_engine, EngineAbstract
+                    final_engine = resolve_engine(EngineAbstract(eng_str), g)
 
                 # Apply parameter modifications if present
                 if 'params' in validated_mods and validated_mods['params'] is not None:
