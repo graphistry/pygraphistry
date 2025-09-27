@@ -55,15 +55,11 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             else:
                 validated_params['engine'] = 'pandas'
 
-        # Import and call hypergraph
+        # Call hypergraph method directly (now properly typed in Plottable Protocol)
         try:
-            # Hypergraph is a method on Plottable, mypy doesn't see it due to mixin structure
-            hypergraph_method = getattr(g, 'hypergraph')
-            result = hypergraph_method(raw_events, **validated_params)
-            # Hypergraph returns a dict with 'graph' key containing the Plottable
-            if isinstance(result, dict) and 'graph' in result:
-                return result['graph']
-            return result
+            result = g.hypergraph(raw_events, **validated_params)
+            # Hypergraph returns a HypergraphResult dict with 'graph' key containing the Plottable
+            return result['graph']
         except Exception as e:
             raise GFQLTypeError(
                 ErrorCode.E303,

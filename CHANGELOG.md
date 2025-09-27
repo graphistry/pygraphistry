@@ -15,6 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * The old `chain*` methods are deprecated and will be removed in a future version
   * All functionality remains the same, only the method names have changed
 
+### Fixed
+* GFQL: Fix hypergraph typing - add method to Plottable Protocol, resolve circular import
+
 ### Added
 * GFQL: Add hypergraph transformation support for creating entity relationships from event data
   * Simple transformation: `g.gfql(hypergraph(entity_types=['user', 'product']))`
@@ -23,6 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Remote execution: `g.gfql_remote(hypergraph(...))`
   * DAG composition: Use with `let()` for complex transformations
   * Safelist validation for all hypergraph parameters
+  * Enhanced `opts` parameter validation for nested structures (CATEGORIES, EDGES, SKIP)
   * 19 unit tests including mocked remote execution
 * GFQL: Add comprehensive validation framework with detailed error reporting
   * Built-in validation: `Chain()` constructor validates syntax automatically

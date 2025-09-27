@@ -10,6 +10,7 @@ from graphistry.models.compute.features import GraphEntityKind
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.plugins_types.embed_types import ProtoSymbolic, XSymbolic, YSymbolic
 from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr, NodeAttr, Prog
+from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.umap_types import UMAPEngine
 from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstract
@@ -423,7 +424,22 @@ class Plottable(Protocol):
         ops is Union[List[ASTObject], Chain]
         """
         ...
-    
+
+    def hypergraph(
+        self,
+        raw_events: Any,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: str = 'pandas',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None
+    ) -> HypergraphResult:
+        ...
+
     def chain_remote(
         self: 'Plottable',
         chain: Union[Any, Dict[str, JSONVal]],
