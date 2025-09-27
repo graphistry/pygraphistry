@@ -152,6 +152,8 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
 
 **Examples:**
 
+.. code-block:: python
+
     # Transform user-product interactions into entity graph
     events_df = pd.DataFrame({
         'user': ['alice', 'bob', 'alice'],
