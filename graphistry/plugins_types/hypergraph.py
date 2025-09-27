@@ -1,10 +1,12 @@
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 from graphistry.Engine import DataframeLike
-from graphistry.Plottable import Plottable
+
+if TYPE_CHECKING:
+    from graphistry.Plottable import Plottable
 
 class HypergraphResult(TypedDict):
     entities: DataframeLike
     events: DataframeLike
     edges: DataframeLike
     nodes: DataframeLike
-    graph: Plottable
+    graph: 'Plottable'
