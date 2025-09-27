@@ -27,7 +27,7 @@ def validate_modification(mod: Any, phase: Phase) -> PolicyModification:
     # Validate engine field
     if 'engine' in mod:
         engine = mod['engine']
-        valid_engines = {'cpu', 'gpu', 'auto'}
+        valid_engines = {'pandas', 'cudf', 'dask', 'dask_cudf', 'auto'}
         if engine not in valid_engines:
             raise ValueError(
                 f"Invalid engine '{engine}'. Must be one of {valid_engines}"

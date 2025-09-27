@@ -54,13 +54,16 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 # Apply engine modification if present
                 if 'engine' in validated_mods:
                     eng_str = validated_mods['engine']
-                    # Map policy engine values to Engine
-                    engine_map = {
-                        'cpu': Engine.PANDAS,
-                        'gpu': Engine.CUDF,
-                        'auto': 'auto'  # Let Engine decide
-                    }
-                    final_engine = Engine(engine_map.get(eng_str, eng_str))
+                    # Convert string to Engine - 'auto' not valid for Engine enum
+                    if eng_str == 'auto':
+                        # Let the system decide based on available libraries
+                        try:
+                            import cudf
+                            final_engine = Engine.CUDF
+                        except ImportError:
+                            final_engine = Engine.PANDAS
+                    else:
+                        final_engine = Engine(eng_str)
 
                 # Apply parameter modifications if present
                 if 'params' in validated_mods and validated_mods['params'] is not None:
