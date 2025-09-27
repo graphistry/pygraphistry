@@ -63,7 +63,7 @@ Transform event data into entity relationships by connecting entities that appea
    * - opts
      - dict
      - No
-     - Additional options to pass to the hypergraph engine
+     - Configuration options for hypergraph transformation (see below)
    * - drop_na
      - boolean
      - No
@@ -93,11 +93,64 @@ Transform event data into entity relationships by connecting entities that appea
      - No
      - Chunk size for streaming processing
 
+**The opts Parameter:**
+
+The ``opts`` dictionary configures advanced hypergraph behavior by controlling how entities are identified and connected. All keys are optional and the dictionary structure is validated to ensure type safety:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 20 55
+
+   * - Key
+     - Type
+     - Description
+   * - TITLE
+     - string
+     - Node title field name (default: 'nodeTitle')
+   * - DELIM
+     - string
+     - Delimiter for composite IDs (default: '::')
+   * - NODEID
+     - string
+     - Node ID field name (default: 'nodeID')
+   * - ATTRIBID
+     - string
+     - Attribute ID field name (default: 'attribID')
+   * - EVENTID
+     - string
+     - Event ID field name (default: 'EventID')
+   * - EVENTTYPE
+     - string
+     - Event type field name (default: 'event')
+   * - SOURCE
+     - string
+     - Source node field name for edges (default: 'src')
+   * - DESTINATION
+     - string
+     - Destination node field name for edges (default: 'dst')
+   * - CATEGORY
+     - string
+     - Category field name (default: 'category')
+   * - NODETYPE
+     - string
+     - Node type field name (default: 'type')
+   * - EDGETYPE
+     - string
+     - Edge type field name (default: 'edgeType')
+   * - NULLVAL
+     - string
+     - Value representing null (default: 'null')
+   * - SKIP
+     - list[string]
+     - Column names to exclude from entity extraction. Each item must be a string
+   * - CATEGORIES
+     - dict[str, list[str]]
+     - Maps category names to lists of values for grouping. Keys must be strings, values must be lists of strings
+   * - EDGES
+     - dict[str, list[str]]
+     - Defines which entity types can connect to each other. Keys represent source entity types (strings), values are lists of target entity types (strings) that the source can connect to
+
 **Examples:**
-
-.. code-block:: python
-
-    from graphistry.compute import hypergraph
 
     # Transform user-product interactions into entity graph
     events_df = pd.DataFrame({
@@ -123,6 +176,24 @@ Transform event data into entity relationships by connecting entities that appea
     hg = g.gfql(hypergraph(
         entity_types=['user', 'product'],
         engine='cudf'
+    ))
+
+    # Advanced opts configuration with CATEGORIES and EDGES
+    hg = g.gfql(hypergraph(
+        entity_types=['user', 'product', 'category'],
+        opts={
+            'TITLE': 'Entity Graph',
+            'SKIP': ['timestamp', 'metadata'],  # Exclude these columns
+            'CATEGORIES': {
+                'user_type': ['premium', 'regular', 'trial'],
+                'product_type': ['electronics', 'clothing', 'books']
+            },
+            'EDGES': {
+                'user': ['product', 'category'],  # Users connect to products and categories
+                'product': ['user', 'category'],  # Products connect back to users and categories
+                'category': ['product']           # Categories only connect to products
+            }
+        }
     ))
 
     # In a DAG with other operations
