@@ -11,7 +11,7 @@ from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
-def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: Engine) -> Plottable:
+def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: Engine, policy=None) -> Plottable:
     """Execute a validated method call on a Plottable.
 
     Args:
@@ -27,8 +27,56 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         GFQLTypeError: If validation fails or method doesn't exist
         AttributeError: If method doesn't exist on Plottable
     """
+    # Call policy phase - before executing call operation
+    final_params = params
+    final_engine = engine
+
+    if policy and 'call' in policy:
+        from graphistry.compute.gfql.policy import PolicyContext, PolicyException, validate_modification
+        from graphistry.compute.gfql.policy.stats import extract_graph_stats
+
+        stats = extract_graph_stats(g)
+        context: PolicyContext = {
+            'phase': 'call',
+            'call_op': function,
+            'call_params': params,
+            'plottable': g,
+            'graph_stats': stats,
+            '_policy_depth': 0
+        }
+
+        try:
+            mods = policy['call'](context)
+            if mods is not None:
+                # Validate modifications
+                validated_mods = validate_modification(mods, 'call')
+
+                # Apply engine modification if present
+                if 'engine' in validated_mods:
+                    eng_str = validated_mods['engine']
+                    # Map policy engine values to Engine
+                    engine_map = {
+                        'cpu': Engine.PANDAS,
+                        'gpu': Engine.CUDF,
+                        'auto': 'auto'  # Let Engine decide
+                    }
+                    final_engine = Engine(engine_map.get(eng_str, eng_str))
+
+                # Apply parameter modifications if present
+                if 'params' in validated_mods and validated_mods['params'] is not None:
+                    # Merge parameters - modifications override originals
+                    final_params = {**params, **validated_mods['params']}
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = 'call'
+            if e.data_size is None:
+                e.data_size = stats
+            raise
+
     # Validate parameters against safelist
-    validated_params = validate_call_params(function, params)
+    validated_params = validate_call_params(function, final_params)
 
     # Special handling for hypergraph
     if function == 'hypergraph':

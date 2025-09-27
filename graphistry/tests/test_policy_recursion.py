@@ -1,0 +1,149 @@
+"""Tests for recursion prevention in policy execution."""
+
+import pytest
+import pandas as pd
+from typing import Optional
+
+import graphistry
+from graphistry.compute.gfql.policy import (
+    PolicyContext,
+    PolicyModification
+)
+from graphistry.compute.ast import n
+
+
+class TestRecursionPrevention:
+    """Test that recursion is prevented at depth 1."""
+
+    def test_no_recursion_on_query_modification(self):
+        """Test that modifying query doesn't trigger policy again."""
+        call_count = {'count': 0}
+
+        def modifying_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            call_count['count'] += 1
+
+            # Should only be called at depth 0
+            depth = context.get('_policy_depth', 0)
+            assert depth == 0, f"Policy called at depth {depth}, should only be depth 0"
+
+            if context['phase'] == 'preload':
+                # Modify query - this should not trigger policy again
+                return {'query': [n({'modified': True})]}
+            return None
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        # Execute with policy
+        result = g.gfql([n()], policy={'preload': modifying_policy})
+
+        # Policy should only be called once
+        assert call_count['count'] == 1, f"Policy called {call_count['count']} times, expected 1"
+        assert result is not None
+
+    def test_depth_tracking_in_context(self):
+        """Test that _policy_depth is properly tracked in context."""
+        depths_seen = []
+
+        def tracking_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            depth = context.get('_policy_depth', -1)
+            depths_seen.append(depth)
+            return None
+
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
+
+        g.gfql([n()], policy={'preload': tracking_policy})
+
+        # Should only see depth 0
+        assert depths_seen == [0], f"Expected depths [0], got {depths_seen}"
+
+    def test_postload_not_called_recursively(self):
+        """Test that postload hook is not called recursively."""
+        postload_calls = {'count': 0}
+
+        def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            # Modify query
+            return {'query': [n({'test': True})]}
+
+        def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            postload_calls['count'] += 1
+            depth = context.get('_policy_depth', 0)
+
+            # Should only be called at original depth
+            assert depth == 0, f"Postload called at depth {depth}"
+            return None
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        g.gfql(
+            [n()],
+            policy={
+                'preload': preload_policy,
+                'postload': postload_policy
+            }
+        )
+
+        # Postload should only be called once, even though query was modified
+        assert postload_calls['count'] == 1, f"Postload called {postload_calls['count']} times"
+
+    def test_complex_modification_no_recursion(self):
+        """Test complex modifications don't cause recursion."""
+        execution_log = []
+
+        def complex_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            phase = context['phase']
+            execution_log.append(phase)
+
+            if phase == 'preload':
+                # Modify both query and engine
+                return {
+                    'query': [n({'x': 1}), n({'y': 2})],
+                    'engine': 'cpu'
+                }
+            elif phase == 'postload':
+                # Try to modify engine in postload
+                return {'engine': 'gpu'}
+
+            return None
+
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
+
+        result = g.gfql(
+            [n()],
+            policy={
+                'preload': complex_policy,
+                'postload': complex_policy
+            }
+        )
+
+        # Each phase should only be called once
+        assert execution_log.count('preload') == 1
+        assert execution_log.count('postload') == 1
+
+    def test_malicious_policy_cannot_loop(self):
+        """Test that a malicious policy cannot cause infinite loop."""
+        call_count = {'count': 0}
+        MAX_CALLS = 10  # Safety limit for test
+
+        def malicious_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            call_count['count'] += 1
+
+            # Safety check for test
+            if call_count['count'] > MAX_CALLS:
+                raise RuntimeError("Too many calls - loop detected!")
+
+            # Always try to modify query
+            return {'query': [n({'attempt': call_count['count']})]}
+
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
+
+        # Should complete without infinite loop
+        result = g.gfql([n()], policy={'preload': malicious_policy})
+
+        # Policy should only be called once due to depth limit
+        assert call_count['count'] == 1, f"Policy called {call_count['count']} times"
+        assert result is not None
