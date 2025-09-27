@@ -663,7 +663,8 @@ class ASTLet(ASTObject):
     :raises GFQLTypeError: If bindings is not a dict or contains invalid keys/values
     
     **Example::**
-    
+
+        # Matchers now supported directly (operate on root graph)
         dag = ASTLet({
             'persons': n({'type': 'person'}),
             'friends': ASTRef('persons', [e_forward({'rel': 'friend'})])
@@ -691,17 +692,7 @@ class ASTLet(ASTObject):
                 
                 obj_type = value.get('type')
                 # Check if it's a valid GraphOperation type
-                if obj_type in ['Node', 'Edge']:
-                    # These are wavefront matchers, not allowed
-                    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-                    raise GFQLTypeError(
-                        ErrorCode.E201,
-                        f"binding value cannot be {obj_type} (wavefront matcher)",
-                        field=f"bindings.{name}",
-                        value=obj_type,
-                        suggestion="Use operations that produce Plottable objects like Chain, Ref, Call, RemoteGraph, or Let"
-                    )
-                elif obj_type == 'Chain':
+                if obj_type == 'Chain':
                     # Import and convert Chain
                     from graphistry.compute.chain import Chain
                     chain_obj = Chain.from_json(value, validate=False)
@@ -742,24 +733,16 @@ class ASTLet(ASTObject):
             # Check if value is a valid GraphOperation type
             # Import here to avoid circular imports
             from graphistry.compute.chain import Chain  # noqa: F402
-            
-            # GraphOperation includes specific AST types that produce Plottable objects
-            # Excludes ASTNode/ASTEdge which are wavefront matchers
-            if isinstance(v, (ASTNode, ASTEdge)):
+
+            # GraphOperation now includes all AST types
+            # ASTNode/ASTEdge are now allowed and will operate on the root graph
+            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    f"binding value cannot be {type(v).__name__} (wavefront matcher)",
+                    "binding value must be a valid operation (ASTNode, ASTEdge, Chain, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, or Plottable)",
                     field=f"bindings.{k}",
                     value=type(v).__name__,
-                    suggestion="Use operations that produce Plottable objects like ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Chain, or Plottable instances"
-                )
-            elif not isinstance(v, (ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
-                raise GFQLTypeError(
-                    ErrorCode.E201,
-                    "binding value must be a GraphOperation (Plottable, Chain, ASTRef, ASTCall, ASTRemoteGraph, or ASTLet)",
-                    field=f"bindings.{k}",
-                    value=type(v).__name__,
-                    suggestion="Use operations that produce Plottable objects, not wavefront matchers"
+                    suggestion="Use a valid graph operation or matcher"
                 )
         # TODO: Check for cycles in DAG
         return None

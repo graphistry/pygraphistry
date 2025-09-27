@@ -34,7 +34,8 @@ class TestLetValidation:
         with pytest.raises(GFQLTypeError) as exc_info:
             dag.validate()
         assert exc_info.value.code == ErrorCode.E201
-        assert "GraphOperation" in str(exc_info.value)
+        # Check for new error message format
+        assert "valid operation" in str(exc_info.value)
     
     def test_let_nested_validation(self):
         """Let should validate nested objects"""

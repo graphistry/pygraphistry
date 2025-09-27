@@ -4,6 +4,10 @@ from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 
+# Suppress deprecation warnings for chain() method in this test file
+# This file tests the migration from chain() to gfql()
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
+
 
 class TestGFQLAPI:
     """Test unified GFQL API and migration"""
