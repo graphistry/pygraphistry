@@ -1,20 +1,44 @@
 """GFQL unified entrypoint for chains and DAGs"""
 
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict, Any
 from graphistry.Plottable import Plottable
 from graphistry.Engine import EngineAbstract
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
+from .gfql.policy import (
+    PolicyDict,
+    PolicyContext,
+    PolicyException,
+    QueryType,
+    validate_modification
+)
 
 logger = setup_logger(__name__)
+
+
+def detect_query_type(query: Any) -> QueryType:
+    """Detect query type for policy context.
+
+    Returns:
+        'dag' for ASTLet queries
+        'chain' for list/Chain queries
+        'single' for single ASTObject queries
+    """
+    if isinstance(query, ASTLet):
+        return "dag"
+    elif isinstance(query, (list, Chain)):
+        return "chain"
+    else:
+        return "single"
 
 
 def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-         output: Optional[str] = None) -> Plottable:
+         output: Optional[str] = None,
+         policy: Optional[PolicyDict] = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
     
@@ -24,8 +48,75 @@ def gfql(self: Plottable,
     :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, or dict
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
+    :param policy: Optional policy hooks for external control (preload, postload, call phases)
     :returns: Resulting Plottable
     :rtype: Plottable
+
+    **Policy Hooks**
+
+    The policy parameter enables external control over GFQL query execution
+    through hooks at three phases:
+
+    - **preload**: Before data is loaded (can modify query/engine)
+    - **postload**: After data is loaded (can inspect data size)
+    - **call**: Before each method call (can modify parameters)
+
+    Policies can accept/deny/modify operations. Modifications are validated
+    against a schema and applied immediately. Recursion is prevented at depth 1.
+
+    **Policy Example**
+
+    ::
+
+        from graphistry.compute.gfql.policy import PolicyContext, PolicyModification, PolicyException
+        from typing import Optional
+
+        def create_tier_policy(max_nodes: int = 10000):
+            # State via closure
+            state = {"nodes_processed": 0}
+
+            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+                phase = context['phase']
+
+                if phase == 'preload':
+                    # Force CPU for free tier
+                    return {'engine': 'cpu'}
+
+                elif phase == 'postload':
+                    # Check data size limits
+                    stats = context.get('graph_stats', {})
+                    nodes = stats.get('nodes', 0)
+                    state['nodes_processed'] += nodes
+
+                    if state['nodes_processed'] > max_nodes:
+                        raise PolicyException(
+                            phase='postload',
+                            reason=f'Node limit {max_nodes} exceeded',
+                            code=403,
+                            data_size={'nodes': state['nodes_processed']}
+                        )
+
+                elif phase == 'call':
+                    # Restrict operations
+                    op = context.get('call_op', '')
+                    if op == 'hypergraph':
+                        raise PolicyException(
+                            phase='call',
+                            reason='Hypergraph not available in free tier',
+                            code=403
+                        )
+
+                return None
+
+            return policy
+
+        # Use policy
+        policy_func = create_tier_policy(max_nodes=1000)
+        result = g.gfql([n()], policy={
+            'preload': policy_func,
+            'postload': policy_func,
+            'call': policy_func
+        })
     
     **Example: Chain query**
     
@@ -86,6 +177,60 @@ def gfql(self: Plottable,
         # Dict → DAG execution (convenience)
         g.gfql({'people': n({'type': 'person'})})
     """
+    # Recursion prevention - check if we're already in a policy execution
+    _policy_depth = getattr(query, '_policy_depth', 0) if hasattr(query, '_policy_depth') else 0
+    if policy and _policy_depth >= 1:
+        logger.debug('Policy disabled due to recursion depth limit (depth=%d)', _policy_depth)
+        policy = None  # Disable policy for recursive calls
+
+    # Preload policy phase - before any processing
+    if policy and 'preload' in policy:
+        context: PolicyContext = {
+            'phase': 'preload',
+            'query': query,
+            'query_type': detect_query_type(query),
+            '_policy_depth': _policy_depth
+        }
+
+        try:
+            mods = policy['preload'](context)
+            if mods is not None:
+                # Validate modifications
+                validated = validate_modification(mods, 'preload')
+
+                # Apply query modification if present
+                if 'query' in validated:
+                    query = validated['query']
+                    # Mark modified query with incremented depth
+                    if not hasattr(query, '_policy_depth'):
+                        query._policy_depth = _policy_depth + 1
+
+                # Apply engine modification if present
+                if 'engine' in validated:
+                    eng_str = validated['engine']
+                    # Map policy engine values to EngineAbstract
+                    engine_map = {
+                        'cpu': EngineAbstract.PANDAS,
+                        'gpu': EngineAbstract.CUDF,
+                        'auto': EngineAbstract.AUTO
+                    }
+                    if eng_str in engine_map:
+                        engine = engine_map[eng_str]
+                    else:
+                        # Try to use eng_str directly as EngineAbstract value
+                        try:
+                            engine = EngineAbstract(eng_str)
+                        except ValueError:
+                            # Fall back to AUTO if invalid
+                            logger.warning(f"Invalid engine value '{eng_str}' from policy, using AUTO")
+                            engine = EngineAbstract.AUTO
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = context.get('query_type')
+            raise
+
     # Handle dict convenience first (convert to ASTLet)
     if isinstance(query, dict):
         # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
@@ -101,23 +246,23 @@ def gfql(self: Plottable,
     # Dispatch based on type - check specific types before generic
     if isinstance(query, ASTLet):
         logger.debug('GFQL executing as DAG')
-        return chain_let_impl(self, query, engine, output)
+        return chain_let_impl(self, query, engine, output, policy=policy)
     elif isinstance(query, Chain):
         logger.debug('GFQL executing as Chain')
         if output is not None:
             logger.warning('output parameter ignored for chain queries')
-        return chain_impl(self, query.chain, engine)
+        return chain_impl(self, query.chain, engine, policy=policy)
     elif isinstance(query, ASTObject):
         # Single ASTObject -> execute as single-item chain
         logger.debug('GFQL executing single ASTObject as chain')
         if output is not None:
             logger.warning('output parameter ignored for chain queries')
-        return chain_impl(self, [query], engine)
+        return chain_impl(self, [query], engine, policy=policy)
     elif isinstance(query, list):
         logger.debug('GFQL executing list as chain')
         if output is not None:
             logger.warning('output parameter ignored for chain queries')
-        return chain_impl(self, query, engine)
+        return chain_impl(self, query, engine, policy=policy)
     else:
         raise TypeError(
             f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
