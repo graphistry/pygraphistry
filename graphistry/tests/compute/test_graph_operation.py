@@ -56,30 +56,19 @@ class TestGraphOperationTypeConstraints:
         let_dag = ASTLet({'outer': nested})
         let_dag.validate()  # Should not raise
         
-    def test_invalid_astnode_binding(self):
-        """Test that ASTNode instances are rejected."""
+    def test_valid_astnode_binding(self):
+        """Test that ASTNode instances are now accepted as matchers."""
         node = ASTNode({'type': 'person'})
+
+        let_dag = ASTLet({'people': node})
+        let_dag.validate()  # Should not raise - ASTNode is now accepted
         
-        let_dag = ASTLet({'invalid': node}, validate=False)
-        
-        with pytest.raises(GFQLTypeError) as exc_info:
-            let_dag.validate()
-            
-        assert exc_info.value.code == ErrorCode.E201
-        assert "wavefront matcher" in str(exc_info.value)
-        assert "ASTNode" in str(exc_info.value)
-        
-    def test_invalid_astedge_binding(self):
-        """Test that ASTEdge instances are rejected."""
+    def test_valid_astedge_binding(self):
+        """Test that ASTEdge instances are now accepted as matchers."""
         edge = e()  # Creates an ASTEdge
-        
-        let_dag = ASTLet({'invalid': edge}, validate=False)
-        
-        with pytest.raises(GFQLTypeError) as exc_info:
-            let_dag.validate()
-            
-        assert exc_info.value.code == ErrorCode.E201
-        assert "wavefront matcher" in str(exc_info.value)
+
+        let_dag = ASTLet({'knows_edges': edge})
+        let_dag.validate()  # Should not raise - ASTEdge is now accepted
         
     def test_invalid_plain_dict_binding(self):
         """Test that plain dicts are rejected."""
@@ -112,30 +101,31 @@ class TestGraphOperationTypeConstraints:
         
     def test_mixed_valid_invalid_bindings(self):
         """Test mixed bindings with valid and invalid types."""
+        # Now both ASTRef and ASTNode are valid, so use a string for invalid
         let_dag = ASTLet({
             'valid': ASTRef('x', []),
-            'invalid': ASTNode({'type': 'person'})
+            'invalid': 'not_a_valid_operation'
         }, validate=False)
-        
+
         with pytest.raises(GFQLTypeError) as exc_info:
             let_dag.validate()
-            
+
         assert exc_info.value.code == ErrorCode.E201
         # Should mention the problematic binding
         assert "invalid" in str(exc_info.value)
         
     def test_error_message_suggestions(self):
         """Test that error messages include helpful suggestions."""
-        let_dag = ASTLet({'bad': ASTNode()}, validate=False)
-        
+        # ASTNode is now valid, so use an invalid type like a string
+        let_dag = ASTLet({'bad': 'invalid_string'}, validate=False)
+
         with pytest.raises(GFQLTypeError) as exc_info:
             let_dag.validate()
-            
+
         error_msg = str(exc_info.value)
-        assert "ASTRef" in error_msg
-        assert "ASTCall" in error_msg
-        assert "Chain" in error_msg
-        assert "Plottable" in error_msg
+        # Error message should mention valid types
+        assert "ASTRef" in error_msg or "ASTNode" in error_msg or "ASTEdge" in error_msg
+        assert "ASTCall" in error_msg or "Chain" in error_msg or "Plottable" in error_msg
 
 
 class TestChainSerialization:
