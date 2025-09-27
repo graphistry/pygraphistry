@@ -97,7 +97,7 @@ class TestGraphOperationTypeConstraints:
             let_dag.validate()
             
         assert exc_info.value.code == ErrorCode.E201
-        assert "GraphOperation" in str(exc_info.value)
+        assert "valid operation" in str(exc_info.value)
         assert "str" in str(exc_info.value)
         
     def test_invalid_none_binding(self):
@@ -108,7 +108,7 @@ class TestGraphOperationTypeConstraints:
             let_dag.validate()
             
         assert exc_info.value.code == ErrorCode.E201
-        assert "GraphOperation" in str(exc_info.value)
+        assert "valid operation" in str(exc_info.value)
         
     def test_mixed_valid_invalid_bindings(self):
         """Test mixed bindings with valid and invalid types."""
