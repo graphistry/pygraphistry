@@ -60,6 +60,74 @@ def is_list_of_strings(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
 
+def is_dict_str_to_list_str(v: Any) -> bool:
+    """Validate dict mapping strings to lists of strings."""
+    if not isinstance(v, dict):
+        return False
+    for k, val in v.items():
+        if not isinstance(k, str):
+            return False
+        if not is_list_of_strings(val):
+            return False
+    return True
+
+
+def validate_hypergraph_opts(v: Any) -> bool:
+    """Validate hypergraph opts parameter structure.
+
+    Expected structure based on HyperBindings class:
+    {
+        'TITLE': str,           # default: 'nodeTitle'
+        'DELIM': str,          # default: '::'
+        'NODEID': str,         # default: 'nodeID'
+        'ATTRIBID': str,       # default: 'attribID'
+        'EVENTID': str,        # default: 'EventID'
+        'EVENTTYPE': str,      # default: 'event'
+        'SOURCE': str,         # default: 'src'
+        'DESTINATION': str,    # default: 'dst'
+        'CATEGORY': str,       # default: 'category'
+        'NODETYPE': str,       # default: 'type'
+        'EDGETYPE': str,       # default: 'edgeType'
+        'NULLVAL': str,        # default: 'null'
+        'SKIP': List[str],     # optional list
+        'CATEGORIES': Dict[str, List[str]],  # category mappings
+        'EDGES': Dict[str, List[str]]        # edge type mappings
+    }
+    """
+    if not isinstance(v, dict):
+        return False
+
+    # Known string keys from HyperBindings
+    string_keys = {
+        'TITLE', 'DELIM', 'NODEID', 'ATTRIBID', 'EVENTID', 'EVENTTYPE',
+        'SOURCE', 'DESTINATION', 'CATEGORY', 'NODETYPE', 'EDGETYPE', 'NULLVAL'
+    }
+
+    for key, val in v.items():
+        if not isinstance(key, str):
+            return False
+
+        # Check known string parameters
+        if key in string_keys:
+            if not isinstance(val, str):
+                return False
+        # Check SKIP parameter (list of strings)
+        elif key == 'SKIP':
+            if not is_list_of_strings(val):
+                return False
+        # Check CATEGORIES and EDGES (dict of string -> list of strings)
+        elif key in ('CATEGORIES', 'EDGES'):
+            if not is_dict_str_to_list_str(val):
+                return False
+        # Unknown key - still allow but must be JSON-serializable
+        else:
+            # For forward compatibility, allow other keys but they should be simple types
+            if not isinstance(val, (str, int, float, bool, list, dict, type(None))):
+                return False
+
+    return True
+
+
 # Safelist configuration
 # Dictionary mapping allowed Plottable method names to their validation rules.
 #
@@ -445,7 +513,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': set(),  # All params are optional
         'param_validators': {
             'entity_types': lambda v: v is None or is_list_of_strings(v),
-            'opts': is_dict,
+            'opts': validate_hypergraph_opts,  # Use detailed validator
             'drop_na': is_bool,
             'drop_edge_attrs': is_bool,
             'verbose': is_bool,
