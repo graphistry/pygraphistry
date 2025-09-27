@@ -327,7 +327,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Also add node_obj._name if it exists (for chain compatibility)
         if node_obj._name:
-            result = result.nodes(result._nodes.assign(**{node_obj._name: mask}))
+            nodes_with_columns[node_obj._name] = mask
+            result = result.nodes(nodes_with_columns)
     elif isinstance(ast_obj, ASTEdge):
         # For chain_let, mark edges that match the filter
         edge_obj = cast(ASTEdge, ast_obj)
@@ -364,7 +365,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Also add edge_obj._name if it exists (for chain compatibility)
         if edge_obj._name:
-            result = result.edges(result._edges.assign(**{edge_obj._name: mask}))
+            edges_with_columns[edge_obj._name] = mask
+            result = result.edges(edges_with_columns)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
