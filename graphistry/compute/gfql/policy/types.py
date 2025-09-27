@@ -40,12 +40,12 @@ class PolicyModification(TypedDict, total=False):
     """Schema for valid policy modifications.
 
     Attributes:
-        engine: Engine override (cpu, gpu, auto)
+        engine: Engine override (pandas, cudf, dask, dask_cudf, auto)
         params: Parameter modifications for operations
         query: Query modifications (preload phase only)
     """
 
-    engine: Optional[Literal["cpu", "gpu", "auto"]]
+    engine: Optional[Literal["pandas", "cudf", "dask", "dask_cudf", "auto"]]
     params: Optional[Dict[str, Any]]
     query: Optional[Any]
 
