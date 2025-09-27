@@ -7,6 +7,9 @@ from graphistry.compute.chain import Chain
 from graphistry.compute.ast import n, e_forward
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
+# Suppress deprecation warnings for chain() method in this test file
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
+
 
 class TestChainSchemaValidation:
     """Test schema-aware validation in chain() function."""

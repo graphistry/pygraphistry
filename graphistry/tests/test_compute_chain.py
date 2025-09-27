@@ -2,12 +2,17 @@ from functools import lru_cache
 from typing import Dict, List
 import logging
 import pandas as pd
+import pytest
 
 from common import NoAuthTestCase
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.util import setup_logger
+
+# Suppress deprecation warnings for chain() method in this test file
+# These tests are specifically for the deprecated chain() method
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
 
 logger = setup_logger(__name__)
 

@@ -1,12 +1,17 @@
 import os
 import pandas as pd
 import pytest
+import warnings
 
 from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward
 from graphistry.compute.chain import Chain
 from graphistry.compute.predicates.is_in import IsIn, is_in
 from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
+
+# Suppress deprecation warnings for chain() method in this test file
+# These tests are specifically for the deprecated chain() method
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
 
 
 @pytest.fixture(scope='module')

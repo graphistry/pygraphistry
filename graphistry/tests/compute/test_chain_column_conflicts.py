@@ -5,6 +5,9 @@ from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_compute import CGFull
 from graphistry.compute.ast import n, e, e_forward, e_reverse, e_undirected
 
+# Suppress deprecation warnings for chain() method in this test file
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
+
 
 class TestChainColumnConflicts(NoAuthTestCase):
     """Tests for potential column name conflicts in chain.py"""
