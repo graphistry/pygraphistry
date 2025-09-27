@@ -321,7 +321,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             mask = pd.Series(True, index=nodes_df.index)
 
         # Add the name column with the mask, preserving existing columns
-        nodes_with_columns = g._nodes.copy()
+        # Use result._nodes if it exists to preserve accumulated columns
+        if result._nodes is not None:
+            nodes_with_columns = result._nodes.copy()
+        else:
+            nodes_with_columns = g._nodes.copy()
         nodes_with_columns[name] = mask
         result = result.nodes(nodes_with_columns)
 
@@ -359,7 +363,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             mask = pd.Series(True, index=edges_df.index)
 
         # Add the name column with the mask, preserving existing columns
-        edges_with_columns = g._edges.copy()
+        # Use result._edges if it exists to preserve accumulated columns
+        if result._edges is not None:
+            edges_with_columns = result._edges.copy()
+        else:
+            edges_with_columns = g._edges.copy()
         edges_with_columns[name] = mask
         result = result.edges(edges_with_columns)
 
