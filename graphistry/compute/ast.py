@@ -672,11 +672,12 @@ class ASTLet(ASTObject):
     """
     bindings: Dict[str, Union['ASTObject', 'Chain', Plottable]]
     
-    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', Plottable, dict]], validate: bool = True) -> None:
+    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', Plottable, Dict[str, Any]]], validate: bool = True) -> None:
         """Initialize Let with named bindings.
-        
-        :param bindings: Dictionary mapping names to GraphOperation instances or JSON dicts
-        :type bindings: Dict[str, Union[ASTObject, Chain, Plottable, dict]]
+
+        :param bindings: Dictionary mapping names to GraphOperation instances or JSON dicts.
+                        JSON dicts must have a 'type' field indicating the AST object type.
+        :type bindings: Dict[str, Union[ASTObject, Chain, Plottable, Dict[str, Any]]]
         :param validate: Whether to validate the bindings immediately
         :type validate: bool
         """
