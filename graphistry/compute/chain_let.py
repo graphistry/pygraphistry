@@ -206,8 +206,8 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
     return topological_sort(bindings, dependencies, dependents)
 
 
-def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable, 
-                context: ExecutionContext, engine: Engine) -> Plottable:
+def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
+                context: ExecutionContext, engine: Engine, policy=None) -> Plottable:
     """Execute a single node in the DAG
     
     Handles different GraphOperation types:
@@ -233,7 +233,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value))
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -317,9 +317,10 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     return result
 
 
-def chain_let_impl(g: Plottable, dag: ASTLet, 
+def chain_let_impl(g: Plottable, dag: ASTLet,
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-                  output: Optional[str] = None) -> Plottable:
+                  output: Optional[str] = None,
+                  policy=None) -> Plottable:
     """Internal implementation of chain_let execution
     
     Validates DAG, determines execution order, and executes nodes
@@ -377,7 +378,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Execute the node and store result in context
         try:
             # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete)
+            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy)
 
             # Accumulate the new column(s) onto our result
             accumulated_result = result
@@ -403,9 +404,45 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 f"Output binding '{output}' not found. "
                 f"Available bindings: {available}"
             )
-        return context.get_binding(output)
+        result = context.get_binding(output)
     else:
-        return last_result
+        result = last_result
+
+    # Postload policy phase - after DAG execution
+    if policy and 'postload' in policy:
+        from .gfql.policy import PolicyContext, PolicyException, validate_modification
+        from .gfql.policy.stats import extract_graph_stats
+
+        stats = extract_graph_stats(result)
+        context_dict: PolicyContext = {
+            'phase': 'postload',
+            'query': dag,
+            'query_type': 'dag',
+            'plottable': result,
+            'graph_stats': stats,
+            '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
+        }
+
+        try:
+            mods = policy['postload'](context_dict)
+            if mods is not None:
+                # Validate modifications
+                validated = validate_modification(mods, 'postload')
+
+                # Note: Engine modification in postload would require DataFrame conversion
+                # which is complex - log for now
+                if 'engine' in validated:
+                    logger.warning('Engine modification in postload not yet implemented for DAG execution')
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = 'dag'
+            if e.data_size is None:
+                e.data_size = stats
+            raise
+
+    return result
 
 
 def chain_let(self: Plottable, dag: ASTLet,
@@ -463,4 +500,4 @@ def chain_let(self: Plottable, dag: ASTLet,
         # Or select specific output
         people_result = g.chain_let(dag, output='people')
     """
-    return chain_let_impl(self, dag, engine, output)
+    return chain_let_impl(self, dag, engine, output, policy)
