@@ -410,7 +410,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
 def chain_let(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-             output: Optional[str] = None) -> Plottable:
+             output: Optional[str] = None,
+             policy=None) -> Plottable:
     """
     Execute a DAG of named graph operations with dependency resolution
     

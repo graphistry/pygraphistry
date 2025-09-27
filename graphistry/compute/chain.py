@@ -248,7 +248,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -365,7 +365,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             # We know ops[0] is an ASTCall with hypergraph function
             hypergraph_call = ops[0]  # This is guaranteed to be ASTCall from the filter above
             if isinstance(hypergraph_call, ASTCall):
-                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete)
+                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete, policy=policy)
             else:
                 raise TypeError(f"Expected ASTCall but got {type(hypergraph_call)}")
         else:
@@ -498,5 +498,44 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
     else:
         g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+    # Postload policy phase - after data is loaded
+    if policy and 'postload' in policy:
+        from .gfql.policy import PolicyContext, PolicyException, validate_modification
+        from .gfql.policy.stats import extract_graph_stats
+
+        stats = extract_graph_stats(g_out)
+        context: PolicyContext = {
+            'phase': 'postload',
+            'query': ops,
+            'query_type': 'chain',
+            'plottable': g_out,
+            'graph_stats': stats,
+            '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
+        }
+
+        try:
+            mods = policy['postload'](context)
+            if mods is not None:
+                # Validate modifications
+                validated = validate_modification(mods, 'postload')
+
+                # Apply engine modification if present
+                if 'engine' in validated:
+                    # Convert result to specified engine
+                    new_engine = validated['engine']
+                    if new_engine != str(engine_concrete.value):
+                        # Need to convert the result
+                        # This is a simplified approach - may need refinement
+                        logger.debug(f'Policy modifying engine from {engine_concrete.value} to {new_engine}')
+                        # For now, just log - actual conversion would need more work
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = 'chain'
+            if e.data_size is None:
+                e.data_size = stats
+            raise
 
     return g_out
