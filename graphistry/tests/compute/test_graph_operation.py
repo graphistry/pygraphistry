@@ -56,30 +56,19 @@ class TestGraphOperationTypeConstraints:
         let_dag = ASTLet({'outer': nested})
         let_dag.validate()  # Should not raise
         
-    def test_invalid_astnode_binding(self):
-        """Test that ASTNode instances are rejected."""
+    def test_valid_astnode_binding(self):
+        """Test that ASTNode instances are now accepted in Let bindings."""
         node = ASTNode({'type': 'person'})
+
+        let_dag = ASTLet({'valid': node}, validate=False)
+        let_dag.validate()  # Should not raise
         
-        let_dag = ASTLet({'invalid': node}, validate=False)
-        
-        with pytest.raises(GFQLTypeError) as exc_info:
-            let_dag.validate()
-            
-        assert exc_info.value.code == ErrorCode.E201
-        assert "wavefront matcher" in str(exc_info.value)
-        assert "ASTNode" in str(exc_info.value)
-        
-    def test_invalid_astedge_binding(self):
-        """Test that ASTEdge instances are rejected."""
+    def test_valid_astedge_binding(self):
+        """Test that ASTEdge instances are now accepted in Let bindings."""
         edge = e()  # Creates an ASTEdge
-        
-        let_dag = ASTLet({'invalid': edge}, validate=False)
-        
-        with pytest.raises(GFQLTypeError) as exc_info:
-            let_dag.validate()
-            
-        assert exc_info.value.code == ErrorCode.E201
-        assert "wavefront matcher" in str(exc_info.value)
+
+        let_dag = ASTLet({'valid': edge}, validate=False)
+        let_dag.validate()  # Should not raise
         
     def test_invalid_plain_dict_binding(self):
         """Test that plain dicts are rejected."""
