@@ -2,6 +2,7 @@
 
 import pytest
 import pandas as pd
+import os
 import time
 from typing import Optional, Dict, Any, Callable
 from enum import Enum
@@ -14,6 +15,11 @@ from graphistry.compute.gfql.policy import (
     PolicyFunction
 )
 from graphistry.compute.ast import n, e, call
+from graphistry.embed_utils import check_cudf
+
+# Check for cudf availability
+has_cudf, _ = check_cudf()
+is_test_cudf = has_cudf and os.environ.get("TEST_CUDF", "1") != "0"
 
 
 class PlanTier(Enum):
@@ -52,7 +58,7 @@ class TestHubIntegration:
                 'max_edges': None,
                 'max_calls': None,
                 'allowed_ops': None,  # All operations
-                'engine': 'cudf',
+                'engine': 'cudf' if is_test_cudf else 'pandas',  # Use cudf if available, otherwise pandas
                 'timeout_seconds': None
             }
         }
@@ -157,7 +163,7 @@ class TestHubIntegration:
                 if tier == PlanTier.PRO and op == 'hop':
                     params = context.get('call_params', {})
                     if params.get('hops', 0) > 2:
-                        return {'engine': 'cudf'}
+                        return {'engine': 'cudf' if is_test_cudf else 'pandas'}  # Use appropriate engine
 
             return None
 

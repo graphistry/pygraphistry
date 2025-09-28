@@ -2,6 +2,7 @@
 
 import pytest
 import pandas as pd
+import os
 from typing import Optional
 
 import graphistry
@@ -10,6 +11,11 @@ from graphistry.compute.gfql.policy import (
     PolicyModification
 )
 from graphistry.compute.ast import n
+from graphistry.embed_utils import check_cudf
+
+# Check for cudf availability
+has_cudf, _ = check_cudf()
+is_test_cudf = has_cudf and os.environ.get("TEST_CUDF", "1") != "0"
 
 
 class TestRecursionPrevention:
@@ -88,6 +94,7 @@ class TestRecursionPrevention:
         # Postload should only be called once, even though query was modified
         assert postload_calls['count'] == 1, f"Postload called {postload_calls['count']} times"
 
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf for engine conversion")
     def test_complex_modification_no_recursion(self):
         """Test complex modifications don't cause recursion."""
         execution_log = []
