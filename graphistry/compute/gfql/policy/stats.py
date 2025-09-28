@@ -1,6 +1,6 @@
 """Graph statistics extraction for policy decisions."""
 
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
