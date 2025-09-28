@@ -223,6 +223,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     :param g: Input graph
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
+    :param policy: Optional policy dictionary with preload/postload/call hooks
     :returns: Resulting Plottable
     :rtype: Plottable
     :raises ValueError: If reference not found in context
@@ -269,11 +270,36 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
         result = g.bind(dataset_id=ast_obj.dataset_id)
-        
+
+        # Policy is passed as parameter to execute_node
+
+        # Preload policy phase for remote data loading
+        if policy and 'preload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+
+            context_dict: PolicyContext = {
+                'phase': 'preload',
+                'is_remote': True,
+                'remote_dataset_id': ast_obj.dataset_id,
+                'remote_token': ast_obj.token if ast_obj.token else None,
+                'operation': 'ASTRemoteGraph',
+                'engine': engine.value,
+                '_policy_depth': 0
+            }
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['preload'](context_dict)
+            except PolicyException as e:
+                # Enrich exception with context if not already present
+                if not hasattr(e, 'remote_dataset_id'):
+                    e.remote_dataset_id = ast_obj.dataset_id
+                raise
+
         # If we need to actually fetch the data, we would use chain_remote
         # For now, we'll fetch it immediately to ensure we have the data
         from .chain_remote import chain_remote as chain_remote_impl
-        
+
         # Fetch the remote dataset with an empty chain (no filtering)
         # Convert engine to the expected type for chain_remote
         chain_engine: Optional[Literal["pandas", "cudf"]] = None
@@ -281,7 +307,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             chain_engine = "pandas"
         elif engine.value == "cudf":
             chain_engine = "cudf"
-        
+
         result = chain_remote_impl(
             result,
             [],  # Empty chain - just fetch the entire dataset
@@ -290,6 +316,34 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             output_type="all",  # Get full graph (nodes and edges)
             engine=chain_engine
         )
+
+        # Postload policy phase for remote data
+        if policy and 'postload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+
+            stats = extract_graph_stats(result)
+
+            context_dict: PolicyContext = {
+                'phase': 'postload',
+                'is_remote': True,
+                'remote_dataset_id': ast_obj.dataset_id,
+                'operation': 'ASTRemoteGraph',
+                'engine': engine.value,
+                'graph_stats': stats,
+                '_policy_depth': 0
+            }
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](context_dict)
+            except PolicyException as e:
+                # Enrich exception with context if not already present
+                if not hasattr(e, 'remote_dataset_id'):
+                    e.remote_dataset_id = ast_obj.dataset_id
+                if not hasattr(e, 'data_size'):
+                    e.data_size = stats
+                raise
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
         from .gfql.call_executor import execute_call
@@ -382,7 +436,6 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Accumulate the new column(s) onto our result
             accumulated_result = result
-
         except Exception as e:
             # Add context to error
             raise RuntimeError(
