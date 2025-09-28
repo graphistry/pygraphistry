@@ -1,6 +1,6 @@
 """GFQL Policy exceptions with enriched error data."""
 
-from typing import Literal, Optional, Dict, Any
+from typing import Literal, Optional, Dict, Any, Union
 
 Phase = Literal["preload", "postload", "call"]
 
@@ -43,13 +43,13 @@ class PolicyException(Exception):
         message = f"Policy denial in {phase}: {reason}"
         super().__init__(message)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Union[int, str, Dict[str, int]]]:
         """Convert exception to dictionary for JSON serialization.
 
         Returns:
             Dictionary with error details suitable for JSON response
         """
-        result = {
+        result: Dict[str, Union[int, str, Dict[str, int]]] = {
             "code": self.code,
             "phase": self.phase,
             "reason": self.reason
