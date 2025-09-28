@@ -508,7 +508,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
 
         # Postload policy phase - after data is loaded
         if policy and 'postload' in policy:
-            from .gfql.policy import PolicyContext, PolicyException, validate_modification
+            from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
 
             stats = extract_graph_stats(g_out)
@@ -522,25 +522,8 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             }
 
             try:
-                mods = policy['postload'](context)
-                if mods is not None:
-                    # Validate modifications
-                    validated = validate_modification(mods, 'postload')
-
-                    # Apply engine modification if present
-                    if 'engine' in validated:
-                        # Convert result to specified engine
-                        new_engine_str = validated['engine']
-                        from graphistry.Engine import Engine, df_to_engine
-                        new_engine = Engine(new_engine_str)
-
-                        if new_engine != engine_concrete:
-                            logger.debug(f'Policy converting engine from {engine_concrete.value} to {new_engine.value}')
-                            # Convert DataFrames to new engine
-                            if g_out._nodes is not None:
-                                g_out = g_out.nodes(df_to_engine(g_out._nodes, new_engine))
-                            if g_out._edges is not None:
-                                g_out = g_out.edges(df_to_engine(g_out._edges, new_engine))
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](context)
 
             except PolicyException as e:
                 # Enrich exception with context if not already set

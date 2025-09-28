@@ -41,7 +41,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     final_engine = engine
 
     if policy and 'call' in policy:
-        from graphistry.compute.gfql.policy import PolicyContext, PolicyException, validate_modification
+        from graphistry.compute.gfql.policy import PolicyContext, PolicyException
         from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
         stats = extract_graph_stats(g)
@@ -55,22 +55,8 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         }
 
         try:
-            mods = policy['call'](context)
-            if mods is not None:
-                # Validate modifications
-                validated_mods = validate_modification(mods, 'call')
-
-                # Apply engine modification if present
-                if 'engine' in validated_mods:
-                    eng_str = validated_mods['engine']
-                    # Use standard engine resolution
-                    from graphistry.Engine import resolve_engine, EngineAbstract
-                    final_engine = resolve_engine(EngineAbstract(eng_str), g)
-
-                # Apply parameter modifications if present
-                if 'params' in validated_mods and validated_mods['params'] is not None:
-                    # Merge parameters - modifications override originals
-                    final_params = {**params, **validated_mods['params']}
+            # Policy can only accept (None) or deny (exception)
+            policy['call'](context)
 
         except PolicyException as e:
             # Enrich exception with context if not already set

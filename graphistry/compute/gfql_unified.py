@@ -12,8 +12,7 @@ from .gfql.policy import (
     PolicyDict,
     PolicyContext,
     PolicyException,
-    QueryType,
-    validate_modification
+    QueryType
 )
 
 logger = setup_logger(__name__)
@@ -72,14 +71,14 @@ def gfql(self: Plottable,
 
     ::
 
-        from graphistry.compute.gfql.policy import PolicyContext, PolicyModification, PolicyException
+        from graphistry.compute.gfql.policy import PolicyContext, PolicyException
         from typing import Optional
 
         def create_tier_policy(max_nodes: int = 10000):
             # State via closure
             state = {"nodes_processed": 0}
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 phase = context['phase']
 
                 if phase == 'preload':
