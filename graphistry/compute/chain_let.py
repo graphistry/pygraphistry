@@ -470,8 +470,18 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
         # Execute the node and store result in context
         try:
+            # For Chain bindings, we need to pass the original graph, not accumulated
+            # because Chain filters the graph. For other types, use accumulated.
+            from .chain import Chain
+            if isinstance(ast_obj, Chain):
+                # Chains filter from original graph
+                input_graph = g
+            else:
+                # Other operations may depend on accumulated columns
+                input_graph = accumulated_result
+
             # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete)
+            result = execute_node(node_name, ast_obj, input_graph, context, engine_concrete)
 
             # Accumulate the new column(s) onto our result
             accumulated_result = result
