@@ -3,12 +3,11 @@
 import pytest
 import pandas as pd
 import time
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 import graphistry
 from graphistry.compute.gfql.policy import (
     PolicyContext,
-    PolicyModification,
     PolicyException
 )
 from graphistry.compute.ast import n, call
@@ -22,7 +21,7 @@ class TestClosureBasedState:
         def create_stateful_policy():
             state = {"call_count": 0, "phases_seen": []}
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 phase = context['phase']
                 state["call_count"] += 1
                 state["phases_seen"].append(phase)
@@ -60,7 +59,7 @@ class TestClosureBasedState:
                 "total_time": None
             }
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 phase = context['phase']
 
                 if phase == 'preload':
@@ -101,7 +100,7 @@ class TestClosureBasedState:
                 "denied": False
             }
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'call':
                     state["call_count"] += 1
 
@@ -145,7 +144,7 @@ class TestClosureBasedState:
                 "queries_processed": 0
             }
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'postload':
                     stats = context.get('graph_stats', {})
 
@@ -195,7 +194,7 @@ class TestClosureBasedState:
                 "denied_features": []
             }
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'call':
                     op = context.get('call_op', '')
                     state["feature_checks"].append(op)
@@ -238,11 +237,11 @@ class TestClosureBasedState:
                 "call_count": 0
             }
 
-            def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def preload_policy(context: PolicyContext) -> None:
                 shared_state["preload_count"] += 1
                 return None
 
-            def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def postload_policy(context: PolicyContext) -> None:
                 shared_state["postload_count"] += 1
 
                 # Can see preload count
@@ -251,7 +250,7 @@ class TestClosureBasedState:
 
                 return None
 
-            def call_policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def call_policy(context: PolicyContext) -> None:
                 shared_state["call_count"] += 1
 
                 # Can see all counts
@@ -291,7 +290,7 @@ class TestClosureBasedState:
                 "forced_cpu": False
             }
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'preload':
                     # Force CPU if we've seen too many slow queries
                     if state["slow_queries"] >= 2 and not state["forced_cpu"]:
@@ -327,3 +326,4 @@ class TestClosureBasedState:
         # Third query should trigger CPU forcing
         g.gfql([n()], engine='pandas', policy={'preload': policy_func, 'postload': policy_func})
         assert state["forced_cpu"] is True  # Should have switched to CPU
+

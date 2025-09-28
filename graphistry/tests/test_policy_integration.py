@@ -4,13 +4,12 @@ import pytest
 import pandas as pd
 import os
 import time
-from typing import Optional, Dict, Any, Callable
+from typing import Dict, Any, Callable
 from enum import Enum
 
 import graphistry
 from graphistry.compute.gfql.policy import (
     PolicyContext,
-    PolicyModification,
     PolicyException,
     PolicyFunction
 )
@@ -77,7 +76,7 @@ class TestHubIntegration:
 
         limits = PLAN_LIMITS[tier]
 
-        def policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def policy(context: PolicyContext) -> None:
             """Hub policy implementation."""
             phase = context['phase']
 
@@ -273,7 +272,7 @@ class TestHubIntegration:
         def create_feature_gate_policy(features: Dict[str, bool]):
             """Create policy that gates features."""
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'call':
                     op = context.get('call_op', '')
 
@@ -323,7 +322,7 @@ class TestHubIntegration:
             """Policy that degrades to CPU when memory limit hit."""
             state = {'memory_used': 0, 'degraded': False}
 
-            def policy(context: PolicyContext) -> Optional[PolicyModification]:
+            def policy(context: PolicyContext) -> None:
                 if context['phase'] == 'postload':
                     stats = context.get('graph_stats', {})
                     memory = stats.get('node_bytes', 0) + stats.get('edge_bytes', 0)
@@ -378,3 +377,4 @@ class TestHubIntegration:
         assert state2['tier'] == PlanTier.PRO
         assert state1['denied'] is True
         assert state2['denied'] is False
+

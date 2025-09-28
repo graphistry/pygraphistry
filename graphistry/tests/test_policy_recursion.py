@@ -3,12 +3,10 @@
 import pytest
 import pandas as pd
 import os
-from typing import Optional
 
 import graphistry
 from graphistry.compute.gfql.policy import (
-    PolicyContext,
-    PolicyModification
+    PolicyContext
 )
 from graphistry.compute.ast import n
 from graphistry.embed_utils import check_cudf
@@ -25,7 +23,7 @@ class TestRecursionPrevention:
         """Test that modifying query doesn't trigger policy again."""
         call_count = {'count': 0}
 
-        def modifying_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def modifying_policy(context: PolicyContext) -> None:
             call_count['count'] += 1
 
             # Should only be called at depth 0
@@ -51,7 +49,7 @@ class TestRecursionPrevention:
         """Test that _policy_depth is properly tracked in context."""
         depths_seen = []
 
-        def tracking_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def tracking_policy(context: PolicyContext) -> None:
             depth = context.get('_policy_depth', -1)
             depths_seen.append(depth)
             return None
@@ -68,11 +66,11 @@ class TestRecursionPrevention:
         """Test that postload hook is not called recursively."""
         postload_calls = {'count': 0}
 
-        def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def preload_policy(context: PolicyContext) -> None:
             # Modify query
             return {'query': [n()]}  # Just get all nodes
 
-        def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def postload_policy(context: PolicyContext) -> None:
             postload_calls['count'] += 1
             depth = context.get('_policy_depth', 0)
 
@@ -99,7 +97,7 @@ class TestRecursionPrevention:
         """Test complex modifications don't cause recursion."""
         execution_log = []
 
-        def complex_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def complex_policy(context: PolicyContext) -> None:
             phase = context['phase']
             execution_log.append(phase)
 
@@ -135,7 +133,7 @@ class TestRecursionPrevention:
         call_count = {'count': 0}
         MAX_CALLS = 10  # Safety limit for test
 
-        def malicious_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def malicious_policy(context: PolicyContext) -> None:
             call_count['count'] += 1
 
             # Safety check for test
@@ -154,3 +152,4 @@ class TestRecursionPrevention:
         # Policy should only be called once due to depth limit
         assert call_count['count'] == 1, f"Policy called {call_count['count']} times"
         assert result is not None
+
