@@ -700,27 +700,24 @@ class TestExecutionMechanics:
         """Test ASTRef resolves references in correct order"""
         from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
-        
+
         nodes_df = pd.DataFrame({'id': ['a', 'b', 'c'], 'value': [1, 2, 3]})
         edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         context = ExecutionContext()
-        
+
         # Store initial result
         filtered = g.filter_nodes_by_dict({'value': 2})
         context.set_binding('filtered_data', filtered)
-        
+
         # Create chain ref that adds more filtering
         chain_ref = ASTRef('filtered_data', [n({'id': 'b'})])
         result = execute_node('final', chain_ref, g, context, Engine.PANDAS)
-        
-        # Should have all nodes with 'final' column marking node 'b'
-        assert len(result._nodes) == 3  # All nodes present
-        assert 'final' in result._nodes.columns
-        # Only node 'b' should be marked as True
-        final_mask = result._nodes['final']
-        assert final_mask.sum() == 1
-        assert result._nodes[final_mask]['id'].iloc[0] == 'b'
+
+        # ASTRef with chain should return filtered result (only node 'b')
+        assert len(result._nodes) == 1  # Only filtered node present
+        assert result._nodes['id'].iloc[0] == 'b'
+        assert result._nodes['value'].iloc[0] == 2
     
     def test_execution_context_isolation(self):
         """Test that each DAG execution has isolated context"""

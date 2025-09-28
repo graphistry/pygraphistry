@@ -250,43 +250,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
             chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
-
-            # We need to return the full graph with a column marking the filtered results
-            # Start with the original graph g
-            result = g
-
-            # Create a mask for nodes that are in the chain result
-            nodes_mask = pd.Series(False, index=g._nodes.index)
-            if hasattr(chain_result, '_nodes') and chain_result._nodes is not None:
-                # Mark nodes that are in the chain result as True
-                # Match by node ID value, not by index
-                node_col = g._node if hasattr(g, '_node') else 'id'
-                if node_col in g._nodes.columns and node_col in chain_result._nodes.columns:
-                    result_ids = set(chain_result._nodes[node_col].values)
-                    nodes_mask = g._nodes[node_col].isin(result_ids)
-                else:
-                    # Fall back to index matching if no node column
-                    for idx in chain_result._nodes.index:
-                        if idx in nodes_mask.index:
-                            nodes_mask[idx] = True
-
-            # Add the binding name column, preserving existing columns
-            # Copy all existing columns from accumulated result (passed as g)
-            nodes_with_columns = g._nodes.copy()
-            nodes_with_columns[name] = nodes_mask
-            result = result.nodes(nodes_with_columns)
-
-            # Similarly for edges if needed
-            if hasattr(g, '_edges') and g._edges is not None:
-                edges_mask = pd.Series(False, index=g._edges.index)
-                if hasattr(chain_result, '_edges') and chain_result._edges is not None:
-                    for idx in chain_result._edges.index:
-                        if idx in edges_mask.index:
-                            edges_mask[idx] = True
-                # Preserve existing columns
-                edges_with_columns = g._edges.copy()
-                edges_with_columns[name] = edges_mask
-                result = result.edges(edges_with_columns)
+            # ASTRef with chain should return the filtered result directly
+            result = chain_result
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
