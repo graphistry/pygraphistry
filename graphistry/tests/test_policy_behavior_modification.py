@@ -22,7 +22,7 @@ class TestBehaviorModification:
         def switching_policy(context: PolicyContext) -> Optional[PolicyModification]:
             # Force CPU in preload
             if context['phase'] == 'preload':
-                return {'engine': 'cpu'}
+                return {'engine': 'pandas'}
             return None
 
         df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
@@ -31,7 +31,7 @@ class TestBehaviorModification:
         # Execute with engine override
         result = g.gfql(
             [n()],
-            engine='gpu',  # Request GPU
+            engine='cudf',  # Request cuDF
             policy={'preload': switching_policy}  # Policy overrides to CPU
         )
 
@@ -84,12 +84,12 @@ class TestBehaviorModification:
                 # Modify both query and engine
                 return {
                     'query': [n({'source': 'modified'})],
-                    'engine': 'cpu'
+                    'engine': 'pandas'
                 }
             elif phase == 'postload':
                 modifications_applied.append('postload')
                 # Modify engine again (should apply)
-                return {'engine': 'gpu'}
+                return {'engine': 'cudf'}
 
             return None
 
@@ -143,7 +143,7 @@ class TestBehaviorModification:
             if context['phase'] == 'call':
                 engines_seen.append('call')
                 # Override engine for this specific call
-                return {'engine': 'cpu'}
+                return {'engine': 'pandas'}
             return None
 
         df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
@@ -151,7 +151,7 @@ class TestBehaviorModification:
 
         result = g.gfql(
             call('hop', {'hops': 1}),
-            engine='gpu',  # Request GPU
+            engine='cudf',  # Request cuDF
             policy={'call': call_engine_policy}
         )
 
@@ -163,7 +163,7 @@ class TestBehaviorModification:
         def partial_policy(context: PolicyContext) -> Optional[PolicyModification]:
             if context['phase'] == 'preload':
                 # Only modify engine, leave query alone
-                return {'engine': 'cpu'}
+                return {'engine': 'pandas'}
             elif context['phase'] == 'call':
                 # Only modify params, leave engine alone
                 return {'params': {'modified': True}}

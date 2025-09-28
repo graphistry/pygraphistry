@@ -301,7 +301,7 @@ class TestClosureBasedState:
                     # Force CPU if we've seen too many slow queries
                     if state["slow_queries"] >= 2 and not state["forced_cpu"]:
                         state["forced_cpu"] = True
-                        return {'engine': 'cpu'}
+                        return {'engine': 'pandas'}
 
                 elif context['phase'] == 'postload':
                     # Simulate detecting a slow query

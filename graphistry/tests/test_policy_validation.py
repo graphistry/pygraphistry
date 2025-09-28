@@ -15,7 +15,7 @@ class TestSchemaValidation:
     def test_valid_engine_modification(self):
         """Test that valid engine values pass validation."""
         # Valid engines
-        for engine in ['cpu', 'gpu', 'auto']:
+        for engine in ['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']:
             mod = {'engine': engine}
             result = validate_modification(mod, 'preload')
             assert result['engine'] == engine
@@ -36,10 +36,10 @@ class TestSchemaValidation:
 
     def test_invalid_params_type_rejected(self):
         """Test that non-dict params are rejected."""
-        with pytest.raises(ValueError, match="params must be a dict"):
+        with pytest.raises(ValueError, match="'params' must be a dict"):
             validate_modification({'params': 'invalid'}, 'call')
 
-        with pytest.raises(ValueError, match="params must be a dict"):
+        with pytest.raises(ValueError, match="'params' must be a dict"):
             validate_modification({'params': ['list', 'not', 'dict']}, 'call')
 
     def test_query_modification_only_in_preload(self):
@@ -60,7 +60,7 @@ class TestSchemaValidation:
     def test_unknown_fields_rejected(self):
         """Test that unknown fields are rejected."""
         with pytest.raises(ValueError, match="Unknown modification fields"):
-            validate_modification({'engine': 'cpu', 'turbo': True}, 'preload')
+            validate_modification({'engine': 'pandas', 'turbo': True}, 'preload')
 
         with pytest.raises(ValueError, match="Unknown modification fields"):
             validate_modification({'timeout': 30}, 'call')
@@ -80,22 +80,22 @@ class TestSchemaValidation:
         """Test that multiple valid modifications work together."""
         # Preload can have all three
         mod = {
-            'engine': 'gpu',
+            'engine': 'cudf',
             'params': {'test': 1},
             'query': ['new', 'query']
         }
         result = validate_modification(mod, 'preload')
-        assert result['engine'] == 'gpu'
+        assert result['engine'] == 'cudf'
         assert result['params'] == {'test': 1}
         assert result['query'] == ['new', 'query']
 
         # Call can have engine and params, not query
         mod = {
-            'engine': 'cpu',
+            'engine': 'pandas',
             'params': {'n_components': 3}
         }
         result = validate_modification(mod, 'call')
-        assert result['engine'] == 'cpu'
+        assert result['engine'] == 'pandas'
         assert result['params'] == {'n_components': 3}
 
     def test_modification_not_dict_rejected(self):
