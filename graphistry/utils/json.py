@@ -2,8 +2,17 @@
 import json
 from typing import Any, Dict, List, Union
 
-
-JSONVal = Union[None, bool, str, float, int, List['JSONVal'], Dict[str, 'JSONVal']]
+# For mypy 0.942, we need to handle recursive types more explicitly
+# Using a simple base type that mypy can resolve
+JSONVal = Union[
+    None,
+    bool,
+    str,
+    float,
+    int,
+    List[Any],  # Simplified for mypy compatibility
+    Dict[str, Any]  # Simplified for mypy compatibility
+]
 
 
 def is_json_serializable(data):
