@@ -278,7 +278,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if policy and 'preload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
 
-            context_dict: PolicyContext = {
+            preload_context: PolicyContext = {
                 'phase': 'preload',
                 'hook': 'preload',
                 'query': global_query if global_query else ast_obj,  # Global query if available
@@ -291,11 +291,9 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
             try:
                 # Policy can only accept (None) or deny (exception)
-                policy['preload'](context_dict)
-            except PolicyException as e:
-                # Enrich exception with context if not already present
-                if not hasattr(e, 'remote_dataset_id'):
-                    e.remote_dataset_id = ast_obj.dataset_id
+                policy['preload'](preload_context)
+            except PolicyException:
+                # Re-raise without modification
                 raise
 
         # If we need to actually fetch the data, we would use chain_remote
@@ -326,7 +324,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
             stats = extract_graph_stats(result)
 
-            context_dict: PolicyContext = {
+            postload_context: PolicyContext = {
                 'phase': 'postload',
                 'hook': 'postload',
                 'query': global_query if global_query else ast_obj,
@@ -340,13 +338,9 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
             try:
                 # Policy can only accept (None) or deny (exception)
-                policy['postload'](context_dict)
-            except PolicyException as e:
-                # Enrich exception with context if not already present
-                if not hasattr(e, 'remote_dataset_id'):
-                    e.remote_dataset_id = ast_obj.dataset_id
-                if not hasattr(e, 'data_size'):
-                    e.data_size = stats
+                policy['postload'](postload_context)
+            except PolicyException:
+                # Re-raise without modification
                 raise
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
