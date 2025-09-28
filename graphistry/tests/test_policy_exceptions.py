@@ -2,13 +2,12 @@
 
 import pytest
 import pandas as pd
-from typing import Optional
+# No longer need Optional since policies return None
 
 import graphistry
 from graphistry.compute.gfql.policy import (
     PolicyContext,
-    PolicyException,
-    PolicyModification
+    PolicyException
 )
 from graphistry.compute.ast import n, e
 
@@ -52,7 +51,7 @@ class TestPolicyExceptions:
 
     def test_exception_from_preload_hook(self):
         """Test that exceptions from preload hook are propagated."""
-        def denying_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def denying_policy(context: PolicyContext) -> None:
             raise PolicyException(
                 phase='preload',
                 reason='Denied in test',
@@ -72,7 +71,7 @@ class TestPolicyExceptions:
 
     def test_exception_from_postload_hook(self):
         """Test that exceptions from postload hook include stats."""
-        def denying_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def denying_policy(context: PolicyContext) -> None:
             stats = context.get('graph_stats', {})
             raise PolicyException(
                 phase='postload',
@@ -99,7 +98,7 @@ class TestPolicyExceptions:
         """Test that exceptions from call hook include operation details."""
         from graphistry.compute.ast import call
 
-        def denying_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def denying_policy(context: PolicyContext) -> None:
             raise PolicyException(
                 phase='call',
                 reason=f"Operation {context.get('call_op')} not allowed",

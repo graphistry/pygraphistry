@@ -410,7 +410,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
     # Postload policy phase - after DAG execution
     if policy and 'postload' in policy:
-        from .gfql.policy import PolicyContext, PolicyException, validate_modification
+        from .gfql.policy import PolicyContext, PolicyException
         from .gfql.policy.stats import extract_graph_stats
 
         stats = extract_graph_stats(result)
@@ -424,15 +424,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         }
 
         try:
-            mods = policy['postload'](context_dict)
-            if mods is not None:
-                # Validate modifications
-                validated = validate_modification(mods, 'postload')
-
-                # Note: Engine modification in postload would require DataFrame conversion
-                # which is complex - log for now
-                if 'engine' in validated:
-                    logger.warning('Engine modification in postload not yet implemented for DAG execution')
+            # Policy can only accept (None) or deny (exception)
+            policy['postload'](context_dict)
 
         except PolicyException as e:
             # Enrich exception with context if not already set

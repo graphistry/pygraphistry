@@ -36,22 +36,9 @@ class PolicyContext(TypedDict, total=False):
     _policy_depth: int
 
 
-class PolicyModification(TypedDict, total=False):
-    """Schema for valid policy modifications.
-
-    Attributes:
-        engine: Engine override (pandas, cudf, dask, dask_cudf, auto)
-        params: Parameter modifications for operations
-        query: Query modifications (preload phase only)
-    """
-
-    engine: Optional[Literal["pandas", "cudf", "dask", "dask_cudf", "auto"]]
-    params: Optional[Dict[str, Any]]
-    query: Optional[Any]
-
-
 # Type alias for policy functions
-PolicyFunction = Callable[[PolicyContext], Optional[PolicyModification]]
+# Policies can only accept (return None) or deny (raise PolicyException)
+PolicyFunction = Callable[[PolicyContext], None]
 
 # Type alias for policy dictionary
 PolicyDict = Dict[Phase, PolicyFunction]
