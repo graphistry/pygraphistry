@@ -395,11 +395,11 @@ class TestEdgeExecution:
             'd': ['b', 'c', 'd']
         })
         g = CGFull().edges(edges_df, 's', 'd')
-        
+
         dag = ASTLet({
             'tagged_edges': Chain([e(name='important')])
         })
-        
+
         result = g.gfql(dag)
         assert 'important' in result._edges.columns
     
@@ -1067,7 +1067,7 @@ class TestCrossValidation:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Using chain
-        chain_result = g.chain([n({'type': 'person'})])
+        chain_result = g.gfql([n({'type': 'person'})])
         
         # Using DAG
         dag = ASTLet({

@@ -59,12 +59,12 @@ def g_long_forwards_chain_loop():
 class TestMultiHopChainForward():
 
     def test_chain_short(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=2), n({'v': 'd'})])
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(hops=2), n({'v': 'd'})])
         assert len(g2._nodes) == 0
         assert len(g2._edges) == 0
     
     def test_chain_exact(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=3), n({'v': 'd'})])
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(hops=3), n({'v': 'd'})])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
@@ -73,7 +73,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_long(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(hops=4), n({'v': 'd'})])
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(hops=4), n({'v': 'd'})])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
@@ -82,7 +82,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_fixedpoint(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
@@ -91,7 +91,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_predicates_ok_source(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 source_node_match={'w': is_in(['1', '2', '3'])},
@@ -107,7 +107,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_predicates_ok_edge(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 edge_match={
@@ -126,7 +126,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_predicates_ok_destination(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 destination_node_match={'w': is_in(['2', '3', '4'])},
@@ -142,7 +142,7 @@ class TestMultiHopChainForward():
         ]
 
     def test_chain_predicates_ok(self, g_long_forwards_chain):
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 source_node_match={'w': is_in(['1', '2', '3'])},
@@ -164,7 +164,7 @@ class TestMultiHopChainForward():
 
     def test_chain_predicates_source_fail(self, g_long_forwards_chain):
         BAD = []
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 source_node_match={'w': is_in(BAD)},
@@ -182,7 +182,7 @@ class TestMultiHopChainForward():
 
     def test_chain_predicates_dest_fail(self, g_long_forwards_chain):
         BAD = []
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 source_node_match={'w': is_in(['1', '2', '3'])},
@@ -200,7 +200,7 @@ class TestMultiHopChainForward():
 
     def test_chain_predicates_edge_fail(self, g_long_forwards_chain):
         BAD = []
-        g2 = g_long_forwards_chain.chain([
+        g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
             e_forward(
                 source_node_match={'w': is_in(['1', '2', '3'])},
@@ -223,7 +223,7 @@ class TestMultiHopDeadend():
         """
         Same as chain; x should not be considered a hint
         """
-        g2 = g_long_forwards_chain_dead_end.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        g2 = g_long_forwards_chain_dead_end.gfql([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
@@ -238,7 +238,7 @@ class TestMultiHopLoop():
         """
         Same as chain; + detour using x
         """
-        g2 = g_long_forwards_chain_loop.chain([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
+        g2 = g_long_forwards_chain_loop.gfql([n({'v': 'a'}), e_forward(to_fixed_point=True), n({'v': 'd'})])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd', 'x'])
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
@@ -321,10 +321,10 @@ def test_chain_simple_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
-    #g_nodes = g.chain([n()])
+    #g_nodes = g.gfql([n()])
     #assert isinstance(g_nodes._nodes, pd.DataFrame)
     #assert len(g_nodes._nodes) == 3
-    g_edges = g.chain([e()])
+    g_edges = g.gfql([e()])
     assert isinstance(g_edges._edges, pd.DataFrame)
     assert len(g_edges._edges) == 3
 
@@ -338,10 +338,10 @@ def test_chain_simple_cudf():
     nodes_gdf = cudf.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_gdf = cudf.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_gdf, 'id').edges(edges_gdf, 'src', 'dst')
-    g_nodes = g.chain([n()])
+    g_nodes = g.gfql([n()])
     assert isinstance(g_nodes._nodes, cudf.DataFrame)
     assert len(g_nodes._nodes) == 3
-    g_edges = g.chain([e()])
+    g_edges = g.gfql([e()])
     assert isinstance(g_edges._edges, cudf.DataFrame)
     assert len(g_edges._edges) == 3
 
@@ -349,10 +349,10 @@ def test_chain_kv_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
-    g_nodes = g.chain([n({'id': 0})])
+    g_nodes = g.gfql([n({'id': 0})])
     assert isinstance(g_nodes._nodes, pd.DataFrame)
     assert len(g_nodes._nodes) == 1
-    g_edges = g.chain([e({'src': 0})])
+    g_edges = g.gfql([e({'src': 0})])
     assert isinstance(g_edges._edges, pd.DataFrame)
     assert len(g_edges._edges) == 1
 
@@ -365,10 +365,10 @@ def test_chain_kv_cudf():
     nodes_gdf = cudf.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_gdf = cudf.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_gdf, 'id').edges(edges_gdf, 'src', 'dst')
-    g_nodes = g.chain([n({'id': 0})])
+    g_nodes = g.gfql([n({'id': 0})])
     assert isinstance(g_nodes._nodes, cudf.DataFrame)
     assert len(g_nodes._nodes) == 1
-    g_edges = g.chain([e({'src': 0})])
+    g_edges = g.gfql([e({'src': 0})])
     assert isinstance(g_edges._edges, cudf.DataFrame)
     assert len(g_edges._edges) == 1
 
@@ -376,10 +376,10 @@ def test_chain_pred_cudf_pd():
     nodes_df = pd.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_df = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
-    g_nodes = g.chain([n({'id': is_in([0])})])
+    g_nodes = g.gfql([n({'id': is_in([0])})])
     assert isinstance(g_nodes._nodes, pd.DataFrame)
     assert len(g_nodes._nodes) == 1
-    g_edges = g.chain([e({'src': is_in([0])})])
+    g_edges = g.gfql([e({'src': is_in([0])})])
     assert isinstance(g_edges._edges, pd.DataFrame)
     assert len(g_edges._edges) == 1
 
@@ -392,10 +392,10 @@ def test_chain_pred_cudf():
     nodes_gdf = cudf.DataFrame({'id': [0, 1, 2], 'label': ['a', 'b', 'c']})
     edges_gdf = cudf.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 0]})
     g = CGFull().nodes(nodes_gdf, 'id').edges(edges_gdf, 'src', 'dst')
-    g_nodes = g.chain([n({'id': is_in([0])})])
+    g_nodes = g.gfql([n({'id': is_in([0])})])
     assert isinstance(g_nodes._nodes, cudf.DataFrame)
     assert len(g_nodes._nodes) == 1
-    g_edges = g.chain([e({'src': is_in([0])})])
+    g_edges = g.gfql([e({'src': is_in([0])})])
     assert isinstance(g_edges._edges, cudf.DataFrame)
     assert len(g_edges._edges) == 1
 
@@ -410,7 +410,7 @@ def test_preds_more_pd():
     g = CGFull().edges(edf, 's', 'd').materialize_nodes().get_degrees()
 
     g2 = (g.get_degrees()
-        .chain([
+        .gfql([
             n({'degree': gt(1)}),
             e_undirected(),
             n({'degree': gt(1)})
@@ -427,7 +427,7 @@ def test_preds_more_pd_2():
     g = CGFull().edges(edf, 's', 'd').materialize_nodes().get_degrees()
 
     g2 = (g.get_degrees()
-        .chain([
+        .gfql([
             n({'degree': gt(1)}),
             e_undirected(),
             n({'degree': gt(1)})
@@ -450,9 +450,9 @@ def test_chain_binding_reuse():
     g3 = CGFull().nodes(nodes3_df, 'd').edges(edges_df, 's', 'd')
 
     # With our new implementation, all three should successfully run
-    g1_chain = g1.chain([n(), e(), n()])
-    g2_chain = g2.chain([n(), e(), n()])
-    g3_chain = g3.chain([n(), e(), n()])
+    g1_chain = g1.gfql([n(), e(), n()])
+    g2_chain = g2.gfql([n(), e(), n()])
+    g3_chain = g3.gfql([n(), e(), n()])
     
     # Make sure we get expected results - g1 and g2 have consistent behavior
     # Just verify that all three approaches produce reasonable results

@@ -36,7 +36,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 's').edges(edges_df, 's', 'd')
         
         # Chain should work with node/source name conflict
-        result = g.chain([n(), e(), n()])
+        result = g.gfql([n(), e(), n()])
         
         # Verify the chain operation worked correctly
         assert result._nodes.shape[0] > 0
@@ -60,7 +60,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'd').edges(edges_df, 's', 'd')
         
         # Chain should work with node/destination name conflict
-        result = g.chain([n(), e(), n()])
+        result = g.gfql([n(), e(), n()])
         
         # Verify the chain operation worked correctly
         assert result._nodes.shape[0] > 0
@@ -84,12 +84,12 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g_dest_conflict = CGFull().nodes(nodes_d_df, 'd').edges(edges_df, 's', 'd')
         
         # Basic tests with different directions - node/source conflict
-        result1 = g_source_conflict.chain([n({'s': 'a'}), e_forward(), n()])
+        result1 = g_source_conflict.gfql([n({'s': 'a'}), e_forward(), n()])
         assert result1._nodes.shape[0] > 0
         assert 's' in result1._nodes.columns
         
         # Basic tests with different directions - node/destination conflict
-        result2 = g_dest_conflict.chain([n({'d': 'b'}), e(), n()])
+        result2 = g_dest_conflict.gfql([n({'d': 'b'}), e(), n()])
         assert result2._nodes.shape[0] > 0
         assert 'd' in result2._nodes.columns
     
@@ -116,7 +116,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
         
         # Run chain operations
-        result = g.chain([n({'id': 'a'}), e_forward(), n()])
+        result = g.gfql([n({'id': 'a'}), e_forward(), n()])
         
         # Verify operation worked correctly and preserved all columns
         assert result._nodes.shape[0] > 0
@@ -146,7 +146,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 's').edges(edges_df, 's', 'd')
         
         # Run a simpler chain with filter on start node
-        result = g.chain([
+        result = g.gfql([
             n({'s': 'a'}),
             e(),
             n()
@@ -177,7 +177,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 's').edges(edges_df, 's', 'd')
         
         # Run chain with a simpler named pattern
-        result = g.chain([
+        result = g.gfql([
             n({'s': 'a'}, name='start'), 
             e(name='hop'), 
             n(name='end')
@@ -216,7 +216,7 @@ class TestChainColumnConflicts(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
         
         # Run chain
-        result = g.chain([n(), e(), n()])
+        result = g.gfql([n(), e(), n()])
         
         # Verify operation worked correctly and preserved all columns
         assert result._nodes.shape[0] > 0
