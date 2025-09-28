@@ -36,7 +36,7 @@ class TestHubIntegration:
                 'max_edges': 5000,
                 'max_calls': 3,
                 'allowed_ops': ['filter', 'chain'],
-                'engine': 'cpu',
+                'engine': 'pandas',
                 'timeout_seconds': 10
             },
             PlanTier.PRO: {
@@ -52,7 +52,7 @@ class TestHubIntegration:
                 'max_edges': None,
                 'max_calls': None,
                 'allowed_ops': None,  # All operations
-                'engine': 'gpu',
+                'engine': 'cudf',
                 'timeout_seconds': None
             }
         }
@@ -157,7 +157,7 @@ class TestHubIntegration:
                 if tier == PlanTier.PRO and op == 'hop':
                     params = context.get('call_params', {})
                     if params.get('hops', 0) > 2:
-                        return {'engine': 'gpu'}
+                        return {'engine': 'cudf'}
 
             return None
 
@@ -324,11 +324,11 @@ class TestHubIntegration:
                     if state['memory_used'] > max_memory and not state['degraded']:
                         state['degraded'] = True
                         # Next query will use CPU
-                        return {'engine': 'cpu'}
+                        return {'engine': 'pandas'}
 
                 elif context['phase'] == 'preload' and state['degraded']:
                     # Force CPU for all subsequent queries
-                    return {'engine': 'cpu'}
+                    return {'engine': 'pandas'}
 
                 return None
 

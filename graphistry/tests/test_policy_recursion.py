@@ -100,11 +100,11 @@ class TestRecursionPrevention:
                 # Modify both query and engine
                 return {
                     'query': [n({'x': 1}), n({'y': 2})],
-                    'engine': 'cpu'
+                    'engine': 'pandas'
                 }
             elif phase == 'postload':
                 # Try to modify engine in postload
-                return {'engine': 'gpu'}
+                return {'engine': 'cudf'}
 
             return None
 

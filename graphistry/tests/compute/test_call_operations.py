@@ -180,7 +180,7 @@ class TestGroupInABoxExecution:
         result = execute_call(
             simple_graph,
             'group_in_a_box_layout',
-            {'engine': 'cpu'},
+            {'engine': 'pandas'},
             Engine.PANDAS
         )
         
@@ -203,7 +203,7 @@ class TestGroupInABoxExecution:
             'group_in_a_box_layout',
             {
                 'partition_key': 'type',
-                'engine': 'cpu',
+                'engine': 'pandas',
                 'encode_colors': True
             },
             Engine.PANDAS
@@ -471,10 +471,10 @@ class TestGraphAlgorithmCalls:
             'encode_colors': True,
             'colors': ['#ff0000', '#00ff00'],
             'partition_key': 'community',
-            'engine': 'cpu'
+            'engine': 'pandas'
         })
         assert params['partition_alg'] == 'louvain'
-        assert params['engine'] == 'cpu'
+        assert params['engine'] == 'pandas'
         
         # Minimal params (all optional)
         params = validate_call_params('group_in_a_box_layout', {})
