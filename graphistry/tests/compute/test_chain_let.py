@@ -540,7 +540,7 @@ class TestNodeExecution:
         # 'active_people' further filters to only the active person (a)
         assert len(result._nodes) == 1  # Only the active person node
         assert result._nodes['id'].iloc[0] == 'a'
-        assert result._nodes['active'].iloc[0] == True
+        assert result._nodes['active'].iloc[0] is True
 
 class TestErrorHandling:
     """Test error handling and edge cases"""
