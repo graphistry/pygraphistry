@@ -69,9 +69,15 @@ def gfql(self: Plottable,
     """
     # Handle dict convenience first (convert to ASTLet)
     if isinstance(query, dict):
-        # Don't wrap ASTNode/ASTEdge - ASTLet now accepts them directly
-        # and chain_let.py handles them properly without Chain wrapping
-        query = ASTLet(query)  # type: ignore
+        # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
+        wrapped_dict = {}
+        for key, value in query.items():
+            if isinstance(value, (ASTNode, ASTEdge)):
+                logger.debug(f'Auto-wrapping {type(value).__name__} in Chain for dict key "{key}"')
+                wrapped_dict[key] = Chain([value])
+            else:
+                wrapped_dict[key] = value
+        query = ASTLet(wrapped_dict)  # type: ignore
     
     # Dispatch based on type - check specific types before generic
     if isinstance(query, ASTLet):
