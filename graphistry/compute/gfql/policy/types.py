@@ -17,31 +17,29 @@ class PolicyContext(TypedDict, total=False):
 
     Attributes:
         phase: Current execution phase (preload, postload, call)
-        query: Original query object
+        hook: Hook name (same as phase, useful for shared handlers)
+        query: Original/global query object
+        current_ast: Current AST object being executed (if applicable)
         query_type: Type of query (chain, dag, single)
         plottable: Plottable instance (postload/call phases)
         call_op: Call operation name (call phase only)
         call_params: Call parameters (call phase only)
         graph_stats: Graph statistics (nodes, edges, memory)
-        is_remote: True for remote data loading operations
-        remote_dataset_id: Dataset ID for remote operations
-        remote_token: JWT token for remote operations (if provided)
-        operation: Operation type (e.g., 'ASTRemoteGraph')
+        is_remote: True for remote/network operations
         engine: Engine being used (pandas, cudf, etc.)
         _policy_depth: Internal recursion prevention counter
     """
 
     phase: Phase
-    query: Any
+    hook: Phase  # Same as phase, for shared handler convenience
+    query: Any  # Global/original query
+    current_ast: Optional[Any]  # Current sub-AST being executed
     query_type: QueryType
     plottable: Optional['Plottable']
     call_op: Optional[str]
     call_params: Optional[Dict[str, Any]]
     graph_stats: Optional[Dict[str, int]]
     is_remote: Optional[bool]
-    remote_dataset_id: Optional[str]
-    remote_token: Optional[str]
-    operation: Optional[str]
     engine: Optional[str]
     _policy_depth: int
 

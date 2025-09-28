@@ -47,6 +47,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         stats = extract_graph_stats(g)
         context: PolicyContext = {
             'phase': 'call',
+            'hook': 'call',
+            'query': None,  # Not available in call context
+            'current_ast': None,  # Calls don't have AST object
             'call_op': function,
             'call_params': params,
             'plottable': g,

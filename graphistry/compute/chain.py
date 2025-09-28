@@ -514,7 +514,9 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             stats = extract_graph_stats(g_out)
             context: PolicyContext = {
                 'phase': 'postload',
+                'hook': 'postload',
                 'query': ops,
+                'current_ast': ops,  # For chain, current == ops
                 'query_type': 'chain',
                 'plottable': g_out,
                 'graph_stats': stats,
