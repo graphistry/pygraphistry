@@ -79,7 +79,7 @@ class TestPolicyHooks:
         g = graphistry.edges(df, 's', 'd')
 
         # Test with hop operation
-        result = g.gfql(call('hop', {'hops': 2}), policy={'call': call_policy})
+        g.gfql(call('hop', {'hops': 2}), policy={'call': call_policy})
         assert hook_called['call'], "Call hook should have been called"
 
     def test_multiple_hooks(self):

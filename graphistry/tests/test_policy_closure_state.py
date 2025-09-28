@@ -326,4 +326,3 @@ class TestClosureBasedState:
         # Third query should trigger CPU forcing
         g.gfql([n()], engine='pandas', policy={'preload': policy_func, 'postload': policy_func})
         assert state["forced_cpu"] is True  # Should have switched to CPU
-

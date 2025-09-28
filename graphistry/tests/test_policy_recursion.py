@@ -116,7 +116,7 @@ class TestRecursionPrevention:
         df = pd.DataFrame({'s': ['a'], 'd': ['b']})
         g = graphistry.edges(df, 's', 'd')
 
-        result = g.gfql(
+        g.gfql(
             [n()],
             policy={
                 'preload': complex_policy,
@@ -152,4 +152,3 @@ class TestRecursionPrevention:
         # Policy should only be called once due to depth limit
         assert call_count['count'] == 1, f"Policy called {call_count['count']} times"
         assert result is not None
-
