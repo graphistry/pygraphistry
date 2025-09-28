@@ -301,7 +301,8 @@ class TestClosureBasedState:
                 elif context['phase'] == 'postload':
                     # Simulate detecting a slow query
                     stats = context.get('graph_stats', {})
-                    if stats.get('edges', 0) > 2:
+                    # Check nodes instead of edges since n() returns all nodes
+                    if stats.get('nodes', 0) > 3:
                         state["slow_queries"] += 1
 
                 return None
@@ -324,5 +325,5 @@ class TestClosureBasedState:
         g.gfql([n()], policy={'preload': policy_func, 'postload': policy_func})
 
         # Third query should trigger CPU forcing
-        g.gfql([n()], engine='gpu', policy={'preload': policy_func, 'postload': policy_func})
+        g.gfql([n()], engine='pandas', policy={'preload': policy_func, 'postload': policy_func})
         assert state["forced_cpu"] is True  # Should have switched to CPU
