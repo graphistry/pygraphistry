@@ -399,8 +399,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         from graphistry.compute.chain import Chain
         if isinstance(ast_obj, Chain):
             # Execute the chain operations
+            # For DAG context: Chain should filter from the original graph independently
+            # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
-            result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value))
+            original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value))
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -451,7 +454,10 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     
     # Create execution context
     context = ExecutionContext()
-    
+
+    # Store original graph for independent Chain filtering
+    context.set_binding('__original_graph__', g)
+
     # Handle empty let bindings
     if not dag.bindings:
         return g
