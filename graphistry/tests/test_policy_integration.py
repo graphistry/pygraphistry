@@ -377,4 +377,3 @@ class TestHubIntegration:
         assert state2['tier'] == PlanTier.PRO
         assert state1['denied'] is True
         assert state2['denied'] is False
-
