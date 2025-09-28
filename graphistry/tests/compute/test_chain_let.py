@@ -534,14 +534,13 @@ class TestNodeExecution:
         })
         
         result = g.gfql(dag)
-        
-        # Result should have only people nodes (filtered by chain) with active_people column
-        assert len(result._nodes) == 2  # Both person nodes present
-        assert 'active_people' in result._nodes.columns
-        # Check that only the active person is marked True
-        active_mask = result._nodes['active_people']
-        assert active_mask.sum() == 1
-        assert result._nodes[active_mask]['id'].iloc[0] == 'a'
+
+        # With filtering semantics, ASTRef with chain returns only the filtered results
+        # 'people' binding filters to 2 person nodes (a, b)
+        # 'active_people' further filters to only the active person (a)
+        assert len(result._nodes) == 1  # Only the active person node
+        assert result._nodes['id'].iloc[0] == 'a'
+        assert result._nodes['active'].iloc[0] == True
 
 class TestErrorHandling:
     """Test error handling and edge cases"""

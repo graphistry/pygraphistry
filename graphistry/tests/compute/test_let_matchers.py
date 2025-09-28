@@ -73,14 +73,16 @@ class TestLetMatchers:
             'knows_edges': e_forward({'type': 'knows'})
         }))
 
-        # Check all named results exist
+        # With filtering semantics, ASTRef returns only filtered results
+        # The result is the last executed binding (adults), which contains only adult persons
+        # Check that the persons column exists (from the matcher on filtered adults)
         assert 'persons' in result._nodes.columns
-        assert 'adults' in result._nodes.columns
         assert 'knows_edges' in result._edges.columns
 
-        # Verify counts
-        assert result._nodes['persons'].sum() == 4  # 4 persons
-        assert result._nodes['adults'].sum() == 3  # 3 adults (age >= 18)
+        # The result should contain only adult persons after ASTRef filtering
+        assert len(result._nodes) == 3  # Only 3 adult persons
+        assert all(result._nodes['age'] >= 18)  # All nodes are adults
+        assert result._nodes['persons'].sum() == 3  # All 3 are persons
         assert result._edges['knows_edges'].sum() == 4  # 4 knows edges
 
     def test_matchers_operate_on_root_graph(self):
