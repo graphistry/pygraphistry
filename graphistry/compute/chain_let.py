@@ -207,7 +207,7 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
 
 
 def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
-                context: ExecutionContext, engine: Engine, policy=None) -> Plottable:
+                context: ExecutionContext, engine: Engine, policy=None, global_query=None) -> Plottable:
     """Execute a single node in the DAG
     
     Handles different GraphOperation types:
@@ -224,6 +224,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
     :param policy: Optional policy dictionary with preload/postload/call hooks
+    :param global_query: The global query AST for policy context
     :returns: Resulting Plottable
     :rtype: Plottable
     :raises ValueError: If reference not found in context
@@ -279,10 +280,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
             context_dict: PolicyContext = {
                 'phase': 'preload',
+                'hook': 'preload',
+                'query': global_query if global_query else ast_obj,  # Global query if available
+                'current_ast': ast_obj,
+                'query_type': 'dag' if global_query else 'single',
                 'is_remote': True,
-                'remote_dataset_id': ast_obj.dataset_id,
-                'remote_token': ast_obj.token if ast_obj.token else None,
-                'operation': 'ASTRemoteGraph',
                 'engine': engine.value,
                 '_policy_depth': 0
             }
@@ -326,9 +328,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
             context_dict: PolicyContext = {
                 'phase': 'postload',
+                'hook': 'postload',
+                'query': global_query if global_query else ast_obj,
+                'current_ast': ast_obj,
+                'query_type': 'dag' if global_query else 'single',
                 'is_remote': True,
-                'remote_dataset_id': ast_obj.dataset_id,
-                'operation': 'ASTRemoteGraph',
                 'engine': engine.value,
                 'graph_stats': stats,
                 '_policy_depth': 0
@@ -432,7 +436,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Execute the node and store result in context
         try:
             # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy)
+            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
 
             # Accumulate the new column(s) onto our result
             accumulated_result = result
@@ -469,7 +473,9 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         stats = extract_graph_stats(result)
         context_dict: PolicyContext = {
             'phase': 'postload',
+            'hook': 'postload',
             'query': dag,
+            'current_ast': dag,  # For DAG postload, current == dag
             'query_type': 'dag',
             'plottable': result,
             'graph_stats': stats,

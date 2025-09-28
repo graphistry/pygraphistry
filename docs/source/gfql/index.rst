@@ -22,6 +22,7 @@ See also:
    predicates/quick
    datetime_filtering
    builtin_calls
+   policy
    wire_protocol_examples
 
 .. toctree::

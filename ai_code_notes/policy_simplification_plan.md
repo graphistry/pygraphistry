@@ -257,10 +257,97 @@ policy = {
 4. ⏳ Write tests with mocked network calls
 5. ⏳ Update documentation
 
+## 🔄 Enhanced AST Context & Documentation Plan
+
+### 1. AST Context Enhancement
+**Current State:**
+- Hooks receive `query` (global AST) but not current sub-AST
+- `operation` field is string-based, less useful than AST object
+- Remote-specific fields like `remote_dataset_id` are redundant
+
+**Proposed Changes:**
+```python
+PolicyContext = {
+    'phase': 'preload',         # Hook phase name
+    'hook': 'preload',           # Same as phase (for shared handlers)
+    'query': global_ast,         # Global query AST (unchanged)
+    'current_ast': ast_obj,      # NEW: Current sub-AST being executed
+    'query_type': 'dag',         # Query type (unchanged)
+    'is_remote': True,           # Generic flag for any network op
+    ...
+}
+```
+
+**Benefits:**
+- Handler can inspect `current_ast.dataset_id` instead of `remote_dataset_id`
+- More future-proof - works for any AST type
+- Shared handlers can use `hook` field to know which event fired
+
+### 2. Network Hook Strategy
+**Current:** Only ASTRemoteGraph triggers remote hooks
+
+**Other Network Operations Found:**
+- `upload()` - Implicit in gfql_remote if no dataset_id
+- `python_remote()` - Runs Python remotely
+- `chain_remote()/gfql_remote()` - Full remote execution
+
+**Recommendation:**
+- Keep current ASTRemoteGraph hooks (they work)
+- Future: Add `is_network_call` for ALL network operations
+- No changes needed now - other operations run fully remote
+
+### 3. Documentation Status
+**Current:** NO policy documentation in RST docs!
+
+**Need to Create:** `docs/source/gfql/policy.rst`
+```rst
+GFQL Policy Hooks
+=================
+
+Policy hooks allow external control over GFQL execution.
+
+Phases
+------
+- **preload**: Before data loading (local or remote)
+- **postload**: After data loading with statistics
+- **call**: Before method execution
+
+Context Fields
+--------------
+- phase: Current phase name
+- hook: Hook name (same as phase)
+- query: Global query AST
+- current_ast: Current operation AST
+- is_remote: True for network operations
+- graph_stats: Data statistics (postload only)
+
+Example
+-------
+.. code-block:: python
+
+    def policy(context):
+        if context['is_remote']:
+            # Control remote data access
+            dataset_id = context['current_ast'].dataset_id
+            if dataset_id in blocked_list:
+                raise PolicyException('preload', 'Blocked')
+
+    g.gfql(query, policy={'preload': policy})
+```
+
+**Add to:** `docs/source/gfql/index.rst` toctree
+
+### Next Steps:
+1. ✅ Research complete
+2. ⏳ Implement enhanced AST context (add current_ast, hook fields)
+3. ⏳ Create policy.rst documentation
+4. ⏳ Add to index.rst
+5. ⏳ Update existing tests for new context fields
+
 ## Summary:
 ✅ Core policy system complete and simplified to Accept/Deny only
 ✅ JWT handling already supported via api_token parameter
-🔄 Remote data loading policy support in progress
-⏳ Implementing generic hooks for ASTRemoteGraph
+✅ Remote data loading policy hooks implemented
+🔄 Enhancing AST context and documentation
 
-The core implementation is complete. Remote policy support is being added.
+The implementation is functional. Enhancing context passing and docs.

@@ -49,10 +49,14 @@ class TestRemoteDataPolicy:
             # Verify preload was called with correct context
             assert preload_called['called'] is True
             assert preload_called['context']['phase'] == 'preload'
+            assert preload_called['context']['hook'] == 'preload'
             assert preload_called['context']['is_remote'] is True
-            assert preload_called['context']['remote_dataset_id'] == 'test-dataset-123'
-            assert preload_called['context']['remote_token'] == 'test-jwt'
-            assert preload_called['context']['operation'] == 'ASTRemoteGraph'
+
+            # Check AST fields
+            current_ast = preload_called['context']['current_ast']
+            assert current_ast is not None
+            assert current_ast.dataset_id == 'test-dataset-123'
+            assert current_ast.token == 'test-jwt'
 
     def test_remote_graph_triggers_postload_hook(self):
         """Test that ASTRemoteGraph triggers postload hook after fetch."""
@@ -92,10 +96,10 @@ class TestRemoteDataPolicy:
             # If we have a remote postload, verify it
             if remote_postload:
                 assert remote_postload['phase'] == 'postload'
+                assert remote_postload['hook'] == 'postload'
                 assert remote_postload['is_remote'] is True
-                assert remote_postload['remote_dataset_id'] == 'test-dataset-456'
+                assert remote_postload['current_ast'].dataset_id == 'test-dataset-456'
                 assert 'graph_stats' in remote_postload
-                assert remote_postload['operation'] == 'ASTRemoteGraph'
             else:
                 # We at least got the DAG-level postload
                 assert any(c['phase'] == 'postload' for c in postload_calls)
@@ -103,12 +107,14 @@ class TestRemoteDataPolicy:
     def test_policy_can_deny_remote_load(self):
         """Test that policy can deny remote data loading."""
         def deny_policy(context: PolicyContext) -> None:
-            if context.get('is_remote') and context.get('remote_dataset_id') == 'forbidden':
-                raise PolicyException(
-                    phase='preload',
-                    reason='Remote dataset forbidden',
-                    code=403
-                )
+            if context.get('is_remote'):
+                current_ast = context.get('current_ast')
+                if current_ast and hasattr(current_ast, 'dataset_id') and current_ast.dataset_id == 'forbidden':
+                    raise PolicyException(
+                        phase='preload',
+                        reason='Remote dataset forbidden',
+                        code=403
+                    )
             return None
 
         with patch('graphistry.compute.chain_remote.chain_remote') as mock_chain_remote:
@@ -139,16 +145,21 @@ class TestRemoteDataPolicy:
 
         def token_policy(context: PolicyContext) -> None:
             if context.get('is_remote'):
-                token_checks['has_token'] = 'remote_token' in context
-                token_checks['token_value'] = context.get('remote_token')
+                current_ast = context.get('current_ast')
+                if current_ast and hasattr(current_ast, 'token'):
+                    token_checks['has_token'] = True
+                    token_checks['token_value'] = current_ast.token
 
-                # Deny if no token provided
-                if not context.get('remote_token'):
-                    raise PolicyException(
-                        phase='preload',
-                        reason='JWT token required for remote access',
-                        code=401
-                    )
+                    # Deny if no token provided
+                    if not current_ast.token:
+                        raise PolicyException(
+                            phase='preload',
+                            reason='JWT token required for remote access',
+                            code=401
+                        )
+                else:
+                    token_checks['has_token'] = False
+                    token_checks['token_value'] = None
             return None
 
         with patch('graphistry.compute.chain_remote.chain_remote') as mock_chain_remote:
@@ -229,7 +240,7 @@ class TestRemoteDataPolicy:
             contexts_seen.append({
                 'phase': context['phase'],
                 'is_remote': context.get('is_remote', False),
-                'operation': context.get('operation')
+                'has_current_ast': context.get('current_ast') is not None
             })
             return None
 
@@ -249,7 +260,7 @@ class TestRemoteDataPolicy:
         # Check that no context was marked as remote
         for ctx in contexts_seen:
             assert ctx['is_remote'] is False
-            assert ctx['operation'] is None  # Not a remote operation
+            assert ctx['has_current_ast'] is True  # Should have AST context
 
     def test_remote_exception_enrichment(self):
         """Test that PolicyException is enriched with remote context."""
@@ -284,9 +295,11 @@ class TestRemoteDataPolicy:
 
         def tracking_policy(context: PolicyContext) -> None:
             if context.get('is_remote'):
+                current_ast = context.get('current_ast')
+                dataset_id = current_ast.dataset_id if current_ast and hasattr(current_ast, 'dataset_id') else None
                 load_order.append({
                     'phase': context['phase'],
-                    'dataset_id': context.get('remote_dataset_id')
+                    'dataset_id': dataset_id
                 })
             return None
 
