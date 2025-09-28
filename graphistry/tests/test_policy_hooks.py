@@ -2,14 +2,10 @@
 
 import pytest
 import pandas as pd
-from typing import Optional
-
 import graphistry
 from graphistry.compute.gfql.policy import (
     PolicyContext,
-    PolicyException,
-    PolicyModification,
-    validate_modification
+    PolicyException
 )
 from graphistry.compute.ast import n, e
 
@@ -35,12 +31,11 @@ class TestPolicyHooks:
         """Test that preload hook is called."""
         hook_called = {'preload': False}
 
-        def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def preload_policy(context: PolicyContext) -> None:
             hook_called['preload'] = True
             assert context['phase'] == 'preload'
             assert 'query' in context
             assert 'query_type' in context
-            return None
 
         df = pd.DataFrame({'s': ['a'], 'd': ['b']})
         g = graphistry.edges(df, 's', 'd')
@@ -52,7 +47,7 @@ class TestPolicyHooks:
         """Test that postload hook is called."""
         hook_called = {'postload': False}
 
-        def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def postload_policy(context: PolicyContext) -> None:
             hook_called['postload'] = True
             assert context['phase'] == 'postload'
             assert 'plottable' in context
@@ -60,7 +55,6 @@ class TestPolicyHooks:
             # Check stats were extracted
             stats = context.get('graph_stats', {})
             assert 'nodes' in stats or 'edges' in stats
-            return None
 
         df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = graphistry.edges(df, 's', 'd')
@@ -74,13 +68,12 @@ class TestPolicyHooks:
 
         hook_called = {'call': False}
 
-        def call_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def call_policy(context: PolicyContext) -> None:
             hook_called['call'] = True
             assert context['phase'] == 'call'
             assert 'call_op' in context
             assert 'call_params' in context
             assert context['call_op'] == 'hop'  # We're testing hop operation
-            return None
 
         df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
         g = graphistry.edges(df, 's', 'd')
@@ -93,13 +86,11 @@ class TestPolicyHooks:
         """Test that multiple hooks can be used together."""
         hooks_called = {'preload': False, 'postload': False}
 
-        def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def preload_policy(context: PolicyContext) -> None:
             hooks_called['preload'] = True
-            return None
 
-        def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def postload_policy(context: PolicyContext) -> None:
             hooks_called['postload'] = True
-            return None
 
         df = pd.DataFrame({'s': ['a'], 'd': ['b']})
         g = graphistry.edges(df, 's', 'd')
@@ -119,13 +110,11 @@ class TestPolicyHooks:
         """Test that hooks are called in correct order."""
         call_order = []
 
-        def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def preload_policy(context: PolicyContext) -> None:
             call_order.append('preload')
-            return None
 
-        def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
+        def postload_policy(context: PolicyContext) -> None:
             call_order.append('postload')
-            return None
 
         df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = graphistry.edges(df, 's', 'd')
