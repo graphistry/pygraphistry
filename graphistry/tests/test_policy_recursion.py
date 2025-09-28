@@ -34,7 +34,7 @@ class TestRecursionPrevention:
 
             if context['phase'] == 'preload':
                 # Modify query - this should not trigger policy again
-                return {'query': [n({'modified': True})]}
+                return {'query': [n()]}  # Just get all nodes, don't filter on non-existent column
             return None
 
         df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
@@ -70,7 +70,7 @@ class TestRecursionPrevention:
 
         def preload_policy(context: PolicyContext) -> Optional[PolicyModification]:
             # Modify query
-            return {'query': [n({'test': True})]}
+            return {'query': [n()]}  # Just get all nodes
 
         def postload_policy(context: PolicyContext) -> Optional[PolicyModification]:
             postload_calls['count'] += 1
@@ -106,7 +106,7 @@ class TestRecursionPrevention:
             if phase == 'preload':
                 # Modify both query and engine
                 return {
-                    'query': [n({'x': 1}), n({'y': 2})],
+                    'query': [n(), n()],  # Just get nodes twice
                     'engine': 'pandas'
                 }
             elif phase == 'postload':
@@ -143,7 +143,7 @@ class TestRecursionPrevention:
                 raise RuntimeError("Too many calls - loop detected!")
 
             # Always try to modify query
-            return {'query': [n({'attempt': call_count['count']})]}
+            return {'query': [n()]}  # Just get all nodes
 
         df = pd.DataFrame({'s': ['a'], 'd': ['b']})
         g = graphistry.edges(df, 's', 'd')
