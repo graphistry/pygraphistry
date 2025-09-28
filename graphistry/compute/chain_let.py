@@ -494,7 +494,11 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     # Return requested output or last executed result
     if output is not None:
         if output not in context.get_all_bindings():
-            available = sorted(context.get_all_bindings().keys())
+            # Filter out internal bindings from the error message
+            available = sorted([
+                k for k in context.get_all_bindings().keys()
+                if not k.startswith('__')
+            ])
             raise ValueError(
                 f"Output binding '{output}' not found. "
                 f"Available bindings: {available}"
