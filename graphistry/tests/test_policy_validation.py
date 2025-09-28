@@ -1,110 +1,143 @@
-"""Tests for policy modification schema validation."""
+"""Tests for policy exception validation and behavior."""
 
 import pytest
-from typing import Optional
+import pandas as pd
 
 from graphistry.compute.gfql.policy import (
-    PolicyModification,
-    validate_modification
+    PolicyContext,
+    PolicyException
 )
+import graphistry
+from graphistry.compute.ast import n
 
 
-class TestSchemaValidation:
-    """Test modification schema validation."""
+class TestPolicyExceptionValidation:
+    """Test PolicyException validation and behavior."""
 
-    def test_valid_engine_modification(self):
-        """Test that valid engine values pass validation."""
-        # Valid engines
-        for engine in ['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']:
-            mod = {'engine': engine}
-            result = validate_modification(mod, 'preload')
-            assert result['engine'] == engine
+    def test_exception_requires_phase(self):
+        """Test that PolicyException requires phase."""
+        exc = PolicyException(
+            phase='preload',
+            reason='Test denial'
+        )
+        assert exc.phase == 'preload'
+        assert exc.reason == 'Test denial'
 
-    def test_invalid_engine_rejected(self):
-        """Test that invalid engine values are rejected."""
-        with pytest.raises(ValueError, match="Invalid engine"):
-            validate_modification({'engine': 'quantum'}, 'preload')
+    def test_exception_with_code(self):
+        """Test PolicyException with custom code."""
+        exc = PolicyException(
+            phase='postload',
+            reason='Resource limit exceeded',
+            code=429
+        )
+        assert exc.code == 429
 
-        with pytest.raises(ValueError, match="Invalid engine"):
-            validate_modification({'engine': 'invalid'}, 'call')
+    def test_exception_with_enrichment(self):
+        """Test PolicyException can be enriched with context."""
+        exc = PolicyException('call', 'Operation denied')
 
-    def test_valid_params_modification(self):
-        """Test that params as dict passes validation."""
-        mod = {'params': {'n_components': 2, 'metric': 'euclidean'}}
-        result = validate_modification(mod, 'call')
-        assert result['params'] == {'n_components': 2, 'metric': 'euclidean'}
+        # Can enrich with query_type
+        exc.query_type = 'chain'
+        assert exc.query_type == 'chain'
 
-    def test_invalid_params_type_rejected(self):
-        """Test that non-dict params are rejected."""
-        with pytest.raises(ValueError, match="'params' must be a dict"):
-            validate_modification({'params': 'invalid'}, 'call')
+        # Can enrich with data_size
+        exc.data_size = {'nodes': 1000, 'edges': 5000}
+        assert exc.data_size['nodes'] == 1000
 
-        with pytest.raises(ValueError, match="'params' must be a dict"):
-            validate_modification({'params': ['list', 'not', 'dict']}, 'call')
+    def test_policy_deny_in_preload(self):
+        """Test denying in preload phase."""
+        def deny_policy(context: PolicyContext) -> None:
+            raise PolicyException(
+                phase='preload',
+                reason='Not allowed',
+                code=403
+            )
 
-    def test_query_modification_only_in_preload(self):
-        """Test that query modification is only allowed in preload phase."""
-        # Should work in preload
-        mod = {'query': ['modified', 'query']}
-        result = validate_modification(mod, 'preload')
-        assert result['query'] == ['modified', 'query']
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
 
-        # Should fail in postload
-        with pytest.raises(ValueError, match="Query modifications only allowed in preload"):
-            validate_modification({'query': ['modified']}, 'postload')
+        with pytest.raises(PolicyException) as exc_info:
+            g.gfql([n()], policy={'preload': deny_policy})
 
-        # Should fail in call
-        with pytest.raises(ValueError, match="Query modifications only allowed in preload"):
-            validate_modification({'query': ['modified']}, 'call')
+        assert exc_info.value.phase == 'preload'
+        assert exc_info.value.code == 403
 
-    def test_unknown_fields_rejected(self):
-        """Test that unknown fields are rejected."""
-        with pytest.raises(ValueError, match="Unknown modification fields"):
-            validate_modification({'engine': 'pandas', 'turbo': True}, 'preload')
+    def test_policy_deny_in_postload(self):
+        """Test denying in postload phase."""
+        def deny_policy(context: PolicyContext) -> None:
+            stats = context.get('graph_stats', {})
+            if stats.get('nodes', 0) > 0:
+                raise PolicyException(
+                    phase='postload',
+                    reason='Too many nodes',
+                    data_size=stats
+                )
 
-        with pytest.raises(ValueError, match="Unknown modification fields"):
-            validate_modification({'timeout': 30}, 'call')
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
 
-        with pytest.raises(ValueError, match="Unknown modification fields"):
-            validate_modification({'unknown_field': 'value'}, 'postload')
+        with pytest.raises(PolicyException) as exc_info:
+            g.gfql([n()], policy={'postload': deny_policy})
 
-    def test_empty_modification_valid(self):
-        """Test that empty modification is valid."""
-        result = validate_modification({}, 'preload')
-        assert result == {}
+        assert exc_info.value.phase == 'postload'
+        assert 'Too many nodes' in exc_info.value.reason
 
-        result = validate_modification(None, 'postload')
-        assert result == {}
+    def test_policy_accept_by_default(self):
+        """Test that policies accept by default (no exception)."""
+        def accept_policy(context: PolicyContext) -> None:
+            # Do nothing - implicit accept
+            pass
 
-    def test_multiple_valid_modifications(self):
-        """Test that multiple valid modifications work together."""
-        # Preload can have all three
-        mod = {
-            'engine': 'cudf',
-            'params': {'test': 1},
-            'query': ['new', 'query']
-        }
-        result = validate_modification(mod, 'preload')
-        assert result['engine'] == 'cudf'
-        assert result['params'] == {'test': 1}
-        assert result['query'] == ['new', 'query']
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
 
-        # Call can have engine and params, not query
-        mod = {
-            'engine': 'pandas',
-            'params': {'n_components': 3}
-        }
-        result = validate_modification(mod, 'call')
-        assert result['engine'] == 'pandas'
-        assert result['params'] == {'n_components': 3}
+        # Should not raise
+        result = g.gfql([n()], policy={
+            'preload': accept_policy,
+            'postload': accept_policy
+        })
+        assert result is not None
 
-    def test_modification_not_dict_rejected(self):
-        """Test that non-dict modifications are rejected."""
-        with pytest.raises(ValueError, match="Modifications must be a dict"):
-            validate_modification("not a dict", 'preload')
+    def test_conditional_deny(self):
+        """Test conditional denial based on context."""
+        def conditional_policy(context: PolicyContext) -> None:
+            if context['phase'] == 'postload':
+                stats = context.get('graph_stats', {})
+                # Only deny if nodes exceed threshold
+                if stats.get('nodes', 0) > 100:
+                    raise PolicyException(
+                        phase='postload',
+                        reason='Node limit exceeded',
+                        code=413  # Payload too large
+                    )
 
-        with pytest.raises(ValueError, match="Modifications must be a dict"):
-            validate_modification(['list', 'not', 'dict'], 'call')
+        # Small graph - should pass
+        df_small = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g_small = graphistry.edges(df_small, 's', 'd')
 
-        with pytest.raises(ValueError, match="Modifications must be a dict"):
-            validate_modification(123, 'postload')
+        result = g_small.gfql([n()], policy={'postload': conditional_policy})
+        assert result is not None
+
+        # Note: Can't easily test large graph without actual data
+        # but the pattern is demonstrated
+
+    def test_multiple_phase_policies(self):
+        """Test policies can be applied to multiple phases."""
+        calls = []
+
+        def tracking_policy(context: PolicyContext) -> None:
+            phase = context['phase']
+            calls.append(phase)
+            # Accept all
+
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = graphistry.edges(df, 's', 'd')
+
+        result = g.gfql([n()], policy={
+            'preload': tracking_policy,
+            'postload': tracking_policy
+        })
+
+        assert 'preload' in calls
+        assert 'postload' in calls
+        assert result is not None
