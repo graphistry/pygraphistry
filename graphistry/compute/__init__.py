@@ -4,6 +4,7 @@ from .ast import (
     let, remote, ref, call
 )
 from .chain import Chain
+from .calls import hypergraph
 from .predicates.is_in import (
     is_in, IsIn
 )

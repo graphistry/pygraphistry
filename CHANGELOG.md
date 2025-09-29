@@ -15,6 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * The old `chain*` methods are deprecated and will be removed in a future version
   * All functionality remains the same, only the method names have changed
 
+### Fixed
+* GFQL: Fix hypergraph typing - add method to Plottable Protocol, resolve circular import
+
 ### Added
 * GFQL: Let bindings now accept ASTNode/ASTEdge matchers directly (#751)
   * Direct syntax: `let({'persons': n({'type': 'person'})})` without Chain wrapper
@@ -25,6 +28,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `./bin/pytest.sh` - Runs tests with highest available Python (3.8-3.14)
   * `./bin/mypy.sh` - Type checking without Docker overhead
   * `./bin/flake8.sh` - Linting with auto-detection of Python version
+* GFQL: Add hypergraph transformation support for creating entity relationships from event data
+  * Simple transformation: `g.gfql(hypergraph(entity_types=['user', 'product']))`
+  * Typed builder with IDE support: `from graphistry.compute import hypergraph`
+  * Full parameter support: entity_types, drop_na, direct, engine (pandas/cudf/dask), etc.
+  * Remote execution: `g.gfql_remote(hypergraph(...))`
+  * DAG composition: Use with `let()` for complex transformations
+  * Safelist validation for all hypergraph parameters
+  * Enhanced `opts` parameter validation for nested structures (CATEGORIES, EDGES, SKIP)
+  * 19 unit tests including mocked remote execution
 * GFQL: Add comprehensive validation framework with detailed error reporting
   * Built-in validation: `Chain()` constructor validates syntax automatically
   * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas

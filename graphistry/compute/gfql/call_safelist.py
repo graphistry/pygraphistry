@@ -2,6 +2,33 @@
 
 This module defines which Plottable methods can be called through GFQL
 and their parameter validation rules.
+
+Available Operations:
+    Graph Transformations:
+        - hypergraph: Transform event data into entity relationships
+
+    Graph Traversals:
+        - hop: Multi-hop traversal with configurable direction and depth
+
+    Data Operations:
+        - get_degrees: Calculate node degrees (in/out/total)
+        - filter_edges_by_dict: Filter edges based on attribute values
+        - prune_self_edges: Remove self-referencing edges
+        - materialize_nodes: Compute and materialize node DataFrame
+
+    Layout Operations:
+        - layout_settings: Configure layout algorithm settings
+        - tree_layout: Apply hierarchical tree layout
+
+Usage:
+    from graphistry.compute.ast import call
+    from graphistry.compute.calls import hypergraph  # Typed alternative
+
+    # Using call() with string name
+    g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
+
+    # Using typed builder (recommended for hypergraph)
+    g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
 from typing import Dict, Any
@@ -31,6 +58,74 @@ def is_string_or_none(v: Any) -> bool:
 
 def is_list_of_strings(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
+
+
+def is_dict_str_to_list_str(v: Any) -> bool:
+    """Validate dict mapping strings to lists of strings."""
+    if not isinstance(v, dict):
+        return False
+    for k, val in v.items():
+        if not isinstance(k, str):
+            return False
+        if not is_list_of_strings(val):
+            return False
+    return True
+
+
+def validate_hypergraph_opts(v: Any) -> bool:
+    """Validate hypergraph opts parameter structure.
+
+    Expected structure based on HyperBindings class:
+    {
+        'TITLE': str,           # default: 'nodeTitle'
+        'DELIM': str,          # default: '::'
+        'NODEID': str,         # default: 'nodeID'
+        'ATTRIBID': str,       # default: 'attribID'
+        'EVENTID': str,        # default: 'EventID'
+        'EVENTTYPE': str,      # default: 'event'
+        'SOURCE': str,         # default: 'src'
+        'DESTINATION': str,    # default: 'dst'
+        'CATEGORY': str,       # default: 'category'
+        'NODETYPE': str,       # default: 'type'
+        'EDGETYPE': str,       # default: 'edgeType'
+        'NULLVAL': str,        # default: 'null'
+        'SKIP': List[str],     # optional list
+        'CATEGORIES': Dict[str, List[str]],  # category mappings
+        'EDGES': Dict[str, List[str]]        # edge type mappings
+    }
+    """
+    if not isinstance(v, dict):
+        return False
+
+    # Known string keys from HyperBindings
+    string_keys = {
+        'TITLE', 'DELIM', 'NODEID', 'ATTRIBID', 'EVENTID', 'EVENTTYPE',
+        'SOURCE', 'DESTINATION', 'CATEGORY', 'NODETYPE', 'EDGETYPE', 'NULLVAL'
+    }
+
+    for key, val in v.items():
+        if not isinstance(key, str):
+            return False
+
+        # Check known string parameters
+        if key in string_keys:
+            if not isinstance(val, str):
+                return False
+        # Check SKIP parameter (list of strings)
+        elif key == 'SKIP':
+            if not is_list_of_strings(val):
+                return False
+        # Check CATEGORIES and EDGES (dict of string -> list of strings)
+        elif key in ('CATEGORIES', 'EDGES'):
+            if not is_dict_str_to_list_str(val):
+                return False
+        # Unknown key - still allow but must be JSON-serializable
+        else:
+            # For forward compatibility, allow other keys but they should be simple types
+            if not isinstance(val, (str, int, float, bool, list, dict, type(None))):
+                return False
+
+    return True
 
 
 # Safelist configuration
@@ -407,6 +502,27 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
         },
         'description': 'Group-in-a-box layout with community detection'
+    },
+
+    # Hypergraph transformation
+    'hypergraph': {
+        'allowed_params': {
+            'entity_types', 'opts', 'drop_na', 'drop_edge_attrs',
+            'verbose', 'direct', 'engine', 'npartitions', 'chunksize'
+        },
+        'required_params': set(),  # All params are optional
+        'param_validators': {
+            'entity_types': lambda v: v is None or is_list_of_strings(v),
+            'opts': validate_hypergraph_opts,  # Use detailed validator
+            'drop_na': is_bool,
+            'drop_edge_attrs': is_bool,
+            'verbose': is_bool,
+            'direct': is_bool,
+            'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'auto'],
+            'npartitions': lambda v: v is None or is_int(v),
+            'chunksize': lambda v: v is None or is_int(v)
+        },
+        'description': 'Transform event data into a hypergraph'
     }
 }
 
