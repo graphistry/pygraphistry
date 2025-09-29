@@ -19,6 +19,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * GFQL: Fix hypergraph typing - add method to Plottable Protocol, resolve circular import
 
 ### Added
+* GFQL: Let bindings now accept ASTNode/ASTEdge matchers directly (#751)
+  * Direct syntax: `let({'persons': n({'type': 'person'})})` without Chain wrapper
+  * Auto-converts list syntax to Chain for backward compatibility
+  * **Important**: Uses FILTER semantics - `n()` returns nodes only (no edges)
+  * Independent bindings operate on root graph unless using `ref()`
+* Development: Host-level convenience scripts for local testing
+  * `./bin/pytest.sh` - Runs tests with highest available Python (3.8-3.14)
+  * `./bin/mypy.sh` - Type checking without Docker overhead
+  * `./bin/flake8.sh` - Linting with auto-detection of Python version
 * GFQL: Add hypergraph transformation support for creating entity relationships from event data
   * Simple transformation: `g.gfql(hypergraph(entity_types=['user', 'product']))`
   * Typed builder with IDE support: `from graphistry.compute import hypergraph`

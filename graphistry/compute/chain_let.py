@@ -1,5 +1,6 @@
 from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING
 from typing_extensions import Literal
+import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -243,53 +244,27 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 f"Node '{name}' references '{ast_obj.ref}' which has not been executed yet. "
                 f"Available bindings: {available}"
             ) from e
-        
+
         # Execute the chain on the referenced result
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+            # ASTRef with chain should return the filtered result directly
+            result = chain_result
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
-        # For chain_let, we execute nodes in a simpler way than chain()
-        # No wavefront propagation - just filter the graph's nodes
-        node_obj = cast(ASTNode, ast_obj)  # Help mypy understand the type
-        if node_obj.filter_dict or node_obj.query:
-            filtered_g = g
-            if node_obj.filter_dict:
-                filtered_g = filtered_g.filter_nodes_by_dict(node_obj.filter_dict)
-            if node_obj.query:
-                filtered_g = filtered_g.nodes(lambda g: g._nodes.query(node_obj.query))
-            result = filtered_g
-        else:
-            # Empty filter - return original graph
-            result = g
-        
-        # Add name column if specified
-        if node_obj._name:
-            result = result.nodes(result._nodes.assign(**{node_obj._name: True}))
+        # ASTNode operates on the original graph (unless accessed via ASTRef)
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+        from .chain import chain as chain_impl
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTEdge):
-        # For chain_let, execute edge operations using hop()
-        # This is simpler than the full chain() wavefront approach
-        result = g.hop(
-            nodes=None,  # Start from all nodes
-            hops=ast_obj.hops,
-            to_fixed_point=ast_obj.to_fixed_point,
-            direction=ast_obj.direction,
-            source_node_match=ast_obj.source_node_match,
-            edge_match=ast_obj.edge_match,
-            destination_node_match=ast_obj.destination_node_match,
-            source_node_query=ast_obj.source_node_query,
-            edge_query=ast_obj.edge_query,
-            destination_node_query=ast_obj.destination_node_query,
-            return_as_wave_front=False  # Return full graph
-        )
-        
-        # Add name column to edges if specified
-        if ast_obj._name:
-            result = result.edges(result._edges.assign(**{ast_obj._name: True}))
+        # ASTEdge operates on the original graph (unless accessed via ASTRef)
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+        from .chain import chain as chain_impl
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -324,8 +299,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         from graphistry.compute.chain import Chain
         if isinstance(ast_obj, Chain):
             # Execute the chain operations
+            # For DAG context: Chain should filter from the original graph independently
+            # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
-            result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value))
+            original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value))
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -376,7 +354,10 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     
     # Create execution context
     context = ExecutionContext()
-    
+
+    # Store original graph for independent Chain filtering
+    context.set_binding('__original_graph__', g)
+
     # Handle empty let bindings
     if not dag.bindings:
         return g
@@ -386,26 +367,38 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     logger.debug("DAG execution order: %s", order)
     
     # Execute nodes in topological order
-    last_result = g
+    # Start with the original graph and accumulate all binding columns
+    accumulated_result = g
+
     for node_name in order:
         ast_obj = dag.bindings[node_name]
         logger.debug("Executing node '%s' in DAG", node_name)
-        
+
         # Execute the node and store result in context
         try:
-            result = execute_node(node_name, ast_obj, g, context, engine_concrete)
-            last_result = result
+            # Execute node - this adds the binding name as a column
+            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete)
+
+            # Accumulate the new column(s) onto our result
+            accumulated_result = result
+
         except Exception as e:
             # Add context to error
             raise RuntimeError(
                 f"Failed to execute node '{node_name}' in DAG. "
                 f"Error: {type(e).__name__}: {str(e)}"
             ) from e
+
+    last_result = accumulated_result
     
     # Return requested output or last executed result
     if output is not None:
         if output not in context.get_all_bindings():
-            available = sorted(context.get_all_bindings().keys())
+            # Filter out internal bindings from the error message
+            available = sorted([
+                k for k in context.get_all_bindings().keys()
+                if not k.startswith('__')
+            ])
             raise ValueError(
                 f"Output binding '{output}' not found. "
                 f"Available bindings: {available}"

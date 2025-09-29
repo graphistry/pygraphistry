@@ -6,7 +6,7 @@ from graphistry.compute.ast import is_in
 from graphistry.tests.test_compute import CGFull
 
 @lru_cache(maxsize=1)
-def hops_graph():
+def hops_graph() -> CGFull:
     nodes_df = pd.DataFrame([
         {'node': 'a'},
         {'node': 'b'},

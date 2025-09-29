@@ -211,7 +211,8 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
                 on=id,
                 how='left'
             )
-            out_df[op._name] = out_df[op._name].fillna(False).astype(bool)
+            s = out_df[op._name]
+            out_df[op._name] = s.where(s.notna(), False).astype('bool')
     out_df = out_df.merge(getattr(g, df_fld), on=id, how='left')
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)

@@ -3,7 +3,7 @@ from dataclasses import is_dataclass, replace
 from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator
 from functools import lru_cache
 import json
-from typing_extensions import deprecated
+import warnings
 
 from graphistry.privacy import Privacy
 from . import util
@@ -146,8 +146,14 @@ class AuthManagerProtocol(Protocol):
         ...
 
 
-@deprecated("Use the session pattern instead")
 def use_global_session() -> ClientSession:
+    """Use the session pattern instead.
+
+    .. deprecated::
+       This function is deprecated. Use the session pattern instead.
+    """
+    warnings.warn("use_global_session() is deprecated. Use the session pattern instead.",
+                  DeprecationWarning, stacklevel=2)
     from .pygraphistry import PyGraphistry
     return PyGraphistry.session
 

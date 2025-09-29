@@ -31,7 +31,7 @@ class TestChainSchemaValidation:
     def test_valid_schema_operations(self):
         """Valid operations pass schema validation."""
         # These should work - columns exist
-        result = self.g.chain([
+        result = self.g.gfql([
             n({'type': 'person'}),
             e_forward({'edge_type': 'friend'}),
             n({'type': 'company'})
@@ -43,7 +43,7 @@ class TestChainSchemaValidation:
     def test_nonexistent_node_column(self):
         """Reference to non-existent node column fails."""
         with pytest.raises(GFQLSchemaError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 n({'missing_column': 'value'})
             ])
         
@@ -54,7 +54,7 @@ class TestChainSchemaValidation:
     def test_nonexistent_edge_column(self):
         """Reference to non-existent edge column fails."""
         with pytest.raises(GFQLSchemaError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 n(),
                 e_forward({'missing_edge_col': 'value'})
             ])
@@ -66,7 +66,7 @@ class TestChainSchemaValidation:
         """Type mismatch in filter fails."""
         # 'type' column contains strings, not numbers
         with pytest.raises(GFQLSchemaError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 n({'type': 123})  # Wrong type
             ])
         
@@ -80,12 +80,12 @@ class TestChainSchemaValidation:
         empty_g = edges(empty_edges, 's', 'd').nodes(empty_nodes, 'id')
         
         # Should succeed but return empty result
-        result = empty_g.chain([n()])
+        result = empty_g.gfql([n()])
         assert len(result._nodes) == 0
         
         # But filtering on non-existent column should still fail
         with pytest.raises(GFQLSchemaError) as exc_info:
-            empty_g.chain([n({'any_col': 'value'})])
+            empty_g.gfql([n({'any_col': 'value'})])
         
         assert exc_info.value.code == ErrorCode.E301
     
@@ -100,21 +100,21 @@ class TestChainSchemaValidation:
         # Note: chain() function would need collect_all parameter
         # For now, it will fail fast on first error
         with pytest.raises(GFQLSchemaError):
-            self.g.chain(chain_obj)
+            self.g.gfql(chain_obj)
     
     def test_schema_validation_with_predicates(self):
         """Schema validation works with predicates."""
         from graphistry.compute.predicates.numeric import gt
         
         # Valid predicate on numeric column
-        result = self.g.chain([
+        result = self.g.gfql([
             n({'age': gt(20)})
         ])
         assert len(result._nodes) == 2  # Only persons have age
         
         # Invalid predicate on non-numeric column
         with pytest.raises(GFQLSchemaError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 n({'type': gt(20)})  # String column
             ])
         
@@ -126,6 +126,6 @@ class TestChainSchemaValidation:
         # For now, document expected behavior
         
         # Future API:
-        # result = self.g.chain([n({'missing': 'value'})], validate_schema=False)
+        # result = self.g.gfql([n({'missing': 'value'})], validate_schema=False)
         # Would return empty result instead of raising
         pass

@@ -51,56 +51,56 @@ class TestComputeChainMixin(NoAuthTestCase):
     def test_chain_0(self):
 
         g = hops_graph()
-        g2 = g.chain([])
+        g2 = g.gfql([])
         assert g2._nodes.shape == g._nodes.shape
         assert g2._edges.shape == g._edges.shape
 
     def test_chain_node_mt(self):
             
         g = hops_graph()
-        g2 = g.chain([n()])
+        g2 = g.gfql([n()])
         assert g2._nodes.shape == g._nodes.shape
         assert g2._edges.shape == (0, 3)
 
     def test_chain_node_filter(self):
             
         g = hops_graph()
-        g2 = g.chain([n({"node": "a", "type": "n"})])
+        g2 = g.gfql([n({"node": "a", "type": "n"})])
         assert g2._nodes.shape == (1, 2)    
         assert g2._edges.shape == (0, 3)
 
     def test_chain_edge_filter_undirected_all(self):
             
         g = hops_graph()
-        g2 = g.chain([e_undirected({})])
+        g2 = g.gfql([e_undirected({})])
         assert g2._nodes.shape == g._nodes.shape
         assert g2._edges.shape == g._edges.shape
 
     def test_chain_edge_filter_forward_all(self):
             
         g = hops_graph()
-        g2 = g.chain([e_forward({})])
+        g2 = g.gfql([e_forward({})])
         assert g2._nodes.shape == g._nodes.shape
         assert g2._edges.shape == g._edges.shape
 
     def test_chain_edge_filter_forward_some(self):
             
         g = hops_graph()
-        g2 = g.chain([e_forward({g._source: "j"})])
+        g2 = g.gfql([e_forward({g._source: "j"})])
         assert g2._nodes.shape == (3, 2)    
         assert g2._edges.shape == (2, 3)
 
     def test_chain_edge_filter_reverse_all(self):
             
         g = hops_graph()
-        g2 = g.chain([e_reverse({})])
+        g2 = g.gfql([e_reverse({})])
         assert g2._nodes.shape == g._nodes.shape    
         assert g2._edges.shape == g._edges.shape
 
     def test_chain_edge_filter_reverse_some(self):
             
         g = hops_graph()
-        g2 = g.chain([e_reverse({g._destination: "b"})])
+        g2 = g.gfql([e_reverse({g._destination: "b"})])
         assert g2._nodes.shape == (4, 2)
         assert g2._edges.shape == (3, 3)
     
@@ -108,7 +108,7 @@ class TestComputeChainMixin(NoAuthTestCase):
 
         g = hops_graph()
 
-        g2a = g.chain([
+        g2a = g.gfql([
             n({g._node: "e"}),
             e_forward({}, hops=2),
         ])
@@ -116,7 +116,7 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert g2a._edges.shape == (4, 3)
 
 
-        g2b = g.chain([
+        g2b = g.gfql([
             n({g._node: "e"}),
             e_forward({}, hops=1),
             e_forward({}, hops=1)
@@ -130,7 +130,7 @@ class TestComputeChainMixin(NoAuthTestCase):
         g = hops_graph()
 
         # e->l->b, e->g->a
-        g2 = g.chain([
+        g2 = g.gfql([
             n({g._node: "e"}, name="n1"),
             e_forward({}, hops=1),
             e_forward({}, hops=1, name="e2"),
@@ -144,7 +144,7 @@ class TestComputeChainMixin(NoAuthTestCase):
 
     def test_chain_predicate_is_in(self):
         g = hops_graph()
-        assert g.chain([n({'node': is_in(['e', 'k'])})])._nodes.shape == (2, 2)
+        assert g.gfql([n({'node': is_in(['e', 'k'])})])._nodes.shape == (2, 2)
 
     def test_post_hop_node_match(self):
 
@@ -160,7 +160,7 @@ class TestComputeChainMixin(NoAuthTestCase):
 
         g = CGFull().edges(es, 's', 'd').nodes(ns, 'n')
 
-        g2 = g.chain([
+        g2 = g.gfql([
             n({'category': 'Port'}),
             e_undirected(),
             n({'category': 'Port'})
@@ -177,42 +177,42 @@ class TestComputeChainMixin(NoAuthTestCase):
         g_out_nodes_2_hops = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}, {'n': 'c', 'v': 2}]
         g_out_edges_2_hops = [{'s': 'a', 'd': 'b', 'u': 0}, {'s': 'b', 'd': 'c', 'u': 1}]
 
-        g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n()])
+        g2a = g.gfql([n({'n': 'a'}), e_forward(hops=1), n()])
         assert g2a._nodes.shape == (2, 2)
         assert g2a._edges.shape == (1, 3)
         compare_graphs(g2a, g_out_nodes_1_hop, g_out_edges_1_hop)
 
-        g2b = g.chain([n({'n': 'a'}), e_forward(hops=2), n()])
+        g2b = g.gfql([n({'n': 'a'}), e_forward(hops=2), n()])
         assert g2b._nodes.shape == (3, 2)
         assert g2b._edges.shape == (2, 3)
         compare_graphs(g2b, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g3a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
+        g3a = g.gfql([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
         assert g3a._nodes.shape == (2, 2)
         assert g3a._edges.shape == (1, 3)
         compare_graphs(g3a, g_out_nodes_1_hop, g_out_edges_1_hop)
 
         #a->b
-        g3ba = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
+        g3ba = g.gfql([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
         assert g3ba._nodes.shape == (2, 2)
         assert g3ba._edges.shape == (1, 3)
 
         #a->b-c
-        g3baa = g.chain([n({'n': 'a'}), e_forward(hops=2)])
+        g3baa = g.gfql([n({'n': 'a'}), e_forward(hops=2)])
         assert g3baa._nodes.shape == (3, 2)
         assert g3baa._edges.shape == (2, 3)
 
-        g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'})])
+        g3b = g.gfql([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'})])
         assert g3b._nodes.shape == (3, 2), "nodes"
         assert g3b._edges.shape == (2, 3), "edges"
         compare_graphs(g3b, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g3c = g.chain([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
+        g3c = g.gfql([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
         assert g3c._nodes.shape == (3, 2)
         assert g3c._edges.shape == (2, 3)
         compare_graphs(g3c, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'})])
+        g3d = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'})])
         assert g3d._nodes.shape == (3, 2)
         assert g3d._edges.shape == (2, 3)
         compare_graphs(g3d, g_out_nodes_2_hops, g_out_edges_2_hops)
@@ -227,42 +227,42 @@ class TestComputeChainMixin(NoAuthTestCase):
         g_out_nodes_3_hops = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}, {'n': 'c', 'v': 2}, {'n': 'd', 'v': 3}]
         g_out_edges_3_hops = [{'s': 'a', 'd': 'b', 'u': 0}, {'s': 'b', 'd': 'c', 'u': 1}, {'s': 'c', 'd': 'd', 'u': 2}]
 
-        g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'}), e_forward(hops=1), n()])
+        g2a = g.gfql([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'}), e_forward(hops=1), n()])
         assert g2a._nodes.shape == (3, 2)
         assert g2a._edges.shape == (2, 3)
         compare_graphs(g2a, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g2b = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n()])
+        g2b = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n()])
         assert g2b._nodes.shape == (3, 2)
         assert g2b._edges.shape == (2, 3)
         compare_graphs(g2b, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g2c = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n({'n': 'c'})])
+        g2c = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n({'n': 'c'})])
         assert g2c._nodes.shape == (3, 2)
         assert g2c._edges.shape == (2, 3)
         compare_graphs(g2c, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g2d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n(), e_forward(hops=1), n({'n': 'c'})])
+        g2d = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n(), e_forward(hops=1), n({'n': 'c'})])
         assert g2d._nodes.shape == (3, 2)
         assert g2d._edges.shape == (2, 3)
         compare_graphs(g2c, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        g3a = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n()])
+        g3a = g.gfql([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n()])
         assert g3a._nodes.shape == (4, 2)
         assert g3a._edges.shape == (3, 3)
         compare_graphs(g3a, g_out_nodes_3_hops, g_out_edges_3_hops)
 
-        g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
+        g3b = g.gfql([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
         assert g3b._nodes.shape == (4, 2)
         assert g3b._edges.shape == (3, 3)
         compare_graphs(g3b, g_out_nodes_3_hops, g_out_edges_3_hops)
 
-        g3c = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
+        g3c = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
         assert g3c._nodes.shape == (4, 2)
         assert g3c._edges.shape == (3, 3)
         compare_graphs(g3c, g_out_nodes_3_hops, g_out_edges_3_hops)
 
-        g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(to_fixed_point=True), n({'n': 'd'})])
+        g3d = g.gfql([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(to_fixed_point=True), n({'n': 'd'})])
         assert g3d._nodes.shape == (4, 2)
         assert g3d._edges.shape == (3, 3)
         compare_graphs(g3d, g_out_nodes_3_hops, g_out_edges_3_hops)
@@ -277,14 +277,14 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
 
         g = chain_graph()
 
-        g2 = g.chain([
+        g2 = g.gfql([
             n({'n': 'a'})
         ])
 
         assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}]
         assert g2._edges.to_dict(orient='records') == []
 
-        g3 = g.chain([
+        g3 = g.gfql([
             n({'n': 'd'})
         ])
 
@@ -311,18 +311,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g2_forward, g_out_nodes_hop, g_out_edges)
 
-        g2_forward_triple = g.chain([
+        g2_forward_triple = g.gfql([
             e_forward({}, source_node_match={'n': 'a'}, hops=1)
         ])
         compare_graphs(g2_forward_triple, g_out_nodes, g_out_edges)
 
-        g2_forward_chain = g.chain([
+        g2_forward_chain = g.gfql([
             n({'n': 'a'}),
             e_forward({}, hops=1)
         ])
         compare_graphs(g2_forward_chain, g_out_nodes, g_out_edges)
 
-        g2_forward_chain_closed = g.chain([
+        g2_forward_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_forward({}, hops=1),
             n({})
@@ -349,18 +349,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g2_reverse, g_out_nodes_hop, g_out_edges)
 
-        g2_reverse_triple = g.chain([
+        g2_reverse_triple = g.gfql([
             e_reverse({}, source_node_match={'n': 'a'}, hops=1)
         ])
         compare_graphs(g2_reverse_triple, g_out_nodes, g_out_edges)
 
-        g2_reverse_chain = g.chain([
+        g2_reverse_chain = g.gfql([
             n({'n': 'a'}),
             e_reverse({}, hops=1)
         ])
         compare_graphs(g2_reverse_chain, g_out_nodes, g_out_edges)
 
-        g2_reverse_chain_closed = g.chain([
+        g2_reverse_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_reverse({}, hops=1),
             n({})
@@ -387,18 +387,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g2_undirected, g_out_nodes_hop, g_out_edges)
 
-        g2_undirected_triple = g.chain([
+        g2_undirected_triple = g.gfql([
             e_undirected({}, source_node_match={'n': 'a'}, hops=1)
         ])
         compare_graphs(g2_undirected_triple, g_out_nodes, g_out_edges)
 
-        g2_undirected_chain = g.chain([
+        g2_undirected_chain = g.gfql([
             n({'n': 'a'}),
             e_undirected({}, hops=1)
         ])
         compare_graphs(g2_undirected_chain, g_out_nodes, g_out_edges)
 
-        g2_undirected_chain_closed = g.chain([
+        g2_undirected_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_undirected({}, hops=1),
             n({})
@@ -425,18 +425,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g3_forward, g_out_nodes_hop, g_out_edges)
 
-        g3_forward_triple = g.chain([
+        g3_forward_triple = g.gfql([
             e_forward({}, source_node_match={'n': 'd'}, hops=1)
         ])
         compare_graphs(g3_forward_triple, g_out_nodes, g_out_edges)
 
-        g3_forward_chain = g.chain([
+        g3_forward_chain = g.gfql([
             n({'n': 'd'}),
             e_forward({}, hops=1)
         ])
         compare_graphs(g3_forward_chain, g_out_nodes, g_out_edges)
 
-        g3_forward_chain_closed = g.chain([
+        g3_forward_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_forward({}, hops=1),
             n({})
@@ -463,18 +463,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g3_reverse, g_out_nodes_hop, g_out_edges)
 
-        g3_reverse_triple = g.chain([
+        g3_reverse_triple = g.gfql([
             e_reverse({}, source_node_match={'n': 'd'}, hops=1)
         ])
         compare_graphs(g3_reverse_triple, g_out_nodes, g_out_edges)
 
-        g3_reverse_chain = g.chain([
+        g3_reverse_chain = g.gfql([
             n({'n': 'd'}),
             e_reverse({}, hops=1)
         ])
         compare_graphs(g3_reverse_chain, g_out_nodes, g_out_edges)
 
-        g3_reverse_chain_closed = g.chain([
+        g3_reverse_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_reverse({}, hops=1),
             n({})
@@ -501,18 +501,18 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         )
         compare_graphs(g3_undirected, g_out_nodes_hop, g_out_edges)
 
-        g3_undirected_triple = g.chain([
+        g3_undirected_triple = g.gfql([
             e_undirected({}, source_node_match={'n': 'd'}, hops=1)
         ])
         compare_graphs(g3_undirected_triple, g_out_nodes, g_out_edges)
 
-        g3_undirected_chain = g.chain([
+        g3_undirected_chain = g.gfql([
             n({'n': 'd'}),
             e_undirected({}, hops=1)
         ])
         compare_graphs(g3_undirected_chain, g_out_nodes, g_out_edges)
 
-        g3_undirected_chain_closed = g.chain([
+        g3_undirected_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_undirected({}, hops=1),
             n({})
@@ -543,7 +543,7 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
 
         g = CGFull().edges(edges, 's', 'd').nodes(nodes, 'n')
 
-        g2 = g.chain([
+        g2 = g.gfql([
             n({'t': 0}),
             e_undirected(),
             n({'t': 0})
@@ -583,18 +583,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g2_forward, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'a'}
-        #g2_forward_triple = g.chain([
+        #g2_forward_triple = g.gfql([
         #    e_forward({}, source_node_match={'n': 'a'}, hops=2)
         #])
         #compare_graphs(g2_forward_triple, g_out_nodes, g_out_edges)
 
-        g2_forward_chain = g.chain([
+        g2_forward_chain = g.gfql([
             n({'n': 'a'}),
             e_forward({}, hops=2)
         ])
         compare_graphs(g2_forward_chain, g_out_nodes, g_out_edges)
 
-        g2_forward_chain_closed = g.chain([
+        g2_forward_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_forward({}, hops=2),
             n({})
@@ -623,18 +623,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g2_reverse, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'a'}
-        #g2_reverse_triple = g.chain([
+        #g2_reverse_triple = g.gfql([
         #    e_reverse({}, source_node_match={'n': 'a'}, hops=2)
         #])
         #compare_graphs(g2_reverse_triple, g_out_nodes, g_out_edges)
 
-        g2_reverse_chain = g.chain([
+        g2_reverse_chain = g.gfql([
             n({'n': 'a'}),
             e_reverse({}, hops=2)
         ])
         compare_graphs(g2_reverse_chain, g_out_nodes, g_out_edges)
 
-        g2_reverse_chain_closed = g.chain([
+        g2_reverse_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_reverse({}, hops=2),
             n({})
@@ -662,18 +662,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g2_undirected, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'a'}
-        #g2_undirected_triple = g.chain([
+        #g2_undirected_triple = g.gfql([
         #    e_undirected({}, source_node_match={'n': 'a'}, hops=2)
         #])
         #compare_graphs(g2_undirected_triple, g_out_nodes, g_out_edges)
 
-        g2_undirected_chain = g.chain([
+        g2_undirected_chain = g.gfql([
             n({'n': 'a'}),
             e_undirected({}, hops=2)
         ])
         compare_graphs(g2_undirected_chain, g_out_nodes, g_out_edges)
 
-        g2_undirected_chain_closed = g.chain([
+        g2_undirected_chain_closed = g.gfql([
             n({'n': 'a'}),
             e_undirected({}, hops=2),
             n({})
@@ -702,18 +702,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g3_forward, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'd'}
-        #g3_forward_triple = g.chain([
+        #g3_forward_triple = g.gfql([
         #    e_forward({}, source_node_match={'n': 'd'}, hops=2)
         #])
         #compare_graphs(g3_forward_triple, g_out_nodes, g_out_edges)
 
-        g3_forward_chain = g.chain([
+        g3_forward_chain = g.gfql([
             n({'n': 'd'}),
             e_forward({}, hops=2)
         ])
         compare_graphs(g3_forward_chain, g_out_nodes, g_out_edges)
 
-        g3_forward_chain_closed = g.chain([
+        g3_forward_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_forward({}, hops=2),
             n({})
@@ -742,18 +742,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g3_reverse, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'd'}
-        # g3_reverse_triple = g.chain([
+        # g3_reverse_triple = g.gfql([
         #    e_reverse({}, source_node_match={'n': 'd'}, hops=2)
         #])
         #compare_graphs(g3_reverse_triple, g_out_nodes, g_out_edges)
 
-        g3_reverse_chain = g.chain([
+        g3_reverse_chain = g.gfql([
             n({'n': 'd'}),
             e_reverse({}, hops=2)
         ])
         compare_graphs(g3_reverse_chain, g_out_nodes, g_out_edges)
 
-        g3_reverse_chain_closed = g.chain([
+        g3_reverse_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_reverse({}, hops=2),
             n({})
@@ -782,18 +782,18 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
         compare_graphs(g3_undirected, g_out_nodes_hop, g_out_edges)
 
         # source _node_match would require each hop to start with {'n': 'd'}
-        #g3_undirected_triple = g.chain([
+        #g3_undirected_triple = g.gfql([
         #    e_undirected({}, source_node_match={'n': 'd'}, hops=2)
         #])
         #compare_graphs(g3_undirected_triple, g_out_nodes, g_out_edges)
 
-        g3_undirected_chain = g.chain([
+        g3_undirected_chain = g.gfql([
             n({'n': 'd'}),
             e_undirected({}, hops=2)
         ])
         compare_graphs(g3_undirected_chain, g_out_nodes, g_out_edges)
 
-        g3_undirected_chain_closed = g.chain([
+        g3_undirected_chain_closed = g.gfql([
             n({'n': 'd'}),
             e_undirected({}, hops=2),
             n({})
@@ -806,7 +806,7 @@ class TestComputeChainQuery(NoAuthTestCase):
 
         g = chain_graph()
 
-        g2 = g.chain([
+        g2 = g.gfql([
             n(query='n == "a"')
         ])
 
@@ -817,7 +817,7 @@ class TestComputeChainQuery(NoAuthTestCase):
 
         g = chain_graph()
 
-        g2 = g.chain([
+        g2 = g.gfql([
             e_forward(edge_query='s == "a"')
         ])
 
@@ -828,7 +828,7 @@ class TestComputeChainQuery(NoAuthTestCase):
 
         g = chain_graph()
 
-        g2 = g.chain([
+        g2 = g.gfql([
             e_forward(source_node_query='n == "a"')
         ])
         assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
@@ -838,7 +838,7 @@ class TestComputeChainQuery(NoAuthTestCase):
 
         g = chain_graph()
 
-        g2 = g.chain([
+        g2 = g.gfql([
             e_forward(destination_node_query='n == "b"')
         ])
         assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
