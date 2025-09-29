@@ -73,13 +73,12 @@ class TestLetMatchers:
             'knows_edges': e_forward({'type': 'knows'})
         }))
 
-        # FILTER semantics: last binding (knows_edges) returns filtered edges
-        # The edges should be filtered to 'knows' type
-        assert len(result._edges) == 4  # Only 4 'knows' edges
-        assert all(result._edges['type'] == 'knows')
-        # Nodes remain from the previous adult filtering
-        assert len(result._nodes) == 3  # Only 3 adult persons
-        assert all(result._nodes['age'] >= 18)  # All nodes are adults
+        # FILTER semantics: last executed binding in topological order is 'adults'
+        # 'adults' depends on 'persons', so executes after 'knows_edges'
+        # Result is adult persons (nodes only, no edges since n() filters to nodes)
+        assert len(result._nodes) == 3  # Adults: nodes 1, 2, 5
+        assert all(result._nodes['age'] >= 18)
+        assert len(result._edges) == 0  # n() returns just nodes
 
     def test_matchers_operate_on_root_graph(self):
         """Test that matchers in Let operate on the root graph, not on previous bindings."""

@@ -256,13 +256,15 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
-        # Just execute the node matcher like g.gfql(n(...))
+        # ASTNode operates on the original graph (unless accessed via ASTRef)
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTEdge):
-        # Just execute the edge matcher like g.gfql(e_forward(...))
+        # ASTEdge operates on the original graph (unless accessed via ASTRef)
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference

@@ -435,21 +435,21 @@ class TestNodeExecution:
     """Test ASTNode execution in chain_let"""
     
     def test_node_execution_empty_filter(self):
-        """Test ASTNode with empty filter returns original graph"""
+        """Test ASTNode with empty filter returns only nodes (no edges)"""
         from graphistry.compute.chain_let import execute_node
         from graphistry.Engine import Engine
-        
+
         g = CGFull().edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
         g = g.materialize_nodes()  # Ensure nodes exist
         context = ExecutionContext()
-        
-        # Empty node filter
+
+        # Empty node filter - filters to just nodes, no edges
         node = n()
         result = execute_node('test', node, g, context, Engine.PANDAS)
-        
-        # Should return graph with same data
+
+        # Should return all nodes but no edges (filter semantics)
         assert len(result._nodes) == len(g._nodes)
-        assert len(result._edges) == len(g._edges)
+        assert len(result._edges) == 0  # n() filters to just nodes
     
     def test_node_execution_with_filter(self):
         """Test ASTNode with filter_dict filters nodes"""
@@ -469,12 +469,10 @@ class TestNodeExecution:
         node = n({'type': 'person'})
         result = execute_node('people', node, g, context, Engine.PANDAS)
         
-        # Should have all nodes with 'people' column marking matches
-        assert len(result._nodes) == 3  # All nodes present
-        assert 'people' in result._nodes.columns  # Has marking column
-        # Check that person nodes are marked True, company is False
-        assert result._nodes[result._nodes['type'] == 'person']['people'].all()
-        assert not result._nodes[result._nodes['type'] == 'company']['people'].any()
+        # With filter semantics, should only have person nodes
+        assert len(result._nodes) == 2  # Only person nodes
+        assert all(result._nodes['type'] == 'person')
+        assert len(result._edges) == 0  # n() filters to just nodes
     
     def test_node_execution_with_name(self):
         """Test ASTNode adds name column when specified"""
@@ -540,7 +538,7 @@ class TestNodeExecution:
         # 'active_people' further filters to only the active person (a)
         assert len(result._nodes) == 1  # Only the active person node
         assert result._nodes['id'].iloc[0] == 'a'
-        assert result._nodes['active'].iloc[0] is True
+        assert result._nodes['active'].iloc[0]
 
 class TestErrorHandling:
     """Test error handling and edge cases"""
