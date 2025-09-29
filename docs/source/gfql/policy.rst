@@ -8,13 +8,14 @@ Quick Start
 
 .. code-block:: python
 
-    from graphistry.compute.gfql.policy import PolicyException, GraphStats
+    from graphistry.compute.gfql.policy import PolicyException
 
     def my_policy(context):
-        # Deny remote data loading
+        # Deny remote data loading for specific datasets
         if context.get('is_remote'):
-            dataset_id = context['current_ast'].dataset_id
-            if dataset_id == 'forbidden':
+            # For remote operations, current_ast is ASTRemoteGraph
+            ast = context.get('current_ast')
+            if hasattr(ast, 'dataset_id') and ast.dataset_id == 'forbidden':
                 raise PolicyException('preload', 'Access denied', code=403)
 
     # Apply policy to query
@@ -45,22 +46,25 @@ The context dictionary passed to policy functions contains:
 
 - ``phase``: Current phase ('preload', 'postload', 'call')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
-- ``query``: Global/original query AST
-- ``current_ast``: Current sub-AST being executed
-- ``query_type``: Type of query ('chain', 'dag', 'single')
 - ``_policy_depth``: Internal recursion counter
+
+**Usually present:**
+
+- ``query``: Global/original query AST (None in call context)
+- ``current_ast``: Current sub-AST being executed (None in call context for method calls)
+- ``query_type``: Type of query ('chain', 'dag', 'single', 'call')
 
 **Phase-specific:**
 
 - ``plottable``: Graph instance (postload/call phases)
-- ``graph_stats``: Data statistics as GraphStats TypedDict (postload phase)
-- ``call_op``: Operation name (call phase)
-- ``call_params``: Operation parameters (call phase)
+- ``graph_stats``: Data statistics as GraphStats TypedDict (postload/call phases)
+- ``call_op``: Operation name (call phase only)
+- ``call_params``: Operation parameters (call phase only)
 
-**Remote operations:**
+**Context-specific:**
 
-- ``is_remote``: True for network operations
-- ``engine``: Current engine ('pandas', 'cudf', 'dask', 'dask_cudf')
+- ``is_remote``: True for remote data operations (ASTRemoteGraph)
+- ``engine``: Current engine value when available
 
 
 GraphStats Type
@@ -188,7 +192,67 @@ The exception can be enriched with additional fields for logging/debugging.
 Thread Safety
 -------------
 
-Policy execution is thread-safe with built-in recursion prevention. Policies are not invoked recursively when operations trigger internal queries.
+Policy execution is thread-safe with built-in recursion prevention. Policies are not invoked recursively when operations trigger internal queries (depth limit of 1).
+
+
+Remote Data Loading
+-------------------
+
+Policies can control remote data operations (``ASTRemoteGraph``). When ``is_remote`` is True in the context, the operation involves loading data from a remote source:
+
+.. code-block:: python
+
+    def remote_data_policy(context):
+        # Check remote operations in preload phase
+        if context['phase'] == 'preload' and context.get('is_remote'):
+            ast = context.get('current_ast')
+
+            # For ASTRemoteGraph, check dataset_id
+            if hasattr(ast, 'dataset_id'):
+                if ast.dataset_id in banned_datasets:
+                    raise PolicyException('preload', 'Dataset blocked')
+
+                # Check for JWT token
+                if hasattr(ast, 'token') and not validate_jwt(ast.token):
+                    raise PolicyException('preload', 'Invalid token', code=401)
+
+        # Check size after remote data loads
+        elif context['phase'] == 'postload' and context.get('is_remote'):
+            stats = context.get('graph_stats', {})
+            if stats.get('nodes', 0) > remote_limit:
+                raise PolicyException('postload', 'Remote data too large')
+
+Remote operations trigger both preload and postload hooks, allowing control before and after data transfer.
+
+
+Query Types
+-----------
+
+Policies work with different GFQL query patterns:
+
+**Chain queries** - Sequential operations:
+
+.. code-block:: python
+
+    # query_type will be 'chain'
+    g.gfql([n(), e(), n()], policy=policy_dict)
+
+**DAG queries** - Named bindings with dependencies:
+
+.. code-block:: python
+
+    # query_type will be 'dag'
+    g.gfql({'persons': n({'type': 'person'})}, policy=policy_dict)
+
+**Call operations** - Method invocations:
+
+.. code-block:: python
+
+    # query_type will be 'call', only 'call' phase triggered
+    from graphistry.compute.ast import call
+    g.gfql(call('hop', {'hops': 2}), policy={'call': my_policy})
+
+Each query type provides appropriate context to the policy for decision making.
 
 
 Integration with Hub
