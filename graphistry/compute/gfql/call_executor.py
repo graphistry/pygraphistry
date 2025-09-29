@@ -38,7 +38,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
 
     # Call policy phase - before executing call operation
     final_params = params
-    final_engine = engine
 
     if policy and 'call' in policy:
         from graphistry.compute.gfql.policy import PolicyContext, PolicyException
