@@ -29,9 +29,9 @@ class TestLetMatchers:
             'persons': n({'kind': 'person'})
         }))
 
-        # Check result has the named column
-        assert 'persons' in result._nodes.columns
-        assert result._nodes['persons'].sum() == 2  # 'a' and 'b' are persons
+        # FILTER semantics: result should only contain persons
+        assert len(result._nodes) == 2  # Only 'a' and 'b'
+        assert all(result._nodes['kind'] == 'person')
 
     def test_edge_matcher_in_let(self):
         """Test that ASTEdge can be used as Let binding."""
@@ -45,9 +45,9 @@ class TestLetMatchers:
             'x_edges': e_forward({'type': 'x'})
         }))
 
-        # Check result has the named column
-        assert 'x_edges' in result._edges.columns
-        assert result._edges['x_edges'].sum() == 2  # Two edges with type 'x'
+        # FILTER semantics: result should only contain x edges
+        assert len(result._edges) == 2  # Two edges with type 'x'
+        assert all(result._edges['type'] == 'x')
 
     def test_mixed_matchers_and_refs(self):
         """Test Let with both matchers and refs."""
@@ -73,17 +73,13 @@ class TestLetMatchers:
             'knows_edges': e_forward({'type': 'knows'})
         }))
 
-        # With filtering semantics, ASTRef returns only filtered results
-        # The result is the last executed binding (adults), which contains only adult persons
-        # Check that the persons column exists (from the matcher on filtered adults)
-        assert 'persons' in result._nodes.columns
-        assert 'knows_edges' in result._edges.columns
-
-        # The result should contain only adult persons after ASTRef filtering
+        # FILTER semantics: last binding (knows_edges) returns filtered edges
+        # The edges should be filtered to 'knows' type
+        assert len(result._edges) == 4  # Only 4 'knows' edges
+        assert all(result._edges['type'] == 'knows')
+        # Nodes remain from the previous adult filtering
         assert len(result._nodes) == 3  # Only 3 adult persons
         assert all(result._nodes['age'] >= 18)  # All nodes are adults
-        assert result._nodes['persons'].sum() == 3  # All 3 are persons
-        assert result._edges['knows_edges'].sum() == 4  # 4 knows edges
 
     def test_matchers_operate_on_root_graph(self):
         """Test that matchers in Let operate on the root graph, not on previous bindings."""
@@ -103,11 +99,9 @@ class TestLetMatchers:
             'companies': n({'type': 'company'})  # Should find companies from root, not from persons
         }))
 
-        # Both should succeed independently
-        assert 'persons' in result._nodes.columns
-        assert 'companies' in result._nodes.columns
-        assert result._nodes['persons'].sum() == 2  # 2 persons
-        assert result._nodes['companies'].sum() == 2  # 2 companies
+        # FILTER semantics: last binding (companies) should return only companies
+        assert len(result._nodes) == 2  # 2 companies
+        assert all(result._nodes['type'] == 'company')
 
     def test_chain_still_works(self):
         """Test that Chain still works as Let binding."""

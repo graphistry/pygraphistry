@@ -256,80 +256,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Empty chain - just return the referenced result
             result = referenced_result
     elif isinstance(ast_obj, ASTNode):
-        # For chain_let, we execute nodes in a simpler way than chain()
-        # No wavefront propagation - just mark matching nodes
-        node_obj = cast(ASTNode, ast_obj)  # Help mypy understand the type
-
-        # Start with the full graph
-        result = g
-
-        # Create a boolean mask for nodes that match the filter
-        nodes_df = g._nodes
-        mask = pd.Series(False, index=nodes_df.index)
-
-        if node_obj.filter_dict or node_obj.query:
-            # Apply filters to identify matching nodes
-            matching_mask = pd.Series(True, index=nodes_df.index)
-
-            if node_obj.filter_dict:
-                for key, val in node_obj.filter_dict.items():
-                    if key in nodes_df.columns:
-                        matching_mask = matching_mask & (nodes_df[key] == val)
-
-            if node_obj.query:
-                query_mask = nodes_df.eval(node_obj.query)
-                matching_mask = matching_mask & query_mask
-
-            mask = matching_mask
-        else:
-            # Empty filter matches all nodes
-            mask = pd.Series(True, index=nodes_df.index)
-
-        # Add the name column with the mask, preserving existing columns
-        nodes_with_columns = g._nodes.copy()
-        nodes_with_columns[name] = mask
-        result = result.nodes(nodes_with_columns)
-
-        # Also add node_obj._name if it exists (for chain compatibility)
-        if node_obj._name:
-            result = result.nodes(result._nodes.assign(**{node_obj._name: mask}))
+        # Just execute the node matcher like g.gfql(n(...))
+        from .chain import chain as chain_impl
+        result = chain_impl(g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTEdge):
-        # For chain_let, mark edges that match the filter
-        edge_obj = cast(ASTEdge, ast_obj)
-
-        # Start with the full graph
-        result = g
-
-        # Create a boolean mask for edges that match the filter
-        edges_df = g._edges
-        mask = pd.Series(False, index=edges_df.index)
-
-        if edge_obj.edge_match or edge_obj.edge_query:
-            # Apply filters to identify matching edges
-            matching_mask = pd.Series(True, index=edges_df.index)
-
-            if edge_obj.edge_match:
-                for key, val in edge_obj.edge_match.items():
-                    if key in edges_df.columns:
-                        matching_mask = matching_mask & (edges_df[key] == val)
-
-            if edge_obj.edge_query:
-                query_mask = edges_df.eval(edge_obj.edge_query)
-                matching_mask = matching_mask & query_mask
-
-            mask = matching_mask
-        else:
-            # Empty filter matches all edges
-            mask = pd.Series(True, index=edges_df.index)
-
-        # Add the name column with the mask, preserving existing columns
-        edges_with_columns = g._edges.copy()
-        edges_with_columns[name] = mask
-        result = result.edges(edges_with_columns)
-
-        # Also add edge_obj._name if it exists (for chain compatibility)
-        if edge_obj._name:
-            result = result.edges(result._edges.assign(**{edge_obj._name: mask}))
+        # Just execute the edge matcher like g.gfql(e_forward(...))
+        from .chain import chain as chain_impl
+        result = chain_impl(g, [ast_obj], EngineAbstract(engine.value))
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
