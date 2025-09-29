@@ -285,3 +285,156 @@ The policy system is designed for Graphistry Hub integration:
                     )
 
         return policy
+
+
+Advanced Topics
+---------------
+
+**Policy Composition**
+
+Combine multiple policies using composition patterns:
+
+.. code-block:: python
+
+    def compose_policies(*policies):
+        """Compose multiple policies into one."""
+        def composed(context):
+            for policy in policies:
+                policy(context)  # Each can raise PolicyException
+        return composed
+
+    # Use composed policy
+    combined = compose_policies(
+        size_limit_policy,
+        rate_limit_policy,
+        tier_policy
+    )
+    g.gfql(query, policy={'postload': combined})
+
+
+**Stateful Policies with Closures**
+
+Track state across multiple queries:
+
+.. code-block:: python
+
+    def create_rate_limiter(max_per_minute=60):
+        from collections import deque
+        from time import time
+
+        calls = deque()
+
+        def policy(context):
+            if context['phase'] == 'preload':
+                now = time()
+                # Remove calls older than 1 minute
+                while calls and calls[0] < now - 60:
+                    calls.popleft()
+
+                if len(calls) >= max_per_minute:
+                    raise PolicyException(
+                        'preload',
+                        'Rate limit exceeded',
+                        code=429
+                    )
+                calls.append(now)
+
+        return policy
+
+
+**Testing Policies**
+
+Test policies in isolation:
+
+.. code-block:: python
+
+    def test_policy():
+        # Create mock context
+        context = {
+            'phase': 'postload',
+            'graph_stats': {'nodes': 5000},
+            '_policy_depth': 0
+        }
+
+        # Test acceptance
+        my_policy(context)  # Should not raise
+
+        # Test denial
+        context['graph_stats']['nodes'] = 50000
+        with pytest.raises(PolicyException) as exc:
+            my_policy(context)
+        assert exc.value.code == 413
+
+
+**Performance Considerations**
+
+- Policies execute synchronously - keep them lightweight
+- Use caching for expensive validations
+- Consider async patterns for external calls (future enhancement)
+- Recursion prevention adds minimal overhead (depth limit of 1)
+
+
+**Debugging Policies**
+
+Use logging to debug policy decisions:
+
+.. code-block:: python
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    def debug_policy(context):
+        phase = context['phase']
+        logger.debug(f"Policy called: phase={phase}")
+
+        if phase == 'postload':
+            stats = context.get('graph_stats', {})
+            logger.debug(f"Graph stats: {stats}")
+
+            if stats.get('nodes', 0) > limit:
+                logger.warning(f"Denying: {stats['nodes']} > {limit}")
+                raise PolicyException(...)
+
+        logger.debug(f"Policy accepted in {phase}")
+
+
+API Reference
+-------------
+
+**Main Interface**
+
+.. code-block:: python
+
+    g.gfql(query, policy={
+        'preload': preload_function,   # Optional
+        'postload': postload_function, # Optional
+        'call': call_function          # Optional
+    })
+
+**Imports**
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import (
+        PolicyException,  # Exception class for denying operations
+        PolicyContext,   # TypedDict for context parameter
+        GraphStats,      # TypedDict for graph statistics
+        PolicyFunction,  # Type alias for policy functions
+        PolicyDict       # Type alias for policy dictionary
+    )
+
+**PolicyException Parameters**
+
+- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'call')
+- ``reason`` (str): Human-readable explanation
+- ``code`` (int): HTTP-like status code (default: 403)
+- ``query_type`` (str, optional): Type of query being executed
+- ``data_size`` (dict, optional): Graph statistics at time of denial
+
+**Common HTTP Status Codes**
+
+- ``401``: Unauthorized (authentication required)
+- ``403``: Forbidden (authenticated but not allowed)
+- ``413``: Payload too large (data size limit exceeded)
+- ``429``: Too many requests (rate limit exceeded)
+- ``503``: Service unavailable (resource constraints)
