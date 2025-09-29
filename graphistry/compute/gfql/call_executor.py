@@ -69,18 +69,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 e.data_size = stats
             raise
 
-    # Special handling for methods that need the engine parameter
-    if function in ['materialize_nodes', 'hop']:
-        # These methods accept an engine parameter
-        if 'engine' not in final_params:
-            # Add current engine if not specified
-            # Convert Engine enum to string for validation
-            from graphistry.Engine import Engine
-            if isinstance(final_engine, Engine):
-                final_params['engine'] = final_engine.value
-            else:
-                final_params['engine'] = str(final_engine)
-
     # Validate parameters against safelist
     validated_params = validate_call_params(function, final_params)
 

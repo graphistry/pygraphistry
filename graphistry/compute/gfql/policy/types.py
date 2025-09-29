@@ -4,6 +4,7 @@ from typing import TypedDict, Optional, Dict, Any, Literal, Callable, TYPE_CHECK
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Phase literal type
 Phase = Literal["preload", "postload", "call"]
@@ -38,7 +39,7 @@ class PolicyContext(TypedDict, total=False):
     plottable: Optional['Plottable']
     call_op: Optional[str]
     call_params: Optional[Dict[str, Any]]
-    graph_stats: Optional[Dict[str, int]]
+    graph_stats: Optional['GraphStats']
     is_remote: Optional[bool]
     engine: Optional[str]
     _policy_depth: int

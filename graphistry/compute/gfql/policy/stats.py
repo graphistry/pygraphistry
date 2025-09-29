@@ -1,12 +1,23 @@
 """Graph statistics extraction for policy decisions."""
 
-from typing import Dict, TYPE_CHECKING
+from typing import TypedDict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 
-def extract_graph_stats(g: 'Plottable') -> Dict[str, int]:
+class GraphStats(TypedDict, total=False):
+    """Statistics about a graph for policy decisions.
+
+    All fields are optional as extraction may fail for various DataFrame types.
+    """
+    nodes: int  # Number of nodes
+    edges: int  # Number of edges
+    node_bytes: int  # Memory usage of node DataFrame
+    edge_bytes: int  # Memory usage of edge DataFrame
+
+
+def extract_graph_stats(g: 'Plottable') -> GraphStats:
     """Extract statistics from a Plottable safely across all DataFrame types.
 
     Handles pandas, cudf, dask, and dask-cudf DataFrames gracefully.
@@ -15,10 +26,10 @@ def extract_graph_stats(g: 'Plottable') -> Dict[str, int]:
         g: Plottable instance to extract stats from
 
     Returns:
-        Dictionary with node/edge counts and memory estimates.
+        GraphStats with node/edge counts and memory estimates.
         Returns empty dict on any failure to avoid breaking queries.
     """
-    stats = {}
+    stats: GraphStats = {}
 
     def safe_len(df) -> int:
         """Get length safely for any DataFrame type."""

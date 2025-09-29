@@ -7,6 +7,7 @@ from .types import (
     PolicyDict,
     QueryType
 )
+from .stats import GraphStats
 
 __all__ = [
     'PolicyException',
@@ -14,5 +15,6 @@ __all__ = [
     'PolicyFunction',
     'PolicyDict',
     'Phase',
-    'QueryType'
+    'QueryType',
+    'GraphStats'
 ]

@@ -8,7 +8,7 @@ Quick Start
 
 .. code-block:: python
 
-    from graphistry.compute.gfql.policy import PolicyException
+    from graphistry.compute.gfql.policy import PolicyException, GraphStats
 
     def my_policy(context):
         # Deny remote data loading
@@ -53,14 +53,30 @@ The context dictionary passed to policy functions contains:
 **Phase-specific:**
 
 - ``plottable``: Graph instance (postload/call phases)
-- ``graph_stats``: Data statistics (postload phase)
+- ``graph_stats``: Data statistics as GraphStats TypedDict (postload phase)
 - ``call_op``: Operation name (call phase)
 - ``call_params``: Operation parameters (call phase)
 
 **Remote operations:**
 
 - ``is_remote``: True for network operations
-- ``engine``: Current engine ('pandas', 'cudf', etc.)
+- ``engine``: Current engine ('pandas', 'cudf', 'dask', 'dask_cudf')
+
+
+GraphStats Type
+---------------
+
+The ``graph_stats`` field provides typed statistics:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import GraphStats
+
+    # GraphStats is a TypedDict with:
+    # - nodes: int (number of nodes)
+    # - edges: int (number of edges)
+    # - node_bytes: int (memory usage)
+    # - edge_bytes: int (memory usage)
 
 
 Examples
