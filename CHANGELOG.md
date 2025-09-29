@@ -16,6 +16,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * All functionality remains the same, only the method names have changed
 
 ### Added
+* GFQL: Let bindings now accept ASTNode/ASTEdge matchers directly (#751)
+  * Direct syntax: `let({'persons': n({'type': 'person'})})` without Chain wrapper
+  * Auto-converts list syntax to Chain for backward compatibility
+  * **Important**: Uses FILTER semantics - `n()` returns nodes only (no edges)
+  * Independent bindings operate on root graph unless using `ref()`
+* Development: Host-level convenience scripts for local testing
+  * `./bin/pytest.sh` - Runs tests with highest available Python (3.8-3.14)
+  * `./bin/mypy.sh` - Type checking without Docker overhead
+  * `./bin/flake8.sh` - Linting with auto-detection of Python version
 * GFQL: Add comprehensive validation framework with detailed error reporting
   * Built-in validation: `Chain()` constructor validates syntax automatically
   * Schema validation: `validate_chain_schema()` validates queries against DataFrame schemas
