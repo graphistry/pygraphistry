@@ -45,12 +45,12 @@ class TestPolicyBehavior:
     def test_deny_based_on_parameters(self):
         """Test policy can deny based on call parameters."""
         def param_policy(context: PolicyContext) -> None:
-            if context['phase'] == 'call':
+            if context['phase'] == 'precall':
                 params = context.get('call_params', {})
                 # Deny if hops > 2
                 if params.get('hops', 0) > 2:
                     raise PolicyException(
-                        phase='call',
+                        phase='precall',
                         reason='Too many hops requested',
                         code=413
                     )
@@ -61,7 +61,7 @@ class TestPolicyBehavior:
         # Should work with 1 hop
         result = g.gfql(
             call('hop', {'hops': 1}),
-            policy={'call': param_policy}
+            policy={'precall': param_policy}
         )
         assert result is not None
 
@@ -69,7 +69,7 @@ class TestPolicyBehavior:
         with pytest.raises(PolicyException) as exc_info:
             g.gfql(
                 call('hop', {'hops': 3}),
-                policy={'call': param_policy}
+                policy={'precall': param_policy}
             )
         assert 'Too many hops' in exc_info.value.reason
 
@@ -97,12 +97,12 @@ class TestPolicyBehavior:
     def test_deny_specific_operations(self):
         """Test policy can deny specific operations."""
         def operation_policy(context: PolicyContext) -> None:
-            if context['phase'] == 'call':
+            if context['phase'] == 'precall':
                 op = context.get('call_op', '')
                 # Deny hypergraph operation
                 if op == 'hypergraph':
                     raise PolicyException(
-                        phase='call',
+                        phase='precall',
                         reason='Hypergraph not allowed',
                         code=403
                     )
@@ -113,7 +113,7 @@ class TestPolicyBehavior:
         # hop should work
         result = g.gfql(
             call('hop', {'hops': 1}),
-            policy={'call': operation_policy}
+            policy={'precall': operation_policy}
         )
         assert result is not None
 
@@ -153,11 +153,11 @@ class TestPolicyBehavior:
                 self.max_calls = max_calls
 
             def policy(self, context: PolicyContext) -> None:
-                if context['phase'] == 'call':
+                if context['phase'] == 'precall':
                     self.calls += 1
                     if self.calls > self.max_calls:
                         raise PolicyException(
-                            phase='call',
+                            phase='precall',
                             reason=f'Rate limit exceeded: {self.calls}/{self.max_calls}',
                             code=429
                         )
@@ -171,7 +171,7 @@ class TestPolicyBehavior:
         with pytest.raises(PolicyException) as exc_info:
             g.gfql(
                 call('hop', {'hops': 1}),
-                policy={'call': limiter.policy}
+                policy={'precall': limiter.policy}
             )
         assert exc_info.value.code == 429
 

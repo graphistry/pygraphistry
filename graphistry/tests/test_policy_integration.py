@@ -133,7 +133,7 @@ class TestHubIntegration:
                             code=408
                         )
 
-            elif phase == 'call':
+            elif phase == 'precall':
                 # Check call operation limits
                 op = context.get('call_op', '')
                 state['calls_made'] += 1
@@ -143,7 +143,7 @@ class TestHubIntegration:
                     state['denied'] = True
                     state['deny_reason'] = f"Operation '{op}' not available in {tier.value} plan"
                     raise PolicyException(
-                        phase='call',
+                        phase='precall',
                         reason=state['deny_reason'],
                         code=403
                     )
@@ -153,7 +153,7 @@ class TestHubIntegration:
                     state['denied'] = True
                     state['deny_reason'] = f"Call limit exceeded for {tier.value} plan"
                     raise PolicyException(
-                        phase='call',
+                        phase='precall',
                         reason=state['deny_reason'],
                         code=429
                     )
@@ -186,7 +186,7 @@ class TestHubIntegration:
         with pytest.raises(PolicyException) as exc_info:
             g.gfql(
                 call('hop', {'hops': 1}),
-                policy={'call': policy}
+                policy={'precall': policy}
             )
 
         assert state['denied'] is True
@@ -206,7 +206,7 @@ class TestHubIntegration:
         # Pro can use hop
         result = g.gfql(
             call('hop', {'hops': 1}),
-            policy={'call': policy}
+            policy={'precall': policy}
         )
         assert result is not None
         assert state['calls_made'] >= 1  # hop may be called multiple times internally
@@ -215,7 +215,7 @@ class TestHubIntegration:
         result = g.gfql(
             call('hop', {'hops': 3}),
             engine='pandas',  # Pro policy may override to cudf
-            policy={'call': policy}
+            policy={'precall': policy}
         )
         assert state['calls_made'] >= 2  # Multiple gfql calls
 
@@ -243,7 +243,7 @@ class TestHubIntegration:
         for op, params in [('hop', {'hops': 1}), ('materialize_nodes', {}), ('get_degrees', {})]:
             result = g.gfql(
                 call(op, params),
-                policy={'call': policy}
+                policy={'precall': policy}
             )
             # Should not raise
 
@@ -273,7 +273,7 @@ class TestHubIntegration:
             """Create policy that gates features."""
 
             def policy(context: PolicyContext) -> None:
-                if context['phase'] == 'call':
+                if context['phase'] == 'precall':
                     op = context.get('call_op', '')
 
                     # Map operations to features
@@ -287,7 +287,7 @@ class TestHubIntegration:
 
                     if not features.get(feature, False):
                         raise PolicyException(
-                            phase='call',
+                            phase='precall',
                             reason=f'Feature {feature} not enabled',
                             code=403
                         )
@@ -308,11 +308,11 @@ class TestHubIntegration:
 
         # Basic plan can't use hop
         with pytest.raises(PolicyException) as exc_info:
-            g.gfql(call('hop', {'hops': 1}), policy={'call': basic_policy})
+            g.gfql(call('hop', {'hops': 1}), policy={'precall': basic_policy})
         assert 'graph_traversal not enabled' in str(exc_info.value)
 
         # Pro plan can use hop
-        result = g.gfql(call('hop', {'hops': 1}), policy={'call': pro_policy})
+        result = g.gfql(call('hop', {'hops': 1}), policy={'precall': pro_policy})
         assert result is not None
 
     def test_graceful_degradation(self):
@@ -364,10 +364,10 @@ class TestHubIntegration:
 
         # Alice (free tier) can't use hop
         with pytest.raises(PolicyException):
-            g.gfql(call('hop', {'hops': 1}), policy={'call': policy1})
+            g.gfql(call('hop', {'hops': 1}), policy={'precall': policy1})
 
         # Bob (pro tier) can use hop
-        result = g.gfql(call('hop', {'hops': 1}), policy={'call': policy2})
+        result = g.gfql(call('hop', {'hops': 1}), policy={'precall': policy2})
         assert result is not None
 
         # States are independent

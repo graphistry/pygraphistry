@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Phase literal type
-Phase = Literal["preload", "postload", "call"]
+Phase = Literal["preload", "postload", "precall", "postcall"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
@@ -17,17 +17,23 @@ class PolicyContext(TypedDict, total=False):
     """Strongly typed context passed to policy functions.
 
     Attributes:
-        phase: Current execution phase (preload, postload, call)
+        phase: Current execution phase (preload, postload, precall, postcall)
         hook: Hook name (same as phase, useful for shared handlers)
         query: Original/global query object
         current_ast: Current AST object being executed (if applicable)
         query_type: Type of query (chain, dag, single)
-        plottable: Plottable instance (postload/call phases)
-        call_op: Call operation name (call phase only)
-        call_params: Call parameters (call phase only)
+        plottable: Plottable instance (postload/precall/postcall phases)
+                  - precall: INPUT graph
+                  - postcall: RESULT graph
+        call_op: Call operation name (precall/postcall phases only)
+        call_params: Call parameters (precall/postcall phases only)
         graph_stats: Graph statistics (nodes, edges, memory)
+                    - precall: INPUT graph stats
+                    - postcall: RESULT graph stats
         is_remote: True for remote/network operations
         engine: Engine being used (pandas, cudf, etc.)
+        execution_time: Method execution duration (postcall phase only)
+        success: Execution success flag (postcall phase only)
         _policy_depth: Internal recursion prevention counter
     """
 
@@ -42,6 +48,8 @@ class PolicyContext(TypedDict, total=False):
     graph_stats: Optional['GraphStats']
     is_remote: Optional[bool]
     engine: Optional[str]
+    execution_time: Optional[float]  # Method execution duration (postcall only)
+    success: Optional[bool]          # Execution success flag (postcall only)
     _policy_depth: int
 
 

@@ -34,7 +34,7 @@ class TestPolicyExceptionValidation:
 
     def test_exception_with_enrichment(self):
         """Test PolicyException can be enriched with context."""
-        exc = PolicyException('call', 'Operation denied')
+        exc = PolicyException('precall', 'Operation denied')
 
         # Can enrich with query_type
         exc.query_type = 'chain'

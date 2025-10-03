@@ -36,29 +36,31 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     if policy is None:
         policy = getattr(_thread_local, 'policy', None)
 
-    # Call policy phase - before executing call operation
+    # Precall policy phase - before executing call operation
     final_params = params
 
-    if policy and 'call' in policy:
+    import time
+
+    if policy and 'precall' in policy:
         from graphistry.compute.gfql.policy import PolicyContext, PolicyException
         from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
         stats = extract_graph_stats(g)
         context: PolicyContext = {
-            'phase': 'call',
-            'hook': 'call',
+            'phase': 'precall',
+            'hook': 'precall',
             'query': None,  # Not available in call context
             'current_ast': None,  # Calls don't have AST object
             'call_op': function,
             'call_params': params,
-            'plottable': g,
-            'graph_stats': stats,
+            'plottable': g,  # INPUT graph
+            'graph_stats': stats,  # INPUT stats
             '_policy_depth': 0
         }
 
         try:
             # Policy can only accept (None) or deny (exception)
-            policy['call'](context)
+            policy['precall'](context)
 
         except PolicyException as e:
             # Enrich exception with context if not already set
@@ -120,9 +122,15 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     method = getattr(g, function)
 
     try:
+        # Measure execution time for postcall policy
+        start_time = time.perf_counter()
+
         # Execute the method with validated parameters
         result = method(**validated_params)
-        
+
+        # Calculate execution time
+        execution_time = time.perf_counter() - start_time
+
         # Ensure result is a Plottable (most methods return self or new Plottable)
         if not isinstance(result, Plottable):
             raise GFQLTypeError(
@@ -132,7 +140,39 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 value=f"{type(result).__name__}",
                 suggestion="Only methods that return Plottable objects are allowed"
             )
-        
+
+        # Postcall policy phase - after successful method execution
+        if policy and 'postcall' in policy:
+            from graphistry.compute.gfql.policy import PolicyContext, PolicyException
+            from graphistry.compute.gfql.policy.stats import extract_graph_stats
+
+            result_stats = extract_graph_stats(result)
+            postcall_context: PolicyContext = {
+                'phase': 'postcall',
+                'hook': 'postcall',
+                'query': None,  # Not available in call context
+                'current_ast': None,  # Calls don't have AST object
+                'call_op': function,
+                'call_params': params,  # Original parameters for reference
+                'plottable': result,  # RESULT graph
+                'graph_stats': result_stats,  # RESULT stats
+                'execution_time': execution_time,  # NEW field
+                'success': True,  # NEW field - always True in postcall
+                '_policy_depth': 0
+            }
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postcall'](postcall_context)
+
+            except PolicyException as e:
+                # Enrich exception with context if not already set
+                if e.query_type is None:
+                    e.query_type = 'call'
+                if e.data_size is None:
+                    e.data_size = result_stats
+                raise
+
         return result
         
     except TypeError as e:

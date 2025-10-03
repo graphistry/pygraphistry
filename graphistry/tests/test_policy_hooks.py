@@ -62,25 +62,52 @@ class TestPolicyHooks:
         g.gfql([n()], policy={'postload': postload_policy})
         assert hook_called['postload'], "Postload hook should have been called"
 
-    def test_call_hook_called(self):
-        """Test that call hook is called for call operations."""
+    def test_precall_hook_called(self):
+        """Test that precall hook is called for call operations."""
         from graphistry.compute.ast import call
 
-        hook_called = {'call': False}
+        hook_called = {'precall': False}
 
-        def call_policy(context: PolicyContext) -> None:
-            hook_called['call'] = True
-            assert context['phase'] == 'call'
+        def precall_policy(context: PolicyContext) -> None:
+            hook_called['precall'] = True
+            assert context['phase'] == 'precall'
             assert 'call_op' in context
             assert 'call_params' in context
             assert context['call_op'] == 'hop'  # We're testing hop operation
+            # Precall should not have execution_time
+            assert 'execution_time' not in context or context['execution_time'] is None
 
         df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
         g = graphistry.edges(df, 's', 'd')
 
         # Test with hop operation
-        g.gfql(call('hop', {'hops': 2}), policy={'call': call_policy})
-        assert hook_called['call'], "Call hook should have been called"
+        g.gfql(call('hop', {'hops': 2}), policy={'precall': precall_policy})
+        assert hook_called['precall'], "Precall hook should have been called"
+
+    def test_postcall_hook_called(self):
+        """Test that postcall hook is called after call operations."""
+        from graphistry.compute.ast import call
+
+        hook_called = {'postcall': False}
+
+        def postcall_policy(context: PolicyContext) -> None:
+            hook_called['postcall'] = True
+            assert context['phase'] == 'postcall'
+            assert 'call_op' in context
+            assert 'call_params' in context
+            assert context['call_op'] == 'hop'  # We're testing hop operation
+            # Postcall should have execution_time and success
+            assert 'execution_time' in context
+            assert context['execution_time'] is not None
+            assert context['execution_time'] > 0
+            assert context['success'] is True
+
+        df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
+        g = graphistry.edges(df, 's', 'd')
+
+        # Test with hop operation
+        g.gfql(call('hop', {'hops': 2}), policy={'postcall': postcall_policy})
+        assert hook_called['postcall'], "Postcall hook should have been called"
 
     def test_multiple_hooks(self):
         """Test that multiple hooks can be used together."""

@@ -51,7 +51,7 @@ def gfql(self: Plottable,
     :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, or dict
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
-    :param policy: Optional policy hooks for external control (preload, postload, call phases)
+    :param policy: Optional policy hooks for external control (preload, postload, precall, postcall phases)
     :returns: Resulting Plottable
     :rtype: Plottable
 
@@ -62,7 +62,8 @@ def gfql(self: Plottable,
 
     - **preload**: Before data is loaded (can modify query/engine)
     - **postload**: After data is loaded (can inspect data size)
-    - **call**: Before each method call (can modify parameters)
+    - **precall**: Before each method call (can deny based on parameters)
+    - **postcall**: After each method call (can validate results, timing)
 
     Policies can accept/deny/modify operations. Modifications are validated
     against a schema and applied immediately. Recursion is prevented at depth 1.
@@ -99,12 +100,12 @@ def gfql(self: Plottable,
                             data_size={'nodes': state['nodes_processed']}
                         )
 
-                elif phase == 'call':
+                elif phase == 'precall':
                     # Restrict operations
                     op = context.get('call_op', '')
                     if op == 'hypergraph':
                         raise PolicyException(
-                            phase='call',
+                            phase='precall',
                             reason='Hypergraph not available in free tier',
                             code=403
                         )
@@ -118,7 +119,7 @@ def gfql(self: Plottable,
         result = g.gfql([n()], policy={
             'preload': policy_func,
             'postload': policy_func,
-            'call': policy_func
+            'precall': policy_func
         })
     
     **Example: Chain query**

@@ -101,13 +101,13 @@ class TestClosureBasedState:
             }
 
             def policy(context: PolicyContext) -> None:
-                if context['phase'] == 'call':
+                if context['phase'] == 'precall':
                     state["call_count"] += 1
 
                     if state["call_count"] > max_calls:
                         state["denied"] = True
                         raise PolicyException(
-                            phase='call',
+                            phase='precall',
                             reason=f'Rate limit exceeded: {max_calls} calls',
                             code=429
                         )
@@ -127,7 +127,7 @@ class TestClosureBasedState:
 
         # Should fail quickly due to low limit (hop is called multiple times internally)
         with pytest.raises(PolicyException) as exc_info:
-            g.gfql(call('hop', {'hops': 1}), policy={'call': policy_func})
+            g.gfql(call('hop', {'hops': 1}), policy={'precall': policy_func})
 
         assert exc_info.value.code == 429
         assert 'Rate limit' in exc_info.value.reason
@@ -195,7 +195,7 @@ class TestClosureBasedState:
             }
 
             def policy(context: PolicyContext) -> None:
-                if context['phase'] == 'call':
+                if context['phase'] == 'precall':
                     op = context.get('call_op', '')
                     state["feature_checks"].append(op)
 
@@ -203,7 +203,7 @@ class TestClosureBasedState:
                     if not enabled_features.get(op, True):
                         state["denied_features"].append(op)
                         raise PolicyException(
-                            phase='call',
+                            phase='precall',
                             reason=f'Feature not enabled: {op}',
                             code=403
                         )
@@ -223,7 +223,7 @@ class TestClosureBasedState:
 
         # hop should be denied
         with pytest.raises(PolicyException) as exc_info:
-            g.gfql(call('hop', {'hops': 1}), policy={'call': policy_func})
+            g.gfql(call('hop', {'hops': 1}), policy={'precall': policy_func})
 
         assert 'hop' in exc_info.value.reason
         assert 'hop' in state["denied_features"]
@@ -250,20 +250,20 @@ class TestClosureBasedState:
 
                 return None
 
-            def call_policy(context: PolicyContext) -> None:
+            def precall_policy(context: PolicyContext) -> None:
                 shared_state["call_count"] += 1
 
                 # Can see all counts
                 total = sum(shared_state.values())
                 if total > 10:
-                    raise PolicyException('call', 'Too many total operations')
+                    raise PolicyException('precall', 'Too many total operations')
 
                 return None
 
             return {
                 'preload': preload_policy,
                 'postload': postload_policy,
-                'call': call_policy
+                'precall': precall_policy
             }, shared_state
 
         policies, state = create_shared_state_policies()
