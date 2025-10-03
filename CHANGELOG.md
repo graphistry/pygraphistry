@@ -6,19 +6,17 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## Dev
-### Breaking 🔥
-* GFQL: Renamed `chain()` methods to `gfql()` for clarity
-  * **Migration required**: Update your code as follows:
-    * `g.chain([...])` → `g.gfql([...])`
-    * `g.chain_remote([...])` → `g.gfql_remote([...])`
-    * `g.chain_remote_shape([...])` → `g.gfql_remote_shape([...])`
-  * The old `chain*` methods are deprecated and will be removed in a future version
-  * All functionality remains the same, only the method names have changed
+
+## [0.42.0 - 2025-10-02]
 
 ### Fixed
 * GFQL: Fix hypergraph typing - add method to Plottable Protocol, resolve circular import
 
 ### Added
+* GFQL: Renamed `chain()` methods to `gfql()` for clarity
+  * New methods available: `g.gfql([...])`, `g.gfql_remote([...])`, `g.gfql_remote_shape([...])`
+  * The old `chain*` methods are deprecated with no sunset date - continue working as before
+  * All functionality remains the same, only method names have been added
 * GFQL: Let bindings now accept ASTNode/ASTEdge matchers directly (#751)
   * Direct syntax: `let({'persons': n({'type': 'person'})})` without Chain wrapper
   * Auto-converts list syntax to Chain for backward compatibility
