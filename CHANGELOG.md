@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.42.1 - 2025-10-02]
+
 ### Fixed
 * neo4j: Handle new spatial object format in driver 5.28+ for backwards compatibility
 
