@@ -91,7 +91,7 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 
 # Type checking and linting
 ./bin/lint.sh
-./bin/typecheck.sh
+./bin/mypy.sh
 mypy graphistry/
 ruff check graphistry/ --fix
 
