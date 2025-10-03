@@ -7,4 +7,4 @@ class NoAuthTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.register(api=1)
+        graphistry.register(api=1, key="test-key")
