@@ -370,3 +370,24 @@ class Test_Neo4jConnector:
             relationship_type_key,
         ]:
             assert col in g._edges
+
+
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
+def test_stringify_spatial_unit():
+    """Unit tests for stringify_spatial function format compatibility"""
+    from graphistry.bolt_util import stringify_spatial
+
+    # Test None and non-spatial inputs
+    assert stringify_spatial(None) is None
+    assert stringify_spatial("test") == "test"
+
+    # Test with real Neo4j spatial objects to ensure our fix works
+    point = neo4j.spatial.Point([1.0, 2.0, 3.0])
+    cartesian = neo4j.spatial.CartesianPoint([4.0, 5.0])
+    wgs84 = neo4j.spatial.WGS84Point([6.0, 7.0, 8.0])
+
+    # All should be converted to old POINT(...) format with space-separated coords
+    results = [stringify_spatial(obj) for obj in [point, cartesian, wgs84]]
+    for result in results:
+        assert result.startswith("POINT(") and result.endswith(")")
+        assert "," not in result  # No commas in coordinates
