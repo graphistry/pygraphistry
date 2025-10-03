@@ -138,7 +138,7 @@ def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: 
 
     ###
 
-    out_df[col] = df[col].apply(str)
+    out_df[col] = df[col].apply(stringify_spatial)
 
     return out_df
 
