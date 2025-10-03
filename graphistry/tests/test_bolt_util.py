@@ -393,6 +393,7 @@ def test_stringify_spatial_unit():
 
     # Test old format is preserved
     old_isinstance = isinstance
+
     def mock_isinstance_old(obj, cls):
         return cls == neo4j.spatial.Point and isinstance(obj, MockOldPoint)
 
@@ -405,6 +406,7 @@ def test_stringify_spatial_unit():
         builtins.isinstance = old_isinstance
 
     # Test new format is converted
+
     def mock_isinstance_new(obj, cls):
         return cls == neo4j.spatial.Point and isinstance(obj, MockNewPoint)
 
