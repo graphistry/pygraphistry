@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.42.2 - 2025-10-03]
+
+### Fixed
+* Tests: Fix NoAuthTestCase authentication bypass pattern that was broken due to incorrect operation order
+  * `register(api=1)` was resetting `_is_authenticated` back to False after it was set to True
+  * Fixed by calling `register()` first, then setting `_is_authenticated = True`
+  * Added `setUp()` method to reset authentication state before each test for better isolation
+  * Added comprehensive documentation explaining this is a temporary hack
+
 ## [0.42.1 - 2025-10-02]
 
 ### Fixed
