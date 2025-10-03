@@ -25,7 +25,7 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at three distinct phases:
+Policies are invoked at four distinct phases:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
@@ -33,8 +33,11 @@ Policies are invoked at three distinct phases:
 **postload**
     After data is loaded. Can check size/content and deny further processing.
 
-**call**
-    Before method execution (hop, filter, etc.). Can control operations.
+**precall**
+    Before method execution (hop, filter, etc.). Can control operations and validate parameters.
+
+**postcall**
+    After method execution. Can validate result size, track execution time, and log performance.
 
 
 Context Fields
@@ -44,7 +47,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'call')
+- ``phase``: Current phase ('preload', 'postload', 'precall', 'postcall')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -56,10 +59,12 @@ The context dictionary passed to policy functions contains:
 
 **Phase-specific:**
 
-- ``plottable``: Graph instance (postload/call phases)
-- ``graph_stats``: Data statistics as GraphStats TypedDict (postload/call phases)
-- ``call_op``: Operation name (call phase only)
-- ``call_params``: Operation parameters (call phase only)
+- ``plottable``: Graph instance (postload/precall/postcall phases)
+- ``graph_stats``: Data statistics as GraphStats TypedDict (postload/precall/postcall phases)
+- ``call_op``: Operation name (precall/postcall phases only)
+- ``call_params``: Operation parameters (precall/postcall phases only)
+- ``execution_time``: Method execution duration in seconds (postcall phase only)
+- ``success``: Execution success flag (postcall phase only)
 
 **Context-specific:**
 
@@ -103,6 +108,55 @@ Examples
     g.gfql(query, policy={'postload': size_limit_policy})
 
 
+**Control Operation Execution and Performance**
+
+.. code-block:: python
+
+    def operation_control_policy(context):
+        if context['phase'] == 'precall':
+            # Validate operation parameters before execution
+            op = context.get('call_op', '')
+            params = context.get('call_params', {})
+
+            # Deny expensive operations
+            if op == 'hop' and params.get('hops', 0) > 3:
+                raise PolicyException(
+                    'precall',
+                    f"Too many hops: {params['hops']} > 3",
+                    code=413
+                )
+
+        elif context['phase'] == 'postcall':
+            # Track execution performance
+            exec_time = context.get('execution_time', 0)
+            success = context.get('success', False)
+
+            if not success:
+                raise PolicyException(
+                    'postcall',
+                    'Operation failed',
+                    code=500
+                )
+
+            # Log slow operations
+            if exec_time > 5.0:  # 5 seconds
+                print(f"Slow operation detected: {exec_time:.2f}s")
+
+            # Validate result size
+            stats = context.get('graph_stats', {})
+            if stats.get('nodes', 0) > 50000:
+                raise PolicyException(
+                    'postcall',
+                    f"Result too large: {stats['nodes']} nodes",
+                    code=413
+                )
+
+    g.gfql(query, policy={
+        'precall': operation_control_policy,
+        'postcall': operation_control_policy
+    })
+
+
 **Control Remote Access**
 
 .. code-block:: python
@@ -126,11 +180,15 @@ Examples
 .. code-block:: python
 
     def create_usage_tracker():
-        stats = {'calls': 0, 'data_loaded': 0}
+        stats = {'calls': 0, 'data_loaded': 0, 'execution_times': []}
 
         def track(context):
-            if context['phase'] == 'call':
+            if context['phase'] == 'precall':
                 stats['calls'] += 1
+            elif context['phase'] == 'postcall':
+                # Track execution performance
+                exec_time = context.get('execution_time', 0)
+                stats['execution_times'].append(exec_time)
             elif context['phase'] == 'postload':
                 data = context.get('graph_stats', {})
                 stats['data_loaded'] += data.get('nodes', 0)
@@ -140,7 +198,8 @@ Examples
     tracker, stats = create_usage_tracker()
     g.gfql(query, policy={
         'postload': tracker,
-        'call': tracker
+        'precall': tracker,
+        'postcall': tracker
     })
     print(f"Usage: {stats}")
 
@@ -158,15 +217,19 @@ Examples
         elif hook == 'postload':
             # Data validation
             pass
-        elif hook == 'call':
-            # Operation control
+        elif hook == 'precall':
+            # Operation control and parameter validation
+            pass
+        elif hook == 'postcall':
+            # Performance tracking and result validation
             pass
 
     # Use same handler for all phases
     g.gfql(query, policy={
         'preload': universal_policy,
         'postload': universal_policy,
-        'call': universal_policy
+        'precall': universal_policy,
+        'postcall': universal_policy
     })
 
 
@@ -248,9 +311,12 @@ Policies work with different GFQL query patterns:
 
 .. code-block:: python
 
-    # query_type will be 'call', only 'call' phase triggered
+    # query_type will be 'call', precall and postcall phases triggered
     from graphistry.compute.ast import call
-    g.gfql(call('hop', {'hops': 2}), policy={'call': my_policy})
+    g.gfql(call('hop', {'hops': 2}), policy={
+        'precall': my_precall_policy,
+        'postcall': my_postcall_policy
+    })
 
 Each query type provides appropriate context to the policy for decision making.
 
@@ -406,9 +472,10 @@ API Reference
 .. code-block:: python
 
     g.gfql(query, policy={
-        'preload': preload_function,   # Optional
-        'postload': postload_function, # Optional
-        'call': call_function          # Optional
+        'preload': preload_function,    # Optional
+        'postload': postload_function,  # Optional
+        'precall': precall_function,    # Optional
+        'postcall': postcall_function   # Optional
     })
 
 **Imports**
@@ -425,7 +492,7 @@ API Reference
 
 **PolicyException Parameters**
 
-- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'call')
+- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'precall', 'postcall')
 - ``reason`` (str): Human-readable explanation
 - ``code`` (int): HTTP-like status code (default: 403)
 - ``query_type`` (str, optional): Type of query being executed

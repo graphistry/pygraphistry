@@ -7,6 +7,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL: Policy hook system for external query control and Hub integration
+  * **Four-phase hooks**: `preload`, `postload`, `precall`, `postcall`
+  * **Accept/Deny pattern**: Policies return `None` (accept) or raise `PolicyException` (deny)
+  * **Context-rich**: Full access to query, graph stats, operation details, and timing
+  * **Features**:
+    * `preload` - Control before data loading (JWT validation, dataset access)
+    * `postload` - Validate after data loading (size limits, content checks)
+    * `precall` - Control before operation execution (feature gating, parameter validation)
+    * `postcall` - Monitor after execution (performance tracking, result validation)
+  * **Remote data support**: Special handling for `ASTRemoteGraph` with `is_remote` flag
+  * **Thread-safe**: Uses thread-local storage with recursion prevention
+  * **Usage**: `g.gfql(query, policy={'preload': check_auth, 'postcall': track_perf})`
+
 ## [0.42.3 - 2025-10-04]
 
 ### Fixed

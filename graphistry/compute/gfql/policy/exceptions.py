@@ -5,7 +5,7 @@ from typing import Literal, Optional, Dict, Any, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from .stats import GraphStats
 
-Phase = Literal["preload", "postload", "call"]
+Phase = Literal["preload", "postload", "precall", "postcall"]
 
 
 class PolicyException(Exception):

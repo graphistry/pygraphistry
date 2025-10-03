@@ -100,7 +100,7 @@ class TestPolicyExceptions:
 
         def denying_policy(context: PolicyContext) -> None:
             raise PolicyException(
-                phase='call',
+                phase='precall',
                 reason=f"Operation {context.get('call_op')} not allowed",
                 query_type='call'
             )
@@ -109,10 +109,10 @@ class TestPolicyExceptions:
         g = graphistry.edges(df, 's', 'd')
 
         with pytest.raises(PolicyException) as exc_info:
-            g.gfql(call('hop', {'hops': 2}), policy={'call': denying_policy})
+            g.gfql(call('hop', {'hops': 2}), policy={'precall': denying_policy})
 
         exc = exc_info.value
-        assert exc.phase == 'call'
+        assert exc.phase == 'precall'
         assert 'hop' in exc.reason or 'not allowed' in exc.reason
 
     def test_exception_json_serializable(self):

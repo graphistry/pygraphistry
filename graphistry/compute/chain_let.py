@@ -223,7 +223,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     :param g: Input graph
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
-    :param policy: Optional policy dictionary with preload/postload/call hooks
+    :param policy: Optional policy dictionary with preload/postload/precall/postcall hooks
     :param global_query: The global query AST for policy context
     :returns: Resulting Plottable
     :rtype: Plottable
