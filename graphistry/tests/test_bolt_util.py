@@ -370,3 +370,47 @@ class Test_Neo4jConnector:
             relationship_type_key,
         ]:
             assert col in g._edges
+
+
+@pytest.mark.skipif(not has_neo4j, reason="No neo4j")
+def test_stringify_spatial_unit():
+    """Unit tests for stringify_spatial function format compatibility"""
+    from graphistry.bolt_util import stringify_spatial
+    import neo4j.spatial
+
+    # Test None and non-spatial inputs
+    assert stringify_spatial(None) is None
+    assert stringify_spatial("test") == "test"
+
+    # Mock old and new format Point objects
+    class MockOldPoint:
+        def __str__(self):
+            return "POINT(1.0 2.0 3.0)"
+
+    class MockNewPoint:
+        def __str__(self):
+            return "WGS84Point(1.0, 2.0, 3.0)"
+
+    # Test old format is preserved
+    old_isinstance = isinstance
+    def mock_isinstance_old(obj, cls):
+        return cls == neo4j.spatial.Point and isinstance(obj, MockOldPoint)
+
+    import builtins
+    builtins.isinstance = mock_isinstance_old
+    try:
+        result = stringify_spatial(MockOldPoint())
+        assert result == "POINT(1.0 2.0 3.0)"
+    finally:
+        builtins.isinstance = old_isinstance
+
+    # Test new format is converted
+    def mock_isinstance_new(obj, cls):
+        return cls == neo4j.spatial.Point and isinstance(obj, MockNewPoint)
+
+    builtins.isinstance = mock_isinstance_new
+    try:
+        result = stringify_spatial(MockNewPoint())
+        assert result == "POINT(1.0 2.0 3.0)"
+    finally:
+        builtins.isinstance = old_isinstance
