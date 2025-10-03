@@ -180,11 +180,30 @@ def neo_val_to_pd_val(v):
 
 def stringify_spatial(v):
     import neo4j
+    import re
     if v is None:
         return None
     if isinstance(v, neo4j.spatial.Point):
-        ##TODO rep as JSON / dict?
-        return str(v)
+        str_repr = str(v)
+        # Handle both old and new Neo4j driver formats:
+        # OLD: "POINT(1.0 2.0 3.0)"
+        # NEW: "WGS84Point(1.0, 2.0, 3.0)" or "CartesianPoint(1.0, 2.0)" or "Point(1.0, 2.0, 3.0)"
+
+        # If already in old POINT(...) format, return as-is
+        if str_repr.startswith('POINT('):
+            return str_repr
+
+        # Convert new format to old format
+        # Extract coordinates from "TypeName(x, y, z)" -> "POINT(x y z)"
+        match = re.match(r'[A-Za-z0-9]*Point\((.*)\)', str_repr)
+        if match:
+            coords_str = match.group(1)
+            # Replace commas with spaces: "1.0, 2.0, 3.0" -> "1.0 2.0 3.0"
+            coords_normalized = coords_str.replace(', ', ' ')
+            return f'POINT({coords_normalized})'
+
+        # Fallback to original behavior if format doesn't match expected patterns
+        return str_repr
     return v
 
 
