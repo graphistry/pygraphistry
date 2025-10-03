@@ -28,7 +28,7 @@ WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/t
 git diff --name-only HEAD -- '*.rst' | xargs ./docs/validate-docs.sh  # Changed files
 
 # Note: Direct script execution requires local environment setup
-# ./bin/lint.sh && ./bin/typecheck.sh
+# ./bin/lint.sh && ./bin/mypy.sh && ./bin/pytest.sh
 ```
 
 ### Performance Must-Haves
@@ -218,7 +218,7 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 
 ### Before Starting
 1. Read CLAUDE.md for general context
-2. Run baseline: `./bin/lint.sh && ./bin/typecheck.sh`
+2. Run baseline: `./bin/lint.sh && ./bin/mypy.sh`
 3. Load specific guide if needed
 
 ### During Development  

@@ -121,7 +121,7 @@ The lint/type check process is **iterative by design**:
 ### Step 2: Type Check with MyPy
 **Started**: [YYYY-MM-DD HH:MM:SS]
 **Command (containerized)**: `cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh`
-**Command (direct)**: `./bin/typecheck.sh` (requires local environment)
+**Command (direct)**: `./bin/mypy.sh` (requires local environment)
 **Purpose**: Verify type safety across the codebase
 **Action**: Run and filter results
 
@@ -174,7 +174,7 @@ cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Or run directly if you have local environment
 # ./bin/lint.sh
-# ./bin/typecheck.sh
+# ./bin/mypy.sh
 ```
 
 **Results**:
@@ -384,7 +384,7 @@ If you have the dependencies installed locally:
 ```bash
 # From project root
 ./bin/lint.sh
-./bin/typecheck.sh
+./bin/mypy.sh
 
 # For specific files
 flake8 graphistry/embed_utils.py --max-line-length=127
