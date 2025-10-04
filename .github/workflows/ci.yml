@@ -187,7 +187,7 @@ jobs:
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8  # Increased from 6min to handle intermittent dependency installation delays
 
     strategy:
       matrix:
