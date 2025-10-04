@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Fixed
+* GFQL: Fix dict-to-AST conversion in list contexts (#758)
+  * Fixed critical regression where `g.gfql([{"type": "Node", ...}])` failed with `TypeError: 'dict' object is not callable`
+  * Added dict-to-AST conversion loop in list processing branch using `from_json()`
+  * Maintains backward compatibility while enabling dict convenience syntax within list queries
+  * Added comprehensive `TestGFQLDictConversion` class with 6 regression tests for all dict conversion scenarios
+
 ## [0.42.2 - 2025-10-03]
 
 ### Fixed
