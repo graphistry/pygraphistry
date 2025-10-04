@@ -211,7 +211,6 @@ jobs:
     - name: Install system dependencies
       run: |
         # Install graphviz system packages (typically fast: 10-30s)
-        sudo apt-get update
         sudo apt-get install -y graphviz graphviz-dev
 
     - name: Install Python dependencies with retry
