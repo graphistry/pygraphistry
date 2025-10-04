@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+## [0.42.3 - 2025-10-04]
+
 ### Fixed
 * GFQL: Fix dict-to-AST conversion in list contexts (#758)
   * Fixed critical regression where `g.gfql([{"type": "Node", ...}])` failed with `TypeError: 'dict' object is not callable`
