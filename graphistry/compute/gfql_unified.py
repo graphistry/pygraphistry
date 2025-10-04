@@ -117,7 +117,17 @@ def gfql(self: Plottable,
         logger.debug('GFQL executing list as chain')
         if output is not None:
             logger.warning('output parameter ignored for chain queries')
-        return chain_impl(self, query, engine)
+
+        # Convert any dictionaries in the list to AST objects
+        converted_query = []
+        for item in query:
+            if isinstance(item, dict):
+                from .ast import from_json
+                converted_query.append(from_json(item))
+            else:
+                converted_query.append(item)
+
+        return chain_impl(self, converted_query, engine)
     else:
         raise TypeError(
             f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
