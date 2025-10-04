@@ -187,7 +187,7 @@ jobs:
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8  # Increased from 6min to handle intermittent dependency installation delays
+    timeout-minutes: 10  # Accommodate retry logic: 3 attempts × 2min + 1.5min backoff/cleanup
 
     strategy:
       matrix:
@@ -208,13 +208,42 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install test dependencies
+    - name: Install system dependencies
+      run: |
+        # Install graphviz system packages (typically fast: 10-30s)
+        sudo apt-get update
+        sudo apt-get install -y graphviz graphviz-dev
+
+    - name: Install Python dependencies with retry
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        sudo apt-get install graphviz graphviz-dev
         python -m pip install --upgrade pip
-        python -m pip install -e .[test,pygraphviz]
+
+        # Retry pip install up to 3 times with exponential backoff
+        # This handles network issues and transient PyPI problems
+        for attempt in 1 2 3; do
+          echo "==== Attempt $attempt of 3 ===="
+
+          if python -m pip install -e .[test,pygraphviz] \
+              --timeout 120 \
+              --retries 3; then
+            echo "✅ Installation successful on attempt $attempt"
+            break
+          fi
+
+          if [ $attempt -lt 3 ]; then
+            wait_time=$((attempt * 30))
+            echo "⚠️ Installation failed, retrying in ${wait_time}s..."
+            # Clear pip cache after failure to avoid bad intermediate state
+            echo "🧹 Clearing pip cache to ensure fresh state..."
+            python -m pip cache purge || true
+            sleep $wait_time
+          else
+            echo "❌ Installation failed after 3 attempts"
+            exit 1
+          fi
+        done
 
     - name: Graphviz tests
       run: |
