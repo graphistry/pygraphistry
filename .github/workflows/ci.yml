@@ -217,7 +217,6 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
 
         # Retry pip install up to 3 times with exponential backoff
         # This handles network issues and transient PyPI problems
