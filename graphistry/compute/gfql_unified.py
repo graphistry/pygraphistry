@@ -119,7 +119,7 @@ def gfql(self: Plottable,
             logger.warning('output parameter ignored for chain queries')
 
         # Convert any dictionaries in the list to AST objects
-        converted_query = []
+        converted_query: List[ASTObject] = []
         for item in query:
             if isinstance(item, dict):
                 from .ast import from_json
