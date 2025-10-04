@@ -7,6 +7,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Dev
 
+### Added
+* GFQL: Policy hook system for external query control and Hub integration
+  * **Four-phase hooks**: `preload`, `postload`, `precall`, `postcall`
+  * **Accept/Deny pattern**: Policies return `None` (accept) or raise `PolicyException` (deny)
+  * **Context-rich**: Full access to query, graph stats, operation details, and timing
+  * **Features**:
+    * `preload` - Control before data loading (JWT validation, dataset access)
+    * `postload` - Validate after data loading (size limits, content checks)
+    * `precall` - Control before operation execution (feature gating, parameter validation)
+    * `postcall` - Monitor after execution (performance tracking, result validation)
+  * **Remote data support**: Special handling for `ASTRemoteGraph` with `is_remote` flag
+  * **Thread-safe**: Uses thread-local storage with recursion prevention
+  * **Usage**: `g.gfql(query, policy={'preload': check_auth, 'postcall': track_perf})`
+* GFQL: Added UMAP call operation support
+  * **UMAP embeddings**: UMAP dimensionality reduction available via `call('umap', {...})`
+  * **Full parameter support**: All UMAP parameters validated through call safelist
+  * **Policy integration**: UMAP operations controllable through precall/postcall policy hooks
+  * **Usage**: `g.gfql(call('umap', {'X': ['x', 'y'], 'n_neighbors': 15}))`
+
 ## [0.42.3 - 2025-10-04]
 
 ### Fixed
@@ -49,6 +68,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `./bin/pytest.sh` - Runs tests with highest available Python (3.8-3.14)
   * `./bin/mypy.sh` - Type checking without Docker overhead
   * `./bin/flake8.sh` - Linting with auto-detection of Python version
+* GFQL: Add policy hook system for external policy injection with schema validation
+  * Three-phase hooks: preload (before data), postload (after data), call (per operation)
+  * Enable accept/deny/modify capabilities for GFQL queries
+  * Schema validation for all policy modifications
+  * Recursion prevention at depth 1 for safety
+  * Enriched PolicyException with phase, reason, query_type, and data_size
+  * Safe graph statistics extraction for pandas, cudf, dask, and dask-cudf
+  * Closure-based state management pattern for Hub integration
+  * Comprehensive test coverage with 48 unit tests
 * GFQL: Add hypergraph transformation support for creating entity relationships from event data
   * Simple transformation: `g.gfql(hypergraph(entity_types=['user', 'product']))`
   * Typed builder with IDE support: `from graphistry.compute import hypergraph`

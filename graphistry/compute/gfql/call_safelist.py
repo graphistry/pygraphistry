@@ -56,6 +56,14 @@ def is_string_or_none(v: Any) -> bool:
     return v is None or isinstance(v, str)
 
 
+def is_float(v: Any) -> bool:
+    return isinstance(v, float)
+
+
+def is_int_or_float(v: Any) -> bool:
+    return isinstance(v, (int, float))
+
+
 def is_list_of_strings(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
@@ -523,6 +531,45 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'chunksize': lambda v: v is None or is_int(v)
         },
         'description': 'Transform event data into a hypergraph'
+    },
+
+    # UMAP embedding operations
+    'umap': {
+        'allowed_params': {
+            'X', 'y', 'kind', 'scale', 'n_neighbors', 'min_dist', 'spread',
+            'local_connectivity', 'repulsion_strength', 'negative_sample_rate',
+            'n_components', 'metric', 'suffix', 'play', 'encode_position',
+            'encode_weight', 'dbscan', 'engine', 'feature_engine', 'inplace',
+            'memoize', 'umap_kwargs', 'umap_fit_kwargs', 'umap_transform_kwargs'
+        },
+        'required_params': set(),  # All params are optional
+        'param_validators': {
+            'X': lambda v: v is None or is_string(v) or is_list_of_strings(v),
+            'y': lambda v: v is None or is_string(v) or is_list_of_strings(v),
+            'kind': lambda v: v in ['nodes', 'edges'],
+            'scale': is_int_or_float,
+            'n_neighbors': is_int,
+            'min_dist': is_int_or_float,
+            'spread': is_int_or_float,
+            'local_connectivity': is_int,
+            'repulsion_strength': is_int_or_float,
+            'negative_sample_rate': is_int,
+            'n_components': is_int,
+            'metric': is_string,
+            'suffix': is_string,
+            'play': lambda v: v is None or is_int(v),
+            'encode_position': is_bool,
+            'encode_weight': is_bool,
+            'dbscan': is_bool,
+            'engine': lambda v: v in ['auto', 'umap_learn', 'cuml'],
+            'feature_engine': is_string,
+            'inplace': lambda v: v is False,  # Only False allowed per type hint
+            'memoize': is_bool,
+            'umap_kwargs': is_dict,
+            'umap_fit_kwargs': is_dict,
+            'umap_transform_kwargs': is_dict
+        },
+        'description': 'UMAP dimensionality reduction for graph embeddings'
     }
 }
 

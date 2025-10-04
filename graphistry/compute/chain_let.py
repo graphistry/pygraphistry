@@ -206,8 +206,8 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
     return topological_sort(bindings, dependencies, dependents)
 
 
-def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable, 
-                context: ExecutionContext, engine: Engine) -> Plottable:
+def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
+                context: ExecutionContext, engine: Engine, policy=None, global_query=None) -> Plottable:
     """Execute a single node in the DAG
     
     Handles different GraphOperation types:
@@ -223,6 +223,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     :param g: Input graph
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
+    :param policy: Optional policy dictionary with preload/postload/precall/postcall hooks
+    :param global_query: The global query AST for policy context
     :returns: Resulting Plottable
     :rtype: Plottable
     :raises ValueError: If reference not found in context
@@ -233,7 +235,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value))
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -269,11 +271,35 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
         result = g.bind(dataset_id=ast_obj.dataset_id)
-        
+
+        # Policy is passed as parameter to execute_node
+
+        # Preload policy phase for remote data loading
+        if policy and 'preload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+
+            preload_context: PolicyContext = {
+                'phase': 'preload',
+                'hook': 'preload',
+                'query': global_query if global_query else ast_obj,  # Global query if available
+                'current_ast': ast_obj,
+                'query_type': 'dag' if global_query else 'single',
+                'is_remote': True,
+                'engine': engine.value,
+                '_policy_depth': 0
+            }
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['preload'](preload_context)
+            except PolicyException:
+                # Re-raise without modification
+                raise
+
         # If we need to actually fetch the data, we would use chain_remote
         # For now, we'll fetch it immediately to ensure we have the data
         from .chain_remote import chain_remote as chain_remote_impl
-        
+
         # Fetch the remote dataset with an empty chain (no filtering)
         # Convert engine to the expected type for chain_remote
         chain_engine: Optional[Literal["pandas", "cudf"]] = None
@@ -281,7 +307,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             chain_engine = "pandas"
         elif engine.value == "cudf":
             chain_engine = "cudf"
-        
+
         result = chain_remote_impl(
             result,
             [],  # Empty chain - just fetch the entire dataset
@@ -290,6 +316,32 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             output_type="all",  # Get full graph (nodes and edges)
             engine=chain_engine
         )
+
+        # Postload policy phase for remote data
+        if policy and 'postload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+
+            stats = extract_graph_stats(result)
+
+            postload_context: PolicyContext = {
+                'phase': 'postload',
+                'hook': 'postload',
+                'query': global_query if global_query else ast_obj,
+                'current_ast': ast_obj,
+                'query_type': 'dag' if global_query else 'single',
+                'is_remote': True,
+                'engine': engine.value,
+                'graph_stats': stats,
+                '_policy_depth': 0
+            }
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](postload_context)
+            except PolicyException:
+                # Re-raise without modification
+                raise
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
         from .gfql.call_executor import execute_call
@@ -317,9 +369,10 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     return result
 
 
-def chain_let_impl(g: Plottable, dag: ASTLet, 
+def chain_let_impl(g: Plottable, dag: ASTLet,
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-                  output: Optional[str] = None) -> Plottable:
+                  output: Optional[str] = None,
+                  policy=None) -> Plottable:
     """Internal implementation of chain_let execution
     
     Validates DAG, determines execution order, and executes nodes
@@ -377,11 +430,10 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Execute the node and store result in context
         try:
             # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete)
+            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
 
             # Accumulate the new column(s) onto our result
             accumulated_result = result
-
         except Exception as e:
             # Add context to error
             raise RuntimeError(
@@ -403,14 +455,46 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 f"Output binding '{output}' not found. "
                 f"Available bindings: {available}"
             )
-        return context.get_binding(output)
+        result = context.get_binding(output)
     else:
-        return last_result
+        result = last_result
+
+    # Postload policy phase - after DAG execution
+    if policy and 'postload' in policy:
+        from .gfql.policy import PolicyContext, PolicyException
+        from .gfql.policy.stats import extract_graph_stats
+
+        stats = extract_graph_stats(result)
+        context_dict: PolicyContext = {
+            'phase': 'postload',
+            'hook': 'postload',
+            'query': dag,
+            'current_ast': dag,  # For DAG postload, current == dag
+            'query_type': 'dag',
+            'plottable': result,
+            'graph_stats': stats,
+            '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
+        }
+
+        try:
+            # Policy can only accept (None) or deny (exception)
+            policy['postload'](context_dict)
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = 'dag'
+            if e.data_size is None:
+                e.data_size = stats
+            raise
+
+    return result
 
 
 def chain_let(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-             output: Optional[str] = None) -> Plottable:
+             output: Optional[str] = None,
+             policy=None) -> Plottable:
     """
     Execute a DAG of named graph operations with dependency resolution
     
@@ -462,4 +546,4 @@ def chain_let(self: Plottable, dag: ASTLet,
         # Or select specific output
         people_result = g.chain_let(dag, output='people')
     """
-    return chain_let_impl(self, dag, engine, output)
+    return chain_let_impl(self, dag, engine, output, policy)

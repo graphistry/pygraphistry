@@ -333,6 +333,9 @@ For security and stability, Call operations are restricted to a predefined safel
 - `encode_point_icon`: Set icons
 - `bind`: Attach visual attributes
 
+**Embeddings & Dimensionality Reduction**
+- `umap`: UMAP dimensionality reduction for graph embeddings
+
 ### Validation
 
 Call operations undergo multiple validation stages:

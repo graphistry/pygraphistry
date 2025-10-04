@@ -248,7 +248,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -261,9 +261,27 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
 
     :param ops: List[ASTObject] Various node and edge matchers
     :param validate_schema: Whether to validate the chain against the graph schema before executing
+    :param policy: Optional policy dict for hooks
 
     :returns: Plotter
     :rtype: Plotter
+    """
+    # If policy provided, set it in thread-local for ASTCall operations
+    if policy:
+        from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
+        old_policy = getattr(call_thread_local, 'policy', None)
+        try:
+            call_thread_local.policy = policy
+            return _chain_impl(self, ops, engine, validate_schema, policy)
+        finally:
+            call_thread_local.policy = old_policy
+    else:
+        return _chain_impl(self, ops, engine, validate_schema, policy)
+
+
+def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy) -> Plottable:
+    """
+    Internal implementation of chain without policy wrapper indentation.
 
     **Example: Find nodes of some type**
 
@@ -365,7 +383,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             # We know ops[0] is an ASTCall with hypergraph function
             hypergraph_call = ops[0]  # This is guaranteed to be ASTCall from the filter above
             if isinstance(hypergraph_call, ASTCall):
-                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete)
+                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete, policy=policy)
             else:
                 raise TypeError(f"Expected ASTCall but got {type(hypergraph_call)}")
         else:
@@ -498,5 +516,34 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
     else:
         g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+    # Postload policy phase - after data is loaded
+    if policy and 'postload' in policy:
+        from .gfql.policy import PolicyContext, PolicyException
+        from .gfql.policy.stats import extract_graph_stats
+
+        stats = extract_graph_stats(g_out)
+        context: PolicyContext = {
+            'phase': 'postload',
+            'hook': 'postload',
+            'query': ops,
+            'current_ast': ops,  # For chain, current == ops
+            'query_type': 'chain',
+            'plottable': g_out,
+            'graph_stats': stats,
+            '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
+        }
+
+        try:
+            # Policy can only accept (None) or deny (exception)
+            policy['postload'](context)
+
+        except PolicyException as e:
+            # Enrich exception with context if not already set
+            if e.query_type is None:
+                e.query_type = 'chain'
+            if e.data_size is None:
+                e.data_size = stats
+            raise
 
     return g_out

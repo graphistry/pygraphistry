@@ -163,7 +163,7 @@ Please review the proposed commit strategy:
 <!-- FILL IN: Pre-commit checks -->
 **Pre-commit Checklist**:
 - [ ] Run linting: `./bin/lint.sh`
-- [ ] Run type checking: `./bin/typecheck.sh`
+- [ ] Run type checking: `./bin/mypy.sh`
 - [ ] Verify tests pass: `python -m pytest -xvs` (if test changes)
 - [ ] Check for secrets: Review diffs for sensitive data
 - [ ] Unstage unrelated changes: `git reset HEAD <file>`
