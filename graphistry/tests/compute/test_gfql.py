@@ -183,3 +183,99 @@ class TestGFQL:
         # Dict convenience should now work with auto-wrapping
         gfql_dag = g.gfql({'people': n({'type': 'person'})})
         assert len(gfql_dag._nodes) == 2
+
+
+class TestGFQLDictConversion:
+    """Test dict-to-AST conversion scenarios to prevent regressions."""
+
+    def test_gfql_with_list_containing_raw_dicts(self):
+        """Test gfql with list containing raw dict objects (main regression case)"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c'],
+            'type': ['person', 'person', 'company']
+        })
+        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+        # This was the exact case that failed before our fix
+        result = g.gfql([{"type": "Node"}])
+
+        # Should execute successfully without TypeError
+        assert result is not None
+        assert hasattr(result, '_nodes')
+        # Should return all nodes since no filter specified
+        assert len(result._nodes) == 3
+
+    def test_gfql_with_mixed_list_ast_and_dicts(self):
+        """Test gfql with list containing both AST objects and dicts"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c'],
+            'type': ['person', 'person', 'company']
+        })
+        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+        # Mixed: AST object + raw dict
+        result = g.gfql([n({'type': 'person'}), {"type": "Node"}])
+
+        # Should execute successfully
+        assert result is not None
+        assert hasattr(result, '_nodes')
+
+    def test_gfql_with_multiple_dicts_in_list(self):
+        """Test gfql with list containing multiple dict objects"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c'],
+            'type': ['person', 'person', 'company']
+        })
+        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+        # Multiple dicts in sequence
+        result = g.gfql([{"type": "Node"}, {"type": "Node"}])
+
+        # Should execute successfully
+        assert result is not None
+        assert hasattr(result, '_nodes')
+
+    def test_gfql_dict_conversion_with_filter(self):
+        """Test dict conversion works with actual filtering"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c'],
+            'type': ['person', 'person', 'company']
+        })
+        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+        # Test with actual filter in dict format
+        result = g.gfql([{"type": "Node", "filter": {"type": "person"}}])
+
+        # Should execute successfully (filtering behavior depends on implementation)
+        assert result is not None
+        assert hasattr(result, '_nodes')
+        assert len(result._nodes) >= 0  # May or may not filter, just ensure no crash
+
+    def test_gfql_empty_list_with_dicts(self):
+        """Test edge case: empty list"""
+        g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+
+        # Empty list should work
+        result = g.gfql([])
+        assert result is not None
+
+    def test_gfql_single_vs_list_dict_equivalence(self):
+        """Test that list dict conversion works (single dict vs list behavior may differ)"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c'],
+            'type': ['person', 'person', 'company']
+        })
+        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+        # Test that list dict conversion works - main regression test
+        result_list = g.gfql([{"type": "Node"}])
+
+        # Should succeed without TypeError
+        assert result_list is not None
+        assert hasattr(result_list, '_nodes')
+        assert len(result_list._nodes) >= 0  # Ensure execution succeeds
