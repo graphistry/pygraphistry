@@ -162,11 +162,18 @@ def chain_remote_generic(
                         if 'privacy' in metadata:
                             result._privacy = metadata['privacy']
 
-                    except Exception:
+                    except Exception as e:
                         # Gracefully handle metadata parsing errors
-                        # Continue without dataset_id (older server behavior)
-                        pass
-                # If no metadata.json, continue without dataset_id (backward compatibility)
+                        import warnings
+                        warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
+                                    f"URL generation will not be available. This may indicate an older server version.",
+                                    UserWarning, stacklevel=2)
+                else:
+                    # No metadata.json found - older server
+                    import warnings
+                    warnings.warn("persist=True requested but server did not return metadata.json. "
+                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                                UserWarning, stacklevel=2)
 
         return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
@@ -178,11 +185,19 @@ def chain_remote_generic(
         if output_type == "nodes":
             out = self.nodes(df)
             out._edges = None
-            return out
         else:
             out = self.edges(df)
             out._nodes = None
-            return out
+
+        # Warn about persistence limitation for single format responses
+        if persist:
+            import warnings
+            warnings.warn(f"persist=True requested with output_type='{output_type}' and format='{format}'. "
+                        f"Persistence is not yet supported for single format responses (nodes/edges only). "
+                        f"Use output_type='all' with format='json' for persistence support.",
+                        UserWarning, stacklevel=2)
+
+        return out
     elif format == "json":
         o = response.json()
         if output_type == "all":
@@ -197,8 +212,14 @@ def chain_remote_generic(
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
 
         # Handle persist response - set dataset_id if provided
-        if persist and 'dataset_id' in o:
-            result._dataset_id = o['dataset_id']
+        if persist:
+            if 'dataset_id' in o:
+                result._dataset_id = o['dataset_id']
+            else:
+                import warnings
+                warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
+                            "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
+                            UserWarning, stacklevel=2)
 
         return result
     else:

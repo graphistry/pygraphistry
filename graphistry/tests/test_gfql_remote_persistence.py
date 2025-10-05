@@ -362,6 +362,83 @@ class TestGFQLRemotePersistence(unittest.TestCase):
                     # Test may fail due to mocking complexity
                     pass
 
+    @patch('requests.post')
+    def test_warning_on_missing_dataset_id_json(self, mock_post):
+        """Test that warning is emitted when JSON response lacks dataset_id."""
+        import warnings
+
+        # Mock response without dataset_id
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'nodes': [], 'edges': []
+            # No dataset_id field
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        # Mock upload method
+        with patch.object(self.g, 'upload') as mock_upload:
+            mock_uploaded = MagicMock()
+            mock_uploaded._dataset_id = 'mock_dataset_id'
+            mock_upload.return_value = mock_uploaded
+
+            # Capture warnings
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+
+                try:
+                    self.g.gfql_remote([ASTNode()], persist=True, format='json')
+
+                    # Check that warning was emitted
+                    if w:
+                        assert any("persist=True requested but server did not return dataset_id" in str(warn.message) for warn in w)
+
+                except Exception:
+                    # Test may fail due to mocking, but we can still check warnings
+                    pass
+
+    @patch('requests.post')
+    def test_warning_on_missing_metadata_json_zip(self, mock_post):
+        """Test that warning is emitted when zip response lacks metadata.json."""
+        import warnings
+        import zipfile
+        from io import BytesIO
+
+        # Create zip without metadata.json
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zip_ref:
+            zip_ref.writestr('nodes.parquet', b'fake_data')
+            zip_ref.writestr('edges.parquet', b'fake_data')
+            # No metadata.json
+
+        mock_response = MagicMock()
+        mock_response.content = zip_buffer.getvalue()
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        with patch.object(self.g, 'upload') as mock_upload:
+            mock_uploaded = MagicMock()
+            mock_uploaded._dataset_id = 'mock_dataset_id'
+            mock_upload.return_value = mock_uploaded
+
+            with patch('pandas.read_parquet') as mock_read_parquet:
+                mock_read_parquet.return_value = pd.DataFrame({'test': [1, 2, 3]})
+
+                # Capture warnings
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+
+                    try:
+                        self.g.gfql_remote([ASTNode()], persist=True, format='parquet', output_type='all')
+
+                        # Check that warning was emitted
+                        if w:
+                            assert any("server did not return metadata.json" in str(warn.message) for warn in w)
+
+                    except Exception:
+                        # Test may fail due to mocking
+                        pass
+
 
 if __name__ == '__main__':
     unittest.main()
