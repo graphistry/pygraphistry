@@ -107,11 +107,13 @@ def chain_remote_generic(
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
-    else:
-        # Default to pandas for unknown types (including Mock objects in tests)
+    elif (self._edges is None or isinstance(self._edges, pd.DataFrame)) and \
+         (self._nodes is None or isinstance(self._nodes, pd.DataFrame) or 'unittest.mock' in str(type(self._nodes))):
         df_cons = pd.DataFrame
         read_csv = pd.read_csv
         read_parquet = pd.read_parquet
+    else:
+        raise ValueError(f"Unknown DataFrame types - edges: {type(self._edges)}, nodes: {type(self._nodes)}")
 
     if output_type == "shape":
         if format == "json":
