@@ -24,7 +24,8 @@ def chain_remote_generic(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -63,19 +64,25 @@ def chain_remote_generic(
     if validate:
         Chain.from_json(chain_json)
 
-    request_body = {
+    request_body: Dict[str, Any] = {
         "gfql_operations": chain_json['chain'],  # unwrap
         "format": format
     }
 
     if node_col_subset is not None:
-        request_body["node_col_subset"] = node_col_subset  # type: ignore
+        request_body["node_col_subset"] = node_col_subset
     if edge_col_subset is not None:
-        request_body["edge_col_subset"] = edge_col_subset  # type: ignore
+        request_body["edge_col_subset"] = edge_col_subset
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
     if engine is not None:
-        request_body["engine"] = engine  # type: ignore
+        request_body["engine"] = engine
+    if persist:
+        request_body["persist"] = persist
+
+        # Include privacy settings for persisted dataset
+        if hasattr(self, '_privacy') and self._privacy is not None:
+            request_body["privacy"] = dict(self._privacy)
 
     url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
@@ -131,7 +138,10 @@ def chain_remote_generic(
             else:
                 edges_df = df_cons()
 
-            return self.edges(edges_df).nodes(nodes_df)
+            result = self.edges(edges_df).nodes(nodes_df)
+            # Handle persist response for zip format - would need enhanced server response
+            # For now, persist only supported with JSON format responses
+            return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -149,17 +159,21 @@ def chain_remote_generic(
     elif format == "json":
         o = response.json()
         if output_type == "all":
-            return self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
+            result = self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
-            out = self.nodes(df_cons(o))
-            out._edges = None
-            return out
+            result = self.nodes(df_cons(o))
+            result._edges = None
         elif output_type == "edges":
-            out = self.edges(df_cons(o))
-            out._nodes = None
-            return out
+            result = self.edges(df_cons(o))
+            result._nodes = None
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
+
+        # Handle persist response - set dataset_id if provided
+        if persist and 'dataset_id' in o:
+            result._dataset_id = o['dataset_id']
+
+        return result
     else:
         raise ValueError(f"Unsupported format {format}, output_type {output_type}")
 
@@ -174,7 +188,8 @@ def chain_remote_shape(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -214,7 +229,8 @@ def chain_remote_shape(
         node_col_subset,
         edge_col_subset,
         engine,
-        validate
+        validate,
+        persist
     )
     assert isinstance(out_df, pd.DataFrame)
     return out_df
@@ -230,7 +246,8 @@ def chain_remote(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -265,6 +282,9 @@ def chain_remote(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param persist: Whether to persist dataset on server and return dataset_id for immediate URL generation. Default false.
+    :type persist: bool
 
     **Example: Explicitly upload graph and return subgraph where nodes have at least one edge**
         ::
@@ -313,7 +333,8 @@ def chain_remote(
         node_col_subset,
         edge_col_subset,
         engine,
-        validate
+        validate,
+        persist
     )
     assert isinstance(g, Plottable)
     return g

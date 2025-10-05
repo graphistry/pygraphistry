@@ -1550,6 +1550,28 @@ class PlotterBase(Plottable):
     def base_url_client(self, v: Optional[str] = None) -> str:
         return self.client_protocol_hostname()
 
+    def url(self, **url_params: Any) -> Optional[str]:
+        """Generate visualization URL from dataset_id.
+
+        :param url_params: Optional URL parameters to include
+        :returns: Visualization URL if dataset_id is set
+        :rtype: Optional[str]
+        """
+        if not hasattr(self, '_dataset_id') or not self._dataset_id:
+            return None
+
+        # Reuse existing _viz_url logic
+        import uuid
+        from graphistry.client_session import DatasetInfo
+
+        info: DatasetInfo = {
+            'name': self._dataset_id,
+            'type': 'arrow',  # or detect from metadata
+            'viztoken': str(uuid.uuid4())
+        }
+
+        return self._pygraphistry._viz_url(info, url_params)
+
     def upload(
         self,
         memoize: bool = True,
