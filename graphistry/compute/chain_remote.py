@@ -139,8 +139,30 @@ def chain_remote_generic(
                 edges_df = df_cons()
 
             result = self.edges(edges_df).nodes(nodes_df)
-            # Handle persist response for zip format - would need enhanced server response
-            # For now, persist only supported with JSON format responses
+
+            # Handle persist response for zip format
+            if persist:
+                # Look for metadata.json in zip (new servers)
+                if 'metadata.json' in zip_ref.namelist():
+                    try:
+                        import json
+                        metadata_content = zip_ref.read('metadata.json')
+                        metadata = json.loads(metadata_content.decode('utf-8'))
+
+                        # Extract dataset_id for URL generation
+                        if 'dataset_id' in metadata:
+                            result._dataset_id = metadata['dataset_id']
+
+                        # Optionally restore privacy settings
+                        if 'privacy' in metadata:
+                            result._privacy = metadata['privacy']
+
+                    except Exception:
+                        # Gracefully handle metadata parsing errors
+                        # Continue without dataset_id (older server behavior)
+                        pass
+                # If no metadata.json, continue without dataset_id (backward compatibility)
+
             return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
