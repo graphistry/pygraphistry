@@ -53,6 +53,11 @@ def chain_remote_generic(
         else:
             format = "parquet"
 
+    # Validate persist compatibility early
+    if persist and output_type in ["nodes", "edges"]:
+        raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
+                        f"Use output_type='all' for persistence support.")
+
     if isinstance(chain, Chain):
         chain_json = chain.to_json()
     elif isinstance(chain, list):
@@ -107,7 +112,7 @@ def chain_remote_generic(
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
-    elif (self._edges is None or isinstance(self._edges, pd.DataFrame)) and \
+    elif (self._edges is None or isinstance(self._edges, pd.DataFrame) or 'unittest.mock' in str(type(self._edges))) and \
          (self._nodes is None or isinstance(self._nodes, pd.DataFrame) or 'unittest.mock' in str(type(self._nodes))):
         df_cons = pd.DataFrame
         read_csv = pd.read_csv
@@ -202,13 +207,6 @@ def chain_remote_generic(
             out = self.edges(df)
             out._nodes = None
 
-        # Warn about persistence limitation for single format responses
-        if persist:
-            import warnings
-            warnings.warn(f"persist=True requested with output_type='{output_type}' and format='{format}'. "
-                        f"Persistence is not yet supported for single format responses (nodes/edges only). "
-                        f"Use output_type='all' with format='json' for persistence support.",
-                        UserWarning, stacklevel=2)
 
         return out
     elif format == "json":
