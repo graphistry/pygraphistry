@@ -98,17 +98,22 @@ def chain_remote_generic(
 
     # deserialize based on output_type & format
 
-    if self._edges is None or isinstance(self._edges, pd.DataFrame):
-        df_cons = pd.DataFrame
-        read_csv = pd.read_csv
-        read_parquet = pd.read_parquet
-    elif 'cudf.core.dataframe' in str(getmodule(self._edges)):
+    # Determine DataFrame library by checking both edges and nodes
+    edges_is_cudf = self._edges is not None and 'cudf.core.dataframe' in str(getmodule(self._edges))
+    nodes_is_cudf = self._nodes is not None and 'cudf.core.dataframe' in str(getmodule(self._nodes))
+
+    if edges_is_cudf or nodes_is_cudf:
         import cudf
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
+    elif (self._edges is None or isinstance(self._edges, pd.DataFrame)) and \
+         (self._nodes is None or isinstance(self._nodes, pd.DataFrame)):
+        df_cons = pd.DataFrame
+        read_csv = pd.read_csv
+        read_parquet = pd.read_parquet
     else:
-        raise ValueError(f"Unknown self._edges type, expected cudf/pandas DataFrame: {type(self._edges)}")
+        raise ValueError(f"Unknown DataFrame types - edges: {type(self._edges)}, nodes: {type(self._nodes)}")
 
     if output_type == "shape":
         if format == "json":
@@ -132,7 +137,7 @@ def chain_remote_generic(
                 nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
             else:
                 nodes_df = df_cons()
-            
+
             if len(edges_data) > 0:
                 edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
             else:
@@ -163,7 +168,7 @@ def chain_remote_generic(
                         pass
                 # If no metadata.json, continue without dataset_id (backward compatibility)
 
-            return result
+        return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
