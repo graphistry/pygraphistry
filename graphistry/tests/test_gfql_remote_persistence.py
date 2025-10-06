@@ -20,45 +20,36 @@ class TestGFQLRemotePersistence(unittest.TestCase):
         self.g = graphistry.edges(self.edges_df, 'src', 'dst')
 
     def test_url_generation_with_dataset_id(self):
-        """Test URL generation from dataset_id."""
-        # Create a result with dataset_id
+        """Test URL generation from dataset_id during persistence."""
+        # Create a result with dataset_id and _url (as set by chain_remote.py)
         result = graphistry.edges(self.edges_df, 'src', 'dst')
         result._dataset_id = 'test_123'
+        result._url = 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
 
-        # Mock the _viz_url method
-        with patch.object(result._pygraphistry, '_viz_url') as mock_viz_url:
-            mock_viz_url.return_value = 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
+        url = result.url
 
-            url = result.url()
-
-            assert url is not None
-            assert 'dataset=test_123' in url
-            assert 'graph.html' in url
+        assert url is not None
+        assert 'dataset=test_123' in url
+        assert 'graph.html' in url
 
     def test_url_generation_without_dataset_id(self):
         """Test URL generation fails gracefully without dataset_id."""
         result = graphistry.edges(self.edges_df, 'src', 'dst')
         # Don't set _dataset_id
 
-        url = result.url()
+        url = result.url
         assert url is None
 
-    def test_url_generation_with_custom_params(self):
-        """Test URL generation with custom parameters."""
+    def test_url_property_access(self):
+        """Test URL property access returns _url value."""
         result = graphistry.edges(self.edges_df, 'src', 'dst')
-        result._dataset_id = 'test_123'
 
-        with patch.object(result._pygraphistry, '_viz_url') as mock_viz_url:
-            mock_viz_url.return_value = 'https://hub.graphistry.com/graph/graph.html?dataset=test_123&custom=value'
+        # Test when _url is None
+        assert result.url is None
 
-            result.url(custom='value', debug=True)
-
-            # Verify _viz_url was called with custom params
-            call_args = mock_viz_url.call_args
-            assert len(call_args) == 2
-            url_params = call_args[0][1]
-            assert url_params['custom'] == 'value'
-            assert url_params['debug'] is True
+        # Test when _url is set
+        result._url = 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
+        assert result.url == 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
 
     @patch('requests.post')
     def test_persist_parameter_in_request_body_unit(self, mock_post):

@@ -686,7 +686,8 @@ class Plottable(Protocol):
     def base_url_client(self, v: Optional[str] = None) -> str:
         ...
 
-    def url(self, **url_params: Any) -> Optional[str]:
+    @property
+    def url(self) -> Optional[str]:
         ...
 
     def upload(
