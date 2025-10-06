@@ -14,12 +14,13 @@ from .compute.conditional import ConditionalMixin
 from .compute.cluster import ClusterMixin
 from .plugins.kusto import KustoMixin
 from .plugins.spanner import SpannerMixin
+from .plugins.sentinel_graph import SentinelGraphMixin
 from .client_session import AuthManagerProtocol
 # NOTE: Cooperative mixins must call:
 #       super().__init__(*a, **kw) in their __init__ method
 #       to pass along args/kwargs to the next mixin in the chain
 class Plotter(
-    KustoMixin, SpannerMixin,
+    KustoMixin, SpannerMixin, SentinelGraphMixin,
     CosmosMixin, NeptuneMixin,
     HeterographEmbedModuleMixin,
     SearchToGraphMixin,
@@ -53,6 +54,7 @@ class Plotter(
         - :py:class:`graphistry.gremlin.NeptuneMixin`: Integrates with AWS Neptune DB.
         - :py:class:`graphistry.plugins.kusto.KustoMixin`: Integrates with Azure Kusto DB.
         - :py:class:`graphistry.plugins.spanner.SpannerMixin`: Integrates with Google Spanner DB.
+        - :py:class:`graphistry.plugins.sentinel_graph.SentinelGraphMixin`: Integrates with Microsoft Sentinel Graph API.
 
     Attributes:
         All attributes are inherited from the mixins and base classes.

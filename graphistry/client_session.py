@@ -9,6 +9,7 @@ from graphistry.privacy import Privacy
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
 from .plugins_types.kusto_types import KustoConfig
+from .plugins_types.sentinel_graph_types import SentinelGraphConfig
 
 
 
@@ -85,6 +86,7 @@ class ClientSession:
         # NOTE: These are dataclasses, so we shallow copy them
         self.kusto: Optional[KustoConfig] = None
         self.spanner: Optional[SpannerConfig] = None
+        self.sentinel_graph: Optional[SentinelGraphConfig] = None
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self._bolt_driver: Optional[Any] = None
