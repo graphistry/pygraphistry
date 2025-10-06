@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * GFQL: Remote GFQL persistence with persist=True parameter (#760)
-  * Added `persist=False` parameter to `gfql_remote()`, `chain_remote()`, and `chain_remote_shape()` methods
+  * Added `persist=False` parameter to `gfql_remote()` and `gfql_remote_shape()` methods
   * Added `url` property to access visualization URLs after server-side persistence
   * Enables server-side dataset persistence eliminating client round-trips
 

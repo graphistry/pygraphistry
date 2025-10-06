@@ -1,12 +1,15 @@
 import numpy as np
 import pandas as pd
-from typing import Any, List, Union
+from typing import Any, Dict, List, Optional, Union
+from typing_extensions import Literal
 from inspect import getmodule
 
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .chain import chain as chain_base
+from graphistry.utils.json import JSONVal
+from .ast import ASTObject
+from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .chain_remote import (
@@ -18,6 +21,7 @@ from .python_remote import (
     python_remote_table as python_remote_table_base,
     python_remote_json as python_remote_json_base
 )
+from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -529,7 +533,20 @@ class ComputeMixin(Plottable):
     # Preserve original docstring after deprecation notice
     chain_remote_shape.__doc__ = (chain_remote_shape.__doc__ or "") + "\n\n" + (chain_remote_shape_base.__doc__ or "")
 
-    def gfql_remote(self, *args, **kwargs) -> Plottable:
+    def gfql_remote(
+        self,
+        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        output_type: OutputTypeGraph = "all",
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
+    ) -> Plottable:
         """Run GFQL query remotely.
 
         This is the remote execution version of :meth:`gfql`. It supports both simple chains
@@ -545,17 +562,35 @@ class ComputeMixin(Plottable):
 
         See :meth:`chain_remote` for detailed documentation (chain_remote is deprecated).
         """
-        return chain_remote_base(self, *args, **kwargs)
+        return chain_remote_base(
+            self, chain, api_token, dataset_id, output_type, format,
+            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist
+        )
     
-    def gfql_remote_shape(self, *args, **kwargs) -> pd.DataFrame:
+    def gfql_remote_shape(
+        self,
+        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
+    ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
-        
-        This is the remote shape version of :meth:`gfql`. Returns metadata about the 
+
+        This is the remote shape version of :meth:`gfql`. Returns metadata about the
         resulting graph without downloading the full data.
-        
+
         See :meth:`chain_remote_shape` for detailed documentation (chain_remote_shape is deprecated).
         """
-        return chain_remote_shape_base(self, *args, **kwargs)
+        return chain_remote_shape_base(
+            self, chain, api_token, dataset_id, format, df_export_args,
+            node_col_subset, edge_col_subset, engine, validate, persist
+        )
 
     def python_remote_g(self, *args, **kwargs) -> Any:
         return python_remote_g_base(self, *args, **kwargs)
