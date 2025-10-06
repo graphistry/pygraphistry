@@ -9,17 +9,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * GFQL: Remote GFQL persistence with persist=True parameter (#760)
-  * Added `persist=Bool=False` parameter to `gfql_remote()`, `chain_remote()`, and `chain_remote_shape()` methods
-  * Enables server-side dataset persistence for immediate visualization URL generation without client round-trips
-  * Added `url` property to Plottable protocol for accessing visualization URLs after persistence
-  * Automatic privacy/share policy inclusion in persist requests when `persist=True`
-  * Enhanced server API request format with persist and privacy fields
-  * Enhanced server API response format includes dataset_id for persisted datasets
-  * Zip format support with metadata.json containing dataset_id and privacy settings
-  * Improved DataFrame detection safety (checks both nodes and edges for cudf)
-  * Comprehensive warning system for persistence failures with graceful degradation
-  * Full backward compatibility (persist=False by default)
-  * Comprehensive test suite with 13 tests covering all persistence scenarios
+  * Added `persist=False` parameter to `gfql_remote()`, `chain_remote()`, and `chain_remote_shape()` methods
+  * Added `url` property to access visualization URLs after server-side persistence
+  * Enables server-side dataset persistence eliminating client round-trips
 
 ## [0.42.3 - 2025-10-04]
 
