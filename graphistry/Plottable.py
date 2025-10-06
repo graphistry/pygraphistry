@@ -450,7 +450,9 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
     ) -> 'Plottable':
         """
         chain is Union[List[ASTObject], Chain]
@@ -466,7 +468,46 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
+    ) -> pd.DataFrame:
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        ...
+
+    def gfql_remote(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        output_type: OutputTypeGraph = "all",
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
+    ) -> 'Plottable':
+        """
+        chain is Union[List[ASTObject], Chain]
+        """
+        ...
+
+    def gfql_remote_shape(
+        self: 'Plottable',
+        chain: Union[Any, Dict[str, JSONVal]],
+        api_token: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: Optional[FormatType] = None,
+        df_export_args: Optional[Dict[str, Any]] = None,
+        node_col_subset: Optional[List[str]] = None,
+        edge_col_subset: Optional[List[str]] = None,
+        engine: Optional[Literal["pandas", "cudf"]] = None,
+        validate: bool = True,
+        persist: bool = False
     ) -> pd.DataFrame:
         """
         chain is Union[List[ASTObject], Chain]
@@ -684,6 +725,10 @@ class Plottable(Protocol):
         ...
     
     def base_url_client(self, v: Optional[str] = None) -> str:
+        ...
+
+    @property
+    def url(self) -> Optional[str]:
         ...
 
     def upload(

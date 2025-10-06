@@ -543,7 +543,7 @@ class TestGFQLHypergraphRemote:
         def mock_server_hypergraph(g, chain, api_token=None, dataset_id=None,
                                   output_type='all', format=None, df_export_args=None,
                                   node_col_subset=None, edge_col_subset=None,
-                                  engine=None, validate=True):
+                                  engine=None, validate=True, persist=False):
             """Mock server that executes hypergraph locally."""
             from graphistry.compute.ast import ASTCall
 

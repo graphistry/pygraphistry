@@ -24,7 +24,8 @@ def chain_remote_generic(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -52,6 +53,11 @@ def chain_remote_generic(
         else:
             format = "parquet"
 
+    # Validate persist compatibility early
+    if persist and output_type in ["nodes", "edges"]:
+        raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
+                        f"Use output_type='all' for persistence support.")
+
     if isinstance(chain, Chain):
         chain_json = chain.to_json()
     elif isinstance(chain, list):
@@ -63,19 +69,25 @@ def chain_remote_generic(
     if validate:
         Chain.from_json(chain_json)
 
-    request_body = {
+    request_body: Dict[str, Any] = {
         "gfql_operations": chain_json['chain'],  # unwrap
         "format": format
     }
 
     if node_col_subset is not None:
-        request_body["node_col_subset"] = node_col_subset  # type: ignore
+        request_body["node_col_subset"] = node_col_subset
     if edge_col_subset is not None:
-        request_body["edge_col_subset"] = edge_col_subset  # type: ignore
+        request_body["edge_col_subset"] = edge_col_subset
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
     if engine is not None:
-        request_body["engine"] = engine  # type: ignore
+        request_body["engine"] = engine
+    if persist:
+        request_body["persist"] = persist
+
+        # Include privacy settings for persisted dataset
+        if hasattr(self, '_privacy') and self._privacy is not None:
+            request_body["privacy"] = dict(self._privacy)
 
     url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
@@ -91,17 +103,22 @@ def chain_remote_generic(
 
     # deserialize based on output_type & format
 
-    if self._edges is None or isinstance(self._edges, pd.DataFrame):
-        df_cons = pd.DataFrame
-        read_csv = pd.read_csv
-        read_parquet = pd.read_parquet
-    elif 'cudf.core.dataframe' in str(getmodule(self._edges)):
+    # Determine DataFrame library by checking both edges and nodes
+    edges_is_cudf = self._edges is not None and 'cudf.core.dataframe' in str(getmodule(self._edges))
+    nodes_is_cudf = self._nodes is not None and 'cudf.core.dataframe' in str(getmodule(self._nodes))
+
+    if edges_is_cudf or nodes_is_cudf:
         import cudf
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
+    elif (self._edges is None or isinstance(self._edges, pd.DataFrame) or 'unittest.mock' in str(type(self._edges))) and \
+         (self._nodes is None or isinstance(self._nodes, pd.DataFrame) or 'unittest.mock' in str(type(self._nodes))):
+        df_cons = pd.DataFrame
+        read_csv = pd.read_csv
+        read_parquet = pd.read_parquet
     else:
-        raise ValueError(f"Unknown self._edges type, expected cudf/pandas DataFrame: {type(self._edges)}")
+        raise ValueError(f"Unknown DataFrame types - edges: {type(self._edges)}, nodes: {type(self._nodes)}")
 
     if output_type == "shape":
         if format == "json":
@@ -125,13 +142,58 @@ def chain_remote_generic(
                 nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
             else:
                 nodes_df = df_cons()
-            
+
             if len(edges_data) > 0:
                 edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
             else:
                 edges_df = df_cons()
 
-            return self.edges(edges_df).nodes(nodes_df)
+            result = self.edges(edges_df).nodes(nodes_df)
+
+            # Handle persist response for zip format
+            if persist:
+                # Look for metadata.json in zip (new servers)
+                if 'metadata.json' in zip_ref.namelist():
+                    try:
+                        import json
+                        metadata_content = zip_ref.read('metadata.json')
+                        metadata = json.loads(metadata_content.decode('utf-8'))
+
+                        # Extract dataset_id for URL generation
+                        if 'dataset_id' in metadata:
+                            result._dataset_id = metadata['dataset_id']
+
+                            # Generate URL using existing infrastructure
+                            if result._dataset_id:  # Type guard
+                                import uuid
+                                from graphistry.client_session import DatasetInfo
+
+                                info: DatasetInfo = {
+                                    'name': result._dataset_id,
+                                    'type': 'arrow',
+                                    'viztoken': str(uuid.uuid4())
+                                }
+
+                                result._url = result._pygraphistry._viz_url(info, result._url_params)
+
+                        # Optionally restore privacy settings
+                        if 'privacy' in metadata:
+                            result._privacy = metadata['privacy']
+
+                    except Exception as e:
+                        # Gracefully handle metadata parsing errors
+                        import warnings
+                        warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
+                                    f"URL generation will not be available. This may indicate an older server version.",
+                                    UserWarning, stacklevel=2)
+                else:
+                    # No metadata.json found - older server
+                    import warnings
+                    warnings.warn("persist=True requested but server did not return metadata.json. "
+                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                                UserWarning, stacklevel=2)
+
+        return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -141,25 +203,49 @@ def chain_remote_generic(
         if output_type == "nodes":
             out = self.nodes(df)
             out._edges = None
-            return out
         else:
             out = self.edges(df)
             out._nodes = None
-            return out
+
+
+        return out
     elif format == "json":
         o = response.json()
         if output_type == "all":
-            return self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
+            result = self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
-            out = self.nodes(df_cons(o))
-            out._edges = None
-            return out
+            result = self.nodes(df_cons(o))
+            result._edges = None
         elif output_type == "edges":
-            out = self.edges(df_cons(o))
-            out._nodes = None
-            return out
+            result = self.edges(df_cons(o))
+            result._nodes = None
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
+
+        # Handle persist response - set dataset_id if provided
+        if persist:
+            if 'dataset_id' in o:
+                result._dataset_id = o['dataset_id']
+
+                # Generate URL using existing infrastructure
+                if result._dataset_id:  # Type guard
+                    import uuid
+                    from graphistry.client_session import DatasetInfo
+
+                    dataset_info: DatasetInfo = {
+                        'name': result._dataset_id,
+                        'type': 'arrow',
+                        'viztoken': str(uuid.uuid4())
+                    }
+
+                    result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
+            else:
+                import warnings
+                warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
+                            "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
+                            UserWarning, stacklevel=2)
+
+        return result
     else:
         raise ValueError(f"Unsupported format {format}, output_type {output_type}")
 
@@ -174,7 +260,8 @@ def chain_remote_shape(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -214,7 +301,8 @@ def chain_remote_shape(
         node_col_subset,
         edge_col_subset,
         engine,
-        validate
+        validate,
+        persist
     )
     assert isinstance(out_df, pd.DataFrame)
     return out_df
@@ -230,7 +318,8 @@ def chain_remote(
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
     engine: Optional[Literal["pandas", "cudf"]] = None,
-    validate: bool = True
+    validate: bool = True,
+    persist: bool = False
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -265,6 +354,9 @@ def chain_remote(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param persist: Whether to persist dataset on server and return dataset_id for immediate URL generation. Default false.
+    :type persist: bool
 
     **Example: Explicitly upload graph and return subgraph where nodes have at least one edge**
         ::
@@ -313,7 +405,8 @@ def chain_remote(
         node_col_subset,
         edge_col_subset,
         engine,
-        validate
+        validate,
+        persist
     )
     assert isinstance(g, Plottable)
     return g

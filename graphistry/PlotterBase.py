@@ -1550,6 +1550,15 @@ class PlotterBase(Plottable):
     def base_url_client(self, v: Optional[str] = None) -> str:
         return self.client_protocol_hostname()
 
+    @property
+    def url(self) -> Optional[str]:
+        """Get visualization URL if available.
+
+        :returns: Visualization URL if set by plot() or remote persistence
+        :rtype: Optional[str]
+        """
+        return self._url
+
     def upload(
         self,
         memoize: bool = True,
