@@ -26,6 +26,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Policy integration**: UMAP operations controllable through precall/postcall policy hooks
   * **Usage**: `g.gfql(call('umap', {'X': ['x', 'y'], 'n_neighbors': 15}))`
 
+### Fixed
+* GFQL: Fixed misleading "BadZipFile" errors for server validation failures
+  * **Problem**: HTTP 400 validation errors from server (e.g., malformed UMAP parameters) were incorrectly translated to "BadZipFile: File is not a zip file" errors
+  * **Root cause**: Client code assumed all HTTP responses contained zip data without checking status codes or content type
+  * **Solution**: Added defensive error handling in `chain_remote.py` and `python_remote.py` to:
+    * Parse JSON error responses from HTTP 400 status codes before attempting zip processing
+    * Catch `BadZipFile` exceptions and provide structured error messages with response context
+    * Preserve original server validation errors for actionable debugging
+  * **Impact**: UMAP calls with malformed configs like `{"random_state": 42}` now show proper validation errors instead of confusing zip file errors
+  * **Example**: Before: `BadZipFile: File is not a zip file` → After: `GFQL remote operation failed: Invalid UMAP parameter: random_state (Expected in umap_kwargs)`
+
 ## [0.42.4 - 2025-10-05]
 
 ### Added

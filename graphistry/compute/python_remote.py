@@ -147,7 +147,21 @@ def python_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    response.raise_for_status()
+    # Enhanced error handling for GFQL validation errors
+    if not response.ok:
+        try:
+            # Try to parse JSON error response for more details
+            if response.headers.get('content-type', '').startswith('application/json'):
+                error_data = response.json()
+                error_msg = error_data.get('error', str(error_data))
+                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
+        except ValueError:
+            # Re-raise ValueError (which includes our custom message)
+            raise
+        except Exception:
+            # Fall back to default error handling for other JSON parsing errors
+            pass
+        response.raise_for_status()
 
     if self._edges is None or isinstance(self._edges, pd.DataFrame):
         df_cons = pd.DataFrame
@@ -172,24 +186,43 @@ def python_remote_generic(
             raise ValueError(f"Unknown format, expected json/csv/parquet, got: {format}")
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
-        with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-            nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-            edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
+        try:
+            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
+                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
+                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
 
-            nodes_data = zip_ref.read(nodes_file)
-            edges_data = zip_ref.read(edges_file)
+                nodes_data = zip_ref.read(nodes_file)
+                edges_data = zip_ref.read(edges_file)
 
-            if len(nodes_data) > 0:
-                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-            else:
-                nodes_df = df_cons()
+                if len(nodes_data) > 0:
+                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+                else:
+                    nodes_df = df_cons()
 
-            if len(edges_data) > 0:
-                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-            else:
-                edges_df = df_cons()
+                if len(edges_data) > 0:
+                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+                else:
+                    edges_df = df_cons()
 
-            return self.edges(edges_df).nodes(nodes_df)
+                return self.edges(edges_df).nodes(nodes_df)
+        except zipfile.BadZipFile as e:
+            # Handle case where response is not a zip file (e.g., error response)
+            try:
+                # Try to parse as JSON error response
+                if response.headers.get('content-type', '').startswith('application/json'):
+                    error_data = response.json()
+                    error_msg = error_data.get('error', str(error_data))
+                    raise ValueError(f"GFQL remote operation failed: {error_msg} (Expected zip file but got JSON error)")
+                else:
+                    # Try to decode as text for better error context
+                    try:
+                        error_text = response.content.decode('utf-8')[:500]  # First 500 chars
+                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received: {error_text}")
+                    except UnicodeDecodeError:
+                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received invalid data (HTTP {response.status_code})")
+            except Exception:
+                # Fallback: re-raise original BadZipFile with more context
+                raise ValueError(f"GFQL remote operation failed: {str(e)} - Response may be an error message instead of expected zip file")
     elif output_type in ["nodes", "edges", "table"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:

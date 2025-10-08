@@ -99,7 +99,23 @@ def chain_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    response.raise_for_status()
+    # Enhanced error handling for GFQL validation errors
+    if not response.ok:
+        try:
+            # Try to parse JSON error response for more details
+            if response.headers.get('content-type', '').startswith('application/json'):
+                error_data = response.json()
+                error_msg = error_data.get('error', str(error_data))
+                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
+            else:
+                # Fallback to generic error with response text
+                raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
+        except (ValueError,) as ve:
+            # Re-raise our custom ValueError
+            raise ve
+        except Exception:
+            # If JSON parsing fails, re-raise the original HTTP error
+            response.raise_for_status()
 
     # deserialize based on output_type & format
 
@@ -131,69 +147,85 @@ def chain_remote_generic(
             raise ValueError(f"Unknown format, expected json/csv/parquet, got: {format}")
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
-        with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-            nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-            edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
+        try:
+            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
+                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
+                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
 
-            nodes_data = zip_ref.read(nodes_file)
-            edges_data = zip_ref.read(edges_file)
+                nodes_data = zip_ref.read(nodes_file)
+                edges_data = zip_ref.read(edges_file)
 
-            if len(nodes_data) > 0:
-                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-            else:
-                nodes_df = df_cons()
+                if len(nodes_data) > 0:
+                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+                else:
+                    nodes_df = df_cons()
 
-            if len(edges_data) > 0:
-                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-            else:
-                edges_df = df_cons()
+                if len(edges_data) > 0:
+                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+                else:
+                    edges_df = df_cons()
 
-            result = self.edges(edges_df).nodes(nodes_df)
+                result = self.edges(edges_df).nodes(nodes_df)
 
-            # Handle persist response for zip format
-            if persist:
-                # Look for metadata.json in zip (new servers)
-                if 'metadata.json' in zip_ref.namelist():
-                    try:
-                        import json
-                        metadata_content = zip_ref.read('metadata.json')
-                        metadata = json.loads(metadata_content.decode('utf-8'))
+                # Handle persist response for zip format
+                if persist:
+                    # Look for metadata.json in zip (new servers)
+                    if 'metadata.json' in zip_ref.namelist():
+                        try:
+                            import json
+                            metadata_content = zip_ref.read('metadata.json')
+                            metadata = json.loads(metadata_content.decode('utf-8'))
 
-                        # Extract dataset_id for URL generation
-                        if 'dataset_id' in metadata:
-                            result._dataset_id = metadata['dataset_id']
+                            # Extract dataset_id for URL generation
+                            if 'dataset_id' in metadata:
+                                result._dataset_id = metadata['dataset_id']
 
-                            # Generate URL using existing infrastructure
-                            if result._dataset_id:  # Type guard
-                                import uuid
-                                from graphistry.client_session import DatasetInfo
+                                # Generate URL using existing infrastructure
+                                if result._dataset_id:  # Type guard
+                                    import uuid
+                                    from graphistry.client_session import DatasetInfo
 
-                                info: DatasetInfo = {
-                                    'name': result._dataset_id,
-                                    'type': 'arrow',
-                                    'viztoken': str(uuid.uuid4())
-                                }
+                                    info: DatasetInfo = {
+                                        'name': result._dataset_id,
+                                        'type': 'arrow',
+                                        'viztoken': str(uuid.uuid4())
+                                    }
 
-                                result._url = result._pygraphistry._viz_url(info, result._url_params)
+                                    result._url = result._pygraphistry._viz_url(info, result._url_params)
 
-                        # Optionally restore privacy settings
-                        if 'privacy' in metadata:
-                            result._privacy = metadata['privacy']
+                            # Optionally restore privacy settings
+                            if 'privacy' in metadata:
+                                result._privacy = metadata['privacy']
 
-                    except Exception as e:
-                        # Gracefully handle metadata parsing errors
-                        import warnings
-                        warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
+                        except Exception as e:
+                            # Gracefully handle metadata parsing errors
+                            import warnings
+                            warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
                                     f"URL generation will not be available. This may indicate an older server version.",
                                     UserWarning, stacklevel=2)
-                else:
-                    # No metadata.json found - older server
-                    import warnings
-                    warnings.warn("persist=True requested but server did not return metadata.json. "
-                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
-                                UserWarning, stacklevel=2)
+                    else:
+                        # No metadata.json found - older server
+                        import warnings
+                        warnings.warn("persist=True requested but server did not return metadata.json. "
+                                    "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                                    UserWarning, stacklevel=2)
 
-        return result
+                return result
+        except zipfile.BadZipFile as e:
+            # Server likely returned an error response instead of zip data
+            # Try to parse the response as JSON for a better error message
+            try:
+                if response.headers.get('content-type', '').startswith('application/json'):
+                    error_data = response.json()
+                    error_msg = error_data.get('error', str(error_data))
+                    raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
+                else:
+                    # Show the response text for debugging
+                    raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
+            except Exception:
+                # If all else fails, re-raise the original BadZipFile error with context
+                raise ValueError(f"GFQL remote operation failed - server response is not a valid zip file. "
+                               f"This usually indicates a server validation error. Response status: {response.status_code}") from e
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
