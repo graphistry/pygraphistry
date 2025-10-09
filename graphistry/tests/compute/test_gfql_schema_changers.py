@@ -22,6 +22,13 @@ pytestmark = [
     pytest.mark.skip(reason="Requires full Plotter with UMAPMixin/HypergraphMixin - validated via standalone tests")
 ]
 
+# Note: Tests use PyGraphistry instead of CGFull test fixture to access full UMAP/hypergraph functionality
+try:
+    from graphistry import PyGraphistry
+    CGFull = PyGraphistry  # Alias for test clarity
+except ImportError:
+    CGFull = None  # Gracefully handle import errors in skipped tests
+
 
 class TestSchemaChangerRecursiveDispatch:
     """Test recursive dispatch for schema-changing operations"""
@@ -52,8 +59,8 @@ class TestSchemaChangerRecursiveDispatch:
         assert len(result._edges) > 0
         # Check for UMAP-created edge columns
         has_umap_edges = (
-            '_src_implicit' in result._edges.columns or
-            result._source in result._edges.columns
+            '_src_implicit' in result._edges.columns
+            or result._source in result._edges.columns
         )
         assert has_umap_edges, "UMAP should create edge columns"
 
