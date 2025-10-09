@@ -12,61 +12,23 @@ from graphistry.plugins_types.sentinel_graph_types import (
     SentinelGraphConnectionError,
     SentinelGraphQueryError
 )
+from graphistry.tests.fixtures.sentinel_graph_responses import (
+    get_minimal_response,
+    get_simple_graph_response,
+    get_duplicate_nodes_response,
+    get_malformed_response,
+    get_empty_response,
+    get_complex_graph_response,
+    get_edge_only_response,
+    get_response_with_special_characters,
+    get_response_with_null_properties
+)
 
 
-# Sample response data for testing
-SAMPLE_RESPONSE_FULL = {
-    "Graph": {
-        "Nodes": [
-            {"Id": "node1", "Label": ["THREATACTOR"], "Properties": {"name": "Test Actor"}},
-            {"Id": "node2", "Label": ["IDENTITY"], "Properties": {"name": "Test Identity"}}
-        ],
-        "Edges": []
-    },
-    "RawData": {
-        "Rows": [
-            {
-                "Cols": [
-                    {"Value": '{"_id": "node1", "_label": "THREATACTOR", "name": "Test Actor", "description": "A test threat actor"}'}
-                ]
-            },
-            {
-                "Cols": [
-                    {"Value": '{"_id": "node2", "_label": "IDENTITY", "name": "Test Identity"}'}
-                ]
-            },
-            {
-                "Cols": [
-                    {"Value": '{"_sourceId": "node1", "_targetId": "node2", "_label": "Targets", "count": 5}'}
-                ]
-            }
-        ]
-    }
-}
-
-SAMPLE_RESPONSE_RAWDATA_ONLY = {
-    "RawData": {
-        "Rows": [
-            {"Cols": [{"Value": '{"_id": "node3", "_label": "MALWARE", "name": "Test Malware"}'}]},
-            {"Cols": [{"Value": '{"_sourceId": "node3", "_targetId": "node1", "_label": "Uses"}'}]}
-        ]
-    }
-}
-
-SAMPLE_RESPONSE_EMPTY = {
-    "Graph": {"Nodes": [], "Edges": []},
-    "RawData": {"Rows": []}
-}
-
-SAMPLE_RESPONSE_MALFORMED = {
-    "RawData": {
-        "Rows": [
-            {"Cols": [{"Value": 'not valid json'}]},
-            {"Cols": [{"Value": '{"_id": "node4", "_label": "VALID"}'}]},
-            {"Cols": [{"Value": None}]}
-        ]
-    }
-}
+# Sample response data for testing (using fixtures)
+SAMPLE_RESPONSE_FULL = get_simple_graph_response()  # 3 nodes, 2 edges
+SAMPLE_RESPONSE_EMPTY = get_empty_response()
+SAMPLE_RESPONSE_MALFORMED = get_malformed_response()
 
 
 class TestSentinelGraphConfiguration:
@@ -357,42 +319,41 @@ class TestResponseParsing:
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
 
-        assert len(nodes_df) == 2
+        assert len(nodes_df) == 3  # simple graph has 3 nodes
         assert 'id' in nodes_df.columns
         assert 'label' in nodes_df.columns
-        assert set(nodes_df['id']) == {'node1', 'node2'}
+        assert set(nodes_df['id']) == {'node1', 'node2', 'node3'}
 
     def test_extract_nodes_rawdata_only(self):
         """Test node extraction from RawData only"""
         g = PlotterBase()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        nodes_df = g._extract_nodes(SAMPLE_RESPONSE_RAWDATA_ONLY)
+        minimal_response = get_minimal_response()
+        nodes_df = g._extract_nodes(minimal_response)
 
         assert len(nodes_df) == 1
-        assert nodes_df.iloc[0]['id'] == 'node3'
-        assert nodes_df.iloc[0]['label'] == 'MALWARE'
+        assert nodes_df.iloc[0]['id'] == 'node1'
+        assert nodes_df.iloc[0]['label'] == 'Entity'
 
     def test_extract_nodes_deduplication(self):
         """Test node deduplication keeps most complete record"""
-        duplicate_response = {
-            "RawData": {
-                "Rows": [
-                    {"Cols": [{"Value": '{"_id": "dup1", "_label": "TEST"}'}]},
-                    {"Cols": [{"Value": '{"_id": "dup1", "_label": "TEST", "name": "Complete", "description": "Full info"}'}]},
-                    {"Cols": [{"Value": '{"_id": "dup1", "_label": "TEST", "name": "Partial"}'}]}
-                ]
-            }
-        }
+        duplicate_response = get_duplicate_nodes_response()
 
         g = PlotterBase()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         nodes_df = g._extract_nodes(duplicate_response)
 
-        assert len(nodes_df) == 1
-        assert nodes_df.iloc[0]['name'] == 'Complete'  # Most complete record
-        assert nodes_df.iloc[0]['description'] == 'Full info'
+        # Should have 2 unique nodes (node1 and node2)
+        assert len(nodes_df) == 2
+        # Find the deduplicated node1
+        node1 = nodes_df[nodes_df['id'] == 'node1'].iloc[0]
+        # Should keep the most complete record with all 4 properties
+        assert node1['name'] == 'Alice'
+        assert node1['age'] == 30
+        assert node1['email'] == 'alice@example.com'
+        assert node1['department'] == 'Sales'
 
     def test_extract_nodes_malformed_data(self):
         """Test graceful handling of malformed data"""
@@ -401,9 +362,9 @@ class TestResponseParsing:
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_MALFORMED)
 
-        # Should extract the valid node and skip invalid ones
-        assert len(nodes_df) == 1
-        assert nodes_df.iloc[0]['id'] == 'node4'
+        # Should extract valid nodes and skip invalid ones
+        assert len(nodes_df) == 2
+        assert set(nodes_df['id']) == {'node1', 'node2'}
 
     def test_extract_nodes_empty_response(self):
         """Test extraction from empty response"""
@@ -423,22 +384,27 @@ class TestResponseParsing:
 
         edges_df = g._extract_edges(SAMPLE_RESPONSE_FULL)
 
-        assert len(edges_df) == 1
-        assert edges_df.iloc[0]['source'] == 'node1'
-        assert edges_df.iloc[0]['target'] == 'node2'
-        assert edges_df.iloc[0]['edge'] == 'Targets'
-        assert edges_df.iloc[0]['count'] == 5
+        assert len(edges_df) == 2  # simple graph has 2 edges
+        # Verify the edges form a chain: node1->node2->node3
+        edge1 = edges_df[edges_df['source'] == 'node1'].iloc[0]
+        assert edge1['target'] == 'node2'
+        assert edge1['edge'] == 'KNOWS'
+
+        edge2 = edges_df[edges_df['source'] == 'node2'].iloc[0]
+        assert edge2['target'] == 'node3'
+        assert edge2['edge'] == 'WORKS_WITH'
 
     def test_extract_edges_rawdata_only(self):
-        """Test edge extraction from RawData only"""
+        """Test edge extraction from RawData only (orphan edges)"""
         g = PlotterBase()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        edges_df = g._extract_edges(SAMPLE_RESPONSE_RAWDATA_ONLY)
+        edge_only_response = get_edge_only_response()
+        edges_df = g._extract_edges(edge_only_response)
 
-        assert len(edges_df) == 1
-        assert edges_df.iloc[0]['source'] == 'node3'
-        assert edges_df.iloc[0]['target'] == 'node1'
+        assert len(edges_df) == 2  # edge_only_response has 2 orphan edges
+        assert edges_df.iloc[0]['source'] == 'missing_node1'
+        assert edges_df.iloc[0]['target'] == 'missing_node2'
 
     def test_extract_edges_empty_response(self):
         """Test edge extraction from empty response"""
@@ -465,8 +431,8 @@ class TestGraphConversion:
 
         assert result._node is not None
         assert result._edge is not None
-        assert len(result._node) == 2
-        assert len(result._edge) == 1
+        assert len(result._node) == 3  # simple graph has 3 nodes
+        assert len(result._edge) == 2  # simple graph has 2 edges
 
     def test_convert_dict_response(self):
         """Test conversion from dict response"""
