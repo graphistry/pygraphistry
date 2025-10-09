@@ -388,10 +388,25 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         if len(ops) == 1:
             # Singleton schema-changer - execute directly without going through chain machinery
             from graphistry.compute.gfql.call_executor import execute_call
+            from graphistry.compute.exceptions import GFQLTypeError, ErrorCode
+
             engine_concrete = resolve_engine(engine, self)
             schema_changer = ops[0]
+
             # Type narrowing: we know it's ASTCall from the isinstance check above
-            assert isinstance(schema_changer, ASTCall), "Expected ASTCall for schema-changer"
+            if not isinstance(schema_changer, ASTCall):
+                raise GFQLTypeError(
+                    code=ErrorCode.E201,
+                    message="Schema-changer operation must be ASTCall",
+                    field="operation",
+                    value=type(schema_changer).__name__,
+                    suggestion="Use call('umap', {...}) or call('hypergraph', {...})"
+                )
+
+            # Validate schema if requested (even though ASTCall doesn't check columns, respect the flag)
+            if validate_schema:
+                validate_chain_schema(self, ops, collect_all=False)
+
             return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy)
         else:
             # Multiple ops with schema-changer - split and recurse
