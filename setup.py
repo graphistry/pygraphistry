@@ -58,6 +58,11 @@ base_extras_light = {
     'kusto': ['azure-kusto-data', 'azure-identity']
 }
 
+base_extras_data = {
+    'data-gen': ['random-address', 'factory_boy']
+}
+
+
 base_extras_heavy = {
   'umap-learn': ['umap-learn','skrub', 'scikit-learn', 'scipy'],
   'pygraphviz': ['pygraphviz'],  # + apt-get graphviz, graphviz-dev
@@ -72,13 +77,15 @@ base_extras_heavy = {
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
 base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
 
-base_extras = {**base_extras_light, **base_extras_heavy}
+
+base_extras = {**base_extras_light, **base_extras_heavy, **base_extras_data}
 
 extras_require = {
 
   **base_extras_light,
   **base_extras_heavy,
   **dev_extras,
+  **base_extras_data,
 
   #kitchen sink for users -- not recommended
   'all': unique_flatten_dict(base_extras),
@@ -86,6 +93,8 @@ extras_require = {
   #kitchen sink for contributors, skips ai
   'dev': unique_flatten_dict(base_extras_light) + unique_flatten_dict(dev_extras),
 
+  #for people data synthesizer
+  'data': unique_flatten_dict(base_extras_data),
 }
 
 setup(
