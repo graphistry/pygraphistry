@@ -139,28 +139,40 @@ class TestGFQLHypergraph:
         assert len(result._nodes) > 0, "Hypergraph should have non-empty nodes"
         assert len(result._edges) > 0, "Hypergraph should have non-empty edges"
 
-    def test_hypergraph_rejected_when_mixed(self):
-        """Test that hypergraph cannot be mixed with other operations in chains."""
+    def test_hypergraph_allowed_when_mixed(self):
+        """Test that hypergraph CAN be mixed with other operations via recursive dispatch.
+
+        This test verifies the fix for GitHub issue #761 where schema-changing operations
+        like hypergraph are now handled via recursive dispatch, allowing them to be mixed
+        with other GFQL operations.
+        """
         events_df = pd.DataFrame({
             'user': ['alice', 'bob'],
             'product': ['laptop', 'phone'],
             'type': ['person', 'person']
         })
 
-        g = CGFull().nodes(events_df)
+        # Create graph with edges to avoid NoneType errors in ASTNode
+        edges_df = pd.DataFrame({
+            'src': ['alice'],
+            'dst': ['bob']
+        })
+        g = CGFull().nodes(events_df, 'user').edges(edges_df, 'src', 'dst')
 
-        # Mixing hypergraph with other operations should raise an error
-        with pytest.raises(ValueError) as exc_info:
-            g.gfql([
-                n({'type': 'person'}),  # Filter operation
-                call('hypergraph', {    # Transform operation
-                    'entity_types': ['user', 'product'],
-                    'direct': True
-                })
-            ])
+        # Mixing hypergraph with other operations should now work via recursive dispatch
+        # The chain will be split: before → hypergraph → rest
+        result = g.gfql([
+            n({'type': 'person'}),  # Filter operation (before)
+            call('hypergraph', {    # Schema-changer (will be dispatched separately)
+                'entity_types': ['user', 'product'],
+                'direct': True
+            })
+        ])
 
-        assert "cannot be mixed with other operations" in str(exc_info.value)
-        assert "use hypergraph alone" in str(exc_info.value)
+        # Should execute successfully and return a graph
+        assert result is not None
+        assert hasattr(result, '_nodes')
+        # Note: Result structure depends on hypergraph implementation with CGFull mock
 
     def test_hypergraph_with_chaining_in_let(self):
         """Test chaining operations after hypergraph transformation using let."""
