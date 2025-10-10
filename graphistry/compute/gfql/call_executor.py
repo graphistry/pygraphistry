@@ -73,73 +73,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     # Validate parameters against safelist
     validated_params = validate_call_params(function, final_params)
 
-    # Special handling for hypergraph
-    if function == 'hypergraph':
-        # Extract GFQL-specific params before calling hypergraph method
-        from_edges = validated_params.pop('from_edges', False)
-        return_as = validated_params.pop('return_as', 'graph')
-
-        # Select raw_events dataframe based on from_edges parameter
-        if from_edges:
-            # Use edges dataframe as input
-            if g._edges is None or len(g._edges) == 0:
-                raise GFQLTypeError(
-                    ErrorCode.E105,
-                    "Hypergraph from_edges=True requires edges data",
-                    field="edges",
-                    value="None or empty",
-                    suggestion="Ensure graph has edges before calling hypergraph with from_edges=True"
-                )
-            raw_events = g._edges
-        else:
-            # Use nodes dataframe as input (default behavior)
-            if g._nodes is None or len(g._nodes) == 0:
-                raise GFQLTypeError(
-                    ErrorCode.E105,
-                    "Hypergraph requires nodes data",
-                    field="nodes",
-                    value="None or empty",
-                    suggestion="Ensure graph has nodes before calling hypergraph"
-                )
-            raw_events = g._nodes
-
-        # Set default engine if not specified
-        if 'engine' not in validated_params:
-            # Try to detect engine from dataframe type
-            if str(type(raw_events).__module__).startswith('cudf'):
-                validated_params['engine'] = 'cudf'
-            elif str(type(raw_events).__module__).startswith('dask'):
-                validated_params['engine'] = 'dask'
-            else:
-                validated_params['engine'] = 'pandas'
-
-        # Call hypergraph method directly (now properly typed in Plottable Protocol)
-        try:
-            result = g.hypergraph(raw_events, **validated_params)
-            # Hypergraph returns a HypergraphResult dict with multiple keys
-            # Route return based on return_as parameter
-            if return_as == 'graph':
-                # Default: return full Plottable graph (backward compatible)
-                return result['graph']
-            elif return_as == 'entities':
-                return result['entities']
-            elif return_as == 'events':
-                return result['events']
-            elif return_as == 'edges':
-                return result['edges']
-            elif return_as == 'nodes':
-                return result['nodes']
-            else:
-                # Should never reach here due to safelist validation
-                return result['graph']
-        except Exception as e:
-            raise GFQLTypeError(
-                ErrorCode.E303,
-                f"Error executing hypergraph: {str(e)}",
-                field="function",
-                value="hypergraph"
-            ) from e
-
     # Check if method exists on Plottable
     if not hasattr(g, function):
         raise AttributeError(
@@ -161,7 +94,8 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         execution_time = time.perf_counter() - start_time
 
         # Ensure result is a Plottable (most methods return self or new Plottable)
-        if not isinstance(result, Plottable):
+        # Exception: hypergraph can return DataFrame when return_as != 'graph'
+        if not isinstance(result, Plottable) and function != 'hypergraph':
             raise GFQLTypeError(
                 ErrorCode.E201,
                 f"Method '{function}' returned non-Plottable result",

@@ -1,5 +1,7 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload
+from typing_extensions import Literal
+from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
@@ -2661,13 +2663,55 @@ class PlotterBase(Plottable):
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
 
+    @overload  # type: ignore[override]
     def hypergraph(
         self,
-        raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
+        raw_events=None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph'] = 'graph'
+    ) -> 'Plottable':
+        ...
 
-    ):
+    @overload  # type: ignore[override]
+    def hypergraph(
+        self,
+        raw_events=None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['all']
+    ) -> HypergraphResult:
+        ...
+
+    @overload  # type: ignore[override]
+    def hypergraph(
+        self,
+        raw_events=None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['entities', 'events', 'edges', 'nodes'] = ...
+    ) -> Any:
+        ...
+
+    def hypergraph(
+        self,
+        raw_events=None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
+    ) -> Union['Plottable', HypergraphResult, Any]:
         """Transform a dataframe into a hypergraph.
 
         :param raw_events: Dataframe to transform (pandas or cudf). 
@@ -2778,8 +2822,11 @@ class PlotterBase(Plottable):
         """
         from . import hyper
         return hyper.Hypergraph().hypergraph(
-            self, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
-            engine=engine, npartitions=npartitions, chunksize=chunksize)
+            self, raw_events,
+            entity_types=entity_types, opts=opts, drop_na=drop_na, drop_edge_attrs=drop_edge_attrs,
+            verbose=verbose, direct=direct,
+            engine=engine, npartitions=npartitions, chunksize=chunksize,
+            from_edges=from_edges, return_as=return_as)
 
 
     def layout_settings(

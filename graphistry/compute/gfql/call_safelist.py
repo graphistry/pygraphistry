@@ -531,7 +531,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'npartitions': lambda v: v is None or is_int(v),
             'chunksize': lambda v: v is None or is_int(v),
             'from_edges': is_bool,
-            'return_as': lambda v: is_string(v) and v in ['graph', 'entities', 'events', 'edges', 'nodes']
+            'return_as': lambda v: is_string(v) and v in ['graph', 'all', 'entities', 'events', 'edges', 'nodes']
         },
         'description': 'Transform event data into a hypergraph'
     },

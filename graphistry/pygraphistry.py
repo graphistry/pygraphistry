@@ -970,15 +970,16 @@ class GraphistryClient(AuthManagerProtocol):
         return hyper.Hypergraph().hypergraph(
             PyGraphistry,
             raw_events,
-            entity_types,
-            opts,
-            drop_na,
-            drop_edge_attrs,
-            verbose,
-            direct,
+            entity_types=entity_types,
+            opts=opts,
+            drop_na=drop_na,
+            drop_edge_attrs=drop_edge_attrs,
+            verbose=verbose,
+            direct=direct,
             engine=engine,
             npartitions=npartitions,
             chunksize=chunksize,
+            return_as='all',  # Module-level returns full dict for backward compatibility
         )
 
     def infer_labels(self) -> Plotter:

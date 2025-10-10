@@ -3,6 +3,7 @@
 #
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing_extensions import Literal
 from .Engine import Engine, DataframeLike, DataframeLocalLike
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
@@ -713,7 +714,8 @@ class Hypergraph():
 
 def hypergraph(
     g,
-    raw_events: DataframeLike, 
+    raw_events: Optional[DataframeLike] = None,
+    *,
     entity_types: Optional[List[str]] = None,
     opts: dict = {},
     drop_na: bool = True,
@@ -723,6 +725,8 @@ def hypergraph(
     engine: str = 'pandas',  # see Engine for valid values
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
+    from_edges: bool = False,
+    return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph',
     debug: bool = False
 ) -> Hypergraph:
     """
@@ -732,6 +736,32 @@ def hypergraph(
     """
     # TODO: String -> categorical
     # TODO: col_name column can be prohibitively wide & sparse: drop / warning?
+
+    # Handle from_edges parameter: select dataframe from g if raw_events not provided
+    if raw_events is None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        if from_edges:
+            # Use edges dataframe as input
+            if g._edges is None or len(g._edges) == 0:
+                raise GFQLTypeError(
+                    ErrorCode.E105,
+                    "Hypergraph from_edges=True requires edges data",
+                    field="edges",
+                    value="None or empty",
+                    suggestion="Ensure graph has edges before calling hypergraph with from_edges=True"
+                )
+            raw_events = g._edges
+        else:
+            # Use nodes dataframe as input (default behavior)
+            if g._nodes is None or len(g._nodes) == 0:
+                raise GFQLTypeError(
+                    ErrorCode.E105,
+                    "Hypergraph requires nodes data",
+                    field="nodes",
+                    value="None or empty",
+                    suggestion="Ensure graph has nodes before calling hypergraph"
+                )
+            raw_events = g._nodes
 
     engine_resolved : Engine
     if not isinstance(engine, Engine):
