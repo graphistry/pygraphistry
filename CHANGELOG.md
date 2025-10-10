@@ -5,6 +5,43 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [0.43.2 - 2025-10-09]
+
+### Added
+* **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
+  * Works everywhere: GFQL, instance methods (`g.hypergraph()`), and module-level (`graphistry.hypergraph()`)
+  * **`from_edges` parameter**: Use edges dataframe instead of nodes as input
+    * `g.edges(df).hypergraph(from_edges=True)` - Direct method call
+    * `g.gfql(call('hypergraph', {'from_edges': True}))` - GFQL
+    * Default: `from_edges=False` (backward compatible)
+  * **`return_as` parameter**: Control what hypergraph returns
+    * `'graph'` - Returns Plottable (for method chaining)
+    * `'all'` - Returns full dict with 5 keys: graph, entities, events, edges, nodes
+    * `'entities'/'events'/'edges'/'nodes'` - Returns specific DataFrame
+  * **Context-specific defaults** for optimal UX:
+    * Module-level `graphistry.hypergraph(df)`: `return_as='all'` (backward compatible - returns dict)
+    * Instance method `g.hypergraph()`: `return_as='graph'` (chainable - returns Plottable)
+    * GFQL `g.gfql(call('hypergraph'))`: `return_as='graph'` (chainable - returns Plottable)
+  * **Type safety**: Added `@overload` decorators for MyPy type inference based on `return_as` value
+  * **Examples**:
+    * Chainable: `g.hypergraph().plot()` - Returns Plottable
+    * Full dict: `result = graphistry.hypergraph(df); g = result['graph']` - Backward compatible
+    * Explicit all: `result = g.hypergraph(return_as='all')` - Get all 5 components
+    * Extract DataFrame: `entities = g.hypergraph(return_as='entities')` - Just entities
+    * From edges: `g.edges(df).hypergraph(from_edges=True, entity_types=['src', 'dst'])`
+
+### Fixed
+* **Hypergraph: Critical bug fix for return_as='graph' routing** (#763)
+  * **Before**: `g.hypergraph()` incorrectly returned full dict (preventing method chaining)
+  * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
+  * Impact: Instance methods and GFQL calls now chainable as designed
+  * Added 'all' option for explicit full dict access when needed
+* **Type safety: Resolved all mypy errors in PlotterBase and time ring layout**
+  * Fixed Protocol signature mismatch in PlotterBase.hypergraph - added explicit `raw_events: Optional[Any]` type annotation
+  * Fixed 10 pre-existing numpy type errors in layout/ring/time.py with proper `np.int64`, `np.datetime64`, `np.timedelta64` annotations
+  * Added type: ignore comments for genuine numpy datetime arithmetic stub limitations
+  * All 42 layout tests pass, full codebase now passes mypy type checks
+
 ## [0.43.1 - 2025-10-09]
 
 ### Added

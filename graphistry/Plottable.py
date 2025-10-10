@@ -425,9 +425,11 @@ class Plottable(Protocol):
         """
         ...
 
+    @overload
     def hypergraph(
         self,
-        raw_events: Any,
+        raw_events: Optional[Any] = None,
+        *,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
         drop_na: bool = True,
@@ -436,8 +438,66 @@ class Plottable(Protocol):
         direct: bool = False,
         engine: str = 'pandas',
         npartitions: Optional[int] = None,
-        chunksize: Optional[int] = None
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph'] = 'graph'
+    ) -> 'Plottable':
+        ...
+
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: str = 'pandas',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['all']
     ) -> HypergraphResult:
+        ...
+
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: str = 'pandas',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['entities', 'events', 'edges', 'nodes']
+    ) -> Any:
+        ...
+
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: str = 'pandas',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
+    ) -> Union['Plottable', HypergraphResult, Any]:
         ...
 
     def chain_remote(

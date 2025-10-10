@@ -16,7 +16,9 @@ def hypergraph(
     direct: bool = True,
     engine: Literal['pandas', 'cudf', 'dask', 'auto'] = 'auto',
     npartitions: Optional[int] = None,
-    chunksize: Optional[int] = None
+    chunksize: Optional[int] = None,
+    from_edges: bool = False,
+    return_as: Literal['graph', 'entities', 'events', 'edges', 'nodes'] = 'graph'
 ) -> ASTCall:
     """Create a hypergraph transformation for GFQL.
 
@@ -34,6 +36,14 @@ def hypergraph(
         engine: Processing engine - 'pandas', 'cudf' (GPU), 'dask' (streaming), or 'auto'.
         npartitions: Number of partitions for Dask processing.
         chunksize: Chunk size for streaming processing.
+        from_edges: If True, use edges dataframe as input instead of nodes dataframe.
+                    Default is False (uses nodes).
+        return_as: What to return from hypergraph result. Options:
+                   - 'graph' (default): Full Plottable graph with nodes and edges
+                   - 'entities': DataFrame of entity nodes only
+                   - 'events': DataFrame of event/hypernode nodes only
+                   - 'edges': DataFrame of edges only
+                   - 'nodes': DataFrame of all nodes (entities + events)
 
     Returns:
         ASTCall object for use in gfql() or gfql_remote().
@@ -66,6 +76,24 @@ def hypergraph(
         ...         'filtered': ref('hg', [n({'type': 'user'})])
         ...     })
         ... )
+        >>>
+        >>> # Use edges dataframe as input
+        >>> edges_df = pd.DataFrame({
+        ...     'src_user': ['alice', 'bob'],
+        ...     'dst_item': ['laptop', 'phone']
+        ... })
+        >>> g = graphistry.edges(edges_df, 'src_user', 'dst_item')
+        >>> hg = g.gfql(hypergraph(
+        ...     from_edges=True,
+        ...     entity_types=['src_user', 'dst_item']
+        ... ))
+        >>>
+        >>> # Extract only entities dataframe
+        >>> entities_df = g.gfql(hypergraph(
+        ...     entity_types=['user', 'product'],
+        ...     return_as='entities'
+        ... ))
+        >>> # entities_df is now a DataFrame, not a Plottable
     """
     # Build params dict, excluding None values
     params: Dict[str, Any] = {}
@@ -88,5 +116,9 @@ def hypergraph(
         params['npartitions'] = npartitions
     if chunksize is not None:
         params['chunksize'] = chunksize
+    if from_edges:  # Only include if True (not default False)
+        params['from_edges'] = from_edges
+    if return_as != 'graph':  # Only include if not default
+        params['return_as'] = return_as
 
     return call('hypergraph', params)

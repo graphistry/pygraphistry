@@ -516,7 +516,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'hypergraph': {
         'allowed_params': {
             'entity_types', 'opts', 'drop_na', 'drop_edge_attrs',
-            'verbose', 'direct', 'engine', 'npartitions', 'chunksize'
+            'verbose', 'direct', 'engine', 'npartitions', 'chunksize',
+            'from_edges', 'return_as'
         },
         'required_params': set(),  # All params are optional
         'param_validators': {
@@ -528,7 +529,9 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'direct': is_bool,
             'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'auto'],
             'npartitions': lambda v: v is None or is_int(v),
-            'chunksize': lambda v: v is None or is_int(v)
+            'chunksize': lambda v: v is None or is_int(v),
+            'from_edges': is_bool,
+            'return_as': lambda v: is_string(v) and v in ['graph', 'all', 'entities', 'events', 'edges', 'nodes']
         },
         'description': 'Transform event data into a hypergraph'
     },

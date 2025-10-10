@@ -73,44 +73,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     # Validate parameters against safelist
     validated_params = validate_call_params(function, final_params)
 
-    # Special handling for hypergraph
-    if function == 'hypergraph':
-        # Hypergraph needs special handling - use nodes as raw_events
-        if g._nodes is None or len(g._nodes) == 0:
-            raise GFQLTypeError(
-                ErrorCode.E105,
-                "Hypergraph requires nodes data",
-                field="nodes",
-                value="None or empty",
-                suggestion="Ensure graph has nodes before calling hypergraph"
-            )
-
-        # Call hypergraph with nodes as raw_events
-        raw_events = g._nodes
-
-        # Set default engine if not specified
-        if 'engine' not in validated_params:
-            # Try to detect engine from dataframe type
-            if str(type(raw_events).__module__).startswith('cudf'):
-                validated_params['engine'] = 'cudf'
-            elif str(type(raw_events).__module__).startswith('dask'):
-                validated_params['engine'] = 'dask'
-            else:
-                validated_params['engine'] = 'pandas'
-
-        # Call hypergraph method directly (now properly typed in Plottable Protocol)
-        try:
-            result = g.hypergraph(raw_events, **validated_params)
-            # Hypergraph returns a HypergraphResult dict with 'graph' key containing the Plottable
-            return result['graph']
-        except Exception as e:
-            raise GFQLTypeError(
-                ErrorCode.E303,
-                f"Error executing hypergraph: {str(e)}",
-                field="function",
-                value="hypergraph"
-            ) from e
-
     # Check if method exists on Plottable
     if not hasattr(g, function):
         raise AttributeError(
@@ -132,7 +94,8 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         execution_time = time.perf_counter() - start_time
 
         # Ensure result is a Plottable (most methods return self or new Plottable)
-        if not isinstance(result, Plottable):
+        # Exception: hypergraph can return DataFrame when return_as != 'graph'
+        if not isinstance(result, Plottable) and function != 'hypergraph':
             raise GFQLTypeError(
                 ErrorCode.E201,
                 f"Method '{function}' returned non-Plottable result",
