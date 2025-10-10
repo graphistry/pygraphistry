@@ -76,11 +76,11 @@ def round_to_nearest(time: np.datetime64, unit: np.timedelta64) -> np.datetime64
     assert isinstance(time, np.datetime64)
     assert isinstance(unit, np.timedelta64)
 
-    unit_in_ns = unit.astype('timedelta64[ns]').astype('int64')
-    time_in_ns = time.astype('datetime64[ns]').astype('int64')
+    unit_in_ns: np.int64 = unit.astype('timedelta64[ns]').astype('int64')
+    time_in_ns: np.int64 = time.astype('datetime64[ns]').astype('int64')
     adjustment = unit_in_ns // 2  # Avoid rounding error issues
     rounded_time_in_ns = ((time_in_ns + adjustment) // unit_in_ns) * unit_in_ns
-    rounded_time = rounded_time_in_ns.astype('datetime64[ns]')
+    rounded_time: np.datetime64 = rounded_time_in_ns.astype('datetime64[ns]')
 
     return rounded_time
 
@@ -133,15 +133,15 @@ def time_stats(
 
     if num_rings is None:
         if time_unit is not None:
-            time_dur: np.timedelta64 = time_end - time_start
+            time_dur: np.timedelta64 = time_end - time_start  # type: ignore[assignment]  # numpy stub: datetime64 - datetime64 -> timedelta64
             unit_step = unit_to_timedelta(time_unit)
-            rounded = (time_dur // unit_step).astype('int')
-            num_rings = rounded + 1
+            rounded: np.int64 = (time_dur // unit_step).astype('int')
+            num_rings = int(rounded + 1)
         else:
             num_rings = 10 if len(s) > 1000 else 5
             #print('target_bins', num_rings)
-    
-    step_dur_s = ((time_end - time_start) / num_rings)
+
+    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)  # type: ignore[assignment, operator]  # numpy stub: timedelta64 / int -> timedelta64
     #print('step_dur_s', step_dur_s)
     #print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
     #print('time_unit', time_unit)
@@ -348,8 +348,8 @@ def time_ring(
         num_rings
     ) = time_stats(s, num_rings, time_start=time_start, time_end=time_end, time_unit=time_unit)
 
-    sf_max = time_end_rounded.astype('datetime64[ns]').astype('int64')
-    sf_min = time_start_rounded.astype('datetime64[ns]').astype('int64')
+    sf_max: np.int64 = time_end_rounded.astype('datetime64[ns]').astype('int64')
+    sf_min: np.int64 = time_start_rounded.astype('datetime64[ns]').astype('int64')
     scalar = (max_r - min_r) / (sf_max - sf_min)
     r = (sf - sf_min) * scalar + min_r
 
@@ -375,7 +375,7 @@ def time_ring(
         round_unit,
         min_r,
         max_r,
-        scalar,
+        float(scalar),
         format_label,
         reverse=reverse
     )

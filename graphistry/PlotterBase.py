@@ -2663,10 +2663,10 @@ class PlotterBase(Plottable):
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
 
-    @overload  # type: ignore[override]
+    @overload
     def hypergraph(
         self,
-        raw_events=None,
+        raw_events: Optional[Any] = None,
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
@@ -2676,10 +2676,10 @@ class PlotterBase(Plottable):
     ) -> 'Plottable':
         ...
 
-    @overload  # type: ignore[override]
+    @overload
     def hypergraph(
         self,
-        raw_events=None,
+        raw_events: Optional[Any] = None,
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
@@ -2689,10 +2689,10 @@ class PlotterBase(Plottable):
     ) -> HypergraphResult:
         ...
 
-    @overload  # type: ignore[override]
+    @overload
     def hypergraph(
         self,
-        raw_events=None,
+        raw_events: Optional[Any] = None,
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
@@ -2704,7 +2704,7 @@ class PlotterBase(Plottable):
 
     def hypergraph(
         self,
-        raw_events=None,
+        raw_events: Optional[Any] = None,
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
