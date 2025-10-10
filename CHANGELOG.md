@@ -13,6 +13,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
   * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
   * Implemented via recursive dispatch that splits chains at schema-changer boundaries
+* GFQL: Hypergraph `from_edges` parameter to use edges dataframe as input
+  * Enables hypergraph transformation on edge lists in addition to node lists
+  * **Usage**: `g.edges(df).gfql(hypergraph(from_edges=True, entity_types=['col1', 'col2']))`
+  * Default behavior (`from_edges=False`) preserved for backward compatibility
+* GFQL: Hypergraph `return_as` parameter to select output type
+  * Options: `'graph'` (default), `'entities'`, `'events'`, `'edges'`, `'nodes'`
+  * **Usage**: `entities_df = g.gfql(hypergraph(..., return_as='entities'))` returns DataFrame instead of Plottable
+  * Allows extraction of specific dataframes without manually indexing hypergraph result dict
 
 ### Fixed
 * GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)

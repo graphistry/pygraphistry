@@ -92,6 +92,14 @@ Transform event data into entity relationships by connecting entities that appea
      - integer
      - No
      - Chunk size for streaming processing
+   * - from_edges
+     - boolean
+     - No
+     - If True, use edges dataframe as input instead of nodes dataframe (default: False)
+   * - return_as
+     - string
+     - No
+     - What to return from hypergraph result: 'graph' (default), 'entities', 'events', 'edges', 'nodes'
 
 **The opts Parameter:**
 
@@ -206,6 +214,37 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
         'filtered': ref('hg', [n({'type': 'user'})])
     }))
 
+    # Use edges dataframe as input
+    edges_df = pd.DataFrame({
+        'src_user': ['alice', 'bob', 'alice'],
+        'dst_item': ['laptop', 'phone', 'tablet']
+    })
+    g = graphistry.edges(edges_df, 'src_user', 'dst_item')
+
+    hg = g.gfql(hypergraph(
+        from_edges=True,
+        entity_types=['src_user', 'dst_item']
+    ))
+
+    # Extract only entities dataframe (not full graph)
+    entities_df = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        return_as='entities'  # Returns DataFrame instead of Plottable
+    ))
+
+    # Extract edges only
+    edges_df = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        return_as='edges'
+    ))
+
+    # Combine both parameters
+    entity_nodes = g.gfql(hypergraph(
+        from_edges=True,
+        entity_types=['src_user', 'dst_item'],
+        return_as='entities'
+    ))
+
 **Use Cases:**
 
 - **Social Network Analysis**: Transform interaction events (messages, calls) into social graphs
@@ -220,6 +259,16 @@ Creates a new graph structure where:
 - Nodes represent unique entities from the specified columns
 - Edges connect entities that appeared in the same event
 - Edge attributes can include event metadata (if drop_edge_attrs=False)
+
+**Return Value:**
+
+By default (``return_as='graph'``), returns a full Plottable graph object. The ``return_as`` parameter allows extracting specific components as DataFrames:
+
+- ``'graph'``: Full Plottable graph with nodes and edges (default)
+- ``'entities'``: DataFrame of entity nodes only
+- ``'events'``: DataFrame of event/hypernode nodes only
+- ``'edges'``: DataFrame of edges only
+- ``'nodes'``: DataFrame of all nodes (entities + events)
 
 .. note::
    Hypergraph transformations cannot be mixed with other operations in chains. Use as a single operation or within Let/DAG constructs for complex compositions.
