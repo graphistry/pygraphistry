@@ -369,32 +369,56 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     if isinstance(ops, Chain):
         ops = ops.chain
 
-    # Check for transformation operations that should use let/DAG instead
-    # Exception: Allow single hypergraph call as a special case (top-level transformation)
+    # Recursive dispatch for schema-changing operations (UMAP, hypergraph, etc.)
+    # These operations create entirely new graph structures, so we split the chain
+    # and execute segments sequentially: before → schema_changer → rest
     from graphistry.compute.ast import ASTCall
-    hypergraph_calls = [op for op in ops if isinstance(op, ASTCall) and op.function == 'hypergraph']
 
-    if hypergraph_calls:
-        # Allow hypergraph only if it's the sole operation
+    # Extensible list of schema-changing operations
+    schema_changers = ['umap', 'hypergraph']
+
+    # Find first schema-changer in ops
+    schema_changer_idx = None
+    for i, op in enumerate(ops):
+        if isinstance(op, ASTCall) and op.function in schema_changers:
+            schema_changer_idx = i
+            break
+
+    if schema_changer_idx is not None:
         if len(ops) == 1:
-            # Single hypergraph call - execute directly and return
+            # Singleton schema-changer - execute directly without going through chain machinery
             from graphistry.compute.gfql.call_executor import execute_call
+            from graphistry.compute.exceptions import GFQLTypeError, ErrorCode
+
             engine_concrete = resolve_engine(engine, self)
-            # We know ops[0] is an ASTCall with hypergraph function
-            hypergraph_call = ops[0]  # This is guaranteed to be ASTCall from the filter above
-            if isinstance(hypergraph_call, ASTCall):
-                return execute_call(self, 'hypergraph', hypergraph_call.params, engine_concrete, policy=policy)
-            else:
-                raise TypeError(f"Expected ASTCall but got {type(hypergraph_call)}")
+            schema_changer = ops[0]
+
+            # Type narrowing: we know it's ASTCall from the isinstance check above
+            if not isinstance(schema_changer, ASTCall):
+                raise GFQLTypeError(
+                    code=ErrorCode.E201,
+                    message="Schema-changer operation must be ASTCall",
+                    field="operation",
+                    value=type(schema_changer).__name__,
+                    suggestion="Use call('umap', {...}) or call('hypergraph', {...})"
+                )
+
+            # Validate schema if requested (even though ASTCall doesn't check columns, respect the flag)
+            if validate_schema:
+                validate_chain_schema(self, ops, collect_all=False)
+
+            return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy)
         else:
-            # Multiple operations with hypergraph - not allowed in chains
-            raise ValueError(
-                "Hypergraph transformations cannot be mixed with other operations in chains. "
-                "Either use hypergraph alone: g.gfql(call('hypergraph', {...}))\n"
-                "Or use let/DAG syntax for complex compositions:\n"
-                "  g.gfql(let({'transformed': call('hypergraph', {...}), "
-                "'filtered': ref('transformed', [n({...})])}))"
-            )
+            # Multiple ops with schema-changer - split and recurse
+            before = ops[:schema_changer_idx]
+            schema_changer = ops[schema_changer_idx]
+            rest = ops[schema_changer_idx + 1:]
+
+            # Execute segments: before → schema_changer → rest
+            # Recursion handles multiple schema-changers automatically
+            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy) if before else self  # type: ignore[call-arg]
+            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy)  # type: ignore[call-arg]
+            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy) if rest else g_temp2  # type: ignore[call-arg]
 
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
