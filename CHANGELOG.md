@@ -5,6 +5,24 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [0.43.1 - 2025-10-09]
+
+### Added
+* GFQL: Schema-changing operations (UMAP, hypergraph) now supported in chains (#761)
+  * **UMAP in chains**: Can now use `call('umap', {...})` mixed with filters and other operations
+  * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
+  * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
+  * Implemented via recursive dispatch that splits chains at schema-changer boundaries
+
+### Fixed
+* GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)
+  * Schema-changers now execute as: `before → schema_changer → rest` for proper isolation
+  * Prevents tracking column conflicts when UMAP/hypergraph create new graph structures
+* GFQL: Respect validate_schema flag for singleton schema-changers
+  * Added validation check before execute_call() to honor user's validate_schema setting
+* GFQL: Replace assertion with GFQLTypeError for proper error handling
+  * Schema-changer type validation now uses structured exception instead of assert
+
 ## [0.43.0 - 2025-10-08]
 
 ### Added
@@ -26,17 +44,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Policy integration**: UMAP operations controllable through precall/postcall policy hooks
   * **Usage**: `g.gfql(call('umap', {'X': ['x', 'y'], 'n_neighbors': 15}))`
 
-### Added
-* GFQL: Schema-changing operations (UMAP, hypergraph) now supported in chains (#761)
-  * **UMAP in chains**: Can now use `call('umap', {...})` mixed with filters and other operations
-  * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
-  * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
-  * Implemented via recursive dispatch that splits chains at schema-changer boundaries
-
 ### Fixed
-* GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)
-  * Schema-changers now execute as: `before → schema_changer → rest` for proper isolation
-  * Prevents tracking column conflicts when UMAP/hypergraph create new graph structures
 * GFQL: Fixed remote operations incorrectly treating HTTP error responses as zip files
   * Added proper HTTP status code checking before attempting to parse server responses
   * Server validation errors now surface correctly instead of being masked by zip parsing failures
