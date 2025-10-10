@@ -99,7 +99,7 @@ Transform event data into entity relationships by connecting entities that appea
    * - return_as
      - string
      - No
-     - What to return from hypergraph result: 'graph' (default), 'entities', 'events', 'edges', 'nodes'
+     - What to return from hypergraph result: 'graph' (default), 'all', 'entities', 'events', 'edges', 'nodes'
 
 **The opts Parameter:**
 
@@ -262,9 +262,10 @@ Creates a new graph structure where:
 
 **Return Value:**
 
-By default (``return_as='graph'``), returns a full Plottable graph object. The ``return_as`` parameter allows extracting specific components as DataFrames:
+By default (``return_as='graph'``), returns a Plottable graph object for method chaining. The ``return_as`` parameter controls what is returned:
 
-- ``'graph'``: Full Plottable graph with nodes and edges (default)
+- ``'graph'``: Plottable graph (default) - enables chaining like ``.plot()``
+- ``'all'``: Dict with all 5 components (graph, entities, events, edges, nodes) - backward compatible with module-level ``graphistry.hypergraph()``
 - ``'entities'``: DataFrame of entity nodes only
 - ``'events'``: DataFrame of event/hypernode nodes only
 - ``'edges'``: DataFrame of edges only
