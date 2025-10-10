@@ -5,6 +5,15 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [0.43.2 - TBD]
+
+### Fixed
+* **Type safety: Resolved all mypy errors in PlotterBase and time ring layout**
+  * Fixed Protocol signature mismatch in PlotterBase.hypergraph - added explicit `raw_events: Optional[Any]` type annotation
+  * Fixed 10 pre-existing numpy type errors in layout/ring/time.py with proper `np.int64`, `np.datetime64`, `np.timedelta64` annotations
+  * Added type: ignore comments for genuine numpy datetime arithmetic stub limitations
+  * All 42 layout tests pass, full codebase now passes mypy type checks
+
 ## [0.43.1 - 2025-10-09]
 
 ### Added
