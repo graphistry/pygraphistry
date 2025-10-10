@@ -7,21 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.43.2 - TBD]
 
-### Fixed
-* **Type safety: Resolved all mypy errors in PlotterBase and time ring layout**
-  * Fixed Protocol signature mismatch in PlotterBase.hypergraph - added explicit `raw_events: Optional[Any]` type annotation
-  * Fixed 10 pre-existing numpy type errors in layout/ring/time.py with proper `np.int64`, `np.datetime64`, `np.timedelta64` annotations
-  * Added type: ignore comments for genuine numpy datetime arithmetic stub limitations
-  * All 42 layout tests pass, full codebase now passes mypy type checks
-
-## [0.43.1 - 2025-10-09]
-
 ### Added
-* GFQL: Schema-changing operations (UMAP, hypergraph) now supported in chains (#761)
-  * **UMAP in chains**: Can now use `call('umap', {...})` mixed with filters and other operations
-  * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
-  * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
-  * Implemented via recursive dispatch that splits chains at schema-changer boundaries
 * **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
   * Works everywhere: GFQL, instance methods (`g.hypergraph()`), and module-level (`graphistry.hypergraph()`)
   * **`from_edges` parameter**: Use edges dataframe instead of nodes as input
@@ -50,6 +36,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
   * Impact: Instance methods and GFQL calls now chainable as designed
   * Added 'all' option for explicit full dict access when needed
+* **Type safety: Resolved all mypy errors in PlotterBase and time ring layout**
+  * Fixed Protocol signature mismatch in PlotterBase.hypergraph - added explicit `raw_events: Optional[Any]` type annotation
+  * Fixed 10 pre-existing numpy type errors in layout/ring/time.py with proper `np.int64`, `np.datetime64`, `np.timedelta64` annotations
+  * Added type: ignore comments for genuine numpy datetime arithmetic stub limitations
+  * All 42 layout tests pass, full codebase now passes mypy type checks
+
+## [0.43.1 - 2025-10-09]
+
+### Added
+* GFQL: Schema-changing operations (UMAP, hypergraph) now supported in chains (#761)
+  * **UMAP in chains**: Can now use `call('umap', {...})` mixed with filters and other operations
+  * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
+  * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
+  * Implemented via recursive dispatch that splits chains at schema-changer boundaries
+
+### Fixed
 * GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)
   * Schema-changers now execute as: `before → schema_changer → rest` for proper isolation
   * Prevents tracking column conflicts when UMAP/hypergraph create new graph structures
