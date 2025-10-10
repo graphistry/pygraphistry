@@ -13,16 +13,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
   * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
   * Implemented via recursive dispatch that splits chains at schema-changer boundaries
-* GFQL: Hypergraph `from_edges` parameter to use edges dataframe as input
-  * Enables hypergraph transformation on edge lists in addition to node lists
-  * **Usage**: `g.edges(df).gfql(hypergraph(from_edges=True, entity_types=['col1', 'col2']))`
-  * Default behavior (`from_edges=False`) preserved for backward compatibility
-* GFQL: Hypergraph `return_as` parameter to select output type
-  * Options: `'graph'` (default), `'entities'`, `'events'`, `'edges'`, `'nodes'`
-  * **Usage**: `entities_df = g.gfql(hypergraph(..., return_as='entities'))` returns DataFrame instead of Plottable
-  * Allows extraction of specific dataframes without manually indexing hypergraph result dict
+* **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
+  * Works everywhere: GFQL, instance methods (`g.hypergraph()`), and module-level (`graphistry.hypergraph()`)
+  * **`from_edges` parameter**: Use edges dataframe instead of nodes as input
+    * `g.edges(df).hypergraph(from_edges=True)` - Direct method call
+    * `g.gfql(call('hypergraph', {'from_edges': True}))` - GFQL
+    * Default: `from_edges=False` (backward compatible)
+  * **`return_as` parameter**: Control what hypergraph returns
+    * `'graph'` - Returns Plottable (for method chaining)
+    * `'all'` - Returns full dict with 5 keys: graph, entities, events, edges, nodes
+    * `'entities'/'events'/'edges'/'nodes'` - Returns specific DataFrame
+  * **Context-specific defaults** for optimal UX:
+    * Module-level `graphistry.hypergraph(df)`: `return_as='all'` (backward compatible - returns dict)
+    * Instance method `g.hypergraph()`: `return_as='graph'` (chainable - returns Plottable)
+    * GFQL `g.gfql(call('hypergraph'))`: `return_as='graph'` (chainable - returns Plottable)
+  * **Type safety**: Added `@overload` decorators for MyPy type inference based on `return_as` value
+  * **Examples**:
+    * Chainable: `g.hypergraph().plot()` - Returns Plottable
+    * Full dict: `result = graphistry.hypergraph(df); g = result['graph']` - Backward compatible
+    * Explicit all: `result = g.hypergraph(return_as='all')` - Get all 5 components
+    * Extract DataFrame: `entities = g.hypergraph(return_as='entities')` - Just entities
+    * From edges: `g.edges(df).hypergraph(from_edges=True, entity_types=['src', 'dst'])`
 
 ### Fixed
+* **Hypergraph: Critical bug fix for return_as='graph' routing** (#763)
+  * **Before**: `g.hypergraph()` incorrectly returned full dict (preventing method chaining)
+  * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
+  * Impact: Instance methods and GFQL calls now chainable as designed
+  * Added 'all' option for explicit full dict access when needed
 * GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)
   * Schema-changers now execute as: `before → schema_changer → rest` for proper isolation
   * Prevents tracking column conflicts when UMAP/hypergraph create new graph structures
