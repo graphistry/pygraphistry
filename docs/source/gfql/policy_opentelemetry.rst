@@ -479,6 +479,8 @@ Try:
 4. Use async exporters if available
 
 
+.. _policy-otel-see-also:
+
 See Also
 --------
 
