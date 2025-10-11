@@ -39,6 +39,12 @@ def _safe_len(df: Any) -> int:
     For dask_cudf DataFrames with lazy operations (concat + drop_duplicates), calling len() triggers
     a compute that can fail with "All requested aggregations are unsupported" error. This function
     uses an alternative method for dask_cudf.
+
+    WORKAROUND: This is a workaround for dask_cudf limitations with groupby on empty DataFrames.
+    TODO: Remove this function when dask_cudf properly supports len() on DataFrames with lazy operations,
+    or when we materialize all dask_cudf DataFrames eagerly (which may have performance implications).
+    Monitor: https://github.com/rapidsai/dask-cuda/issues and https://github.com/rapidsai/cudf/issues
+    for fixes to groupby aggregation errors on empty DataFrames.
     """
     # Check type module without importing dask_cudf (dask imports are slow)
     type_module = type(df).__module__
