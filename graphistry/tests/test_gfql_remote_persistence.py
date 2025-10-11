@@ -51,7 +51,7 @@ class TestGFQLRemotePersistence(unittest.TestCase):
         result._url = 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
         assert result.url == 'https://hub.graphistry.com/graph/graph.html?dataset=test_123'
 
-    @patch('requests.post')
+    @patch('graphistry.compute.chain_remote.requests.post')
     def test_persist_parameter_in_request_body_unit(self, mock_post):
         """Test that persist=True is included in request body (unit test)."""
         # Mock response
@@ -60,28 +60,29 @@ class TestGFQLRemotePersistence(unittest.TestCase):
             'nodes': [], 'edges': [], 'dataset_id': 'test_123'
         }
         mock_response.raise_for_status.return_value = None
+        mock_response.ok = True
         mock_post.return_value = mock_response
 
-        # Mock upload method
-        with patch.object(self.g, 'upload') as mock_upload:
-            mock_uploaded = MagicMock()
-            mock_uploaded._dataset_id = 'mock_dataset_id'
-            mock_upload.return_value = mock_uploaded
+        # Set dataset_id directly to avoid upload
+        self.g._dataset_id = 'test_dataset_123'
 
-            # Call with persist=True
-            try:
-                self.g.gfql_remote([ASTNode()], persist=True)
-            except Exception:
-                pass  # Ignore execution errors, we just want to check the request
+        # Call with persist=True and api_token to bypass auth
+        try:
+            self.g.gfql_remote([ASTNode()], persist=True, api_token='test_token')
+        except Exception:
+            # Allow execution to fail after the request, but not before
+            pass
 
-            # Check that persist was included in request body
-            if mock_post.called:
-                call_args = mock_post.call_args
-                request_json = call_args[1]['json']
-                assert 'persist' in request_json
-                assert request_json['persist'] is True
+        # Assert that the mock was called (not conditional!)
+        assert mock_post.called, "requests.post should have been called"
 
-    @patch('requests.post')
+        # Check that persist was included in request body
+        call_args = mock_post.call_args
+        request_json = call_args[1]['json']
+        assert 'persist' in request_json, f"persist not in request body: {request_json.keys()}"
+        assert request_json['persist'] is True
+
+    @patch('graphistry.compute.chain_remote.requests.post')
     def test_privacy_in_request_body_unit(self, mock_post):
         """Test that privacy settings are included in persist requests (unit test)."""
         privacy_settings: Privacy = {
@@ -97,29 +98,28 @@ class TestGFQLRemotePersistence(unittest.TestCase):
             'nodes': [], 'edges': [], 'dataset_id': 'privacy_test_123'
         }
         mock_response.raise_for_status.return_value = None
+        mock_response.ok = True
         mock_post.return_value = mock_response
 
-        # Set privacy on the graph
+        # Set privacy and dataset_id on the graph
         self.g._privacy = privacy_settings
+        self.g._dataset_id = 'test_dataset_123'
 
-        # Mock upload method
-        with patch.object(self.g, 'upload') as mock_upload:
-            mock_uploaded = MagicMock()
-            mock_uploaded._dataset_id = 'mock_dataset_id'
-            mock_upload.return_value = mock_uploaded
+        try:
+            self.g.gfql_remote([ASTNode()], persist=True, api_token='test_token')
+        except Exception:
+            # Allow execution to fail after the request, but not before
+            pass
 
-            try:
-                self.g.gfql_remote([ASTNode()], persist=True)
-            except Exception:
-                pass  # Ignore execution errors, we just want to check the request
+        # Assert that the mock was called (not conditional!)
+        assert mock_post.called, "requests.post should have been called"
 
-            # Check that privacy was included in request body
-            if mock_post.called:
-                call_args = mock_post.call_args
-                request_json = call_args[1]['json']
-                assert 'privacy' in request_json
-                assert request_json['privacy']['mode'] == 'organization'
-                assert request_json['privacy']['notify'] is True
+        # Check that privacy was included in request body
+        call_args = mock_post.call_args
+        request_json = call_args[1]['json']
+        assert 'privacy' in request_json, f"privacy not in request body: {request_json.keys()}"
+        assert request_json['privacy']['mode'] == 'organization'
+        assert request_json['privacy']['notify'] is True
 
     def test_privacy_type_conversion(self):
         """Test that Privacy TypedDict converts to regular dict properly."""

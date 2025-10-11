@@ -40,12 +40,9 @@ from graphistry.compute.predicates.temporal import (
 )
 from graphistry.util import setup_logger
 
-warnings.warn(
-    "The graphistry.compute.gfql.validate module is deprecated. "
-    "GFQL now has built-in validation. See the migration guide for details.",
-    DeprecationWarning,
-    stacklevel=2
-)
+# NOTE: This module is deprecated but still used internally for backwards compatibility.
+# We don't emit warnings on import since that would spam users who aren't directly
+# importing this module. Warnings are only shown in the docstring.
 
 logger = setup_logger(__name__)
 
@@ -604,7 +601,7 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
     lines.append("-" * 50)
 
     errors = [i for i in issues if i.level == 'error']
-    warnings = [i for i in issues if i.level == 'warning']
+    warning_issues = [i for i in issues if i.level == 'warning']
 
     if errors:
         lines.append(f"\nERRORS ({len(errors)}):")
@@ -617,9 +614,9 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
             if error.suggestion:
                 lines.append(f"   💡 {error.suggestion}")
 
-    if warnings:
-        lines.append(f"\nWARNINGS ({len(warnings)}):")
-        for i, warning in enumerate(warnings, 1):
+    if warning_issues:
+        lines.append(f"\nWARNINGS ({len(warning_issues)}):")
+        for i, warning in enumerate(warning_issues, 1):
             lines.append(f"\n{i}. {warning.message}")
             if warning.operation_index is not None:
                 lines.append(

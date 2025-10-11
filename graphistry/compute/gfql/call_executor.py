@@ -109,7 +109,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             from graphistry.compute.gfql.policy import PolicyContext, PolicyException
             from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
-            result_stats = extract_graph_stats(result)
+            # Only extract stats if result is a Plottable (hypergraph can return DataFrame)
+            # Avoids Jinja2 error when extract_graph_stats() accesses df.style on DataFrames
+            result_stats = extract_graph_stats(result) if isinstance(result, Plottable) else {}
             postcall_context: PolicyContext = {
                 'phase': 'postcall',
                 'hook': 'postcall',

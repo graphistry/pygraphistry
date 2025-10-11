@@ -32,6 +32,52 @@ from .filter_by_dict import (
 logger = setup_logger(__name__)
 
 
+def _safe_len(df: Any) -> int:
+    """
+    Safely get length of DataFrame, handling dask_cudf specially to avoid groupby aggregation issues.
+
+    For dask_cudf DataFrames with lazy operations (concat + drop_duplicates), calling len() triggers
+    a compute that can fail with "All requested aggregations are unsupported" error. This function
+    uses an alternative method for dask_cudf.
+
+    WORKAROUND: This is a workaround for dask_cudf limitations with groupby on empty DataFrames.
+    TODO: Remove this function when dask_cudf properly supports len() on DataFrames with lazy operations,
+    or when we materialize all dask_cudf DataFrames eagerly (which may have performance implications).
+    Monitor: https://github.com/rapidsai/dask-cuda/issues and https://github.com/rapidsai/cudf/issues
+    for fixes to groupby aggregation errors on empty DataFrames.
+    """
+    # Check type module without importing dask_cudf (dask imports are slow)
+    type_module = type(df).__module__
+    if 'dask_cudf' in type_module:
+        try:
+            # Only import if we're reasonably sure it's a dask_cudf DataFrame
+            import dask_cudf
+            if isinstance(df, dask_cudf.DataFrame):
+                # Use map_partitions to get length of each partition, then sum
+                # This avoids the problematic groupby aggregations that fail on lazy operations
+                try:
+                    # map_partitions(len) returns scalar per partition, forming a Series
+                    # meta should be pd.Series with appropriate dtype, not bare int
+                    partition_lengths = df.map_partitions(len, meta=pd.Series([], dtype='int64'))
+                    total_length = partition_lengths.sum().compute()
+                    return int(total_length)
+                except Exception as e:
+                    logger.warning("Could not compute length for dask_cudf DataFrame via map_partitions: %s", e)
+                    # Fallback: try direct compute (may fail on empty DataFrames with lazy ops)
+                    return len(df.compute())
+        except ImportError as e:
+            # Unexpected: module name contains 'dask_cudf' but can't import - raise it
+            logger.error("DataFrame type from dask_cudf module but import failed: %s", e)
+            raise
+        except AttributeError as e:
+            # Unexpected: imported dask_cudf but isinstance/attribute access failed
+            logger.error("Imported dask_cudf but attribute error occurred: %s", e)
+            raise
+
+    # For all other DataFrame types, use standard len()
+    return len(df)
+
+
 class ComputeMixin(Plottable):
     
     def __init__(self, *a, **kw):
@@ -127,7 +173,7 @@ class ComputeMixin(Plottable):
 
         # Check reuse first - if we have nodes and reuse is True, just return
         if reuse:
-            if g._nodes is not None and len(g._nodes) > 0:
+            if g._nodes is not None and _safe_len(g._nodes) > 0:
                 if g._node is None:
                     logger.warning(
                         "Must set node id binding, not just nodes; set via .bind() or .nodes()"
@@ -139,14 +185,14 @@ class ComputeMixin(Plottable):
         # Only check for edges if we actually need to materialize
         if g._edges is None:
             # If no edges but we have nodes via reuse, that's OK
-            if reuse and g._nodes is not None and len(g._nodes) > 0:
+            if reuse and g._nodes is not None and _safe_len(g._nodes) > 0:
                 return g
             raise ValueError("Missing edges")
         if g._source is None or g._destination is None:
             raise ValueError(
                 "Missing source/destination bindings; set via .bind() or .edges()"
             )
-        if len(g._edges) == 0:
+        if _safe_len(g._edges) == 0:
             return g
         # TODO use built-ins for igraph/nx/...
 
@@ -197,6 +243,19 @@ class ComputeMixin(Plottable):
         """See get_degrees"""
         g = self
         g_nodes = g.materialize_nodes()
+
+        # Handle empty edges case - skip groupby for dask_cudf compatibility
+        # When edges are empty, all nodes have in-degree of 0
+        if _safe_len(g._edges) == 0:
+            if col not in g_nodes._nodes.columns:
+                # Use assign() for engine compatibility (pandas, cudf, dask, dask_cudf)
+                nodes_df = g_nodes._nodes.assign(**{col: 0})
+                # Convert to int32 to match normal degree column dtype
+                nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
+            else:
+                nodes_df = g_nodes._nodes.copy()
+            return g.nodes(nodes_df, g_nodes._node)
+
         in_degree_df = (
             g._edges[[g._source, g._destination]]
             .groupby(g._destination)
@@ -365,7 +424,7 @@ class ComputeMixin(Plottable):
         g2_base = self.materialize_nodes()
 
         g2 = g2_base
-        if (g2._nodes is None) or (len(g2._nodes) == 0):
+        if (g2._nodes is None) or (_safe_len(g2._nodes) == 0):
             return g2
 
         g2 = g2.edges(g2._edges.drop_duplicates([g2._source, g2._destination]))
@@ -375,7 +434,7 @@ class ComputeMixin(Plottable):
 
         nodes_with_levels: List[Any] = []
         while True:
-            if len(g2._nodes) == 0:
+            if _safe_len(g2._nodes) == 0:
                 break
             g2 = g2.get_degrees()
 

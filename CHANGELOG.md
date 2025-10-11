@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Fixed
+* **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
+  * **Problem**: `hypergraph(entity_types=['single'], direct=True)` returned empty DataFrame with NO columns, causing `get_degrees()` to fail with `KeyError`
+  * **Solution**: Empty edges DataFrame now has proper column structure (src, dst, edgeType, EventID, etc.)
+  * **Engines**: All engines fixed (pandas, cudf, dask, dask_cudf)
+  * **Additional fixes**:
+    * `mt_series()` - Properly creates empty Series for dask/dask_cudf by wrapping pandas Series
+    * `format_direct_edges()` - Uses `df_coercion()` for cross-engine empty DataFrame creation
+    * `get_indegrees()` - Uses `.assign()` for cross-engine compatibility
+    * `_safe_len()` - Fixed meta parameter for dask_cudf (was `meta=int`, now `meta=pd.Series([], dtype='int64')`)
+    * Removed unnecessary `persist()` calls that broke lazy evaluation in dask_cudf
 * **UMAP: Handle cuDF DataFrames with string node columns + improve error messages** (#765, #770)
   * **Fixed `TypeError: String arrays are not supported by cupy`** when using UMAP with cuDF DataFrames containing string-typed node ID columns (#765)
     * cuDF string columns are now converted to pandas before value extraction, avoiding cupy limitations
