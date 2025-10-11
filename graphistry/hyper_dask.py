@@ -390,17 +390,6 @@ def format_entities(
         df.compute()
         logger.debug('////format_entities')
 
-    # For dask_cudf, materialize immediately to avoid lazy computation graph issues
-    # The concat + drop_duplicates creates a computation graph that fails on empty DataFrames
-    # when .compute() is called later during materialize_edges()
-    if engine == Engine.DASK_CUDF:
-        try:
-            # Use persist() to materialize in cluster without client round-trip
-            df = df.persist()
-            logger.debug('Persisted entities for dask_cudf to avoid lazy computation issues')
-        except Exception as e:
-            logger.warning('Could not persist dask_cudf entities: %s', e)
-
     return df
 
 
@@ -567,17 +556,6 @@ def format_direct_edges(
         else:
             # For dask/cudf engines, use df_coercion to properly convert
             result = df_coercion(empty_pdf, engine, npartitions=1)
-
-            # For dask_cudf, materialize immediately to avoid lazy computation graph issues
-            # Empty DataFrames with groupby operations in the graph fail on .compute()
-            if engine == Engine.DASK_CUDF:
-                try:
-                    # Use persist() to materialize in cluster without client round-trip
-                    result = result.persist()
-                    logger.debug('Persisted empty edges for dask_cudf to avoid lazy computation issues')
-                except Exception as e:
-                    logger.warning('Could not persist dask_cudf empty edges: %s', e)
-
             return result
 
 
@@ -770,16 +748,6 @@ class Hypergraph():
             self.nodes.compute()
             logger.debug('////Hypergraph nodes')
 
-        # For dask_cudf, materialize nodes immediately to avoid lazy computation graph issues
-        # The concat creates a computation graph that can fail on .compute() later
-        if engine == Engine.DASK_CUDF:
-            try:
-                # Use persist() to materialize in cluster without client round-trip
-                self.nodes = self.nodes.persist()
-                logger.debug('Persisted nodes for dask_cudf to avoid lazy computation issues')
-            except Exception as e:
-                logger.warning('Could not persist dask_cudf nodes: %s', e)
-
         self.graph = (g
             .edges(edges, source, destination)
             .nodes(self.nodes, defs.node_id)
@@ -857,15 +825,6 @@ def hypergraph(
         event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct, engine_resolved), engine_resolved, npartitions=1)
         if debug:
             logger.debug('mt event_entities: %s', event_entities.dtypes)
-
-        # For dask_cudf, materialize event_entities immediately to avoid lazy computation issues
-        if engine_resolved == Engine.DASK_CUDF:
-            try:
-                # Use persist() to materialize in cluster without client round-trip
-                event_entities = event_entities.persist()
-                logger.debug('Persisted event_entities for dask_cudf to avoid lazy computation issues')
-            except Exception as e:
-                logger.warning('Could not persist dask_cudf event_entities: %s', e)
 
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
     else:        
