@@ -8,6 +8,8 @@ GFQL policy hooks provide built-in support for OpenTelemetry span tracing with p
 Quick Start
 -----------
 
+Using policy shortcuts, OpenTelemetry tracing reduces from 10 hook keys to just 2:
+
 .. code-block:: python
 
     from opentelemetry import trace
@@ -67,7 +69,22 @@ Quick Start
 
         span.end()
 
-    # Apply to all hook phases
+    # Apply to all hook phases using shortcuts (2 keys instead of 10!)
+    policy = {
+        'pre': create_span,   # Expands to all 5 pre* hooks
+        'post': end_span      # Expands to all 5 post* hooks
+    }
+
+    # Execute query with tracing
+    result = g.gfql(my_query, policy=policy)
+
+**Traditional approach (without shortcuts):**
+
+If you prefer explicit control, you can still use full hook names:
+
+.. code-block:: python
+
+    # Traditional approach - verbose but explicit
     policy = {
         'preload': create_span,
         'postload': end_span,
@@ -81,8 +98,7 @@ Quick Start
         'postcall': end_span
     }
 
-    # Execute query with tracing
-    result = g.gfql(my_query, policy=policy)
+Both approaches are functionally equivalent. The shortcuts version is recommended for most use cases.
 
 
 Hierarchy Fields
@@ -239,7 +255,14 @@ Complete Example
             span.end()
 
         def get_policy_dict(self):
-            """Get policy dictionary for gfql()"""
+            """Get policy dictionary for gfql() using shortcuts"""
+            return {
+                'pre': self.pre_hook,    # All pre* hooks
+                'post': self.post_hook   # All post* hooks
+            }
+
+        def get_policy_dict_explicit(self):
+            """Get policy dictionary using explicit hook names (alternative)"""
             return {
                 'preload': self.pre_hook,
                 'postload': self.post_hook,
@@ -268,6 +291,62 @@ Complete Example
     result = g.gfql(dag, policy=otel_policy.get_policy_dict())
 
     # Spans are automatically exported to console
+
+
+Multi-Policy Composition
+-------------------------
+
+Policy shortcuts make it easy to compose OpenTelemetry tracing with other policies like security and resource limits:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import PolicyException
+
+    # Define additional policies
+    def check_size_limits(ctx):
+        """Enforce resource limits after data loading"""
+        if ctx.get('graph_stats'):
+            stats = ctx['graph_stats']
+            if stats.get('nodes', 0) > 100000:
+                raise PolicyException(
+                    'postload',
+                    f"Dataset too large: {stats['nodes']} nodes",
+                    code=413
+                )
+
+    def validate_jwt_token(ctx):
+        """Validate JWT token before operations"""
+        # Your JWT validation logic here
+        pass
+
+    # Compose telemetry + security + resource limits
+    policy = {
+        'pre': otel_policy.pre_hook,        # OpenTelemetry on all pre* hooks
+        'post': otel_policy.post_hook,      # OpenTelemetry on all post* hooks
+        'postload': check_size_limits,      # Size limits after data load
+        'precall': validate_jwt_token       # JWT validation before operations
+    }
+
+    result = g.gfql(my_query, policy=policy)
+
+**How composition works:**
+
+- ``'pre'`` applies ``otel_policy.pre_hook`` to all 5 pre* hooks
+- ``'post'`` applies ``otel_policy.post_hook`` to all 5 post* hooks
+- ``'postload'`` adds ``check_size_limits`` to postload (composes with ``otel_policy.post_hook``)
+- ``'precall'`` adds ``validate_jwt_token`` to precall (composes with ``otel_policy.pre_hook``)
+
+**Execution order at postload:**
+
+1. ``otel_policy.post_hook`` (from 'post')
+2. ``check_size_limits`` (from 'postload')
+
+**Execution order at precall:**
+
+1. ``otel_policy.pre_hook`` (from 'pre')
+2. ``validate_jwt_token`` (from 'precall')
+
+This pattern enables clean separation of cross-cutting concerns, which is especially valuable for server-side GFQL execution where multiple orthogonal policies need to be enforced.
 
 
 Integration with Other Exporters
@@ -362,7 +441,26 @@ The OpenTelemetry policy adds these span attributes:
 Best Practices
 --------------
 
-**1. Reuse Policy Instances**
+**1. Use Policy Shortcuts**
+
+Shortcuts reduce boilerplate and make multi-policy composition clearer:
+
+.. code-block:: python
+
+    # Recommended: Use shortcuts for concise policies
+    policy = {
+        'pre': create_span,
+        'post': end_span
+    }
+
+    # Only use explicit hook names when you need selective control:
+    policy = {
+        'preload': create_span,
+        'postload': end_span,
+        # Omit let/chain/binding/call hooks intentionally
+    }
+
+**2. Reuse Policy Instances**
 
 Create one policy instance and reuse it across queries:
 
@@ -376,7 +474,7 @@ Create one policy instance and reuse it across queries:
     result2 = g.gfql(query2, policy=policy_dict)
 
 
-**2. Add Custom Attributes**
+**3. Add Custom Attributes**
 
 Extend the policy with domain-specific attributes:
 
@@ -395,7 +493,7 @@ Extend the policy with domain-specific attributes:
             span.set_attribute('session_id', self.session_id)
 
 
-**3. Filter Spans by Depth**
+**4. Filter Spans by Depth**
 
 Only trace top-level operations:
 
@@ -407,13 +505,12 @@ Only trace top-level operations:
             create_span(ctx)
 
     policy = {
-        'preload': create_span_filtered,
-        'postload': end_span,
-        # ...
+        'pre': create_span_filtered,  # Using shortcuts
+        'post': end_span
     }
 
 
-**4. Sampling**
+**5. Sampling**
 
 Use OpenTelemetry's built-in sampling:
 
@@ -426,7 +523,7 @@ Use OpenTelemetry's built-in sampling:
     provider = TracerProvider(sampler=sampler)
 
 
-**5. Error Handling**
+**6. Error Handling**
 
 Always wrap span operations in try/except:
 

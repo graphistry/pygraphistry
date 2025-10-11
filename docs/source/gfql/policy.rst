@@ -308,6 +308,168 @@ Examples
     })
 
 
+Policy Shortcuts
+----------------
+
+To reduce boilerplate in common patterns, GFQL policies support shortcuts that expand to multiple hooks automatically. This is especially useful for cross-cutting concerns like telemetry, authentication, and resource management.
+
+**Shortcuts Reference**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 35 50
+
+   * - Shortcut
+     - Expands To
+     - Use Case
+   * - ``'pre'``
+     - All 5 pre* hooks (preload, prelet, prechain, preletbinding, precall)
+     - OpenTelemetry span creation, authentication, pre-execution validation
+   * - ``'post'``
+     - All 5 post* hooks (postload, postlet, postchain, postletbinding, postcall)
+     - OpenTelemetry span cleanup, resource cleanup, post-execution validation
+   * - ``'load'``
+     - preload + postload
+     - Query-level hooks for data loading control
+   * - ``'let'``
+     - prelet + postlet
+     - DAG-level hooks for let() execution control
+   * - ``'chain'``
+     - prechain + postchain
+     - Chain-level hooks for chain operation control
+   * - ``'binding'``
+     - preletbinding + postletbinding
+     - Binding-level hooks for per-binding control
+   * - ``'call'``
+     - precall + postcall
+     - Operation-level hooks for method call control
+
+**Before/After Comparison**
+
+Without shortcuts (10 keys):
+
+.. code-block:: python
+
+    # Traditional approach - verbose
+    policy = {
+        'preload': create_span,
+        'postload': end_span,
+        'prelet': create_span,
+        'postlet': end_span,
+        'prechain': create_span,
+        'postchain': end_span,
+        'preletbinding': create_span,
+        'postletbinding': end_span,
+        'precall': create_span,
+        'postcall': end_span
+    }
+
+With shortcuts (2 keys):
+
+.. code-block:: python
+
+    # Shortcuts approach - concise
+    policy = {
+        'pre': create_span,
+        'post': end_span
+    }
+
+Both are functionally equivalent and produce the same behavior.
+
+**Composition Behavior**
+
+When multiple shortcuts apply to the same hook, their handlers automatically compose:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import expand_policy, debug_policy
+
+    def auth_check(ctx):
+        """General authentication check"""
+        pass
+
+    def rate_limit(ctx):
+        """Rate limiting for calls"""
+        pass
+
+    def validate_params(ctx):
+        """Specific parameter validation"""
+        pass
+
+    policy = {
+        'pre': auth_check,        # Applies to ALL pre* hooks
+        'call': rate_limit,       # Applies to precall + postcall
+        'precall': validate_params  # Applies only to precall
+    }
+
+    # At precall, handlers execute in order: auth_check → rate_limit → validate_params
+    # At postcall, handlers execute in reverse (LIFO): rate_limit → auth_check
+
+**Composition Order Rules**
+
+- **Pre hooks** execute in forward order: general → scope → specific
+- **Post hooks** execute in reverse order (LIFO cleanup): specific → scope → general
+- This ensures proper setup/cleanup semantics (like try/finally blocks)
+
+**Multi-Policy Server Pattern**
+
+Shortcuts compose naturally for scenarios where multiple orthogonal policies need to be applied:
+
+.. code-block:: python
+
+    # Server scenario: telemetry + security + resource limits
+    policy = {
+        'pre': create_otel_span,       # OpenTelemetry tracing
+        'post': end_otel_span,         # Span cleanup
+        'postload': check_size_limits,  # Resource limits after data load
+        'precall': validate_jwt_token   # Security validation before operations
+    }
+
+    # This composes cleanly:
+    # - All pre* hooks get telemetry spans
+    # - postload gets both telemetry cleanup + size checking
+    # - precall gets telemetry + JWT validation
+    # - Other post* hooks get just telemetry cleanup
+
+**Debug Helper**
+
+Use ``debug_policy()`` to see how shortcuts expand:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import debug_policy
+
+    policy = {
+        'pre': auth,
+        'call': rate_limit,
+        'precall': validate
+    }
+
+    # Show expansion and composition order
+    debug_policy(policy)
+
+Output:
+
+.. code-block:: text
+
+    preload         [auth (from 'pre')]
+    prelet          [auth (from 'pre')]
+    prechain        [auth (from 'pre')]
+    preletbinding   [auth (from 'pre')]
+    precall         [auth (from 'pre'), rate_limit (from 'call'), validate (from 'precall')]
+    postcall        [rate_limit (from 'call'), auth (from 'pre')] ← reversed
+    postload        [auth (from 'pre')]
+    postlet         [auth (from 'pre')]
+    postchain       [auth (from 'pre')]
+    postletbinding  [auth (from 'pre')]
+
+**Backward Compatibility**
+
+- Full hook names (like ``'preload'``) still work and can be mixed with shortcuts
+- Shortcuts are entirely optional - use them only when they simplify your code
+- No performance overhead - expansion happens once per query
+
+
 PolicyException
 ---------------
 
@@ -546,6 +708,7 @@ API Reference
 
 .. code-block:: python
 
+    # Using full hook names
     g.gfql(query, policy={
         'preload': preload_function,              # Optional
         'postload': postload_function,            # Optional
@@ -559,6 +722,23 @@ API Reference
         'postcall': postcall_function             # Optional
     })
 
+    # Or using shortcuts (expands to full hook names)
+    g.gfql(query, policy={
+        'pre': pre_function,     # Expands to all pre* hooks
+        'post': post_function,   # Expands to all post* hooks
+        'load': load_function,   # Expands to preload + postload
+        'let': let_function,     # Expands to prelet + postlet
+        'chain': chain_function, # Expands to prechain + postchain
+        'binding': binding_fn,   # Expands to preletbinding + postletbinding
+        'call': call_function    # Expands to precall + postcall
+    })
+
+    # Shortcuts can be mixed with full hook names
+    g.gfql(query, policy={
+        'pre': general_handler,
+        'postload': specific_size_check  # Overrides 'post' for postload
+    })
+
 **Imports**
 
 .. code-block:: python
@@ -568,7 +748,9 @@ API Reference
         PolicyContext,   # TypedDict for context parameter
         GraphStats,      # TypedDict for graph statistics
         PolicyFunction,  # Type alias for policy functions
-        PolicyDict       # Type alias for policy dictionary
+        PolicyDict,      # Type alias for policy dictionary
+        expand_policy,   # Expand shortcuts to full hook names (internal use)
+        debug_policy     # Debug helper to visualize expansion
     )
 
 **PolicyException Parameters**
