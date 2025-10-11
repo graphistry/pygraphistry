@@ -373,6 +373,68 @@ class TestDebugPolicy:
         assert result['postcall'][2] == ('post_handler', 'post')
 
 
+class TestExceptionHandling:
+    """Test exception handling in composed handlers."""
+
+    def test_exception_in_first_handler_stops_execution(self):
+        """Exception in first handler should prevent later handlers from running."""
+        call_order = []
+
+        def failing_handler(ctx):
+            call_order.append('failing')
+            raise ValueError("Handler failed")
+
+        def second_handler(ctx):
+            call_order.append('second')
+
+        policy = {'pre': failing_handler, 'preload': second_handler}
+        expanded = expand_policy(policy)
+
+        # Call the composed function
+        with pytest.raises(ValueError, match="Handler failed"):
+            expanded['preload']({})
+
+        # Only first handler should have been called
+        assert call_order == ['failing']
+
+    def test_policy_exception_in_composed_handler_has_clear_traceback(self):
+        """PolicyException in composed handler should have clear traceback."""
+        from graphistry.compute.gfql.policy import PolicyException
+
+        def failing_policy(ctx):
+            raise PolicyException(
+                phase='preload',
+                reason='Test policy failure',
+                code=403
+            )
+
+        def second_handler(ctx):
+            pass
+
+        policy = {'pre': failing_policy, 'preload': second_handler}
+        expanded = expand_policy(policy)
+
+        # Should raise PolicyException with clear message
+        with pytest.raises(PolicyException) as exc_info:
+            expanded['preload']({})
+
+        assert exc_info.value.reason == 'Test policy failure'
+        assert exc_info.value.code == 403
+        assert exc_info.value.phase == 'preload'
+
+    def test_non_callable_handler_fails_at_runtime(self):
+        """Non-callable handler should fail at runtime with clear error."""
+        policy = {'pre': "not a function"}  # type: ignore
+        expanded = expand_policy(policy)
+
+        # Expansion succeeds (we don't validate callability)
+        assert 'preload' in expanded
+
+        # But calling the handler should fail
+        with pytest.raises(TypeError):
+            expanded['preload']({})
+
+
 class TestRealWorldPatterns:
     """Test real-world usage patterns."""
 
