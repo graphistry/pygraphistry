@@ -40,25 +40,28 @@ def _safe_len(df: Any) -> int:
     a compute that can fail with "All requested aggregations are unsupported" error. This function
     uses an alternative method for dask_cudf.
     """
-    try:
-        # Check if it's a dask_cudf DataFrame
-        import dask_cudf
-        if isinstance(df, dask_cudf.DataFrame):
-            # Use head(1) which is fast and doesn't trigger problematic groupby
-            # If empty, head returns empty DataFrame, if not empty, returns 1 row
-            sample = df.head(1, npartitions=-1, compute=True)
-            if len(sample) == 0:
-                return 0
-            # If we got a row, we know it's not empty. Compute actual length.
-            # Use a safer compute path: convert to arrow which avoids some groupby issues
-            try:
-                return len(df.compute())
-            except:
-                # If compute fails, at least we know it's not empty
-                logger.warning("Could not compute exact length for dask_cudf DataFrame, returning estimate")
-                return len(sample) * df.npartitions  # Rough estimate
-    except (ImportError, AttributeError):
-        pass
+    # Check type module without importing dask_cudf (dask imports are slow)
+    type_module = type(df).__module__
+    if 'dask_cudf' in type_module:
+        try:
+            # Only import if we're reasonably sure it's a dask_cudf DataFrame
+            import dask_cudf
+            if isinstance(df, dask_cudf.DataFrame):
+                # Use head(1) which is fast and doesn't trigger problematic groupby
+                # If empty, head returns empty DataFrame, if not empty, returns 1 row
+                sample = df.head(1, npartitions=-1, compute=True)
+                if len(sample) == 0:
+                    return 0
+                # If we got a row, we know it's not empty. Compute actual length.
+                # Use a safer compute path: convert to arrow which avoids some groupby issues
+                try:
+                    return len(df.compute())
+                except:
+                    # If compute fails, at least we know it's not empty
+                    logger.warning("Could not compute exact length for dask_cudf DataFrame, returning estimate")
+                    return len(sample) * df.npartitions  # Rough estimate
+        except (ImportError, AttributeError):
+            pass
 
     # For all other DataFrame types, use standard len()
     return len(df)
