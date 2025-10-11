@@ -305,9 +305,6 @@ class TestPolicyHooks:
         )
 
         # Should have called all pre* and post* hooks
-        pre_calls = [c for c in call_order if c.startswith('pre:')]
-        post_calls = [c for c in call_order if c.startswith('post:')]
-
         # Should have preload and prechain
         assert 'pre:preload' in call_order
         assert 'pre:prechain' in call_order
@@ -510,7 +507,7 @@ class TestPolicyHooks:
         trace_end_indices = [i for i, x in enumerate(call_order) if x == 'trace_end']
         last_trace_end_idx = trace_end_indices[-1]
         assert size_check_idx < last_trace_end_idx, \
-            f"Expected size_check before final trace_end in postload composition"
+            "Expected size_check before final trace_end in postload composition"
 
 
 class TestOpenTelemetryIntegration:

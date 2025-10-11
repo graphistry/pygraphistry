@@ -9,7 +9,8 @@ class TestExpandPolicyBasics:
 
     def test_pre_expands_to_all_pre_hooks(self):
         """Test that 'pre' shortcut expands to all 5 pre* hooks."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'pre': handler}
         expanded = expand_policy(policy)
@@ -34,7 +35,8 @@ class TestExpandPolicyBasics:
 
     def test_post_expands_to_all_post_hooks(self):
         """Test that 'post' shortcut expands to all 5 post* hooks."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'post': handler}
         expanded = expand_policy(policy)
@@ -59,7 +61,8 @@ class TestExpandPolicyBasics:
 
     def test_scope_shortcuts_expand_to_pre_and_post(self):
         """Test that scope shortcuts (load, let, chain, binding, call) expand to both pre and post."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         # Test 'load'
         policy_load = {'load': handler}
@@ -100,7 +103,8 @@ class TestExpandPolicyBasics:
 
     def test_full_hook_names_work_as_specific_overrides(self):
         """Test that full hook names work and override shortcuts."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'preload': handler, 'postcall': handler}
         expanded = expand_policy(policy)
@@ -113,7 +117,8 @@ class TestExpandPolicyBasics:
 
     def test_unknown_keys_ignored(self):
         """Test that unknown keys are silently ignored."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'unknown_key': handler, 'invalid': handler}
         expanded = expand_policy(policy)
@@ -212,7 +217,8 @@ class TestComposition:
 
     def test_no_composition_when_only_one_applies(self):
         """Test that single handlers don't get composed unnecessarily."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'pre': handler}
         expanded = expand_policy(policy)
@@ -234,7 +240,8 @@ class TestEdgeCases:
 
     def test_empty_string_key(self):
         """Test that empty string keys don't cause issues."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'': handler}
         expanded = expand_policy(policy)
@@ -265,7 +272,8 @@ class TestEdgeCases:
 
     def test_idempotency(self):
         """Test that calling expand_policy multiple times is safe."""
-        def handler(ctx): pass
+        def handler(ctx):
+            pass
 
         policy = {'pre': handler, 'post': handler}
         expanded1 = expand_policy(policy)
@@ -293,8 +301,11 @@ class TestDebugPolicy:
 
     def test_debug_policy_shows_expansion(self, capsys):
         """Test that debug_policy prints expansion info."""
-        def auth(ctx): pass
-        def rate_limit(ctx): pass
+        def auth(ctx):
+            pass
+
+        def rate_limit(ctx):
+            pass
 
         policy = {'pre': auth, 'call': rate_limit}
         result = debug_policy(policy, verbose=True)
@@ -317,8 +328,11 @@ class TestDebugPolicy:
 
     def test_debug_policy_shows_reversed_marker(self, capsys):
         """Test that debug_policy shows '← reversed' for post hooks."""
-        def handler1(ctx): pass
-        def handler2(ctx): pass
+        def handler1(ctx):
+            pass
+
+        def handler2(ctx):
+            pass
 
         policy = {'post': handler1, 'call': handler2}
         debug_policy(policy, verbose=True)
@@ -329,7 +343,8 @@ class TestDebugPolicy:
 
     def test_debug_policy_verbose_false(self):
         """Test that verbose=False doesn't print."""
-        def auth(ctx): pass
+        def auth(ctx):
+            pass
 
         policy = {'pre': auth}
         result = debug_policy(policy, verbose=False)
@@ -345,11 +360,20 @@ class TestDebugPolicy:
 
     def test_debug_policy_shows_composition_order(self):
         """Test that debug_policy shows correct composition order."""
-        def pre_handler(ctx): pass
-        def post_handler(ctx): pass
-        def call_handler(ctx): pass
-        def precall_handler(ctx): pass
-        def postcall_handler(ctx): pass
+        def pre_handler(ctx):
+            pass
+        
+        def post_handler(ctx):
+            pass
+        
+        def call_handler(ctx):
+            pass
+        
+        def precall_handler(ctx):
+            pass
+        
+        def postcall_handler(ctx):
+            pass
 
         policy = {
             'pre': pre_handler,
@@ -440,8 +464,11 @@ class TestRealWorldPatterns:
 
     def test_opentelemetry_pattern(self):
         """Test typical OpenTelemetry pattern with shortcuts."""
-        def create_span(ctx): pass
-        def end_span(ctx): pass
+        def create_span(ctx):
+            pass
+
+        def end_span(ctx):
+            pass
 
         policy = {'pre': create_span, 'post': end_span}
         expanded = expand_policy(policy)
@@ -491,9 +518,14 @@ class TestRealWorldPatterns:
 
     def test_selective_override_pattern(self):
         """Test selective override of specific hooks while using shortcuts."""
-        def default_pre(ctx): pass
-        def default_post(ctx): pass
-        def special_precall(ctx): pass
+        def default_pre(ctx):
+            pass
+
+        def default_post(ctx):
+            pass
+
+        def special_precall(ctx):
+            pass
 
         # Use shortcuts for most, specific override for precall
         policy = {
