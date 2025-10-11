@@ -251,7 +251,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:
@@ -261,12 +261,12 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # ASTNode operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTEdge):
         # ASTEdge operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -345,7 +345,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
         from .gfql.call_executor import execute_call
-        result = execute_call(g, ast_obj.function, ast_obj.params, engine)
+        result = execute_call(g, ast_obj.function, ast_obj.params, engine, policy=policy)
     else:
         # Check if it's a Chain or Plottable
         from graphistry.compute.chain import Chain
@@ -355,7 +355,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
             original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value))
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -418,75 +418,113 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     # Determine execution order
     order = determine_execution_order(dag.bindings)
     logger.debug("DAG execution order: %s", order)
-    
-    # Execute nodes in topological order
-    # Start with the original graph and accumulate all binding columns
-    accumulated_result = g
 
-    for node_name in order:
-        ast_obj = dag.bindings[node_name]
-        logger.debug("Executing node '%s' in DAG", node_name)
+    # Initialize variables for finally block
+    result = None
+    error = None
+    success = False
+    last_result = None
 
-        # Execute the node and store result in context
-        try:
-            # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
+    try:
+        # Execute nodes in topological order
+        # Start with the original graph and accumulate all binding columns
+        accumulated_result = g
 
-            # Accumulate the new column(s) onto our result
-            accumulated_result = result
-        except Exception as e:
-            # Add context to error
-            raise RuntimeError(
-                f"Failed to execute node '{node_name}' in DAG. "
-                f"Error: {type(e).__name__}: {str(e)}"
-            ) from e
+        for node_name in order:
+            ast_obj = dag.bindings[node_name]
+            logger.debug("Executing node '%s' in DAG", node_name)
 
-    last_result = accumulated_result
-    
-    # Return requested output or last executed result
-    if output is not None:
-        if output not in context.get_all_bindings():
-            # Filter out internal bindings from the error message
-            available = sorted([
-                k for k in context.get_all_bindings().keys()
-                if not k.startswith('__')
-            ])
-            raise ValueError(
-                f"Output binding '{output}' not found. "
-                f"Available bindings: {available}"
-            )
-        result = context.get_binding(output)
-    else:
-        result = last_result
+            # Execute the node and store result in context
+            try:
+                # Execute node - this adds the binding name as a column
+                result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
 
-    # Postload policy phase - after DAG execution
-    if policy and 'postload' in policy:
-        from .gfql.policy import PolicyContext, PolicyException
-        from .gfql.policy.stats import extract_graph_stats
+                # Accumulate the new column(s) onto our result
+                accumulated_result = result
+            except Exception as e:
+                # Add context to error
+                raise RuntimeError(
+                    f"Failed to execute node '{node_name}' in DAG. "
+                    f"Error: {type(e).__name__}: {str(e)}"
+                ) from e
 
-        stats = extract_graph_stats(result)
-        context_dict: PolicyContext = {
-            'phase': 'postload',
-            'hook': 'postload',
-            'query': dag,
-            'current_ast': dag,  # For DAG postload, current == dag
-            'query_type': 'dag',
-            'plottable': result,
-            'graph_stats': stats,
-            '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
-        }
+        last_result = accumulated_result
 
-        try:
-            # Policy can only accept (None) or deny (exception)
-            policy['postload'](context_dict)
+        # Return requested output or last executed result
+        if output is not None:
+            if output not in context.get_all_bindings():
+                # Filter out internal bindings from the error message
+                available = sorted([
+                    k for k in context.get_all_bindings().keys()
+                    if not k.startswith('__')
+                ])
+                raise ValueError(
+                    f"Output binding '{output}' not found. "
+                    f"Available bindings: {available}"
+                )
+            result = context.get_binding(output)
+        else:
+            result = last_result
 
-        except PolicyException as e:
-            # Enrich exception with context if not already set
-            if e.query_type is None:
-                e.query_type = 'dag'
-            if e.data_size is None:
-                e.data_size = stats
-            raise
+        # Mark as successful
+        success = True
+
+    except Exception as e:
+        # Capture error for postload hook
+        error = e
+        # Don't re-raise yet - let finally block run first
+
+    finally:
+        # Postload policy phase - ALWAYS fires (even on error)
+        policy_error = None
+        if policy and 'postload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+
+            # Extract stats from result (if success) or input graph (if error)
+            graph_for_stats = result if success else g
+            stats = extract_graph_stats(graph_for_stats)
+
+            context_dict: PolicyContext = {
+                'phase': 'postload',
+                'hook': 'postload',
+                'query': dag,
+                'current_ast': dag,  # For DAG postload, current == dag
+                'query_type': 'dag',
+                'plottable': graph_for_stats,  # RESULT graph (if success) or INPUT graph (if error)
+                'graph_stats': stats,
+                'success': success,  # True if successful, False if error
+                '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                context_dict['error'] = str(error)  # type: ignore
+                context_dict['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](context_dict)
+
+            except PolicyException as e:
+                # Enrich exception with context if not already set
+                if e.query_type is None:
+                    e.query_type = 'dag'
+                if e.data_size is None:
+                    e.data_size = stats
+                # Capture policy error instead of raising immediately
+                policy_error = e
+
+    # After finally block, decide which error to raise
+    # Priority: PolicyException > operation error
+    if policy_error is not None:
+        # Policy denied - chain from operation error if one exists
+        if error is not None:
+            raise policy_error from error
+        else:
+            raise policy_error
+    elif error is not None:
+        raise error
 
     return result
 
