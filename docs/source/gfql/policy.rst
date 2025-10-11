@@ -25,13 +25,25 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at six distinct phases:
+Policies are invoked at ten distinct phases:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
 
 **postload**
     After data is loaded. Can check size/content and deny further processing.
+
+**prelet**
+    Before ``let()`` DAG execution starts. Can control entire DAG execution and validate DAG structure.
+
+**postlet**
+    After ``let()`` DAG execution completes (even on error). Can track DAG-level performance and enforce DAG-level policies.
+
+**prechain**
+    Before chain operations execute. Can control entire chain execution and validate chain structure.
+
+**postchain**
+    After chain operations complete (even on error). Can track chain-level performance and enforce chain-level policies.
 
 **preletbinding**
     Before each binding execution in ``let()`` DAGs. Can control per-binding execution and validate dependencies.
@@ -53,7 +65,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'precall', 'postcall')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -70,7 +82,7 @@ The context dictionary passed to policy functions contains:
 - ``call_op``: Operation name (precall/postcall phases only)
 - ``call_params``: Operation parameters (precall/postcall phases only)
 - ``execution_time``: Method execution duration in seconds (postcall phase only)
-- ``success``: Execution success flag (postcall/postletbinding phases)
+- ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
 - ``error``: Error message string (post* phases when success=False)
 - ``error_type``: Error type name (post* phases when success=False)
 
@@ -537,6 +549,10 @@ API Reference
     g.gfql(query, policy={
         'preload': preload_function,              # Optional
         'postload': postload_function,            # Optional
+        'prelet': prelet_function,                # Optional
+        'postlet': postlet_function,              # Optional
+        'prechain': prechain_function,            # Optional
+        'postchain': postchain_function,          # Optional
         'preletbinding': preletbinding_function,  # Optional
         'postletbinding': postletbinding_function,# Optional
         'precall': precall_function,              # Optional
@@ -557,7 +573,7 @@ API Reference
 
 **PolicyException Parameters**
 
-- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'preletbinding', 'postletbinding', 'precall', 'postcall')
+- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'preletbinding', 'postletbinding', 'precall', 'postcall')
 - ``reason`` (str): Human-readable explanation
 - ``code`` (int): HTTP-like status code (default: 403)
 - ``query_type`` (str, optional): Type of query being executed
