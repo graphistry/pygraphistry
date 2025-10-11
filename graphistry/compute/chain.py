@@ -248,7 +248,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -262,24 +262,30 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     :param ops: List[ASTObject] Various node and edge matchers
     :param validate_schema: Whether to validate the chain against the graph schema before executing
     :param policy: Optional policy dict for hooks
+    :param context: Optional ExecutionContext for tracking execution state
 
     :returns: Plotter
     :rtype: Plotter
     """
+    # Create context if not provided
+    if context is None:
+        from .execution_context import ExecutionContext
+        context = ExecutionContext()
+
     # If policy provided, set it in thread-local for ASTCall operations
     if policy:
         from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
-            return _chain_impl(self, ops, engine, validate_schema, policy)
+            return _chain_impl(self, ops, engine, validate_schema, policy, context)
         finally:
             call_thread_local.policy = old_policy
     else:
-        return _chain_impl(self, ops, engine, validate_schema, policy)
+        return _chain_impl(self, ops, engine, validate_schema, policy, context)
 
 
-def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy) -> Plottable:
+def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy, context) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
 
@@ -407,7 +413,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             if validate_schema:
                 validate_chain_schema(self, ops, collect_all=False)
 
-            return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy)
+            return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy, context=context)
         else:
             # Multiple ops with schema-changer - split and recurse
             before = ops[:schema_changer_idx]
@@ -416,9 +422,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             # Execute segments: before → schema_changer → rest
             # Recursion handles multiple schema-changers automatically
-            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy) if before else self  # type: ignore[call-arg]
-            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy)  # type: ignore[call-arg]
-            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy) if rest else g_temp2  # type: ignore[call-arg]
+            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if before else self  # type: ignore[call-arg]
+            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
 
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
@@ -468,10 +474,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         if policy and 'prechain' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth, get_operation_path
 
             stats = extract_graph_stats(g)
-            current_path = get_operation_path()
+            current_path = context.operation_path
 
             prechain_context: PolicyContext = {
                 'phase': 'prechain',
@@ -481,7 +486,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 'query_type': 'chain',
                 'plottable': g,
                 'graph_stats': stats,
-                'execution_depth': get_execution_depth(),
+                'execution_depth': context.execution_depth,
                 'operation_path': current_path,
                 'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                 '_policy_depth': 0
@@ -588,13 +593,12 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         if policy and 'postchain' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth, get_operation_path
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
-            current_path = get_operation_path()
+            current_path = context.operation_path
 
             postchain_context: PolicyContext = {
                 'phase': 'postchain',
@@ -605,7 +609,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 'plottable': graph_for_stats,
                 'graph_stats': stats,
                 'success': success,
-                'execution_depth': get_execution_depth(),
+                'execution_depth': context.execution_depth,
                 'operation_path': current_path,
                 'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                 '_policy_depth': 0
@@ -627,14 +631,13 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         if policy and 'postload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
 
-            context: PolicyContext = {
+            policy_context: PolicyContext = {
                 'phase': 'postload',
                 'hook': 'postload',
                 'query': ops,
@@ -643,18 +646,18 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 'plottable': graph_for_stats,  # RESULT or INPUT
                 'graph_stats': stats,
                 'success': success,  # True if successful, False if error
-                'execution_depth': get_execution_depth(),  # Add execution depth
+                'execution_depth': context.execution_depth,  # Add execution depth
                 '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
             }
 
             # Add error information if execution failed
             if error is not None:
-                context['error'] = str(error)  # type: ignore
-                context['error_type'] = type(error).__name__  # type: ignore
+                policy_context['error'] = str(error)  # type: ignore
+                policy_context['error_type'] = type(error).__name__  # type: ignore
 
             try:
                 # Policy can only accept (None) or deny (exception)
-                policy['postload'](context)
+                policy['postload'](policy_context)
 
             except PolicyException as e:
                 # Enrich exception with context if not already set

@@ -209,7 +209,7 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
 def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
                 context: ExecutionContext, engine: Engine, policy=None, global_query=None) -> Plottable:
     """Execute a single node in the DAG
-    
+
     Handles different GraphOperation types:
     - ASTLet: Recursive let execution
     - ASTRef: Reference resolution and chain execution
@@ -217,7 +217,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     - ASTRemoteGraph: Remote graph loading
     - Chain: Chain operations on graphs
     - Plottable: Direct graph instances
-    
+
     :param name: Binding name for this node
     :param ast_obj: GraphOperation to execute
     :param g: Input graph
@@ -231,11 +231,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     :raises NotImplementedError: For unsupported types
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
-    
+
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy)
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -251,7 +251,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:
@@ -261,12 +261,12 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # ASTNode operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
     elif isinstance(ast_obj, ASTEdge):
         # ASTEdge operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -277,7 +277,6 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Preload policy phase for remote data loading
         if policy and 'preload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
-            from .gfql_unified import get_execution_depth
 
             preload_context: PolicyContext = {
                 'phase': 'preload',
@@ -287,7 +286,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 'query_type': 'dag' if global_query else 'single',
                 'is_remote': True,
                 'engine': engine.value,
-                'execution_depth': get_execution_depth(),  # Add execution depth
+                'execution_depth': context.execution_depth,  # Add execution depth
                 '_policy_depth': 0
             }
 
@@ -323,7 +322,6 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if policy and 'postload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth
 
             stats = extract_graph_stats(result)
 
@@ -336,7 +334,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 'is_remote': True,
                 'engine': engine.value,
                 'graph_stats': stats,
-                'execution_depth': get_execution_depth(),  # Add execution depth
+                'execution_depth': context.execution_depth,  # Add execution depth
                 '_policy_depth': 0
             }
 
@@ -349,7 +347,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
         from .gfql.call_executor import execute_call
-        result = execute_call(g, ast_obj.function, ast_obj.params, engine, policy=policy)
+        result = execute_call(g, ast_obj.function, ast_obj.params, engine, policy=policy, context=context)
     else:
         # Check if it's a Chain or Plottable
         from graphistry.compute.chain import Chain
@@ -359,33 +357,36 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
             original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
         else:
             # Other AST object types not yet implemented
             raise NotImplementedError(f"Execution of {type(ast_obj).__name__} not yet implemented")
-    
+
     # Store result in context
     context.set_binding(name, result)
-    
+
     return result
 
 
 def chain_let_impl(g: Plottable, dag: ASTLet,
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
                   output: Optional[str] = None,
-                  policy=None) -> Plottable:
+                  policy=None,
+                  context: Optional[ExecutionContext] = None) -> Plottable:
     """Internal implementation of chain_let execution
-    
+
     Validates DAG, determines execution order, and executes nodes
     in topological order.
-    
+
     :param g: Input graph
     :param dag: Let specification with named bindings
     :param engine: Engine selection (auto/pandas/cudf)
     :param output: Name of binding to return (default: last executed)
+    :param policy: Optional policy dictionary
+    :param context: Optional ExecutionContext for tracking execution state
     :returns: Result from specified or last executed node
     :rtype: Plottable
     :raises TypeError: If dag is not an ASTLet
@@ -394,23 +395,24 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     """
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
-    
+
     # Validate the let parameter
     if not isinstance(dag, ASTLet):
         raise TypeError(f"dag must be an ASTLet, got {type(dag).__name__}")
-    
+
     # Validate the let bindings
     dag.validate()
-    
+
     # Resolve engine
     engine_concrete = resolve_engine(engine, g)
     logger.debug('chain_let engine: %s => %s', engine, engine_concrete)
-    
+
     # Materialize nodes if needed (following chain.py pattern)
     g = g.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-    
-    # Create execution context
-    context = ExecutionContext()
+
+    # Use provided context or create new one for bindings
+    if context is None:
+        context = ExecutionContext()
 
     # Store original graph for independent Chain filtering
     context.set_binding('__original_graph__', g)
@@ -437,10 +439,9 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         if policy and 'prelet' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth, get_operation_path
 
             stats = extract_graph_stats(g)
-            current_path = get_operation_path()
+            current_path = context.operation_path
 
             prelet_context: PolicyContext = {
                 'phase': 'prelet',
@@ -450,7 +451,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 'query_type': 'dag',
                 'plottable': g,
                 'graph_stats': stats,
-                'execution_depth': get_execution_depth(),
+                'execution_depth': context.execution_depth,
                 'operation_path': current_path,
                 'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                 '_policy_depth': 0
@@ -472,9 +473,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
             # Preletbinding hook - fires BEFORE binding execution
             if policy and 'preletbinding' in policy:
                 from .gfql.policy import PolicyContext, PolicyException
-                from .gfql_unified import get_execution_depth, get_operation_path
 
-                current_path = get_operation_path()
+                current_path = context.operation_path
                 # Build path that includes this binding (even though we haven't pushed yet)
                 binding_path = f"{current_path}.binding:{node_name}"
 
@@ -489,7 +489,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                     'total_bindings': len(order),
                     'binding_dependencies': list(dependencies.get(node_name, set())),
                     'binding_ast': ast_obj,
-                    'execution_depth': get_execution_depth(),  # Add execution depth
+                    'execution_depth': context.execution_depth,  # Add execution depth
                     'operation_path': binding_path,  # Include binding in path
                     'parent_operation': current_path,  # Parent is the DAG level
                     '_policy_depth': 0
@@ -507,9 +507,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Push execution depth and operation path for binding execution
             # This moves from depth 1 (let) to depth 2 (binding)
-            from .gfql_unified import push_execution_depth, pop_execution_depth, push_operation_path, pop_operation_path
-            push_execution_depth()
-            push_operation_path(f"binding:{node_name}")
+            context.push_depth()
+            context.push_path(f"binding:{node_name}")
 
             try:
                 # Execute node - this adds the binding name as a column
@@ -527,22 +526,21 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             finally:
                 # Pop execution depth and operation path before firing postletbinding hook
-                pop_execution_depth()
-                pop_operation_path()
+                context.pop_depth()
+                context.pop_path()
 
                 # Postletbinding hook - fires AFTER binding execution (even on error)
                 policy_error = None
                 if policy and 'postletbinding' in policy:
                     from .gfql.policy import PolicyContext, PolicyException
                     from .gfql.policy.stats import extract_graph_stats
-                    from .gfql_unified import get_execution_depth, get_operation_path
 
                     # Extract stats from binding result (if success) or current graph (if error)
                     # Cast: if binding_success=True, binding_result is guaranteed to be a Plottable
                     graph_for_stats = cast(Plottable, binding_result) if binding_success else accumulated_result
                     stats = extract_graph_stats(graph_for_stats)
 
-                    current_path = get_operation_path()
+                    current_path = context.operation_path
                     postletbinding_context: PolicyContext = {
                         'phase': 'postletbinding',
                         'hook': 'postletbinding',
@@ -557,7 +555,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                         'binding_dependencies': list(dependencies.get(node_name, set())),
                         'binding_ast': ast_obj,
                         'success': binding_success,
-                        'execution_depth': get_execution_depth(),  # Add execution depth
+                        'execution_depth': context.execution_depth,  # Add execution depth
                         'operation_path': current_path,  # Add operation path
                         'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                         '_policy_depth': 0
@@ -620,13 +618,12 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         if policy and 'postlet' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth, get_operation_path
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, result) if success else g
             stats = extract_graph_stats(graph_for_stats)
-            current_path = get_operation_path()
+            current_path = context.operation_path
 
             postlet_context: PolicyContext = {
                 'phase': 'postlet',
@@ -637,7 +634,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 'plottable': graph_for_stats,
                 'graph_stats': stats,
                 'success': success,
-                'execution_depth': get_execution_depth(),
+                'execution_depth': context.execution_depth,
                 'operation_path': current_path,
                 'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                 '_policy_depth': 0
@@ -659,7 +656,6 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         if policy and 'postload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
-            from .gfql_unified import get_execution_depth
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
@@ -675,7 +671,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 'plottable': graph_for_stats,  # RESULT graph (if success) or INPUT graph (if error)
                 'graph_stats': stats,
                 'success': success,  # True if successful, False if error
-                'execution_depth': get_execution_depth(),  # Add execution depth
+                'execution_depth': context.execution_depth,  # Add execution depth
                 '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
             }
 
@@ -721,7 +717,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 def chain_let(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
              output: Optional[str] = None,
-             policy=None) -> Plottable:
+             policy=None,
+             context: Optional[ExecutionContext] = None) -> Plottable:
     """
     Execute a DAG of named graph operations with dependency resolution
     
@@ -773,4 +770,4 @@ def chain_let(self: Plottable, dag: ASTLet,
         # Or select specific output
         people_result = g.chain_let(dag, output='people')
     """
-    return chain_let_impl(self, dag, engine, output, policy)
+    return chain_let_impl(self, dag, engine, output, policy, context)
