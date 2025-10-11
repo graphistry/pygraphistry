@@ -847,6 +847,16 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_ (%s): %s", type(X_), X_.columns)
             logger.debug("umap y_ (%s): %s", type(y_), y_.columns)
             logger.debug("data is type :: %s", (type(X_)))
+
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(
+                    "No numeric features available for UMAP after featurization. "
+                    "All non-numeric columns were dropped. "
+                    "Please provide at least one numeric column, or install 'skrub' for automatic string encoding: "
+                    "pip install skrub"
+                )
+
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
@@ -878,7 +888,16 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            # add the safe coercion here 
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(
+                    "No numeric features available for UMAP after featurization. "
+                    "All non-numeric columns were dropped. "
+                    "Please provide at least one numeric column, or install 'skrub' for automatic string encoding: "
+                    "pip install skrub"
+                )
+
+            # add the safe coercion here
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
             res = res._process_umap(
