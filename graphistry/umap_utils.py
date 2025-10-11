@@ -35,6 +35,16 @@ else:
 
 DataFrameLike = Union[pd.DataFrame, Any]
 
+# Error message for empty feature matrix
+_EMPTY_FEATURES_ERROR_MSG = (
+    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
+    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
+    "(2) all feature columns are non-numeric and were dropped during featurization, "
+    "or (3) X parameter was explicitly set to empty. "
+    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
+    "pip install skrub"
+)
+
 ###############################################################################
 
 
@@ -824,7 +834,13 @@ class UMAPMixin(MIXIN_BASE):
                 )
                 res._nodes.index = index
 
-            nodes = res._nodes[res._node].values
+            node_series = res._nodes[res._node]
+            # Use .to_numpy() which works for both pandas and cuDF, handles all dtypes consistently
+            if hasattr(node_series, 'to_numpy'):
+                nodes = node_series.to_numpy()
+            else:
+                # Fallback for numpy arrays or other array-like types
+                nodes = node_series.values if hasattr(node_series, 'values') else np.array(node_series)
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -838,14 +854,12 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_ (%s): %s", type(X_), X_.columns)
             logger.debug("umap y_ (%s): %s", type(y_), y_.columns)
             logger.debug("data is type :: %s", (type(X_)))
-            if isinstance(X_, pd.DataFrame):
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf.core.dataframe' in str(getmodule(X_)):
-                import cudf
-                assert isinstance(X_, cudf.DataFrame)
-                logger.debug('nodes type: %s', type(nodes))
-                import cupy as cp
-                index_to_nodes_dict = dict(zip(range(len(nodes)), cp.asnumpy(nodes)))
+
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
+
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
@@ -876,7 +890,11 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            # add the safe coercion here 
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
+
+            # add the safe coercion here
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
             res = res._process_umap(
