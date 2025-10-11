@@ -56,7 +56,9 @@ def _safe_len(df: Any) -> int:
                 # Use map_partitions to get length of each partition, then sum
                 # This avoids the problematic groupby aggregations that fail on lazy operations
                 try:
-                    partition_lengths = df.map_partitions(len, meta=int)
+                    # map_partitions(len) returns scalar per partition, forming a Series
+                    # meta should be pd.Series with appropriate dtype, not bare int
+                    partition_lengths = df.map_partitions(len, meta=pd.Series([], dtype='int64'))
                     total_length = partition_lengths.sum().compute()
                     return int(total_length)
                 except Exception as e:
