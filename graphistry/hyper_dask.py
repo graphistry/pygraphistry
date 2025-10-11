@@ -395,13 +395,11 @@ def format_entities(
     # when .compute() is called later during materialize_edges()
     if engine == Engine.DASK_CUDF:
         try:
-            import cudf, dask_cudf
-            # Compute to materialize, then convert back to dask_cudf
-            materialized = df.compute()
-            df = dask_cudf.from_cudf(materialized, npartitions=1)
-            logger.debug('Materialized entities for dask_cudf to avoid lazy computation issues')
+            # Use persist() to materialize in cluster without client round-trip
+            df = df.persist()
+            logger.debug('Persisted entities for dask_cudf to avoid lazy computation issues')
         except Exception as e:
-            logger.warning('Could not materialize dask_cudf entities: %s', e)
+            logger.warning('Could not persist dask_cudf entities: %s', e)
 
     return df
 
@@ -574,13 +572,11 @@ def format_direct_edges(
             # Empty DataFrames with groupby operations in the graph fail on .compute()
             if engine == Engine.DASK_CUDF:
                 try:
-                    import cudf, dask_cudf
-                    # Compute to materialize, then convert back to dask_cudf
-                    materialized = result.compute()
-                    result = dask_cudf.from_cudf(materialized, npartitions=1)
-                    logger.debug('Materialized empty edges for dask_cudf to avoid lazy computation issues')
+                    # Use persist() to materialize in cluster without client round-trip
+                    result = result.persist()
+                    logger.debug('Persisted empty edges for dask_cudf to avoid lazy computation issues')
                 except Exception as e:
-                    logger.warning('Could not materialize dask_cudf empty edges: %s', e)
+                    logger.warning('Could not persist dask_cudf empty edges: %s', e)
 
             return result
 
@@ -778,13 +774,11 @@ class Hypergraph():
         # The concat creates a computation graph that can fail on .compute() later
         if engine == Engine.DASK_CUDF:
             try:
-                import cudf, dask_cudf
-                # Compute to materialize, then convert back to dask_cudf
-                materialized = self.nodes.compute()
-                self.nodes = dask_cudf.from_cudf(materialized, npartitions=1)
-                logger.debug('Materialized nodes for dask_cudf to avoid lazy computation issues')
+                # Use persist() to materialize in cluster without client round-trip
+                self.nodes = self.nodes.persist()
+                logger.debug('Persisted nodes for dask_cudf to avoid lazy computation issues')
             except Exception as e:
-                logger.warning('Could not materialize dask_cudf nodes: %s', e)
+                logger.warning('Could not persist dask_cudf nodes: %s', e)
 
         self.graph = (g
             .edges(edges, source, destination)
@@ -867,13 +861,11 @@ def hypergraph(
         # For dask_cudf, materialize event_entities immediately to avoid lazy computation issues
         if engine_resolved == Engine.DASK_CUDF:
             try:
-                import cudf, dask_cudf
-                # Compute to materialize, then convert back to dask_cudf
-                materialized = event_entities.compute()
-                event_entities = dask_cudf.from_cudf(materialized, npartitions=1)
-                logger.debug('Materialized event_entities for dask_cudf to avoid lazy computation issues')
+                # Use persist() to materialize in cluster without client round-trip
+                event_entities = event_entities.persist()
+                logger.debug('Persisted event_entities for dask_cudf to avoid lazy computation issues')
             except Exception as e:
-                logger.warning('Could not materialize dask_cudf event_entities: %s', e)
+                logger.warning('Could not persist dask_cudf event_entities: %s', e)
 
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
     else:        
