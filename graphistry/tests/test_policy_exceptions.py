@@ -136,3 +136,29 @@ class TestPolicyExceptions:
         assert parsed['code'] == 403
         assert parsed['query_type'] == 'chain'
         assert parsed['data_size']['nodes'] == 100
+
+    def test_exception_accepts_all_phases(self):
+        """Test that PolicyException accepts all 10 phases."""
+        all_phases = [
+            'preload', 'postload',
+            'prelet', 'postlet',
+            'prechain', 'postchain',
+            'preletbinding', 'postletbinding',
+            'precall', 'postcall'
+        ]
+
+        for phase in all_phases:
+            exc = PolicyException(
+                phase=phase,
+                reason=f'Test {phase}',
+                code=403
+            )
+
+            assert exc.phase == phase
+            assert exc.reason == f'Test {phase}'
+            assert str(exc) == f'Policy denial in {phase}: Test {phase}'
+
+            # Verify to_dict works
+            exc_dict = exc.to_dict()
+            assert exc_dict['phase'] == phase
+            assert exc_dict['reason'] == f'Test {phase}'

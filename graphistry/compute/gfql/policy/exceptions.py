@@ -1,11 +1,10 @@
 """GFQL Policy exceptions with enriched error data."""
 
-from typing import Literal, Optional, Dict, Any, Union, TYPE_CHECKING
+from typing import Optional, Dict, Any, Union, TYPE_CHECKING
+from .types import Phase
 
 if TYPE_CHECKING:
     from .stats import GraphStats
-
-Phase = Literal["preload", "postload", "precall", "postcall", "preletbinding", "postletbinding"]
 
 
 class PolicyException(Exception):
