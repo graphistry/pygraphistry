@@ -499,8 +499,8 @@ def format_direct_edges(
 
     if len(subframes):
         result_cols = list(set(
-            ([x for x in events.columns.tolist() if not x == defs.node_type] 
-                if not drop_edge_attrs 
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
                 else [])
             + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
@@ -515,7 +515,28 @@ def format_direct_edges(
             logger.debug('////format_direct_edges')
         return out
     else:
-        return events[:0][[]]
+        # No edges to create (e.g., single entity type with direct=True)
+        # Return empty DataFrame with proper column structure for downstream operations
+        logger.warning(
+            'hypergraph(direct=True) created no edges for entity_types=%s. '
+            'Direct mode with a single entity type produces nodes without edges. '
+            'This is valid but downstream operations like get_degrees() will find no edge data.',
+            [k for k in edge_shape.keys()]
+        )
+
+        # Build result_cols same way as when subframes exist
+        result_cols = list(set(
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
+                else [])
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
+            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+
+        # Create empty DataFrame with correct column structure
+        cons = get_df_cons(engine)
+        empty_df = cons({col: mt_series(engine, dtype='object') for col in result_cols})
+
+        return empty_df
 
 
 def format_hypernodes(events, defs, drop_na):
