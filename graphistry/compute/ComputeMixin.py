@@ -245,12 +245,13 @@ class ComputeMixin(Plottable):
         # Handle empty edges case - skip groupby for dask_cudf compatibility
         # When edges are empty, all nodes have in-degree of 0
         if _safe_len(g._edges) == 0:
-            nodes_df = g_nodes._nodes.copy()
-            # Add degree column with all zeros
-            if col not in nodes_df.columns:
-                nodes_df[col] = 0
+            if col not in g_nodes._nodes.columns:
+                # Use assign() for engine compatibility (pandas, cudf, dask, dask_cudf)
+                nodes_df = g_nodes._nodes.assign(**{col: 0})
                 # Convert to int32 to match normal degree column dtype
-                nodes_df[col] = nodes_df[col].astype("int32")
+                nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
+            else:
+                nodes_df = g_nodes._nodes.copy()
             return g.nodes(nodes_df, g_nodes._node)
 
         in_degree_df = (
