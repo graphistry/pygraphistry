@@ -824,7 +824,16 @@ class UMAPMixin(MIXIN_BASE):
                 )
                 res._nodes.index = index
 
-            nodes = res._nodes[res._node].values
+            node_series = res._nodes[res._node]
+            if 'cudf' in str(getmodule(node_series)):
+                if node_series.dtype == 'object' or str(node_series.dtype) == 'object':
+                    logger.debug('Converting cuDF string column to pandas for node extraction')
+                    nodes = node_series.to_pandas().values
+                else:
+                    import cupy as cp
+                    nodes = cp.asnumpy(node_series.values)
+            else:
+                nodes = node_series.values
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -838,14 +847,7 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_ (%s): %s", type(X_), X_.columns)
             logger.debug("umap y_ (%s): %s", type(y_), y_.columns)
             logger.debug("data is type :: %s", (type(X_)))
-            if isinstance(X_, pd.DataFrame):
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf.core.dataframe' in str(getmodule(X_)):
-                import cudf
-                assert isinstance(X_, cudf.DataFrame)
-                logger.debug('nodes type: %s', type(nodes))
-                import cupy as cp
-                index_to_nodes_dict = dict(zip(range(len(nodes)), cp.asnumpy(nodes)))
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 

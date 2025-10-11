@@ -5,6 +5,14 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [Development]
+
+### Fixed
+* **UMAP: Handle cuDF DataFrames with string node columns** (#765)
+  * Fixed `TypeError: String arrays are not supported by cupy` when using UMAP with cuDF DataFrames containing string-typed node ID columns
+  * cuDF string columns are now converted to pandas before value extraction, avoiding cupy limitations
+  * Simplified node ID extraction logic since values are always numpy arrays after conversion
+
 ## [0.43.2 - 2025-10-09]
 
 ### Added
