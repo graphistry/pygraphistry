@@ -293,6 +293,20 @@ def series_cons(engine: Engine, arr: List, dtype='int32', npartitions=None, chun
 
 
 def mt_series(engine: Engine, dtype='int32'):
+    """Create empty Series for given engine with proper dtype handling"""
+    # Special case: dask/dask_cudf cannot be constructed directly, must wrap base engine
+    if engine == Engine.DASK:
+        import dask.dataframe
+        # Dask Series requires wrapping a pandas Series first
+        return dask.dataframe.from_pandas(pd.Series([], dtype=dtype), npartitions=1).astype(dtype)
+
+    if engine == Engine.DASK_CUDF:
+        import cudf, dask_cudf
+        # Dask-cudf Series requires wrapping a cudf Series first
+        gs = cudf.Series([], dtype=dtype)
+        return dask_cudf.from_cudf(gs, npartitions=1).astype(dtype)
+
+    # Standard case: pandas, cudf, and any future engines that support direct construction
     cons = get_series_cons(engine)
     return cons([], dtype=dtype)
 
@@ -375,6 +389,19 @@ def format_entities(
         df = df.persist()
         df.compute()
         logger.debug('////format_entities')
+
+    # For dask_cudf, materialize immediately to avoid lazy computation graph issues
+    # The concat + drop_duplicates creates a computation graph that fails on empty DataFrames
+    # when .compute() is called later during materialize_edges()
+    if engine == Engine.DASK_CUDF:
+        try:
+            import cudf, dask_cudf
+            # Compute to materialize, then convert back to dask_cudf
+            materialized = df.compute()
+            df = dask_cudf.from_cudf(materialized, npartitions=1)
+            logger.debug('Materialized entities for dask_cudf to avoid lazy computation issues')
+        except Exception as e:
+            logger.warning('Could not materialize dask_cudf entities: %s', e)
 
     return df
 
@@ -499,8 +526,8 @@ def format_direct_edges(
 
     if len(subframes):
         result_cols = list(set(
-            ([x for x in events.columns.tolist() if not x == defs.node_type] 
-                if not drop_edge_attrs 
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
                 else [])
             + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
@@ -515,7 +542,47 @@ def format_direct_edges(
             logger.debug('////format_direct_edges')
         return out
     else:
-        return events[:0][[]]
+        # No edges to create (e.g., single entity type with direct=True)
+        # Return empty DataFrame with proper column structure for downstream operations
+        logger.warning(
+            'hypergraph(direct=True) created no edges for entity_types=%s. '
+            'Direct mode with a single entity type produces nodes without edges. '
+            'This is valid but downstream operations like get_degrees() will find no edge data.',
+            [k for k in edge_shape.keys()]
+        )
+
+        # Build result_cols same way as when subframes exist
+        result_cols = list(set(
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
+                else [])
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
+            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+
+        # Create empty pandas DataFrame with correct column structure, then convert to target engine
+        # This pattern works across all engines (pandas, cudf, dask, dask_cudf)
+        empty_pdf = pd.DataFrame({col: pd.Series([], dtype='object') for col in result_cols})
+
+        # Convert to target engine if needed
+        if engine == Engine.PANDAS:
+            return empty_pdf
+        else:
+            # For dask/cudf engines, use df_coercion to properly convert
+            result = df_coercion(empty_pdf, engine, npartitions=1)
+
+            # For dask_cudf, materialize immediately to avoid lazy computation graph issues
+            # Empty DataFrames with groupby operations in the graph fail on .compute()
+            if engine == Engine.DASK_CUDF:
+                try:
+                    import cudf, dask_cudf
+                    # Compute to materialize, then convert back to dask_cudf
+                    materialized = result.compute()
+                    result = dask_cudf.from_cudf(materialized, npartitions=1)
+                    logger.debug('Materialized empty edges for dask_cudf to avoid lazy computation issues')
+                except Exception as e:
+                    logger.warning('Could not materialize dask_cudf empty edges: %s', e)
+
+            return result
 
 
 def format_hypernodes(events, defs, drop_na):
@@ -706,6 +773,19 @@ class Hypergraph():
             self.nodes = self.nodes.persist()
             self.nodes.compute()
             logger.debug('////Hypergraph nodes')
+
+        # For dask_cudf, materialize nodes immediately to avoid lazy computation graph issues
+        # The concat creates a computation graph that can fail on .compute() later
+        if engine == Engine.DASK_CUDF:
+            try:
+                import cudf, dask_cudf
+                # Compute to materialize, then convert back to dask_cudf
+                materialized = self.nodes.compute()
+                self.nodes = dask_cudf.from_cudf(materialized, npartitions=1)
+                logger.debug('Materialized nodes for dask_cudf to avoid lazy computation issues')
+            except Exception as e:
+                logger.warning('Could not materialize dask_cudf nodes: %s', e)
+
         self.graph = (g
             .edges(edges, source, destination)
             .nodes(self.nodes, defs.node_id)
@@ -783,6 +863,18 @@ def hypergraph(
         event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct, engine_resolved), engine_resolved, npartitions=1)
         if debug:
             logger.debug('mt event_entities: %s', event_entities.dtypes)
+
+        # For dask_cudf, materialize event_entities immediately to avoid lazy computation issues
+        if engine_resolved == Engine.DASK_CUDF:
+            try:
+                import cudf, dask_cudf
+                # Compute to materialize, then convert back to dask_cudf
+                materialized = event_entities.compute()
+                event_entities = dask_cudf.from_cudf(materialized, npartitions=1)
+                logger.debug('Materialized event_entities for dask_cudf to avoid lazy computation issues')
+            except Exception as e:
+                logger.warning('Could not materialize dask_cudf event_entities: %s', e)
+
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
     else:        
         event_entities = format_hypernodes(events, defs, drop_na)
