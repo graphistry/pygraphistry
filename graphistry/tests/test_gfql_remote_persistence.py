@@ -69,7 +69,7 @@ class TestGFQLRemotePersistence(unittest.TestCase):
         # Call with persist=True and api_token to bypass auth
         try:
             self.g.gfql_remote([ASTNode()], persist=True, api_token='test_token')
-        except Exception as e:
+        except Exception:
             # Allow execution to fail after the request, but not before
             pass
 
