@@ -24,14 +24,9 @@ build_pdf() {
     sphinx-build -b latex -d /docs/doctrees . /docs/_build/latexpdf
     cd /docs/_build/latexpdf
     # Run pdflatex three times to resolve cross-references, using batchmode for non-interactive build
-    # We use || true because pdflatex returns non-zero for warnings (not just errors)
-    # First run: Generate .aux files
-    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
-    # Second run: Resolve initial cross-references
-    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
-    # Third run: Resolve any remaining cross-references
-    # Still use || true since LaTeX warnings (like multiply-defined labels) cause non-zero exit
-    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
+    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
 }
 
 # Build docs first

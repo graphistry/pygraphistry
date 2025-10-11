@@ -3,6 +3,8 @@ OpenTelemetry Integration
 
 GFQL policy hooks provide built-in support for OpenTelemetry span tracing with proper parent-child relationships, enabling complete observability of query execution.
 
+.. _policy-otel-quick-start:
+
 Quick Start
 -----------
 
@@ -346,6 +348,8 @@ The OpenTelemetry policy adds these span attributes:
 
 - ``is_remote``: Remote data operation (bool)
 
+
+.. _policy-otel-best-practices:
 
 Best Practices
 --------------
