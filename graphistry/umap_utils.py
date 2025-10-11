@@ -825,15 +825,12 @@ class UMAPMixin(MIXIN_BASE):
                 res._nodes.index = index
 
             node_series = res._nodes[res._node]
-            if 'cudf' in str(getmodule(node_series)):
-                if node_series.dtype == 'object' or str(node_series.dtype) == 'object':
-                    logger.debug('Converting cuDF string column to pandas for node extraction')
-                    nodes = node_series.to_pandas().values
-                else:
-                    import cupy as cp
-                    nodes = cp.asnumpy(node_series.values)
+            # Use .to_numpy() which works for both pandas and cuDF, handles all dtypes consistently
+            if hasattr(node_series, 'to_numpy'):
+                nodes = node_series.to_numpy()
             else:
-                nodes = node_series.values
+                # Fallback for numpy arrays or other array-like types
+                nodes = node_series.values if hasattr(node_series, 'values') else np.array(node_series)
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -851,9 +848,11 @@ class UMAPMixin(MIXIN_BASE):
             # Validate that we have at least one feature column for UMAP
             if len(X_.columns) == 0:
                 raise ValueError(
-                    "No numeric features available for UMAP after featurization. "
-                    "All non-numeric columns were dropped. "
-                    "Please provide at least one numeric column, or install 'skrub' for automatic string encoding: "
+                    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
+                    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
+                    "(2) all feature columns are non-numeric and were dropped during featurization, "
+                    "or (3) X parameter was explicitly set to empty. "
+                    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
                     "pip install skrub"
                 )
 
@@ -891,9 +890,11 @@ class UMAPMixin(MIXIN_BASE):
             # Validate that we have at least one feature column for UMAP
             if len(X_.columns) == 0:
                 raise ValueError(
-                    "No numeric features available for UMAP after featurization. "
-                    "All non-numeric columns were dropped. "
-                    "Please provide at least one numeric column, or install 'skrub' for automatic string encoding: "
+                    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
+                    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
+                    "(2) all feature columns are non-numeric and were dropped during featurization, "
+                    "or (3) X parameter was explicitly set to empty. "
+                    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
                     "pip install skrub"
                 )
 
