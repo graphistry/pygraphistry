@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Phase literal type
-Phase = Literal["preload", "postload", "precall", "postcall", "preletbinding", "postletbinding"]
+Phase = Literal["preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
@@ -17,7 +17,7 @@ class PolicyContext(TypedDict, total=False):
     """Strongly typed context passed to policy functions.
 
     Attributes:
-        phase: Current execution phase (preload, postload, precall, postcall, preletbinding, postletbinding)
+        phase: Current execution phase (preload, postload, prelet, postlet, prechain, postchain, precall, postcall, preletbinding, postletbinding)
         hook: Hook name (same as phase, useful for shared handlers)
         query: Original/global query object
         current_ast: Current AST object being executed (if applicable)

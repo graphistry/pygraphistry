@@ -433,6 +433,34 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     last_result = None
 
     try:
+        # Prelet hook - fires BEFORE any bindings execute
+        if policy and 'prelet' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
+
+            stats = extract_graph_stats(g)
+            current_path = get_operation_path()
+
+            prelet_context: PolicyContext = {
+                'phase': 'prelet',
+                'hook': 'prelet',
+                'query': dag,
+                'current_ast': dag,
+                'query_type': 'dag',
+                'plottable': g,
+                'graph_stats': stats,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            try:
+                policy['prelet'](prelet_context)
+            except PolicyException:
+                raise
+
         # Execute nodes in topological order
         # Start with the original graph and accumulate all binding columns
         accumulated_result = g
@@ -587,6 +615,45 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Don't re-raise yet - let finally block run first
 
     finally:
+        # Postlet hook - fires AFTER all bindings complete (even on error)
+        postlet_policy_error = None
+        if policy and 'postlet' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, result is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, result) if success else g
+            stats = extract_graph_stats(graph_for_stats)
+            current_path = get_operation_path()
+
+            postlet_context: PolicyContext = {
+                'phase': 'postlet',
+                'hook': 'postlet',
+                'query': dag,
+                'current_ast': dag,
+                'query_type': 'dag',
+                'plottable': graph_for_stats,
+                'graph_stats': stats,
+                'success': success,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                postlet_context['error'] = str(error)  # type: ignore
+                postlet_context['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                policy['postlet'](postlet_context)
+            except PolicyException as e:
+                # Capture policy error instead of raising immediately
+                postlet_policy_error = e
+
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
@@ -631,9 +698,15 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 policy_error = e
 
     # After finally block, decide which error to raise
-    # Priority: PolicyException > operation error
-    if policy_error is not None:
-        # Policy denied - chain from operation error if one exists
+    # Priority: postlet PolicyException > postload PolicyException > operation error
+    if postlet_policy_error is not None:
+        # postlet policy error takes highest priority
+        if error is not None:
+            raise postlet_policy_error from error
+        else:
+            raise postlet_policy_error
+    elif policy_error is not None:
+        # postload policy error is second priority
         if error is not None:
             raise policy_error from error
         else:

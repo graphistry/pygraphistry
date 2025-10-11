@@ -8,6 +8,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
+* **GFQL Policy System: Let and Chain level hooks for complete execution hierarchy** (#764, let/chain hooks)
+  * **New hooks** - Complete coverage at all execution levels
+    * `prelet` - Fires before `let()` DAG execution starts
+    * `postlet` - Fires after `let()` DAG execution completes (even on error)
+    * `prechain` - Fires before chain operations execute
+    * `postchain` - Fires after chain operations complete (even on error)
+    * Enables DAG-level and chain-level policy enforcement, performance tracking, and execution control
+  * **Complete hook hierarchy** - 10 hooks covering all execution levels:
+    * Query level: `preload`, `postload`
+    * Let/Chain level: `prelet`, `postlet`, `prechain`, `postchain` (NEW)
+    * Binding level: `preletbinding`, `postletbinding`
+    * Call level: `precall`, `postcall`
+  * **Use cases**:
+    * Complete OpenTelemetry span hierarchy (query → let/chain → binding → call)
+    * DAG/chain-level resource control and size limits
+    * Comprehensive performance tracking at all levels
+    * Complete execution observability
+  * **Backward compatible** - All new hooks are optional
+  * **Comprehensive testing** - 14 tests for new hooks (7 new + 7 existing), all passing
+
 * **GFQL Policy System: Binding hooks and hierarchy tracking for OpenTelemetry span tracing** (#764, binding hooks)
   * **New hooks** - Per-binding execution control
     * `preletbinding` - Fires before each binding execution in `let()` DAGs

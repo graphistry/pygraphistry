@@ -71,6 +71,10 @@ Quick Start
     policy = {
         'preload': create_span,
         'postload': end_span,
+        'prelet': create_span,
+        'postlet': end_span,
+        'prechain': create_span,
+        'postchain': end_span,
         'preletbinding': create_span,
         'postletbinding': end_span,
         'precall': create_span,
@@ -102,7 +106,7 @@ Three key fields enable proper span tracing:
 **parent_operation**
     Path to parent operation, enabling correct span parent-child relationships
 
-These fields are populated in all hook phases (preload, postload, preletbinding, postletbinding, precall, postcall).
+These fields are populated in all hook phases (preload, postload, prelet, postlet, prechain, postchain, preletbinding, postletbinding, precall, postcall).
 
 
 Span Hierarchy Example
@@ -239,6 +243,10 @@ Complete Example
             return {
                 'preload': self.pre_hook,
                 'postload': self.post_hook,
+                'prelet': self.pre_hook,
+                'postlet': self.post_hook,
+                'prechain': self.pre_hook,
+                'postchain': self.post_hook,
                 'preletbinding': self.pre_hook,
                 'postletbinding': self.post_hook,
                 'precall': self.pre_hook,

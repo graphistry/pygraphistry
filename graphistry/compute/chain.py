@@ -464,6 +464,33 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         else:
             added_edge_index = False
 
+        # Prechain hook - fires BEFORE chain operations execute
+        if policy and 'prechain' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
+
+            stats = extract_graph_stats(g)
+            current_path = get_operation_path()
+
+            prechain_context: PolicyContext = {
+                'phase': 'prechain',
+                'hook': 'prechain',
+                'query': ops,
+                'current_ast': ops,
+                'query_type': 'chain',
+                'plottable': g,
+                'graph_stats': stats,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            try:
+                policy['prechain'](prechain_context)
+            except PolicyException:
+                raise
 
         logger.debug('======================== FORWARDS ========================')
 
@@ -556,6 +583,45 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         # Don't re-raise yet - let finally block run first
 
     finally:
+        # Postchain hook - fires AFTER chain operations complete (even on error)
+        postchain_policy_error = None
+        if policy and 'postchain' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, g_out is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, g_out) if success else self
+            stats = extract_graph_stats(graph_for_stats)
+            current_path = get_operation_path()
+
+            postchain_context: PolicyContext = {
+                'phase': 'postchain',
+                'hook': 'postchain',
+                'query': ops,
+                'current_ast': ops,
+                'query_type': 'chain',
+                'plottable': graph_for_stats,
+                'graph_stats': stats,
+                'success': success,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                postchain_context['error'] = str(error)  # type: ignore
+                postchain_context['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                policy['postchain'](postchain_context)
+            except PolicyException as e:
+                # Capture policy error instead of raising immediately
+                postchain_policy_error = e
+
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
@@ -600,9 +666,15 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 policy_error = e
 
     # After finally block, decide which error to raise
-    # Priority: PolicyException > operation error
-    if policy_error is not None:
-        # Policy denied - chain from operation error if one exists
+    # Priority: postchain PolicyException > postload PolicyException > operation error
+    if postchain_policy_error is not None:
+        # postchain policy error takes highest priority
+        if error is not None:
+            raise postchain_policy_error from error
+        else:
+            raise postchain_policy_error
+    elif policy_error is not None:
+        # postload policy error is second priority
         if error is not None:
             raise policy_error from error
         else:
