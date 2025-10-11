@@ -469,6 +469,71 @@ Output:
 - Shortcuts are entirely optional - use them only when they simplify your code
 - No performance overhead - expansion happens once per query
 
+**OpenTelemetry Example**
+
+Using shortcuts, OpenTelemetry span tracing reduces from 10 hook keys to just 2:
+
+.. code-block:: python
+
+    from opentelemetry import trace
+    from opentelemetry.trace import Status, StatusCode
+
+    tracer = trace.get_tracer(__name__)
+    span_map = {}  # operation_path → span
+
+    def create_span(ctx):
+        """Start span in pre* hooks"""
+        # Get parent span using parent_operation
+        parent_span = span_map.get(ctx.get('parent_operation'))
+
+        # Create span with unique operation_path as name
+        span = tracer.start_span(
+            ctx['operation_path'],
+            parent=parent_span
+        )
+
+        # Add span attributes from context
+        span.set_attribute('execution_depth', ctx['execution_depth'])
+        span.set_attribute('query_type', ctx.get('query_type', 'unknown'))
+
+        if ctx.get('binding_name'):
+            span.set_attribute('binding_name', ctx['binding_name'])
+        if ctx.get('call_op'):
+            span.set_attribute('call_op', ctx['call_op'])
+
+        # Store span for children and post hook
+        span_map[ctx['operation_path']] = span
+
+    def end_span(ctx):
+        """End span in post* hooks"""
+        span = span_map.pop(ctx['operation_path'], None)
+        if not span:
+            return
+
+        # Add result attributes
+        if ctx.get('graph_stats'):
+            stats = ctx['graph_stats']
+            span.set_attribute('nodes', stats.get('nodes', 0))
+            span.set_attribute('edges', stats.get('edges', 0))
+
+        # Handle errors
+        if not ctx.get('success', True):
+            span.set_status(
+                Status(StatusCode.ERROR, ctx.get('error', 'Unknown error'))
+            )
+
+        span.end()
+
+    # Apply to all hook phases using shortcuts (2 keys instead of 10!)
+    policy = {
+        'pre': create_span,   # Expands to all 5 pre* hooks
+        'post': end_span      # Expands to all 5 post* hooks
+    }
+
+    result = g.gfql(my_query, policy=policy)
+
+This creates a proper span hierarchy matching the query execution tree, with each operation having a unique ``operation_path`` and correct parent relationships.
+
 
 PolicyException
 ---------------
