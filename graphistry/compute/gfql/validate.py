@@ -40,12 +40,9 @@ from graphistry.compute.predicates.temporal import (
 )
 from graphistry.util import setup_logger
 
-warnings.warn(
-    "The graphistry.compute.gfql.validate module is deprecated. "
-    "GFQL now has built-in validation. See the migration guide for details.",
-    DeprecationWarning,
-    stacklevel=2
-)
+# NOTE: This module is deprecated but still used internally for backwards compatibility.
+# We don't emit warnings on import since that would spam users who aren't directly
+# importing this module. Warnings are only shown in the docstring.
 
 logger = setup_logger(__name__)
 
