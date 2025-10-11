@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Phase literal type
-Phase = Literal["preload", "postload", "precall", "postcall"]
+Phase = Literal["preload", "postload", "precall", "postcall", "preletbinding", "postletbinding"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
@@ -17,7 +17,7 @@ class PolicyContext(TypedDict, total=False):
     """Strongly typed context passed to policy functions.
 
     Attributes:
-        phase: Current execution phase (preload, postload, precall, postcall)
+        phase: Current execution phase (preload, postload, precall, postcall, preletbinding, postletbinding)
         hook: Hook name (same as phase, useful for shared handlers)
         query: Original/global query object
         current_ast: Current AST object being executed (if applicable)
@@ -33,9 +33,22 @@ class PolicyContext(TypedDict, total=False):
         is_remote: True for remote/network operations
         engine: Engine being used (pandas, cudf, etc.)
         execution_time: Method execution duration (postcall phase only)
-        success: Execution success flag (postcall phase only)
-        error: Error message string (postcall phase only, when success=False)
-        error_type: Error type name (postcall phase only, when success=False)
+        success: Execution success flag (postcall/postload/postletbinding phases)
+        error: Error message string (post* phases, when success=False)
+        error_type: Error type name (post* phases, when success=False)
+
+        # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
+        execution_depth: Nesting depth (0=query, 1=let/chain, 2=binding/op, ...)
+        operation_path: Unique path like "query.let.binding:hg.call:hypergraph"
+        parent_operation: Parent operation path (for span parent relationships)
+
+        # Binding-specific fields (preletbinding/postletbinding phases only)
+        binding_name: Name of the current binding being executed
+        binding_index: Execution order of this binding (0-indexed)
+        total_bindings: Total number of bindings in the let expression
+        binding_dependencies: List of binding names this binding depends on
+        binding_ast: The AST object being bound (the value in let({name: ast}))
+
         _policy_depth: Internal recursion prevention counter
     """
 
@@ -51,9 +64,22 @@ class PolicyContext(TypedDict, total=False):
     is_remote: Optional[bool]
     engine: Optional[str]
     execution_time: Optional[float]  # Method execution duration (postcall only)
-    success: Optional[bool]          # Execution success flag (postcall only)
-    error: Optional[str]             # Error message (postcall only, when success=False)
-    error_type: Optional[str]        # Error type name (postcall only, when success=False)
+    success: Optional[bool]          # Execution success flag (post* phases)
+    error: Optional[str]             # Error message (post* phases, when success=False)
+    error_type: Optional[str]        # Error type name (post* phases, when success=False)
+
+    # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
+    execution_depth: Optional[int]       # Nesting depth (0=query, 1=let/chain, 2=binding, ...)
+    operation_path: Optional[str]        # Unique path like "query.let.binding:hg.call:hypergraph"
+    parent_operation: Optional[str]      # Parent operation path (for span parent relationships)
+
+    # Binding-specific fields (preletbinding/postletbinding phases only)
+    binding_name: Optional[str]          # Name of the current binding
+    binding_index: Optional[int]         # Execution order (0-indexed)
+    total_bindings: Optional[int]        # Total bindings in let expression
+    binding_dependencies: Optional[list]  # List of binding names this depends on
+    binding_ast: Optional[Any]           # The AST object being bound
+
     _policy_depth: int
 
 
