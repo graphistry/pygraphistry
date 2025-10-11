@@ -63,9 +63,14 @@ def _safe_len(df: Any) -> int:
                     logger.warning("Could not compute length for dask_cudf DataFrame via map_partitions: %s", e)
                     # Fallback: try direct compute (may fail on empty DataFrames with lazy ops)
                     return len(df.compute())
-        except (ImportError, AttributeError):
-            # dask_cudf not available, fall through to standard len()
-            pass
+        except ImportError as e:
+            # Unexpected: module name contains 'dask_cudf' but can't import - raise it
+            logger.error("DataFrame type from dask_cudf module but import failed: %s", e)
+            raise
+        except AttributeError as e:
+            # Unexpected: imported dask_cudf but isinstance/attribute access failed
+            logger.error("Imported dask_cudf but attribute error occurred: %s", e)
+            raise
 
     # For all other DataFrame types, use standard len()
     return len(df)
