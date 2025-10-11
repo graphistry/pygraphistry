@@ -293,8 +293,26 @@ def series_cons(engine: Engine, arr: List, dtype='int32', npartitions=None, chun
 
 
 def mt_series(engine: Engine, dtype='int32'):
-    cons = get_series_cons(engine)
-    return cons([], dtype=dtype)
+    """Create empty Series for given engine with proper dtype handling"""
+    if engine == Engine.PANDAS:
+        return pd.Series([], dtype=dtype)
+
+    if engine == Engine.DASK:
+        import dask.dataframe
+        # Dask Series requires wrapping a pandas Series first
+        return dask.dataframe.from_pandas(pd.Series([], dtype=dtype), npartitions=1).astype(dtype)
+
+    if engine == Engine.CUDF:
+        import cudf
+        return cudf.Series([], dtype=dtype)
+
+    if engine == Engine.DASK_CUDF:
+        import cudf, dask_cudf
+        # Dask-cudf Series requires wrapping a cudf Series first
+        gs = cudf.Series([], dtype=dtype)
+        return dask_cudf.from_cudf(gs, npartitions=1).astype(dtype)
+
+    raise NotImplementedError('Unknown engine')
 
 # This will be slightly wrong: pandas will turn datetime64['ms'] into datetime64['ns']
 def mt_nodes(defs: HyperBindings, events: DataframeLike, entity_types: List[str], direct: bool, engine: Engine) -> pd.DataFrame:
@@ -532,11 +550,16 @@ def format_direct_edges(
             + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
 
-        # Create empty DataFrame with correct column structure
-        cons = get_df_cons(engine)
-        empty_df = cons({col: mt_series(engine, dtype='object') for col in result_cols})
+        # Create empty pandas DataFrame with correct column structure, then convert to target engine
+        # This pattern works across all engines (pandas, cudf, dask, dask_cudf)
+        empty_pdf = pd.DataFrame({col: pd.Series([], dtype='object') for col in result_cols})
 
-        return empty_df
+        # Convert to target engine if needed
+        if engine == Engine.PANDAS:
+            return empty_pdf
+        else:
+            # For dask/cudf engines, use df_coercion to properly convert
+            return df_coercion(empty_pdf, engine, npartitions=1)
 
 
 def format_hypernodes(events, defs, drop_na):

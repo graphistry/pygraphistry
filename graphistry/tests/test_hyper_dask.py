@@ -1094,6 +1094,50 @@ class TestHypergraphDask(NoAuthTestCase):
             )
             self.assertEqual(len(h2.edges.compute()), 12)
 
+    def test_single_entity_direct_with_get_degrees(self):
+        """Test that hypergraph with single entity + direct=True creates proper empty edges for get_degrees()"""
+        # Issue #766: hypergraph(entity_types=['single'], direct=True) should create
+        # empty DataFrame with proper columns so get_degrees() works across all engines
+
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            test_df = pd.DataFrame([
+                ['Pineville Park', 'Pineville', 'Park'],
+                ['Pineville Grocery', 'Pineville', 'Store'],
+                ['Maplewood Shop', 'Maplewood', 'Store'],
+            ], columns=['name', 'town', 'type'])
+
+            # Create hypergraph with single entity type + direct=True
+            # This creates nodes but no edges (only one entity type)
+            h = hypergraph(
+                PyGraphistry.bind(),
+                test_df,
+                entity_types=['town'],
+                verbose=False,
+                direct=True,
+                engine=Engine.DASK,
+                npartitions=2
+            )
+
+            # Should have nodes but no edges
+            self.assertEqual(len(h.nodes.compute()), 2)  # 2 unique towns
+            self.assertEqual(len(h.edges.compute()), 0)  # No edges (single entity)
+
+            # Edges DataFrame should have proper columns even when empty
+            self.assertIn('src', h.edges.columns)
+            self.assertIn('dst', h.edges.columns)
+
+            # Call get_degrees() - should work without KeyError
+            g_with_degrees = h.graph.get_degrees()
+
+            # Should return graph with degree columns
+            self.assertIsNotNone(g_with_degrees._nodes)
+            self.assertIn('degree', g_with_degrees._nodes.columns)
+            # All degrees should be 0 (no edges)
+            self.assertTrue((g_with_degrees._nodes.compute()['degree'] == 0).all())
+
     def test_drop_edge_attrs(self):
         import dask
         from dask.distributed import Client
