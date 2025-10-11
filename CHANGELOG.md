@@ -43,6 +43,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     * From edges: `g.edges(df).hypergraph(from_edges=True, entity_types=['src', 'dst'])`
 
 ### Fixed
+* **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
+  * **Problem**: `hypergraph(entity_types=['single'], direct=True)` returned empty DataFrame with NO columns
+  * **Impact**: Downstream `get_degrees()` failed with `KeyError` due to missing 'src'/'dst' columns
+  * **Solution**: Empty edges DataFrame now has proper column structure (src, dst, edgeType, EventID, etc.)
+  * **Behavior**: Single entity + direct=True creates nodes without edges (valid use case), with warning logged
+  * **Engines**: Fix works across all engines (pandas, cudf, dask, dask_cudf)
 * **Hypergraph: Critical bug fix for return_as='graph' routing** (#763)
   * **Before**: `g.hypergraph()` incorrectly returned full dict (preventing method chaining)
   * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
