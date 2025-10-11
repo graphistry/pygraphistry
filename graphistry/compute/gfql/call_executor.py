@@ -5,7 +5,7 @@ after parameter validation.
 """
 
 import threading
-from typing import Dict, Any
+from typing import Dict, Any, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
@@ -44,8 +44,13 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     if policy and 'precall' in policy:
         from graphistry.compute.gfql.policy import PolicyContext, PolicyException
         from graphistry.compute.gfql.policy.stats import extract_graph_stats
+        from graphistry.compute.gfql_unified import get_execution_depth, get_operation_path
 
         stats = extract_graph_stats(g)
+        current_path = get_operation_path()
+        # Build path that includes this call (even though we haven't pushed yet)
+        call_path = f"{current_path}.call:{function}"
+
         context: PolicyContext = {
             'phase': 'precall',
             'hook': 'precall',
@@ -55,6 +60,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             'call_params': params,
             'plottable': g,  # INPUT graph
             'graph_stats': stats,  # INPUT stats
+            'execution_depth': get_execution_depth(),  # Add execution depth
+            'operation_path': call_path,  # Include call in path
+            'parent_operation': current_path,  # Parent is the current level
             '_policy_depth': 0
         }
 
@@ -77,6 +85,12 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     execution_time = 0.0
     start_time = time.perf_counter()
     validated_params = None
+
+    # Push execution depth and operation path for call execution
+    # This moves from current depth to depth+1 (e.g., binding -> call, or let -> call)
+    from graphistry.compute.gfql_unified import push_execution_depth, pop_execution_depth, push_operation_path, pop_operation_path
+    push_execution_depth()
+    push_operation_path(f"call:{function}")
 
     try:
         # Validate parameters against safelist (inside try block so postcall fires on validation errors)
@@ -121,18 +135,26 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Don't re-raise yet - let finally block run first
 
     finally:
+        # Pop execution depth and operation path before firing postcall hook
+        pop_execution_depth()
+        pop_operation_path()
+
         # Postcall policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postcall' in policy:
             from graphistry.compute.gfql.policy import PolicyContext, PolicyException
             from graphistry.compute.gfql.policy.stats import extract_graph_stats
+            from graphistry.compute.gfql_unified import get_execution_depth, get_operation_path
 
             # Extract stats from result (if success) or input graph (if error)
-            graph_for_stats = result if success else g
+            # Cast: if success=True, result is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, result) if success else g
 
             # Only extract stats if result is a Plottable (hypergraph can return DataFrame)
             # Avoids Jinja2 error when extract_graph_stats() accesses df.style on DataFrames
             result_stats = extract_graph_stats(graph_for_stats) if isinstance(graph_for_stats, Plottable) else {}
+
+            current_path = get_operation_path()
             postcall_context: PolicyContext = {
                 'phase': 'postcall',
                 'hook': 'postcall',
@@ -144,6 +166,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 'graph_stats': result_stats,
                 'execution_time': execution_time,
                 'success': success,  # True if successful, False if error
+                'execution_depth': get_execution_depth(),  # Add execution depth
+                'operation_path': current_path,  # Add operation path
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
                 '_policy_depth': 0
             }
 
@@ -194,4 +219,5 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 value=function
             ) from error
 
-    return result
+    # Cast: At this point, all error paths have been handled, so result is guaranteed to be a Plottable
+    return cast(Plottable, result)
