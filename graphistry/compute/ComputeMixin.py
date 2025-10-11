@@ -61,13 +61,10 @@ def _safe_len(df: Any) -> int:
                     return int(total_length)
                 except Exception as e:
                     logger.warning("Could not compute length for dask_cudf DataFrame via map_partitions: %s", e)
-                    # Fallback: try direct compute
-                    try:
-                        return len(df.compute())
-                    except:
-                        logger.warning("Could not compute length for dask_cudf DataFrame, returning 0")
-                        return 0
+                    # Fallback: try direct compute (may fail on empty DataFrames with lazy ops)
+                    return len(df.compute())
         except (ImportError, AttributeError):
+            # dask_cudf not available, fall through to standard len()
             pass
 
     # For all other DataFrame types, use standard len()
