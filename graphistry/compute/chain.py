@@ -561,9 +561,11 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         if policy and 'postload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth
 
             # Extract stats from result (if success) or input graph (if error)
-            graph_for_stats = g_out if success else self
+            # Cast: if success=True, g_out is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
 
             context: PolicyContext = {
@@ -575,6 +577,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 'plottable': graph_for_stats,  # RESULT or INPUT
                 'graph_stats': stats,
                 'success': success,  # True if successful, False if error
+                'execution_depth': get_execution_depth(),  # Add execution depth
                 '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
             }
 
@@ -607,4 +610,5 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     elif error is not None:
         raise error
 
-    return g_out
+    # Cast: At this point, all error paths have been handled, so g_out is guaranteed to be a Plottable
+    return cast(Plottable, g_out)
