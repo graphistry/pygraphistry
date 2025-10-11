@@ -601,7 +601,7 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
     lines.append("-" * 50)
 
     errors = [i for i in issues if i.level == 'error']
-    warnings = [i for i in issues if i.level == 'warning']
+    warning_issues = [i for i in issues if i.level == 'warning']
 
     if errors:
         lines.append(f"\nERRORS ({len(errors)}):")
@@ -614,9 +614,9 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
             if error.suggestion:
                 lines.append(f"   💡 {error.suggestion}")
 
-    if warnings:
-        lines.append(f"\nWARNINGS ({len(warnings)}):")
-        for i, warning in enumerate(warnings, 1):
+    if warning_issues:
+        lines.append(f"\nWARNINGS ({len(warning_issues)}):")
+        for i, warning in enumerate(warning_issues, 1):
             lines.append(f"\n{i}. {warning.message}")
             if warning.operation_index is not None:
                 lines.append(
