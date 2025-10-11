@@ -47,19 +47,20 @@ def _safe_len(df: Any) -> int:
             # Only import if we're reasonably sure it's a dask_cudf DataFrame
             import dask_cudf
             if isinstance(df, dask_cudf.DataFrame):
-                # Use head(1) which is fast and doesn't trigger problematic groupby
-                # If empty, head returns empty DataFrame, if not empty, returns 1 row
-                sample = df.head(1, npartitions=-1, compute=True)
-                if len(sample) == 0:
-                    return 0
-                # If we got a row, we know it's not empty. Compute actual length.
-                # Use a safer compute path: convert to arrow which avoids some groupby issues
+                # Use map_partitions to get length of each partition, then sum
+                # This avoids the problematic groupby aggregations that fail on lazy operations
                 try:
-                    return len(df.compute())
-                except:
-                    # If compute fails, at least we know it's not empty
-                    logger.warning("Could not compute exact length for dask_cudf DataFrame, returning estimate")
-                    return len(sample) * df.npartitions  # Rough estimate
+                    partition_lengths = df.map_partitions(len, meta=int)
+                    total_length = partition_lengths.sum().compute()
+                    return int(total_length)
+                except Exception as e:
+                    logger.warning("Could not compute length for dask_cudf DataFrame via map_partitions: %s", e)
+                    # Fallback: try direct compute
+                    try:
+                        return len(df.compute())
+                    except:
+                        logger.warning("Could not compute length for dask_cudf DataFrame, returning 0")
+                        return 0
         except (ImportError, AttributeError):
             pass
 
