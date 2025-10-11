@@ -35,6 +35,16 @@ else:
 
 DataFrameLike = Union[pd.DataFrame, Any]
 
+# Error message for empty feature matrix
+_EMPTY_FEATURES_ERROR_MSG = (
+    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
+    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
+    "(2) all feature columns are non-numeric and were dropped during featurization, "
+    "or (3) X parameter was explicitly set to empty. "
+    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
+    "pip install skrub"
+)
+
 ###############################################################################
 
 
@@ -847,14 +857,7 @@ class UMAPMixin(MIXIN_BASE):
 
             # Validate that we have at least one feature column for UMAP
             if len(X_.columns) == 0:
-                raise ValueError(
-                    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
-                    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
-                    "(2) all feature columns are non-numeric and were dropped during featurization, "
-                    "or (3) X parameter was explicitly set to empty. "
-                    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
-                    "pip install skrub"
-                )
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
 
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
@@ -889,14 +892,7 @@ class UMAPMixin(MIXIN_BASE):
 
             # Validate that we have at least one feature column for UMAP
             if len(X_.columns) == 0:
-                raise ValueError(
-                    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
-                    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
-                    "(2) all feature columns are non-numeric and were dropped during featurization, "
-                    "or (3) X parameter was explicitly set to empty. "
-                    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
-                    "pip install skrub"
-                )
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
 
             # add the safe coercion here
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
