@@ -24,16 +24,18 @@ class PolicyContext(TypedDict, total=False):
         query_type: Type of query (chain, dag, single)
         plottable: Plottable instance (postload/precall/postcall phases)
                   - precall: INPUT graph
-                  - postcall: RESULT graph
+                  - postcall: RESULT graph (if success) or INPUT graph (if error)
         call_op: Call operation name (precall/postcall phases only)
         call_params: Call parameters (precall/postcall phases only)
         graph_stats: Graph statistics (nodes, edges, memory)
                     - precall: INPUT graph stats
-                    - postcall: RESULT graph stats
+                    - postcall: RESULT graph stats (if success) or INPUT stats (if error)
         is_remote: True for remote/network operations
         engine: Engine being used (pandas, cudf, etc.)
         execution_time: Method execution duration (postcall phase only)
         success: Execution success flag (postcall phase only)
+        error: Error message string (postcall phase only, when success=False)
+        error_type: Error type name (postcall phase only, when success=False)
         _policy_depth: Internal recursion prevention counter
     """
 
@@ -50,6 +52,8 @@ class PolicyContext(TypedDict, total=False):
     engine: Optional[str]
     execution_time: Optional[float]  # Method execution duration (postcall only)
     success: Optional[bool]          # Execution success flag (postcall only)
+    error: Optional[str]             # Error message (postcall only, when success=False)
+    error_type: Optional[str]        # Error type name (postcall only, when success=False)
     _policy_depth: int
 
 
