@@ -294,17 +294,11 @@ def series_cons(engine: Engine, arr: List, dtype='int32', npartitions=None, chun
 
 def mt_series(engine: Engine, dtype='int32'):
     """Create empty Series for given engine with proper dtype handling"""
-    if engine == Engine.PANDAS:
-        return pd.Series([], dtype=dtype)
-
+    # Special case: dask/dask_cudf cannot be constructed directly, must wrap base engine
     if engine == Engine.DASK:
         import dask.dataframe
         # Dask Series requires wrapping a pandas Series first
         return dask.dataframe.from_pandas(pd.Series([], dtype=dtype), npartitions=1).astype(dtype)
-
-    if engine == Engine.CUDF:
-        import cudf
-        return cudf.Series([], dtype=dtype)
 
     if engine == Engine.DASK_CUDF:
         import cudf, dask_cudf
@@ -312,7 +306,9 @@ def mt_series(engine: Engine, dtype='int32'):
         gs = cudf.Series([], dtype=dtype)
         return dask_cudf.from_cudf(gs, npartitions=1).astype(dtype)
 
-    raise NotImplementedError('Unknown engine')
+    # Standard case: pandas, cudf, and any future engines that support direct construction
+    cons = get_series_cons(engine)
+    return cons([], dtype=dtype)
 
 # This will be slightly wrong: pandas will turn datetime64['ms'] into datetime64['ns']
 def mt_nodes(defs: HyperBindings, events: DataframeLike, entity_types: List[str], direct: bool, engine: Engine) -> pd.DataFrame:
