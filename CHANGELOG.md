@@ -49,6 +49,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Solution**: Empty edges DataFrame now has proper column structure (src, dst, edgeType, EventID, etc.)
   * **Behavior**: Single entity + direct=True creates nodes without edges (valid use case), with warning logged
   * **Engines**: Fix works across all engines (pandas, cudf, dask, dask_cudf)
+  * **Additional dask fixes**:
+    * `mt_series()` now properly creates empty Series for dask/dask_cudf by wrapping pandas Series (similar to `series_cons()` pattern)
+    * `format_direct_edges()` uses `df_coercion()` pattern for cross-engine empty DataFrame creation instead of direct constructor
+    * Added dask test coverage: `TestHypergraphDask::test_single_entity_direct_with_get_degrees()`
 * **Hypergraph: Critical bug fix for return_as='graph' routing** (#763)
   * **Before**: `g.hypergraph()` incorrectly returned full dict (preventing method chaining)
   * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
