@@ -5,6 +5,73 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [Unreleased]
+
+### Added
+* **GFQL Policy System: Let and Chain level hooks for complete execution hierarchy** (#764, let/chain hooks)
+  * **New hooks** - Complete coverage at all execution levels
+    * `prelet` - Fires before `let()` DAG execution starts
+    * `postlet` - Fires after `let()` DAG execution completes (even on error)
+    * `prechain` - Fires before chain operations execute
+    * `postchain` - Fires after chain operations complete (even on error)
+    * Enables DAG-level and chain-level policy enforcement, performance tracking, and execution control
+  * **Complete hook hierarchy** - 10 hooks covering all execution levels:
+    * Query level: `preload`, `postload`
+    * Let/Chain level: `prelet`, `postlet`, `prechain`, `postchain` (NEW)
+    * Binding level: `preletbinding`, `postletbinding`
+    * Call level: `precall`, `postcall`
+  * **Use cases**:
+    * Complete OpenTelemetry span hierarchy (query → let/chain → binding → call)
+    * DAG/chain-level resource control and size limits
+    * Comprehensive performance tracking at all levels
+    * Complete execution observability
+  * **Backward compatible** - All new hooks are optional
+  * **Comprehensive testing** - 14 tests for new hooks (7 new + 7 existing), all passing
+
+* **GFQL Policy System: Binding hooks and hierarchy tracking for OpenTelemetry span tracing** (#764, binding hooks)
+  * **New hooks** - Per-binding execution control
+    * `preletbinding` - Fires before each binding execution in `let()` DAGs
+    * `postletbinding` - Fires after each binding (even on error)
+    * Enables per-binding policy enforcement, performance tracking, and execution control
+  * **Hierarchy tracking fields** - Enable OpenTelemetry span tracing with proper parent-child relationships
+    * `execution_depth` - Nesting depth (0=query, 1=let/chain, 2=binding, 3=call)
+    * `operation_path` - Unique operation identifier like "query.dag.binding:hg.call:hypergraph"
+    * `parent_operation` - Parent operation path for span parent relationships
+    * Available in ALL hook phases (preload, postload, preletbinding, postletbinding, precall, postcall)
+  * **Binding context fields** - Comprehensive binding information
+    * `binding_name` - Name of the current binding being executed
+    * `binding_index` - Execution order (0-indexed)
+    * `total_bindings` - Total bindings in let expression
+    * `binding_dependencies` - List of binding names this binding depends on
+    * `binding_ast` - The AST object being bound
+  * **Error context** - Complete error information in post* hooks
+    * `error` - Error message string (when success=False)
+    * `error_type` - Error type name (when success=False)
+    * Errors propagate through nested structures with full context
+  * **Use cases**:
+    * OpenTelemetry span tracing with hierarchical parent-child relationships
+    * Per-binding policy enforcement and feature gating
+    * Binding-level performance tracking and optimization
+    * Execution complexity visualization
+    * Complete error context in telemetry systems
+  * **Backward compatible** - All new hooks and fields are optional
+  * **Thread-safe** - Thread-local depth/path tracking for concurrent queries
+  * **Comprehensive testing** - 69 tests (55 regression + 14 new) all passing
+
+### Fixed
+* **GFQL Policy: Ensure post* hooks always fire even on errors** (#764)
+  * post* hooks now use consistent try/except/finally pattern
+  * PolicyException takes precedence over operation errors
+  * Error chaining preserved (`raise PolicyException from error`)
+  * All post* hooks receive error context (success, error, error_type)
+
+### Documentation
+* **GFQL Policy**: Updated `docs/source/gfql/policy.rst` with new hooks and fields
+* **OpenTelemetry Integration**: New guide `docs/source/gfql/policy_opentelemetry.rst`
+  * Complete working examples for span tracing
+  * Integration patterns for Jaeger, OTLP, and custom exporters
+  * Best practices and performance considerations
+
 ## [0.43.2 - 2025-10-09]
 
 ### Added

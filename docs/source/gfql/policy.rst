@@ -25,13 +25,31 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at four distinct phases:
+Policies are invoked at ten distinct phases:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
 
 **postload**
     After data is loaded. Can check size/content and deny further processing.
+
+**prelet**
+    Before ``let()`` DAG execution starts. Can control entire DAG execution and validate DAG structure.
+
+**postlet**
+    After ``let()`` DAG execution completes (even on error). Can track DAG-level performance and enforce DAG-level policies.
+
+**prechain**
+    Before chain operations execute. Can control entire chain execution and validate chain structure.
+
+**postchain**
+    After chain operations complete (even on error). Can track chain-level performance and enforce chain-level policies.
+
+**preletbinding**
+    Before each binding execution in ``let()`` DAGs. Can control per-binding execution and validate dependencies.
+
+**postletbinding**
+    After each binding execution (even on error). Can track binding performance and enforce per-binding policies.
 
 **precall**
     Before method execution (hop, filter, etc.). Can control operations and validate parameters.
@@ -47,7 +65,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'precall', 'postcall')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -64,7 +82,23 @@ The context dictionary passed to policy functions contains:
 - ``call_op``: Operation name (precall/postcall phases only)
 - ``call_params``: Operation parameters (precall/postcall phases only)
 - ``execution_time``: Method execution duration in seconds (postcall phase only)
-- ``success``: Execution success flag (postcall phase only)
+- ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
+- ``error``: Error message string (post* phases when success=False)
+- ``error_type``: Error type name (post* phases when success=False)
+
+**Binding-specific** (preletbinding/postletbinding phases only):
+
+- ``binding_name``: Name of the current binding being executed
+- ``binding_index``: Execution order of this binding (0-indexed)
+- ``total_bindings``: Total number of bindings in the let expression
+- ``binding_dependencies``: List of binding names this binding depends on
+- ``binding_ast``: The AST object being bound (the value in let({name: ast}))
+
+**Hierarchy/Tracing fields** (all phases):
+
+- ``execution_depth``: Nesting depth (0=query, 1=let/chain, 2=binding/op, 3=call)
+- ``operation_path``: Unique operation identifier like "query.dag.binding:hg.call:hypergraph"
+- ``parent_operation``: Parent operation path (for OpenTelemetry span relationships)
 
 **Context-specific:**
 
@@ -173,6 +207,47 @@ Examples
                 )
 
     g.gfql(query, policy={'preload': remote_access_policy})
+
+
+**Per-Binding Control**
+
+.. code-block:: python
+
+    def binding_policy(context):
+        # Control execution of specific bindings
+        if context['phase'] == 'preletbinding':
+            binding_name = context.get('binding_name')
+            deps = context.get('binding_dependencies', [])
+
+            # Deny bindings with too many dependencies
+            if len(deps) > 5:
+                raise PolicyException(
+                    'preletbinding',
+                    f"Binding '{binding_name}' has too many dependencies: {len(deps)}",
+                    code=413
+                )
+
+        elif context['phase'] == 'postletbinding':
+            # Track binding performance
+            binding_name = context.get('binding_name')
+            success = context.get('success', False)
+
+            if not success:
+                error = context.get('error', 'Unknown error')
+                print(f"Binding '{binding_name}' failed: {error}")
+
+    from graphistry.compute.ast import ASTLet, n, call
+
+    dag = ASTLet({
+        'people': n({'type': 'person'}),
+        'orgs': n({'type': 'org'}),
+        'connections': call('hypergraph', {})
+    })
+
+    g.gfql(dag, policy={
+        'preletbinding': binding_policy,
+        'postletbinding': binding_policy
+    })
 
 
 **Track Usage**
@@ -472,10 +547,16 @@ API Reference
 .. code-block:: python
 
     g.gfql(query, policy={
-        'preload': preload_function,    # Optional
-        'postload': postload_function,  # Optional
-        'precall': precall_function,    # Optional
-        'postcall': postcall_function   # Optional
+        'preload': preload_function,              # Optional
+        'postload': postload_function,            # Optional
+        'prelet': prelet_function,                # Optional
+        'postlet': postlet_function,              # Optional
+        'prechain': prechain_function,            # Optional
+        'postchain': postchain_function,          # Optional
+        'preletbinding': preletbinding_function,  # Optional
+        'postletbinding': postletbinding_function,# Optional
+        'precall': precall_function,              # Optional
+        'postcall': postcall_function             # Optional
     })
 
 **Imports**
@@ -492,7 +573,7 @@ API Reference
 
 **PolicyException Parameters**
 
-- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'precall', 'postcall')
+- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'preletbinding', 'postletbinding', 'precall', 'postcall')
 - ``reason`` (str): Human-readable explanation
 - ``code`` (int): HTTP-like status code (default: 403)
 - ``query_type`` (str, optional): Type of query being executed

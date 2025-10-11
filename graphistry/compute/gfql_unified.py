@@ -17,8 +17,81 @@ from .gfql.policy import (
 
 logger = setup_logger(__name__)
 
-# Thread-local storage for policy recursion tracking
+# Thread-local storage for policy recursion tracking and execution hierarchy
 _thread_local = threading.local()
+
+
+def get_execution_depth() -> int:
+    """Get current execution depth from thread-local storage.
+
+    Returns:
+        Current execution depth (0 = top-level, 1 = chain/let, 2 = binding, 3 = call, ...)
+    """
+    return getattr(_thread_local, 'execution_depth', 0)
+
+
+def push_execution_depth() -> int:
+    """Increment execution depth and return new depth.
+
+    Returns:
+        New execution depth after increment
+    """
+    current = get_execution_depth()
+    new_depth = current + 1
+    _thread_local.execution_depth = new_depth
+    return new_depth
+
+
+def pop_execution_depth() -> int:
+    """Decrement execution depth and return new depth.
+
+    Returns:
+        New execution depth after decrement
+    """
+    current = get_execution_depth()
+    new_depth = max(0, current - 1)
+    _thread_local.execution_depth = new_depth
+    return new_depth
+
+
+def get_operation_path() -> str:
+    """Get current operation path from thread-local storage.
+
+    Returns:
+        Current operation path (e.g., "query.dag.binding:people")
+    """
+    return getattr(_thread_local, 'operation_path', 'query')
+
+
+def push_operation_path(segment: str) -> str:
+    """Append a segment to the operation path and return new path.
+
+    Args:
+        segment: Path segment to append (e.g., "dag", "binding:people", "call:hypergraph")
+
+    Returns:
+        New operation path after appending segment
+    """
+    current = get_operation_path()
+    new_path = f"{current}.{segment}"
+    _thread_local.operation_path = new_path
+    return new_path
+
+
+def pop_operation_path() -> str:
+    """Remove last segment from operation path and return new path.
+
+    Returns:
+        New operation path after removing last segment
+    """
+    current = get_operation_path()
+    # Remove last segment (everything after last '.')
+    if '.' in current:
+        new_path = current.rsplit('.', 1)[0]
+    else:
+        new_path = 'query'  # Reset to root
+    _thread_local.operation_path = new_path
+    return new_path
 
 
 def detect_query_type(query: Any) -> QueryType:
@@ -192,6 +265,10 @@ def gfql(self: Plottable,
         _thread_local.policy_depth = policy_depth + 1
 
     try:
+        # Get current execution depth (0 for top-level)
+        current_depth = get_execution_depth()
+        current_path = get_operation_path()
+
         # Preload policy phase - before any processing
         if policy and 'preload' in policy:
             context: PolicyContext = {
@@ -200,6 +277,9 @@ def gfql(self: Plottable,
                 'query': query,
                 'current_ast': query,  # For top-level, current == query
                 'query_type': detect_query_type(query),
+                'execution_depth': current_depth,  # Add execution depth
+                'operation_path': current_path,  # Add operation path
+                'parent_operation': 'query' if current_depth == 0 else current_path.rsplit('.', 1)[0],
                 '_policy_depth': policy_depth
             }
 
@@ -225,41 +305,54 @@ def gfql(self: Plottable,
                     wrapped_dict[key] = value
             query = ASTLet(wrapped_dict)  # type: ignore
 
-        # Dispatch based on type - check specific types before generic
-        if isinstance(query, ASTLet):
-            logger.debug('GFQL executing as DAG')
-            return chain_let_impl(self, query, engine, output, policy=policy)
-        elif isinstance(query, Chain):
-            logger.debug('GFQL executing as Chain')
-            if output is not None:
-                logger.warning('output parameter ignored for chain queries')
-            return chain_impl(self, query.chain, engine, policy=policy)
-        elif isinstance(query, ASTObject):
-            # Single ASTObject -> execute as single-item chain
-            logger.debug('GFQL executing single ASTObject as chain')
-            if output is not None:
-                logger.warning('output parameter ignored for chain queries')
-            return chain_impl(self, [query], engine, policy=policy)
-        elif isinstance(query, list):
-            logger.debug('GFQL executing list as chain')
-            if output is not None:
-                logger.warning('output parameter ignored for chain queries')
+        # Push execution depth and operation path before dispatching
+        # This moves us from depth 0 (gfql entry) to depth 1 (chain/let execution)
+        push_execution_depth()
 
-            # Convert any dictionaries in the list to AST objects
-            converted_query: List[ASTObject] = []
-            for item in query:
-                if isinstance(item, dict):
-                    from .ast import from_json
-                    converted_query.append(from_json(item))
-                else:
-                    converted_query.append(item)
+        # Determine query type segment for operation path
+        query_segment = 'dag' if isinstance(query, ASTLet) else 'chain'
+        push_operation_path(query_segment)
 
-            return chain_impl(self, converted_query, engine, policy=policy)
-        else:
-            raise TypeError(
-                f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
-                f"Got {type(query).__name__}"
-            )
+        try:
+            # Dispatch based on type - check specific types before generic
+            if isinstance(query, ASTLet):
+                logger.debug('GFQL executing as DAG')
+                return chain_let_impl(self, query, engine, output, policy=policy)
+            elif isinstance(query, Chain):
+                logger.debug('GFQL executing as Chain')
+                if output is not None:
+                    logger.warning('output parameter ignored for chain queries')
+                return chain_impl(self, query.chain, engine, policy=policy)
+            elif isinstance(query, ASTObject):
+                # Single ASTObject -> execute as single-item chain
+                logger.debug('GFQL executing single ASTObject as chain')
+                if output is not None:
+                    logger.warning('output parameter ignored for chain queries')
+                return chain_impl(self, [query], engine, policy=policy)
+            elif isinstance(query, list):
+                logger.debug('GFQL executing list as chain')
+                if output is not None:
+                    logger.warning('output parameter ignored for chain queries')
+
+                # Convert any dictionaries in the list to AST objects
+                converted_query: List[ASTObject] = []
+                for item in query:
+                    if isinstance(item, dict):
+                        from .ast import from_json
+                        converted_query.append(from_json(item))
+                    else:
+                        converted_query.append(item)
+
+                return chain_impl(self, converted_query, engine, policy=policy)
+            else:
+                raise TypeError(
+                    f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
+                    f"Got {type(query).__name__}"
+                )
+        finally:
+            # Pop execution depth and operation path when returning
+            pop_execution_depth()
+            pop_operation_path()
     finally:
         # Reset policy depth
         if policy:

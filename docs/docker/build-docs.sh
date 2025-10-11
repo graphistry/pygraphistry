@@ -23,7 +23,8 @@ build_epub() {
 build_pdf() {
     sphinx-build -b latex -d /docs/doctrees . /docs/_build/latexpdf
     cd /docs/_build/latexpdf
-    # Run pdflatex twice to resolve cross-references, using batchmode for non-interactive build
+    # Run pdflatex three times to resolve cross-references, using batchmode for non-interactive build
+    pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
     pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
     pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
 }

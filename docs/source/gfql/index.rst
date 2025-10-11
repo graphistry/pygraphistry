@@ -23,6 +23,7 @@ See also:
    datetime_filtering
    builtin_calls
    policy
+   policy_opentelemetry
    wire_protocol_examples
 
 .. toctree::

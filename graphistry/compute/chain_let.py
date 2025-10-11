@@ -251,7 +251,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value))
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:
@@ -261,12 +261,12 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # ASTNode operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTEdge):
         # ASTEdge operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value))
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -277,6 +277,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Preload policy phase for remote data loading
         if policy and 'preload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
+            from .gfql_unified import get_execution_depth
 
             preload_context: PolicyContext = {
                 'phase': 'preload',
@@ -286,6 +287,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 'query_type': 'dag' if global_query else 'single',
                 'is_remote': True,
                 'engine': engine.value,
+                'execution_depth': get_execution_depth(),  # Add execution depth
                 '_policy_depth': 0
             }
 
@@ -321,6 +323,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if policy and 'postload' in policy:
             from .gfql.policy import PolicyContext, PolicyException
             from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth
 
             stats = extract_graph_stats(result)
 
@@ -333,6 +336,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 'is_remote': True,
                 'engine': engine.value,
                 'graph_stats': stats,
+                'execution_depth': get_execution_depth(),  # Add execution depth
                 '_policy_depth': 0
             }
 
@@ -345,7 +349,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
         from .gfql.call_executor import execute_call
-        result = execute_call(g, ast_obj.function, ast_obj.params, engine)
+        result = execute_call(g, ast_obj.function, ast_obj.params, engine, policy=policy)
     else:
         # Check if it's a Chain or Plottable
         from graphistry.compute.chain import Chain
@@ -355,7 +359,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
             original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value))
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -418,77 +422,300 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     # Determine execution order
     order = determine_execution_order(dag.bindings)
     logger.debug("DAG execution order: %s", order)
-    
-    # Execute nodes in topological order
-    # Start with the original graph and accumulate all binding columns
-    accumulated_result = g
 
-    for node_name in order:
-        ast_obj = dag.bindings[node_name]
-        logger.debug("Executing node '%s' in DAG", node_name)
+    # Build dependency graph for binding hooks
+    dependencies, dependents = build_dependency_graph(dag.bindings)
 
-        # Execute the node and store result in context
-        try:
-            # Execute node - this adds the binding name as a column
-            result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
+    # Initialize variables for finally block
+    result = None
+    error = None
+    success = False
+    last_result = None
 
-            # Accumulate the new column(s) onto our result
-            accumulated_result = result
-        except Exception as e:
-            # Add context to error
-            raise RuntimeError(
-                f"Failed to execute node '{node_name}' in DAG. "
-                f"Error: {type(e).__name__}: {str(e)}"
-            ) from e
+    try:
+        # Prelet hook - fires BEFORE any bindings execute
+        if policy and 'prelet' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
 
-    last_result = accumulated_result
-    
-    # Return requested output or last executed result
-    if output is not None:
-        if output not in context.get_all_bindings():
-            # Filter out internal bindings from the error message
-            available = sorted([
-                k for k in context.get_all_bindings().keys()
-                if not k.startswith('__')
-            ])
-            raise ValueError(
-                f"Output binding '{output}' not found. "
-                f"Available bindings: {available}"
-            )
-        result = context.get_binding(output)
-    else:
-        result = last_result
+            stats = extract_graph_stats(g)
+            current_path = get_operation_path()
 
-    # Postload policy phase - after DAG execution
-    if policy and 'postload' in policy:
-        from .gfql.policy import PolicyContext, PolicyException
-        from .gfql.policy.stats import extract_graph_stats
+            prelet_context: PolicyContext = {
+                'phase': 'prelet',
+                'hook': 'prelet',
+                'query': dag,
+                'current_ast': dag,
+                'query_type': 'dag',
+                'plottable': g,
+                'graph_stats': stats,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
 
-        stats = extract_graph_stats(result)
-        context_dict: PolicyContext = {
-            'phase': 'postload',
-            'hook': 'postload',
-            'query': dag,
-            'current_ast': dag,  # For DAG postload, current == dag
-            'query_type': 'dag',
-            'plottable': result,
-            'graph_stats': stats,
-            '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
-        }
+            try:
+                policy['prelet'](prelet_context)
+            except PolicyException:
+                raise
 
-        try:
-            # Policy can only accept (None) or deny (exception)
-            policy['postload'](context_dict)
+        # Execute nodes in topological order
+        # Start with the original graph and accumulate all binding columns
+        accumulated_result = g
 
-        except PolicyException as e:
-            # Enrich exception with context if not already set
-            if e.query_type is None:
-                e.query_type = 'dag'
-            if e.data_size is None:
-                e.data_size = stats
-            raise
+        for binding_index, node_name in enumerate(order):
+            ast_obj = dag.bindings[node_name]
+            logger.debug("Executing node '%s' in DAG", node_name)
 
-    return result
+            # Preletbinding hook - fires BEFORE binding execution
+            if policy and 'preletbinding' in policy:
+                from .gfql.policy import PolicyContext, PolicyException
+                from .gfql_unified import get_execution_depth, get_operation_path
+
+                current_path = get_operation_path()
+                # Build path that includes this binding (even though we haven't pushed yet)
+                binding_path = f"{current_path}.binding:{node_name}"
+
+                preletbinding_context: PolicyContext = {
+                    'phase': 'preletbinding',
+                    'hook': 'preletbinding',
+                    'query': dag,
+                    'current_ast': dag,
+                    'query_type': 'dag',
+                    'binding_name': node_name,
+                    'binding_index': binding_index,
+                    'total_bindings': len(order),
+                    'binding_dependencies': list(dependencies.get(node_name, set())),
+                    'binding_ast': ast_obj,
+                    'execution_depth': get_execution_depth(),  # Add execution depth
+                    'operation_path': binding_path,  # Include binding in path
+                    'parent_operation': current_path,  # Parent is the DAG level
+                    '_policy_depth': 0
+                }
+
+                try:
+                    policy['preletbinding'](preletbinding_context)
+                except PolicyException:
+                    raise
+
+            # Execute the node with postletbinding in finally block
+            binding_result = None
+            binding_error = None
+            binding_success = False
+
+            # Push execution depth and operation path for binding execution
+            # This moves from depth 1 (let) to depth 2 (binding)
+            from .gfql_unified import push_execution_depth, pop_execution_depth, push_operation_path, pop_operation_path
+            push_execution_depth()
+            push_operation_path(f"binding:{node_name}")
+
+            try:
+                # Execute node - this adds the binding name as a column
+                binding_result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
+                binding_success = True
+
+                # Accumulate the new column(s) onto our result
+                accumulated_result = binding_result
+                result = binding_result
+
+            except Exception as e:
+                # Capture binding error
+                binding_error = e
+                # Don't re-raise yet - let postletbinding fire
+
+            finally:
+                # Pop execution depth and operation path before firing postletbinding hook
+                pop_execution_depth()
+                pop_operation_path()
+
+                # Postletbinding hook - fires AFTER binding execution (even on error)
+                policy_error = None
+                if policy and 'postletbinding' in policy:
+                    from .gfql.policy import PolicyContext, PolicyException
+                    from .gfql.policy.stats import extract_graph_stats
+                    from .gfql_unified import get_execution_depth, get_operation_path
+
+                    # Extract stats from binding result (if success) or current graph (if error)
+                    # Cast: if binding_success=True, binding_result is guaranteed to be a Plottable
+                    graph_for_stats = cast(Plottable, binding_result) if binding_success else accumulated_result
+                    stats = extract_graph_stats(graph_for_stats)
+
+                    current_path = get_operation_path()
+                    postletbinding_context: PolicyContext = {
+                        'phase': 'postletbinding',
+                        'hook': 'postletbinding',
+                        'query': dag,
+                        'current_ast': dag,
+                        'query_type': 'dag',
+                        'plottable': graph_for_stats,
+                        'graph_stats': stats,
+                        'binding_name': node_name,
+                        'binding_index': binding_index,
+                        'total_bindings': len(order),
+                        'binding_dependencies': list(dependencies.get(node_name, set())),
+                        'binding_ast': ast_obj,
+                        'success': binding_success,
+                        'execution_depth': get_execution_depth(),  # Add execution depth
+                        'operation_path': current_path,  # Add operation path
+                        'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                        '_policy_depth': 0
+                    }
+
+                    # Add error information if binding failed
+                    if binding_error is not None:
+                        postletbinding_context['error'] = str(binding_error)  # type: ignore
+                        postletbinding_context['error_type'] = type(binding_error).__name__  # type: ignore
+
+                    try:
+                        policy['postletbinding'](postletbinding_context)
+                    except PolicyException as e:
+                        # Capture policy error
+                        policy_error = e
+
+            # After finally, handle binding errors
+            # Priority: PolicyException > binding error
+            if policy_error is not None:
+                if binding_error is not None:
+                    raise policy_error from binding_error
+                else:
+                    raise policy_error
+            elif binding_error is not None:
+                # Wrap in RuntimeError with context
+                raise RuntimeError(
+                    f"Failed to execute node '{node_name}' in DAG. "
+                    f"Error: {type(binding_error).__name__}: {str(binding_error)}"
+                ) from binding_error
+
+        last_result = accumulated_result
+
+        # Return requested output or last executed result
+        if output is not None:
+            if output not in context.get_all_bindings():
+                # Filter out internal bindings from the error message
+                available = sorted([
+                    k for k in context.get_all_bindings().keys()
+                    if not k.startswith('__')
+                ])
+                raise ValueError(
+                    f"Output binding '{output}' not found. "
+                    f"Available bindings: {available}"
+                )
+            result = context.get_binding(output)
+        else:
+            result = last_result
+
+        # Mark as successful
+        success = True
+
+    except Exception as e:
+        # Capture error for postload hook
+        error = e
+        # Don't re-raise yet - let finally block run first
+
+    finally:
+        # Postlet hook - fires AFTER all bindings complete (even on error)
+        postlet_policy_error = None
+        if policy and 'postlet' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth, get_operation_path
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, result is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, result) if success else g
+            stats = extract_graph_stats(graph_for_stats)
+            current_path = get_operation_path()
+
+            postlet_context: PolicyContext = {
+                'phase': 'postlet',
+                'hook': 'postlet',
+                'query': dag,
+                'current_ast': dag,
+                'query_type': 'dag',
+                'plottable': graph_for_stats,
+                'graph_stats': stats,
+                'success': success,
+                'execution_depth': get_execution_depth(),
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                postlet_context['error'] = str(error)  # type: ignore
+                postlet_context['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                policy['postlet'](postlet_context)
+            except PolicyException as e:
+                # Capture policy error instead of raising immediately
+                postlet_policy_error = e
+
+        # Postload policy phase - ALWAYS fires (even on error)
+        policy_error = None
+        if policy and 'postload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+            from .gfql_unified import get_execution_depth
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, result is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, result) if success else g
+            stats = extract_graph_stats(graph_for_stats)
+
+            context_dict: PolicyContext = {
+                'phase': 'postload',
+                'hook': 'postload',
+                'query': dag,
+                'current_ast': dag,  # For DAG postload, current == dag
+                'query_type': 'dag',
+                'plottable': graph_for_stats,  # RESULT graph (if success) or INPUT graph (if error)
+                'graph_stats': stats,
+                'success': success,  # True if successful, False if error
+                'execution_depth': get_execution_depth(),  # Add execution depth
+                '_policy_depth': 0  # Will be handled by thread-local in gfql_unified
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                context_dict['error'] = str(error)  # type: ignore
+                context_dict['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](context_dict)
+
+            except PolicyException as e:
+                # Enrich exception with context if not already set
+                if e.query_type is None:
+                    e.query_type = 'dag'
+                if e.data_size is None:
+                    e.data_size = stats
+                # Capture policy error instead of raising immediately
+                policy_error = e
+
+    # After finally block, decide which error to raise
+    # Priority: postlet PolicyException > postload PolicyException > operation error
+    if postlet_policy_error is not None:
+        # postlet policy error takes highest priority
+        if error is not None:
+            raise postlet_policy_error from error
+        else:
+            raise postlet_policy_error
+    elif policy_error is not None:
+        # postload policy error is second priority
+        if error is not None:
+            raise policy_error from error
+        else:
+            raise policy_error
+    elif error is not None:
+        raise error
+
+    # Cast: At this point, all error paths have been handled, so result is guaranteed to be a Plottable
+    return cast(Plottable, result)
 
 
 def chain_let(self: Plottable, dag: ASTLet,
