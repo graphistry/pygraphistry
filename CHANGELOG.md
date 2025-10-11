@@ -8,6 +8,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
+* **GFQL Policy Shortcuts for reducing boilerplate** (#TBD)
+  * **New shortcuts** - Reduce policy definitions from 10 keys to 2 keys
+    * `'pre'` - Expands to all 5 pre* hooks (preload, prelet, prechain, preletbinding, precall)
+    * `'post'` - Expands to all 5 post* hooks (postload, postlet, postchain, postletbinding, postcall)
+    * `'load'`, `'let'`, `'chain'`, `'binding'`, `'call'` - Scope-specific shortcuts (both pre+post)
+  * **Automatic composition** - Multiple shortcuts naturally compose at same hook
+    * Pre hooks: Execute in order general → scope → specific
+    * Post hooks: Execute in reverse (LIFO cleanup order) specific → scope → general
+    * Enables natural multi-policy layering (tracing + size limits + validation)
+  * **`debug_policy()` helper** - Visibility into expansion and composition order
+  * **Use cases**:
+    * OpenTelemetry: 2 keys instead of 10 (`{'pre': create_span, 'post': end_span}`)
+    * Server multi-policy: Natural composition of telemetry, security, resource limits
+    * Clean separation of cross-cutting concerns
+  * **100% backward compatible** - Full hook names still work, can mix with shortcuts
+  * **Comprehensive testing** - 24 unit tests + 2 integration tests, all passing
+
 * **GFQL Policy System: Let and Chain level hooks for complete execution hierarchy** (#764, let/chain hooks)
   * **New hooks** - Complete coverage at all execution levels
     * `prelet` - Fires before `let()` DAG execution starts

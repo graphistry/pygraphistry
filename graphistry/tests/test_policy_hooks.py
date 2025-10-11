@@ -283,6 +283,71 @@ class TestPolicyHooks:
 
         assert call_order == ['prechain', 'postchain'], f"Expected ['prechain', 'postchain'], got {call_order}"
 
+    def test_shortcuts_with_pre_post(self):
+        """Test that shortcuts 'pre' and 'post' work in gfql()."""
+        call_order = []
+
+        def pre_handler(ctx: PolicyContext) -> None:
+            call_order.append(f"pre:{ctx['phase']}")
+
+        def post_handler(ctx: PolicyContext) -> None:
+            call_order.append(f"post:{ctx['phase']}")
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        g.gfql(
+            [n()],
+            policy={
+                'pre': pre_handler,
+                'post': post_handler
+            }
+        )
+
+        # Should have called all pre* and post* hooks
+        pre_calls = [c for c in call_order if c.startswith('pre:')]
+        post_calls = [c for c in call_order if c.startswith('post:')]
+
+        # Should have preload and prechain
+        assert 'pre:preload' in call_order
+        assert 'pre:prechain' in call_order
+
+        # Should have postload and postchain
+        assert 'post:postload' in call_order
+        assert 'post:postchain' in call_order
+
+    def test_shortcuts_compose_with_full_names(self):
+        """Test that shortcuts compose with full hook names."""
+        call_order = []
+
+        def pre_handler(ctx: PolicyContext) -> None:
+            call_order.append('pre')
+
+        def specific_preload(ctx: PolicyContext) -> None:
+            call_order.append('preload')
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        g.gfql(
+            [n()],
+            policy={
+                'pre': pre_handler,
+                'preload': specific_preload
+            }
+        )
+
+        # Should have both handlers called at preload
+        # Order: general (pre) → specific (preload)
+        preload_idx = None
+        for i, call in enumerate(call_order):
+            if call == 'pre':
+                if i + 1 < len(call_order) and call_order[i + 1] == 'preload':
+                    preload_idx = i
+                    break
+
+        assert preload_idx is not None, "Expected 'pre' followed by 'preload' in call order"
+
     def test_full_hierarchy_hook_order(self):
         """Test that all hooks fire in correct order: preload → prelet → postlet → postload."""
         call_order = []

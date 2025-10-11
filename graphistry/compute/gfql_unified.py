@@ -9,10 +9,11 @@ from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .gfql.policy import (
-    PolicyDict,
     PolicyContext,
     PolicyException,
-    QueryType
+    PolicyFunction,
+    QueryType,
+    expand_policy
 )
 
 logger = setup_logger(__name__)
@@ -114,7 +115,7 @@ def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
-         policy: Optional[PolicyDict] = None) -> Plottable:
+         policy: Optional[Dict[str, PolicyFunction]] = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
     
@@ -263,6 +264,10 @@ def gfql(self: Plottable,
     # Set depth for this execution
     if policy:
         _thread_local.policy_depth = policy_depth + 1
+
+    # Expand policy shortcuts to full hook names (e.g., 'pre' → all pre* hooks)
+    if policy:
+        policy = expand_policy(policy)
 
     try:
         # Get current execution depth (0 for top-level)

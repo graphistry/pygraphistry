@@ -8,6 +8,7 @@ from .types import (
     QueryType
 )
 from .stats import GraphStats
+from .shortcuts import expand_policy, debug_policy
 
 __all__ = [
     'PolicyException',
@@ -16,5 +17,7 @@ __all__ = [
     'PolicyDict',
     'Phase',
     'QueryType',
-    'GraphStats'
+    'GraphStats',
+    'expand_policy',
+    'debug_policy'
 ]
