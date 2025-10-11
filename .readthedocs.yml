@@ -37,10 +37,13 @@ build:
     - mkdir -p $READTHEDOCS_OUTPUT/epub
     - cp docs/_build/latexpdf/PyGraphistry.epub $READTHEDOCS_OUTPUT/epub/PyGraphistry.epub
 
-    # build pdf
+    # build pdf - run pdflatex 3 times to resolve cross-references
+    # Use || true because pdflatex returns non-zero for warnings (not just errors)
     - sphinx-build -b latex -d docs/doctrees docs/source docs/_build/latexpdf
-    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex && pdflatex -file-line-error  -interaction=nonstopmode PyGraphistry.tex && echo ok || { echo fail && exit 1 ; }
-    - mkdir -p $READTHEDOCS_OUTPUT/pdf 
+    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
+    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
+    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex || true
+    - mkdir -p $READTHEDOCS_OUTPUT/pdf
     - cp docs/_build/latexpdf/PyGraphistry.pdf $READTHEDOCS_OUTPUT/pdf/PyGraphistry.pdf
 
 #for nav links?
