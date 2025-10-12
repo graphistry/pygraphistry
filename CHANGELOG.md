@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+* **Notebooks: Fix broken register link in memgraph demo** (#772, #627)
+  * Follow up to #692 which fixed 47 notebooks but missed the memgraph tutorial
+  * Changed broken link from `github.com/graphistry/pygraphistry#configure` to working docs: `pygraphistry.readthedocs.io/en/latest/server/register.html`
+
 ### Fixed
 * **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
   * **Problem**: `hypergraph(entity_types=['single'], direct=True)` returned empty DataFrame with NO columns, causing `get_degrees()` to fail with `KeyError`
