@@ -6,8 +6,13 @@ if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
     from graphistry.compute.gfql.policy.stats import GraphStats
 
-# Phase literal type
+# Phase literal type (the 10 specific hook names)
 Phase = Literal["preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
+
+# Shortcut key literal type (includes general, scope, and specific keys)
+GeneralShortcut = Literal["pre", "post"]
+ScopeShortcut = Literal["load", "let", "chain", "binding", "call"]
+ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]

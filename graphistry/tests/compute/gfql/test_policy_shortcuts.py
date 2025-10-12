@@ -299,8 +299,8 @@ class TestEdgeCases:
 class TestDebugPolicy:
     """Test debug_policy() helper function."""
 
-    def test_debug_policy_shows_expansion(self, capsys):
-        """Test that debug_policy prints expansion info."""
+    def test_debug_policy_shows_expansion(self):
+        """Test that debug_policy returns expansion info."""
         def auth(ctx):
             pass
 
@@ -308,14 +308,7 @@ class TestDebugPolicy:
             pass
 
         policy = {'pre': auth, 'call': rate_limit}
-        result = debug_policy(policy, verbose=True)
-
-        # Check output was printed
-        captured = capsys.readouterr()
-        assert 'preload' in captured.out
-        assert 'precall' in captured.out
-        assert 'auth' in captured.out
-        assert 'rate_limit' in captured.out
+        result = debug_policy(policy)
 
         # Check return value structure
         assert isinstance(result, dict)
@@ -326,8 +319,10 @@ class TestDebugPolicy:
         assert result['preload'] == [('auth', 'pre')]
         assert result['precall'] == [('auth', 'pre'), ('rate_limit', 'call')]
 
-    def test_debug_policy_shows_reversed_marker(self, capsys):
-        """Test that debug_policy shows '← reversed' for post hooks."""
+    def test_format_policy_expansion_shows_reversed_marker(self):
+        """Test that format_policy_expansion shows '← reversed' for post hooks."""
+        from graphistry.compute.gfql.policy import format_policy_expansion
+
         def handler1(ctx):
             pass
 
@@ -335,43 +330,46 @@ class TestDebugPolicy:
             pass
 
         policy = {'post': handler1, 'call': handler2}
-        debug_policy(policy, verbose=True)
+        output = format_policy_expansion(policy)
 
-        captured = capsys.readouterr()
         # Should show reversed marker for postcall (has multiple handlers)
-        assert '← reversed' in captured.out
+        assert '← reversed' in output
+        assert 'postcall' in output
 
-    def test_debug_policy_verbose_false(self):
-        """Test that verbose=False doesn't print."""
+    def test_format_policy_expansion_returns_string(self):
+        """Test that format_policy_expansion returns formatted string."""
+        from graphistry.compute.gfql.policy import format_policy_expansion
+
         def auth(ctx):
             pass
 
         policy = {'pre': auth}
-        result = debug_policy(policy, verbose=False)
+        output = format_policy_expansion(policy)
 
-        # Should return data but not print
-        assert isinstance(result, dict)
-        assert 'preload' in result
+        # Should return formatted string
+        assert isinstance(output, str)
+        assert 'preload' in output
+        assert 'auth' in output
 
     def test_debug_policy_empty_policy(self):
         """Test debug_policy with empty policy."""
-        result = debug_policy({}, verbose=True)
+        result = debug_policy({})
         assert result == {}
 
     def test_debug_policy_shows_composition_order(self):
         """Test that debug_policy shows correct composition order."""
         def pre_handler(ctx):
             pass
-        
+
         def post_handler(ctx):
             pass
-        
+
         def call_handler(ctx):
             pass
-        
+
         def precall_handler(ctx):
             pass
-        
+
         def postcall_handler(ctx):
             pass
 
@@ -382,7 +380,7 @@ class TestDebugPolicy:
             'precall': precall_handler,
             'postcall': postcall_handler
         }
-        result = debug_policy(policy, verbose=False)
+        result = debug_policy(policy)
 
         # precall should show all three in order: general → scope → specific
         assert len(result['precall']) == 3

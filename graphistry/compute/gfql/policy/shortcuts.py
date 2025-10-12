@@ -31,14 +31,18 @@ Composition Example:
     >>> # postcall will run: rate_limit → auth_check (reversed, LIFO)
 """
 
-from typing import Dict, List, Tuple
-from .types import PolicyFunction, PolicyContext
+from typing import Dict, List, Tuple, cast
+from .types import PolicyFunction, PolicyContext, PolicyDict, Phase, ShortcutKey, GeneralShortcut, ScopeShortcut
 
-__all__ = ['expand_policy', 'debug_policy']
+__all__ = ['expand_policy', 'debug_policy', 'format_policy_expansion', 'HandlerInfo', 'HookExpansionMap']
 
+# Type aliases for debug output
+HandlerInfo = Tuple[str, ShortcutKey]  # (handler_name, source_key) e.g., ('auth', 'pre')
+HookExpansionMap = Dict[Phase, List[HandlerInfo]]  # hook_name -> list of handlers with sources
 
 # Expansion mapping: hook_name → (general_key, scope_key, specific_key)
-_EXPANSION_MAP = {
+# Keys are Phase literals, values are tuples of ShortcutKey literals
+_EXPANSION_MAP: Dict[Phase, Tuple[GeneralShortcut, ScopeShortcut, Phase]] = {
     'preload': ('pre', 'load', 'preload'),
     'postload': ('post', 'load', 'postload'),
     'prelet': ('pre', 'let', 'prelet'),
@@ -52,7 +56,7 @@ _EXPANSION_MAP = {
 }
 
 
-def expand_policy(policy: Dict[str, PolicyFunction]) -> Dict[str, PolicyFunction]:
+def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:
     """Expand shorthand policy keys to full hook names with composition.
 
     This function transforms a policy dictionary with shortcuts (like 'pre', 'post')
@@ -78,10 +82,10 @@ def expand_policy(policy: Dict[str, PolicyFunction]) -> Dict[str, PolicyFunction
         replacement while still using shortcuts for other hooks.
 
     Args:
-        policy: Policy dictionary with shortcuts and/or full hook names
+        policy: Policy dictionary with shortcuts and/or full hook names (accepts any string keys)
 
     Returns:
-        Expanded policy dictionary with only full hook names (no shortcuts)
+        PolicyDict: Expanded policy dictionary with only Phase hook names (no shortcuts)
 
     Example:
         >>> policy = {'pre': auth, 'call': rate_limit, 'precall': validate}
@@ -96,7 +100,7 @@ def expand_policy(policy: Dict[str, PolicyFunction]) -> Dict[str, PolicyFunction
     if not policy:
         return {}
 
-    expanded: Dict[str, PolicyFunction] = {}
+    expanded: PolicyDict = {}
 
     # Expand shortcuts to hooks with composition
     for hook_name, (general_key, scope_key, specific_key) in _EXPANSION_MAP.items():
@@ -134,26 +138,81 @@ def _compose(*fns: PolicyFunction) -> PolicyFunction:
     return composed
 
 
-def debug_policy(policy: Dict[str, PolicyFunction], verbose: bool = True) -> Dict[str, List[Tuple[str, str]]]:
-    """Show how shortcuts expand to hooks (debugging/visibility helper).
+def debug_policy(policy: Dict[str, PolicyFunction]) -> HookExpansionMap:
+    """Analyze how shortcuts expand to hooks (returns data structure).
 
-    This function helps understand how shortcuts will expand by showing which
+    This function helps understand how shortcuts will expand by returning which
     handlers will run for each hook, and in what order.
 
     Args:
         policy: Policy dict with shortcuts (before expansion)
-        verbose: If True, print expansion to console
 
     Returns:
-        Dict mapping hook names to list of (handler_name, source_key) tuples,
-        showing the composition order
+        HookExpansionMap: Dict mapping hook names to list of HandlerInfo tuples.
+        Each HandlerInfo is (handler_name, source_key) showing which handler
+        came from which shortcut key.
 
     Example:
         >>> def auth(ctx): pass
         >>> def rate_limit(ctx): pass
         >>>
         >>> policy = {'pre': auth, 'call': rate_limit}
-        >>> debug_policy(policy)
+        >>> info = debug_policy(policy)
+        >>> info['precall']
+        [('auth', 'pre'), ('rate_limit', 'call')]
+        >>>
+        >>> # For formatted output, use format_policy_expansion()
+        >>> print(format_policy_expansion(policy))
+
+    Note:
+        For human-readable output, use format_policy_expansion() instead.
+        This function returns the raw data structure for programmatic access.
+    """
+    if not policy:
+        return {}
+
+    debug_info: HookExpansionMap = {}
+
+    # _EXPANSION_MAP has Phase-typed keys, so hook_name is Phase
+    for hook_name, (general_key, scope_key, specific_key) in _EXPANSION_MAP.items():
+        # Collect (source_key, handler) pairs in specificity order
+        sources: List[Tuple[ShortcutKey, PolicyFunction]] = [
+            (cast(ShortcutKey, k), policy[k])
+            for k in [general_key, scope_key, specific_key]
+            if k in policy
+        ]
+
+        if not sources:
+            continue
+
+        # For post hooks, reverse to show execution order
+        if hook_name.startswith('post'):
+            sources = sources[::-1]
+
+        # Store handler name and source key - both are properly typed now
+        debug_info[hook_name] = [(fn.__name__, key) for key, fn in sources]
+
+    return debug_info
+
+
+def format_policy_expansion(policy: Dict[str, PolicyFunction]) -> str:
+    """Generate formatted string showing how shortcuts expand to hooks.
+
+    This function provides a human-readable visualization of policy expansion,
+    showing which handlers will run for each hook and in what order.
+
+    Args:
+        policy: Policy dict with shortcuts (before expansion)
+
+    Returns:
+        Multi-line string showing the expansion
+
+    Example:
+        >>> def auth(ctx): pass
+        >>> def rate_limit(ctx): pass
+        >>>
+        >>> policy = {'pre': auth, 'call': rate_limit}
+        >>> print(format_policy_expansion(policy))
         preload         [auth (from 'pre')]
         prelet          [auth (from 'pre')]
         prechain        [auth (from 'pre')]
@@ -169,28 +228,15 @@ def debug_policy(policy: Dict[str, PolicyFunction], verbose: bool = True) -> Dic
         The "← reversed" marker indicates that post hooks execute in LIFO order
         (like try/finally blocks) for proper cleanup semantics.
     """
-    if not policy:
-        return {}
+    debug_info = debug_policy(policy)
 
-    debug_info = {}
+    if not debug_info:
+        return "Policy Expansion: (empty policy)"
 
-    for hook_name, (general_key, scope_key, specific_key) in _EXPANSION_MAP.items():
-        # Collect (source_key, handler) pairs in specificity order
-        sources = [(k, policy[k]) for k in [general_key, scope_key, specific_key] if k in policy]
+    lines = []
+    for hook_name, handlers in debug_info.items():
+        handlers_str = ', '.join([f"{fn_name} (from '{key}')" for fn_name, key in handlers])
+        reverse_marker = " ← reversed" if hook_name.startswith('post') and len(handlers) > 1 else ""
+        lines.append(f"{hook_name:15} [{handlers_str}]{reverse_marker}")
 
-        if not sources:
-            continue
-
-        # For post hooks, reverse to show execution order
-        if hook_name.startswith('post'):
-            sources = sources[::-1]
-
-        # Store handler name and source key
-        debug_info[hook_name] = [(fn.__name__, key) for key, fn in sources]
-
-        if verbose:
-            handlers_str = ', '.join([f"{fn_name} (from '{key}')" for fn_name, key in debug_info[hook_name]])
-            reverse_marker = " ← reversed" if hook_name.startswith('post') and len(sources) > 1 else ""
-            print(f"{hook_name:15} [{handlers_str}]{reverse_marker}")
-
-    return debug_info
+    return '\n'.join(lines)

@@ -12,6 +12,7 @@ from .gfql.policy import (
     PolicyContext,
     PolicyException,
     PolicyFunction,
+    PolicyDict,
     QueryType,
     expand_policy
 )
@@ -193,8 +194,9 @@ def gfql(self: Plottable,
         context.policy_depth = policy_depth + 1
 
     # Expand policy shortcuts to full hook names (e.g., 'pre' → all pre* hooks)
+    expanded_policy: Optional[PolicyDict] = None
     if policy:
-        policy = expand_policy(policy)
+        expanded_policy = expand_policy(policy)
 
     try:
         # Get current execution depth (0 for top-level)
@@ -202,7 +204,7 @@ def gfql(self: Plottable,
         current_path = context.operation_path
 
         # Preload policy phase - before any processing
-        if policy and 'preload' in policy:
+        if expanded_policy and 'preload' in expanded_policy:
             policy_context: PolicyContext = {
                 'phase': 'preload',
                 'hook': 'preload',
@@ -217,7 +219,7 @@ def gfql(self: Plottable,
 
             try:
                 # Policy can only accept (None) or deny (exception)
-                policy['preload'](policy_context)
+                expanded_policy['preload'](policy_context)
 
             except PolicyException as e:
                 # Enrich exception with context if not already set
@@ -249,18 +251,18 @@ def gfql(self: Plottable,
             # Dispatch based on type - check specific types before generic
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
-                return chain_let_impl(self, query, engine, output, policy=policy, context=context)
+                return chain_let_impl(self, query, engine, output, policy=expanded_policy, context=context)
             elif isinstance(query, Chain):
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, query.chain, engine, policy=policy, context=context)
+                return chain_impl(self, query.chain, engine, policy=expanded_policy, context=context)
             elif isinstance(query, ASTObject):
                 # Single ASTObject -> execute as single-item chain
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, [query], engine, policy=policy, context=context)
+                return chain_impl(self, [query], engine, policy=expanded_policy, context=context)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -275,7 +277,7 @@ def gfql(self: Plottable,
                     else:
                         converted_query.append(item)
 
-                return chain_impl(self, converted_query, engine, policy=policy, context=context)
+                return chain_impl(self, converted_query, engine, policy=expanded_policy, context=context)
             else:
                 raise TypeError(
                     f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
