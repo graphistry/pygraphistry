@@ -127,7 +127,8 @@ class TestTextSearch(unittest.TestCase):
         """Test search with featurize() instead of umap() (edge case for #629)"""
         g = graphistry.nodes(edge_df, 'src').edges(edge_df, 'src', 'dst')
         # featurize with target columns
-        g_feat = g.featurize(X=['textual'], y=['emoji'], use_ngrams=True, min_words=0)
+        # Use min_df=1, max_df=1.0 to handle small dataset (4 rows)
+        g_feat = g.featurize(X=['textual'], y=['emoji'], use_ngrams=True, min_words=0, min_df=1, max_df=1.0)
 
         # Should not raise AssertionError about ydf
         try:
