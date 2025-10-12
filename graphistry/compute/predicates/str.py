@@ -311,6 +311,102 @@ def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None
     """
     return Match(pat, case, flags, na)
 
+class Fullmatch(ASTPredicate):
+    def __init__(self, pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> None:
+        self.pat = pat
+        self.case = case
+        self.flags = flags
+        self.na = na
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+
+        if is_cudf:
+            # cuDF doesn't have fullmatch, use match() with anchors as workaround
+            # fullmatch('abc') is equivalent to match('^abc$')
+            anchored_pat = f'^{self.pat}$'
+
+            if not self.case:
+                s_modified = s.str.lower()
+                pat_modified = anchored_pat.lower() if isinstance(anchored_pat, str) else anchored_pat
+                result = s_modified.str.match(pat_modified, flags=self.flags)
+            else:
+                result = s.str.match(anchored_pat, flags=self.flags)
+
+            if self.na is not None and isinstance(self.na, bool):
+                result = result.fillna(self.na)
+
+            return result
+        else:
+            # pandas has native fullmatch support
+            return s.str.fullmatch(self.pat, self.case, self.flags, self.na)
+
+    def _validate_fields(self) -> None:
+        """Validate predicate fields."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+        if not isinstance(self.pat, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "pat must be string",
+                field="pat",
+                value=type(self.pat).__name__
+            )
+
+        if not isinstance(self.case, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "case must be boolean",
+                field="case",
+                value=type(self.case).__name__
+            )
+
+        if not isinstance(self.flags, int):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "flags must be integer",
+                field="flags",
+                value=type(self.flags).__name__
+            )
+
+        if not isinstance(self.na, (bool, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be boolean or None",
+                field="na",
+                value=type(self.na).__name__
+            )
+
+def fullmatch(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Fullmatch:
+    """
+    Return whether a given pattern matches the entire string
+
+    Unlike match() which matches from the start, fullmatch() requires the
+    pattern to match the entire string. This is useful for exact validation
+    of formats like emails, phone numbers, or IDs.
+
+    Args:
+        pat: Regular expression pattern to match against entire string
+        case: If True, case-sensitive matching (default: True)
+        flags: Regex flags (e.g., re.IGNORECASE, re.MULTILINE)
+        na: Fill value for missing values (default: None)
+
+    Returns:
+        Fullmatch predicate
+
+    Examples:
+        >>> # Exact digit match
+        >>> n({"code": fullmatch(r"\\d{3}")})  # Matches "123" but not "123abc"
+        >>>
+        >>> # Case-insensitive email validation
+        >>> n({"email": fullmatch(r"[a-z]+@[a-z]+\\.com", case=False)})
+        >>>
+        >>> # With regex flags
+        >>> import re
+        >>> n({"id": fullmatch(r"[A-Z]{3}-\\d{4}", flags=re.IGNORECASE)})
+    """
+    return Fullmatch(pat, case, flags, na)
+
 class IsNumeric(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:

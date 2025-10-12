@@ -126,9 +126,10 @@ range ::= "between(" value "," value ("," "inclusive=" boolean)? ")"
 null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
 string_pred ::= string_match | string_check
 string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
-              | "match(" string ("," "case=" boolean)? ")"
+              | "match(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
+              | "fullmatch(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
               | ("startswith" | "endswith") "(" string ("," "case=" boolean)? ")"
-string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum" 
+string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum"
                | "isupper" | "islower") "()"
 temporal_pred ::= temporal_check "()"
 temporal_check ::= "is_month_start" | "is_month_end" | "is_quarter_start" 
@@ -247,7 +248,8 @@ Pattern matching predicates:
 contains(pat, case=True, regex=True)     # Contains pattern (substring or regex)
 startswith(prefix, case=True)            # Starts with prefix
 endswith(suffix, case=True)              # Ends with suffix
-match(pat, case=True)                    # Matches regex from start of string
+match(pat, case=True, flags=0)           # Matches regex from start of string
+fullmatch(pat, case=True, flags=0)       # Matches regex against entire string
 ```
 
 String type checking predicates:

@@ -6,6 +6,7 @@ from graphistry.compute.predicates.str import (
     startswith,
     endswith,
     match,
+    fullmatch,
     IsUpper, isupper
 )
 
@@ -437,6 +438,128 @@ def test_match_pandas_cudf_parity():
     pd.testing.assert_series_equal(result_pandas, result_cudf)
 
 
+# ============= Fullmatch Tests =============
+
+def test_fullmatch_pandas_basic():
+    """Test basic fullmatch functionality with pandas - matches entire string"""
+    s = pd.Series(['123', '123abc', 'abc123', 'abc'])
+    predicate = fullmatch(r'\d+')
+    result = predicate(s)
+    expected = pd.Series([True, False, False, False])  # Only '123' matches entirely
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_fullmatch_pandas_case_insensitive():
+    """Test case-insensitive matching with pandas"""
+    s = pd.Series(['ABC', 'abc', 'AbC', 'abcd'])
+    predicate = fullmatch(r'abc', case=False)
+    result = predicate(s)
+    expected = pd.Series([True, True, True, False])  # 'abcd' has extra char
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_fullmatch_pandas_vs_match():
+    """Test difference between fullmatch and match"""
+    s = pd.Series(['123', '123abc', 'abc123'])
+
+    # match() matches from start
+    match_result = match(r'\d+')(s)
+    expected_match = pd.Series([True, True, False])
+    pd.testing.assert_series_equal(match_result, expected_match)
+
+    # fullmatch() requires entire string
+    fullmatch_result = fullmatch(r'\d+')(s)
+    expected_fullmatch = pd.Series([True, False, False])
+    pd.testing.assert_series_equal(fullmatch_result, expected_fullmatch)
+
+
+def test_fullmatch_pandas_na_handling():
+    """Test NA handling with pandas"""
+    s = pd.Series(['123', None, 'abc'])
+    predicate = fullmatch(r'\d+')
+    result = predicate(s)
+    assert result[0] is True
+    assert pd.isna(result[1])
+    assert result[2] is False
+
+    # Test with na=False
+    predicate = fullmatch(r'\d+', na=False)
+    result = predicate(s)
+    expected = pd.Series([True, False, False])
+    pd.testing.assert_series_equal(result, expected)
+
+
+@requires_cudf
+def test_fullmatch_cudf_basic():
+    """Test basic fullmatch functionality with cuDF - uses match with anchors workaround"""
+    import cudf
+    s = cudf.Series(['123', '123abc', 'abc123', 'abc'])
+    predicate = fullmatch(r'\d+')
+    result = predicate(s)
+    expected = cudf.Series([True, False, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_fullmatch_cudf_case_insensitive():
+    """Test case-insensitive matching with cuDF"""
+    import cudf
+    s = cudf.Series(['ABC', 'abc', 'AbC', 'abcd'])
+    predicate = fullmatch(r'abc', case=False)
+    result = predicate(s)
+    expected = cudf.Series([True, True, True, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_fullmatch_cudf_na_handling():
+    """Test NA handling with cuDF"""
+    import cudf
+    s = cudf.Series(['123', None, 'abc'])
+
+    # Default NA handling
+    predicate = fullmatch(r'\d+')
+    result = predicate(s).to_pandas()
+    assert result[0] is True
+    assert pd.isna(result[1])
+    assert result[2] is False
+
+    # NA=False
+    predicate = fullmatch(r'\d+', na=False)
+    result = predicate(s)
+    expected = cudf.Series([True, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_fullmatch_pandas_cudf_parity():
+    """Verify identical behavior between pandas and cuDF for fullmatch"""
+    import cudf
+
+    # Create identical data
+    data = ['123', '123abc', None, 'ABC', 'abc']
+    s_pandas = pd.Series(data)
+    s_cudf = cudf.Series(data)
+
+    # Test case-sensitive
+    predicate = fullmatch(r'\d+')
+    result_pandas = predicate(s_pandas)
+    result_cudf = predicate(s_cudf).to_pandas()
+    pd.testing.assert_series_equal(result_pandas, result_cudf)
+
+    # Test case-insensitive
+    predicate = fullmatch(r'abc', case=False)
+    result_pandas = predicate(s_pandas)
+    result_cudf = predicate(s_cudf).to_pandas()
+    pd.testing.assert_series_equal(result_pandas, result_cudf)
+
+    # Test with na=False
+    predicate = fullmatch(r'\d+', na=False)
+    result_pandas = predicate(s_pandas)
+    result_cudf = predicate(s_cudf).to_pandas()
+    pd.testing.assert_series_equal(result_pandas, result_cudf)
+
+
 # ============= Edge Case Tests =============
 
 def test_edge_cases_pandas():
@@ -504,7 +627,10 @@ def test_all_predicates_pandas_cudf_parity():
         endswith('end', na=True),
         match(r'\d+'),
         match(r'test', case=False),
-        match(r'\d+', na=False)
+        match(r'\d+', na=False),
+        fullmatch(r'\d+'),
+        fullmatch(r'test', case=False),
+        fullmatch(r'Test123')
     ]
     
     for predicate in predicates:

@@ -8,18 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
-* **GFQL: Case-insensitive string predicates** (#697)
-  * Added `case` parameter (default `True`) to `startswith()` and `endswith()` predicates
+* **GFQL: Enhanced string predicates** (#697, #774)
+  * **Case-insensitive matching**: Added `case` parameter (default `True`) to `startswith()` and `endswith()` predicates
+  * **Tuple pattern matching**: Added tuple pattern support to `startswith()` and `endswith()` - enables OR logic: `startswith(('test', 'prod'))` matches either pattern
+  * **Full-string matching**: Added `fullmatch(pat, case=True, flags=0, na=None)` predicate for exact pattern validation (emails, IDs, formats)
   * Supports case-insensitive matching in both pandas and cuDF backends
+  * `fullmatch()` uses `match('^...$')` workaround for cuDF compatibility (cuDF lacks native fullmatch)
+  * Works with all parameter combinations (case, na, tuple patterns)
   * Follows existing pattern from `contains()` and `match()` predicates
   * Updated documentation (language spec, quick reference, docstrings)
-* **GFQL: Tuple pattern matching** (#697)
-  * Added tuple pattern support to `startswith()` and `endswith()`
-  * Enables OR logic: `startswith(('test', 'prod'))` matches either pattern
-  * Works with all parameter combinations (case, na)
-* **GFQL: fullmatch() predicate** (#697, #774)
-  * Added `fullmatch()` for exact string matching
-  * Uses `match()` with anchors workaround for cuDF compatibility
+  * 67 CPU tests passing (33 pandas + 34 cuDF tests when GPU available)
 
 ### Docs
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)

@@ -85,8 +85,11 @@ The following table lists the available operators, their descriptions, and examp
      - String ends with ``suffix``. Case-insensitive if ``case=False``.
      - ``n({ "email": endswith(".com", case=False) })``
    * - ``match(pattern, case=True)``
-     - String matches regex ``pattern``. Case-insensitive if ``case=False``.
+     - String matches regex ``pattern`` from start. Case-insensitive if ``case=False``.
      - ``n({ "phone": match(r"^\d{3}-\d{4}$") })``
+   * - ``fullmatch(pattern, case=True)``
+     - String matches regex ``pattern`` entirely. Case-insensitive if ``case=False``.
+     - ``n({ "code": fullmatch(r"\d{3}", case=False) })``
    * - ``isnumeric()``
      - String is numeric.
      - ``n({ "code": isnumeric() })``

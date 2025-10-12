@@ -22,6 +22,14 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 # Run specific tests fast
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
 
+# GPU tests - FAST (reuse base image, no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+docker run --rm --gpus all -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    $IMAGE pytest /opt/pygraphistry/graphistry/tests/test_file.py -v
+
+# GPU tests - SLOW (full rebuild, use before merge)
+cd docker && ./test-gpu-local.sh
+
 # Validate RST documentation syntax
 ./docs/validate-docs.sh                           # All docs
 ./docs/validate-docs.sh docs/source/gfql/*.rst   # Specific files
@@ -165,9 +173,52 @@ WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Specific features
 ./test-umap-learn-core.sh  # UMAP embeddings
-./test-dgl.sh              # Graph neural networks  
+./test-dgl.sh              # Graph neural networks
 ./test-embed.sh            # Embedding features
 ```
+
+### GPU Testing Optimization (Fast Alternative)
+
+**Problem**: `./docker/test-gpu-local.sh` rebuilds images which is slow
+**Solution**: Reuse existing base graphistry images instead
+
+```bash
+# Check if base image exists
+APP_BUILD_TAG=${APP_BUILD_TAG:-latest}
+CUDA_SHORT_VERSION=${CUDA_SHORT_VERSION:-12.8}
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG}-${CUDA_SHORT_VERSION}"
+docker images | grep graphistry-nvidia
+
+# Run GPU tests without rebuilding (mount pygraphistry source)
+docker run --rm --gpus all \
+    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    -v "$(pwd)/plans:/workspace:ro" \
+    -e PYTEST_CURRENT_TEST=TRUE \
+    $IMAGE \
+    pytest /opt/pygraphistry/graphistry/tests/test_file.py -v
+
+# Run GPU type checking
+docker run --rm --gpus all \
+    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    $IMAGE \
+    mypy /opt/pygraphistry/graphistry/module.py
+
+# Run GPU linting
+docker run --rm --gpus all \
+    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    $IMAGE \
+    flake8 /opt/pygraphistry/graphistry/module.py
+
+# Test cuDF-specific functionality
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    $IMAGE \
+    python3 /workspace/test_script.py
+```
+
+**When to use each approach**:
+- **`./docker/test-gpu-local.sh`**: Full validation, CI/CD, before PR merge
+- **Direct `docker run`**: Fast iteration during development, cuDF verification, quick GPU tests
 
 ### Environment Control
 | Variable | Default | Purpose |
