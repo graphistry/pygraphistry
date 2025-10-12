@@ -248,7 +248,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -262,24 +262,30 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     :param ops: List[ASTObject] Various node and edge matchers
     :param validate_schema: Whether to validate the chain against the graph schema before executing
     :param policy: Optional policy dict for hooks
+    :param context: Optional ExecutionContext for tracking execution state
 
     :returns: Plotter
     :rtype: Plotter
     """
+    # Create context if not provided
+    if context is None:
+        from .execution_context import ExecutionContext
+        context = ExecutionContext()
+
     # If policy provided, set it in thread-local for ASTCall operations
     if policy:
         from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
-            return _chain_impl(self, ops, engine, validate_schema, policy)
+            return _chain_impl(self, ops, engine, validate_schema, policy, context)
         finally:
             call_thread_local.policy = old_policy
     else:
-        return _chain_impl(self, ops, engine, validate_schema, policy)
+        return _chain_impl(self, ops, engine, validate_schema, policy, context)
 
 
-def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy) -> Plottable:
+def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy, context) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
 
@@ -407,7 +413,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             if validate_schema:
                 validate_chain_schema(self, ops, collect_all=False)
 
-            return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy)
+            return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy, context=context)
         else:
             # Multiple ops with schema-changer - split and recurse
             before = ops[:schema_changer_idx]
@@ -416,9 +422,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             # Execute segments: before → schema_changer → rest
             # Recursion handles multiple schema-changers automatically
-            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy) if before else self  # type: ignore[call-arg]
-            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy)  # type: ignore[call-arg]
-            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy) if rest else g_temp2  # type: ignore[call-arg]
+            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if before else self  # type: ignore[call-arg]
+            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
 
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
@@ -441,133 +447,243 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     logger.debug('final chain >> %s', ops)
 
-    g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    # Initialize variables for finally block
+    g_out = None
+    error = None
+    success = False
 
-    # Store original edge binding to restore it if we add temporary index
-    original_edge = g._edge
+    try:
+        g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
-    # Handle node-only graphs (e.g., for hypergraph transformation)
-    if g._edges is None:
-        added_edge_index = False
-    elif g._edge is None:
-        if 'index' in g._edges.columns:
-            raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
-        added_edge_index = True
-        indexed_edges_df = g._edges.reset_index()
-        g = g.edges(indexed_edges_df, edge='index')
-    else:
-        added_edge_index = False
-    
+        # Store original edge binding to restore it if we add temporary index
+        original_edge = g._edge
 
-    logger.debug('======================== FORWARDS ========================')
-
-    # Forwards
-    # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
-    #  g_step._nodes: The nodes reached in this step
-    #  g_step._edges: The edges used to reach those nodes
-    # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
-    g_stack : List[Plottable] = []
-    for op in ops:
-        prev_step_nodes = (  # start from only prev step's wavefront node
-            None  # first uses full graph
-            if len(g_stack) == 0
-            else g_stack[-1]._nodes
-        )
-        g_step = (
-            op(
-                g=g,  # transition via any original edge
-                prev_node_wavefront=prev_step_nodes,
-                target_wave_front=None,  # implicit any
-                engine=engine_concrete
-            )
-        )
-        g_stack.append(g_step)
-
-    import logging
-    if logger.isEnabledFor(logging.DEBUG):
-        for (i, g_step) in enumerate(g_stack):
-            logger.debug('~' * 10 + '\nstep %s', i)
-            logger.debug('nodes: %s', g_step._nodes)
-            logger.debug('edges: %s', g_step._edges)
-
-    logger.debug('======================== BACKWARDS ========================')
-
-    # Backwards
-    # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
-    # Each g node/edge represents a valid wavefront entry for that step.
-    g_stack_reverse : List[Plottable] = []
-    for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
-        prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
-        if len(g_stack_reverse) == len(g_stack) - 1:
-            prev_orig_step = None
+        # Handle node-only graphs (e.g., for hypergraph transformation)
+        if g._edges is None:
+            added_edge_index = False
+        elif g._edge is None:
+            if 'index' in g._edges.columns:
+                raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
+            added_edge_index = True
+            indexed_edges_df = g._edges.reset_index()
+            g = g.edges(indexed_edges_df, edge='index')
         else:
-            prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
-        assert prev_loop_step._nodes is not None
-        g_step_reverse = (
-            (op.reverse())(
+            added_edge_index = False
 
-                # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
-                # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
-                g=g_step,
+        # Prechain hook - fires BEFORE chain operations execute
+        if policy and 'prechain' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
 
-                # check for hits against fully valid targets
-                # ast will replace g.node() with this as its starting points
-                prev_node_wavefront=prev_loop_step._nodes,
+            stats = extract_graph_stats(g)
+            current_path = context.operation_path
 
-                # only allow transitions to these nodes (vs prev_node_wavefront)
-                target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
+            prechain_context: PolicyContext = {
+                'phase': 'prechain',
+                'hook': 'prechain',
+                'query': ops,
+                'current_ast': ops,
+                'query_type': 'chain',
+                'plottable': g,
+                'graph_stats': stats,
+                'execution_depth': context.execution_depth,
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
 
-                engine=engine_concrete
+            try:
+                policy['prechain'](prechain_context)
+            except PolicyException:
+                raise
+
+        logger.debug('======================== FORWARDS ========================')
+
+        # Forwards
+        # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
+        #  g_step._nodes: The nodes reached in this step
+        #  g_step._edges: The edges used to reach those nodes
+        # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
+        g_stack : List[Plottable] = []
+        for op in ops:
+            prev_step_nodes = (  # start from only prev step's wavefront node
+                None  # first uses full graph
+                if len(g_stack) == 0
+                else g_stack[-1]._nodes
             )
-        )
-        g_stack_reverse.append(g_step_reverse)
+            g_step = (
+                op(
+                    g=g,  # transition via any original edge
+                    prev_node_wavefront=prev_step_nodes,
+                    target_wave_front=None,  # implicit any
+                    engine=engine_concrete
+                )
+            )
+            g_stack.append(g_step)
 
-    import logging
-    if logger.isEnabledFor(logging.DEBUG):
-        for (i, g_step) in enumerate(g_stack_reverse):
-            logger.debug('~' * 10 + '\nstep %s', i)
-            logger.debug('nodes: %s', g_step._nodes)
-            logger.debug('edges: %s', g_step._edges)
+        import logging
+        if logger.isEnabledFor(logging.DEBUG):
+            for (i, g_step) in enumerate(g_stack):
+                logger.debug('~' * 10 + '\nstep %s', i)
+                logger.debug('nodes: %s', g_step._nodes)
+                logger.debug('edges: %s', g_step._edges)
 
-    logger.debug('============ COMBINE NODES ============')
-    final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+        logger.debug('======================== BACKWARDS ========================')
 
-    logger.debug('============ COMBINE EDGES ============')
-    final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
-    if added_edge_index:
-        final_edges_df = final_edges_df.drop(columns=['index'])
-        # Fix: Restore original edge binding instead of using modified 'index' binding
-        g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
-    else:
-        g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+        # Backwards
+        # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
+        # Each g node/edge represents a valid wavefront entry for that step.
+        g_stack_reverse : List[Plottable] = []
+        for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
+            prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
+            if len(g_stack_reverse) == len(g_stack) - 1:
+                prev_orig_step = None
+            else:
+                prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
+            assert prev_loop_step._nodes is not None
+            g_step_reverse = (
+                (op.reverse())(
 
-    # Postload policy phase - after data is loaded
-    if policy and 'postload' in policy:
-        from .gfql.policy import PolicyContext, PolicyException
-        from .gfql.policy.stats import extract_graph_stats
+                    # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
+                    # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
+                    g=g_step,
 
-        stats = extract_graph_stats(g_out)
-        context: PolicyContext = {
-            'phase': 'postload',
-            'hook': 'postload',
-            'query': ops,
-            'current_ast': ops,  # For chain, current == ops
-            'query_type': 'chain',
-            'plottable': g_out,
-            'graph_stats': stats,
-            '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
-        }
+                    # check for hits against fully valid targets
+                    # ast will replace g.node() with this as its starting points
+                    prev_node_wavefront=prev_loop_step._nodes,
 
-        try:
-            # Policy can only accept (None) or deny (exception)
-            policy['postload'](context)
+                    # only allow transitions to these nodes (vs prev_node_wavefront)
+                    target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
 
-        except PolicyException as e:
-            # Enrich exception with context if not already set
-            if e.query_type is None:
-                e.query_type = 'chain'
-            if e.data_size is None:
-                e.data_size = stats
-            raise
+                    engine=engine_concrete
+                )
+            )
+            g_stack_reverse.append(g_step_reverse)
 
-    return g_out
+        import logging
+        if logger.isEnabledFor(logging.DEBUG):
+            for (i, g_step) in enumerate(g_stack_reverse):
+                logger.debug('~' * 10 + '\nstep %s', i)
+                logger.debug('nodes: %s', g_step._nodes)
+                logger.debug('edges: %s', g_step._edges)
+
+        logger.debug('============ COMBINE NODES ============')
+        final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+
+        logger.debug('============ COMBINE EDGES ============')
+        final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+        if added_edge_index:
+            final_edges_df = final_edges_df.drop(columns=['index'])
+            # Fix: Restore original edge binding instead of using modified 'index' binding
+            g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+        else:
+            g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+        # Mark as successful
+        success = True
+
+    except Exception as e:
+        # Capture error for postload hook
+        error = e
+        # Don't re-raise yet - let finally block run first
+
+    finally:
+        # Postchain hook - fires AFTER chain operations complete (even on error)
+        postchain_policy_error = None
+        if policy and 'postchain' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, g_out is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, g_out) if success else self
+            stats = extract_graph_stats(graph_for_stats)
+            current_path = context.operation_path
+
+            postchain_context: PolicyContext = {
+                'phase': 'postchain',
+                'hook': 'postchain',
+                'query': ops,
+                'current_ast': ops,
+                'query_type': 'chain',
+                'plottable': graph_for_stats,
+                'graph_stats': stats,
+                'success': success,
+                'execution_depth': context.execution_depth,
+                'operation_path': current_path,
+                'parent_operation': current_path.rsplit('.', 1)[0] if '.' in current_path else 'query',
+                '_policy_depth': 0
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                postchain_context['error'] = str(error)  # type: ignore
+                postchain_context['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                policy['postchain'](postchain_context)
+            except PolicyException as e:
+                # Capture policy error instead of raising immediately
+                postchain_policy_error = e
+
+        # Postload policy phase - ALWAYS fires (even on error)
+        policy_error = None
+        if policy and 'postload' in policy:
+            from .gfql.policy import PolicyContext, PolicyException
+            from .gfql.policy.stats import extract_graph_stats
+
+            # Extract stats from result (if success) or input graph (if error)
+            # Cast: if success=True, g_out is guaranteed to be a Plottable
+            graph_for_stats = cast(Plottable, g_out) if success else self
+            stats = extract_graph_stats(graph_for_stats)
+
+            policy_context: PolicyContext = {
+                'phase': 'postload',
+                'hook': 'postload',
+                'query': ops,
+                'current_ast': ops,  # For chain, current == ops
+                'query_type': 'chain',
+                'plottable': graph_for_stats,  # RESULT or INPUT
+                'graph_stats': stats,
+                'success': success,  # True if successful, False if error
+                'execution_depth': context.execution_depth,  # Add execution depth
+                '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
+            }
+
+            # Add error information if execution failed
+            if error is not None:
+                policy_context['error'] = str(error)  # type: ignore
+                policy_context['error_type'] = type(error).__name__  # type: ignore
+
+            try:
+                # Policy can only accept (None) or deny (exception)
+                policy['postload'](policy_context)
+
+            except PolicyException as e:
+                # Enrich exception with context if not already set
+                if e.query_type is None:
+                    e.query_type = 'chain'
+                if e.data_size is None:
+                    e.data_size = stats
+                # Capture policy error instead of raising immediately
+                policy_error = e
+
+    # After finally block, decide which error to raise
+    # Priority: postchain PolicyException > postload PolicyException > operation error
+    if postchain_policy_error is not None:
+        # postchain policy error takes highest priority
+        if error is not None:
+            raise postchain_policy_error from error
+        else:
+            raise postchain_policy_error
+    elif policy_error is not None:
+        # postload policy error is second priority
+        if error is not None:
+            raise policy_error from error
+        else:
+            raise policy_error
+    elif error is not None:
+        raise error
+
+    # Cast: At this point, all error paths have been handled, so g_out is guaranteed to be a Plottable
+    return cast(Plottable, g_out)

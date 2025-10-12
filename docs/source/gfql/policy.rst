@@ -25,13 +25,31 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at four distinct phases:
+Policies are invoked at ten distinct phases:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
 
 **postload**
     After data is loaded. Can check size/content and deny further processing.
+
+**prelet**
+    Before ``let()`` DAG execution starts. Can control entire DAG execution and validate DAG structure.
+
+**postlet**
+    After ``let()`` DAG execution completes (even on error). Can track DAG-level performance and enforce DAG-level policies.
+
+**prechain**
+    Before chain operations execute. Can control entire chain execution and validate chain structure.
+
+**postchain**
+    After chain operations complete (even on error). Can track chain-level performance and enforce chain-level policies.
+
+**preletbinding**
+    Before each binding execution in ``let()`` DAGs. Can control per-binding execution and validate dependencies.
+
+**postletbinding**
+    After each binding execution (even on error). Can track binding performance and enforce per-binding policies.
 
 **precall**
     Before method execution (hop, filter, etc.). Can control operations and validate parameters.
@@ -47,7 +65,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'precall', 'postcall')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -64,7 +82,23 @@ The context dictionary passed to policy functions contains:
 - ``call_op``: Operation name (precall/postcall phases only)
 - ``call_params``: Operation parameters (precall/postcall phases only)
 - ``execution_time``: Method execution duration in seconds (postcall phase only)
-- ``success``: Execution success flag (postcall phase only)
+- ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
+- ``error``: Error message string (post* phases when success=False)
+- ``error_type``: Error type name (post* phases when success=False)
+
+**Binding-specific** (preletbinding/postletbinding phases only):
+
+- ``binding_name``: Name of the current binding being executed
+- ``binding_index``: Execution order of this binding (0-indexed)
+- ``total_bindings``: Total number of bindings in the let expression
+- ``binding_dependencies``: List of binding names this binding depends on
+- ``binding_ast``: The AST object being bound (the value in let({name: ast}))
+
+**Hierarchy/Tracing fields** (all phases):
+
+- ``execution_depth``: Nesting depth (0=query, 1=let/chain, 2=binding/op, 3=call)
+- ``operation_path``: Unique operation identifier like "query.dag.binding:hg.call:hypergraph"
+- ``parent_operation``: Parent operation path (for OpenTelemetry span relationships)
 
 **Context-specific:**
 
@@ -175,6 +209,47 @@ Examples
     g.gfql(query, policy={'preload': remote_access_policy})
 
 
+**Per-Binding Control**
+
+.. code-block:: python
+
+    def binding_policy(context):
+        # Control execution of specific bindings
+        if context['phase'] == 'preletbinding':
+            binding_name = context.get('binding_name')
+            deps = context.get('binding_dependencies', [])
+
+            # Deny bindings with too many dependencies
+            if len(deps) > 5:
+                raise PolicyException(
+                    'preletbinding',
+                    f"Binding '{binding_name}' has too many dependencies: {len(deps)}",
+                    code=413
+                )
+
+        elif context['phase'] == 'postletbinding':
+            # Track binding performance
+            binding_name = context.get('binding_name')
+            success = context.get('success', False)
+
+            if not success:
+                error = context.get('error', 'Unknown error')
+                print(f"Binding '{binding_name}' failed: {error}")
+
+    from graphistry.compute.ast import ASTLet, n, call
+
+    dag = ASTLet({
+        'people': n({'type': 'person'}),
+        'orgs': n({'type': 'org'}),
+        'connections': call('hypergraph', {})
+    })
+
+    g.gfql(dag, policy={
+        'preletbinding': binding_policy,
+        'postletbinding': binding_policy
+    })
+
+
 **Track Usage**
 
 .. code-block:: python
@@ -231,6 +306,233 @@ Examples
         'precall': universal_policy,
         'postcall': universal_policy
     })
+
+
+Policy Shortcuts
+----------------
+
+To reduce boilerplate in common patterns, GFQL policies support shortcuts that expand to multiple hooks automatically. This is especially useful for cross-cutting concerns like telemetry, authentication, and resource management.
+
+**Shortcuts Reference**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 35 50
+
+   * - Shortcut
+     - Expands To
+     - Use Case
+   * - ``'pre'``
+     - All 5 pre* hooks (preload, prelet, prechain, preletbinding, precall)
+     - OpenTelemetry span creation, authentication, pre-execution validation
+   * - ``'post'``
+     - All 5 post* hooks (postload, postlet, postchain, postletbinding, postcall)
+     - OpenTelemetry span cleanup, resource cleanup, post-execution validation
+   * - ``'load'``
+     - preload + postload
+     - Query-level hooks for data loading control
+   * - ``'let'``
+     - prelet + postlet
+     - DAG-level hooks for let() execution control
+   * - ``'chain'``
+     - prechain + postchain
+     - Chain-level hooks for chain operation control
+   * - ``'binding'``
+     - preletbinding + postletbinding
+     - Binding-level hooks for per-binding control
+   * - ``'call'``
+     - precall + postcall
+     - Operation-level hooks for method call control
+
+**Before/After Comparison**
+
+Without shortcuts (10 keys):
+
+.. code-block:: python
+
+    # Traditional approach - verbose
+    policy = {
+        'preload': create_span,
+        'postload': end_span,
+        'prelet': create_span,
+        'postlet': end_span,
+        'prechain': create_span,
+        'postchain': end_span,
+        'preletbinding': create_span,
+        'postletbinding': end_span,
+        'precall': create_span,
+        'postcall': end_span
+    }
+
+With shortcuts (2 keys):
+
+.. code-block:: python
+
+    # Shortcuts approach - concise
+    policy = {
+        'pre': create_span,
+        'post': end_span
+    }
+
+Both are functionally equivalent and produce the same behavior.
+
+**Composition Behavior**
+
+When multiple shortcuts apply to the same hook, their handlers automatically compose:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import expand_policy, debug_policy
+
+    def auth_check(ctx):
+        """General authentication check"""
+        pass
+
+    def rate_limit(ctx):
+        """Rate limiting for calls"""
+        pass
+
+    def validate_params(ctx):
+        """Specific parameter validation"""
+        pass
+
+    policy = {
+        'pre': auth_check,        # Applies to ALL pre* hooks
+        'call': rate_limit,       # Applies to precall + postcall
+        'precall': validate_params  # Applies only to precall
+    }
+
+    # At precall, handlers execute in order: auth_check → rate_limit → validate_params
+    # At postcall, handlers execute in reverse (LIFO): rate_limit → auth_check
+
+**Composition Order Rules**
+
+- **Pre hooks** execute in forward order: general → scope → specific
+- **Post hooks** execute in reverse order (LIFO cleanup): specific → scope → general
+- This ensures proper setup/cleanup semantics (like try/finally blocks)
+
+**Multi-Policy Server Pattern**
+
+Shortcuts compose naturally for scenarios where multiple orthogonal policies need to be applied:
+
+.. code-block:: python
+
+    # Server scenario: telemetry + security + resource limits
+    policy = {
+        'pre': create_otel_span,       # OpenTelemetry tracing
+        'post': end_otel_span,         # Span cleanup
+        'postload': check_size_limits,  # Resource limits after data load
+        'precall': validate_jwt_token   # Security validation before operations
+    }
+
+    # This composes cleanly:
+    # - All pre* hooks get telemetry spans
+    # - postload gets both telemetry cleanup + size checking
+    # - precall gets telemetry + JWT validation
+    # - Other post* hooks get just telemetry cleanup
+
+**Debug Helper**
+
+Use ``debug_policy()`` to see how shortcuts expand:
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.policy import debug_policy
+
+    policy = {
+        'pre': auth,
+        'call': rate_limit,
+        'precall': validate
+    }
+
+    # Show expansion and composition order
+    debug_policy(policy)
+
+Output:
+
+.. code-block:: text
+
+    preload         [auth (from 'pre')]
+    prelet          [auth (from 'pre')]
+    prechain        [auth (from 'pre')]
+    preletbinding   [auth (from 'pre')]
+    precall         [auth (from 'pre'), rate_limit (from 'call'), validate (from 'precall')]
+    postcall        [rate_limit (from 'call'), auth (from 'pre')] ← reversed
+    postload        [auth (from 'pre')]
+    postlet         [auth (from 'pre')]
+    postchain       [auth (from 'pre')]
+    postletbinding  [auth (from 'pre')]
+
+**Backward Compatibility**
+
+- Full hook names (like ``'preload'``) still work and can be mixed with shortcuts
+- Shortcuts are entirely optional - use them only when they simplify your code
+- No performance overhead - expansion happens once per query
+
+**OpenTelemetry Example**
+
+Using shortcuts, OpenTelemetry span tracing reduces from 10 hook keys to just 2:
+
+.. code-block:: python
+
+    from opentelemetry import trace
+    from opentelemetry.trace import Status, StatusCode
+
+    tracer = trace.get_tracer(__name__)
+    span_map = {}  # operation_path → span
+
+    def create_span(ctx):
+        """Start span in pre* hooks"""
+        # Get parent span using parent_operation
+        parent_span = span_map.get(ctx.get('parent_operation'))
+
+        # Create span with unique operation_path as name
+        span = tracer.start_span(
+            ctx['operation_path'],
+            parent=parent_span
+        )
+
+        # Add span attributes from context
+        span.set_attribute('execution_depth', ctx['execution_depth'])
+        span.set_attribute('query_type', ctx.get('query_type', 'unknown'))
+
+        if ctx.get('binding_name'):
+            span.set_attribute('binding_name', ctx['binding_name'])
+        if ctx.get('call_op'):
+            span.set_attribute('call_op', ctx['call_op'])
+
+        # Store span for children and post hook
+        span_map[ctx['operation_path']] = span
+
+    def end_span(ctx):
+        """End span in post* hooks"""
+        span = span_map.pop(ctx['operation_path'], None)
+        if not span:
+            return
+
+        # Add result attributes
+        if ctx.get('graph_stats'):
+            stats = ctx['graph_stats']
+            span.set_attribute('nodes', stats.get('nodes', 0))
+            span.set_attribute('edges', stats.get('edges', 0))
+
+        # Handle errors
+        if not ctx.get('success', True):
+            span.set_status(
+                Status(StatusCode.ERROR, ctx.get('error', 'Unknown error'))
+            )
+
+        span.end()
+
+    # Apply to all hook phases using shortcuts (2 keys instead of 10!)
+    policy = {
+        'pre': create_span,   # Expands to all 5 pre* hooks
+        'post': end_span      # Expands to all 5 post* hooks
+    }
+
+    result = g.gfql(my_query, policy=policy)
+
+This creates a proper span hierarchy matching the query execution tree, with each operation having a unique ``operation_path`` and correct parent relationships.
 
 
 PolicyException
@@ -471,11 +773,35 @@ API Reference
 
 .. code-block:: python
 
+    # Using full hook names
     g.gfql(query, policy={
-        'preload': preload_function,    # Optional
-        'postload': postload_function,  # Optional
-        'precall': precall_function,    # Optional
-        'postcall': postcall_function   # Optional
+        'preload': preload_function,              # Optional
+        'postload': postload_function,            # Optional
+        'prelet': prelet_function,                # Optional
+        'postlet': postlet_function,              # Optional
+        'prechain': prechain_function,            # Optional
+        'postchain': postchain_function,          # Optional
+        'preletbinding': preletbinding_function,  # Optional
+        'postletbinding': postletbinding_function,# Optional
+        'precall': precall_function,              # Optional
+        'postcall': postcall_function             # Optional
+    })
+
+    # Or using shortcuts (expands to full hook names)
+    g.gfql(query, policy={
+        'pre': pre_function,     # Expands to all pre* hooks
+        'post': post_function,   # Expands to all post* hooks
+        'load': load_function,   # Expands to preload + postload
+        'let': let_function,     # Expands to prelet + postlet
+        'chain': chain_function, # Expands to prechain + postchain
+        'binding': binding_fn,   # Expands to preletbinding + postletbinding
+        'call': call_function    # Expands to precall + postcall
+    })
+
+    # Shortcuts can be mixed with full hook names
+    g.gfql(query, policy={
+        'pre': general_handler,
+        'postload': specific_size_check  # Overrides 'post' for postload
     })
 
 **Imports**
@@ -487,12 +813,14 @@ API Reference
         PolicyContext,   # TypedDict for context parameter
         GraphStats,      # TypedDict for graph statistics
         PolicyFunction,  # Type alias for policy functions
-        PolicyDict       # Type alias for policy dictionary
+        PolicyDict,      # Type alias for policy dictionary
+        expand_policy,   # Expand shortcuts to full hook names (internal use)
+        debug_policy     # Debug helper to visualize expansion
     )
 
 **PolicyException Parameters**
 
-- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'precall', 'postcall')
+- ``phase`` (str): Phase where denial occurred ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'preletbinding', 'postletbinding', 'precall', 'postcall')
 - ``reason`` (str): Human-readable explanation
 - ``code`` (int): HTTP-like status code (default: 403)
 - ``query_type`` (str, optional): Type of query being executed

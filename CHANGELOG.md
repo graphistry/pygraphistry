@@ -5,7 +5,17 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.44.0 - 2025-10-11]
+
+### Added
+* **GFQL Policy System enhancements** (#764)
+  * **Policy shortcuts** - Reduce from 10 keys to 2: `'pre'`/`'post'` expand to all pre*/post* hooks, `'load'`/`'let'`/`'chain'`/`'binding'`/`'call'` for scope-specific hooks. Automatic composition with predictable order (general → scope → specific). Use `debug_policy()` for visibility.
+  * **Complete execution hierarchy** - 10 hooks covering all levels: query (preload/postload), let/chain (prelet/postlet/prechain/postchain), binding (preletbinding/postletbinding), call (precall/postcall)
+  * **OpenTelemetry fields** - `execution_depth`, `operation_path`, `parent_operation` enable proper span parent-child relationships
+  * **Binding context** - Per-binding control with `binding_name`, `binding_index`, `total_bindings`, `binding_dependencies`, `binding_ast`
+  * **Error context** - All post* hooks receive `success`, `error`, `error_type` fields
+  * **Use cases**: OpenTelemetry tracing (2 keys instead of 10), server multi-policy composition, per-binding/DAG/chain-level control
+  * 69 tests passing (48 core + 24 shortcuts + 14 let/chain + 5 binding hooks)
 
 ### Fixed
 * **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
@@ -26,6 +36,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     * Validates after featurization to detect when all columns are dropped (all-strings edge case)
     * Provides helpful guidance: "No numeric features available for UMAP after featurization. Please provide at least one numeric column, or install 'skrub' for automatic string encoding: pip install skrub"
     * Applied validation to both nodes and edges paths
+* **GFQL Policy: Ensure post* hooks always fire even on errors** (#764)
+  * post* hooks now use consistent try/except/finally pattern
+  * PolicyException takes precedence over operation errors
+  * Error chaining preserved (`raise PolicyException from error`)
+  * All post* hooks receive error context (success, error, error_type)
+
+### Documentation
+* **GFQL Policy**: Updated `docs/source/gfql/policy.rst` with new hooks and fields
+* **OpenTelemetry Integration**: New guide `docs/source/gfql/policy_opentelemetry.rst`
+  * Complete working examples for span tracing
+  * Integration patterns for Jaeger, OTLP, and custom exporters
+  * Best practices and performance considerations
 
 ## [0.43.2 - 2025-10-09]
 
