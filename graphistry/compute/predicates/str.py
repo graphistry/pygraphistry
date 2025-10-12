@@ -84,27 +84,41 @@ def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = N
 
 
 class Startswith(ASTPredicate):
-    def __init__(self, pat: str, na: Optional[str] = None) -> None:
+    def __init__(self, pat: str, case: bool = True, na: Optional[bool] = None) -> None:
         self.pat = pat
+        self.case = case
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
-        # workaround cuDF not supporting 'na' parameter
+        # workaround: pandas and cuDF don't support 'case' parameter for startswith
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.startswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.contains.html#pandas.Series.str.startswith
-        if is_cudf:
+        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.startswith.html
+        if not self.case:
+            # Use str.lower() workaround for case-insensitive matching
+            s_modified = s.str.lower()
+            pat_modified = self.pat.lower()
+            result = s_modified.str.startswith(pat_modified)
+        else:
             result = s.str.startswith(self.pat)
+
+        # Handle na parameter
+        if is_cudf:
+            # cuDF doesn't support na parameter, use fillna
             return result.fillna(self.na) if self.na is not None else result
         else:
-            # pandas supports the na parameter directly
-            return s.str.startswith(self.pat, self.na)
+            # pandas supports na parameter but only for case-sensitive version
+            # Since we may have used str.lower(), we need to handle na with fillna
+            if not self.case:
+                return result.fillna(self.na) if self.na is not None else result
+            else:
+                return s.str.startswith(self.pat, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
+
         if not isinstance(self.pat, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -112,42 +126,79 @@ class Startswith(ASTPredicate):
                 field="pat",
                 value=type(self.pat).__name__
             )
-        
-        if not isinstance(self.na, (str, type(None))):
+
+        if not isinstance(self.case, bool):
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "na must be string or None",
+                "case must be boolean",
+                field="case",
+                value=type(self.case).__name__
+            )
+
+        if not isinstance(self.na, (bool, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be boolean or None",
                 field="na",
                 value=type(self.na).__name__
             )
 
-def startswith(pat: str, na: Optional[str] = None) -> Startswith:
+def startswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Startswith:
     """
     Return whether a given pattern is at the start of a string
+
+    Args:
+        pat: Pattern to match at start of string
+        case: If True, case-sensitive matching (default: True)
+        na: Fill value for missing values (default: None)
+
+    Returns:
+        Startswith predicate
+
+    Examples:
+        >>> # Case-sensitive (default)
+        >>> n({"name": startswith("John")})
+        >>> # Case-insensitive
+        >>> n({"name": startswith("john", case=False)})
     """
-    return Startswith(pat, na)
+    return Startswith(pat, case, na)
 
 class Endswith(ASTPredicate):
-    def __init__(self, pat: str, na: Optional[str] = None) -> None:
+    def __init__(self, pat: str, case: bool = True, na: Optional[bool] = None) -> None:
         self.pat = pat
+        self.case = case
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        # workaround cuDF not supporting 'na' parameter
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.endswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.contains.html#pandas.Series.str.endswith
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
-        if is_cudf:
+        # workaround: pandas and cuDF don't support 'case' parameter for endswith
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.endswith/
+        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.endswith.html
+        if not self.case:
+            # Use str.lower() workaround for case-insensitive matching
+            s_modified = s.str.lower()
+            pat_modified = self.pat.lower()
+            result = s_modified.str.endswith(pat_modified)
+        else:
             result = s.str.endswith(self.pat)
+
+        # Handle na parameter
+        if is_cudf:
+            # cuDF doesn't support na parameter, use fillna
             return result.fillna(self.na) if self.na is not None else result
         else:
-            return s.str.endswith(self.pat, self.na)
+            # pandas supports na parameter but only for case-sensitive version
+            # Since we may have used str.lower(), we need to handle na with fillna
+            if not self.case:
+                return result.fillna(self.na) if self.na is not None else result
+            else:
+                return s.str.endswith(self.pat, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
+
         if not isinstance(self.pat, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -155,17 +206,42 @@ class Endswith(ASTPredicate):
                 field="pat",
                 value=type(self.pat).__name__
             )
-        
-        if not isinstance(self.na, (str, type(None))):
+
+        if not isinstance(self.case, bool):
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "na must be string or None",
+                "case must be boolean",
+                field="case",
+                value=type(self.case).__name__
+            )
+
+        if not isinstance(self.na, (bool, type(None))):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "na must be boolean or None",
                 field="na",
                 value=type(self.na).__name__
             )
 
-def endswith(pat: str, na: Optional[str] = None) -> Endswith:
-    return Endswith(pat, na)
+def endswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Endswith:
+    """
+    Return whether a given pattern is at the end of a string
+
+    Args:
+        pat: Pattern to match at end of string
+        case: If True, case-sensitive matching (default: True)
+        na: Fill value for missing values (default: None)
+
+    Returns:
+        Endswith predicate
+
+    Examples:
+        >>> # Case-sensitive (default)
+        >>> n({"email": endswith(".com")})
+        >>> # Case-insensitive
+        >>> n({"email": endswith(".com", case=False)})
+    """
+    return Endswith(pat, case, na)
 
 class Match(ASTPredicate):
     def __init__(self, pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> None:

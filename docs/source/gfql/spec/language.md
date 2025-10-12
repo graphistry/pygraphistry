@@ -127,7 +127,7 @@ null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
 string_pred ::= string_match | string_check
 string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
               | "match(" string ("," "case=" boolean)? ")"
-              | ("startswith" | "endswith") "(" string ")"
+              | ("startswith" | "endswith") "(" string ("," "case=" boolean)? ")"
 string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum" 
                | "isupper" | "islower") "()"
 temporal_pred ::= temporal_check "()"
@@ -244,10 +244,10 @@ between(lower, upper, inclusive=True)  # Value in range
 
 Pattern matching predicates:
 ```python
-contains(pat, case=True, regex=True)  # Contains pattern (substring or regex)
-startswith(prefix)                    # Starts with prefix (case-sensitive)
-endswith(suffix)                      # Ends with suffix (case-sensitive)
-match(pat, case=True)                 # Matches regex from start of string
+contains(pat, case=True, regex=True)     # Contains pattern (substring or regex)
+startswith(prefix, case=True)            # Starts with prefix
+endswith(suffix, case=True)              # Ends with suffix
+match(pat, case=True)                    # Matches regex from start of string
 ```
 
 String type checking predicates:

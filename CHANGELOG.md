@@ -5,7 +5,21 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## Develop
+## [Development]
+
+### Added
+* **GFQL: Case-insensitive string predicates** (#697)
+  * Added `case` parameter (default `True`) to `startswith()` and `endswith()` predicates
+  * Supports case-insensitive matching in both pandas and cuDF backends
+  * Follows existing pattern from `contains()` and `match()` predicates
+  * Updated documentation (language spec, quick reference, docstrings)
+* **GFQL: Tuple pattern matching** (#697)
+  * Added tuple pattern support to `startswith()` and `endswith()`
+  * Enables OR logic: `startswith(('test', 'prod'))` matches either pattern
+  * Works with all parameter combinations (case, na)
+* **GFQL: fullmatch() predicate** (#697, #774)
+  * Added `fullmatch()` for exact string matching
+  * Uses `match()` with anchors workaround for cuDF compatibility
 
 ### Docs
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)

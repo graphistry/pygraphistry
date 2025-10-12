@@ -193,11 +193,20 @@ def test_startswith_pandas_na_handling():
     assert result[0] is False
     assert pd.isna(result[1])
     assert result[2] is True
-    
+
     # Test with na parameter
     predicate = startswith('ho', na=False)
     result = predicate(s)
     expected = pd.Series([False, False, True])
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_startswith_pandas_case_insensitive():
+    """Test case-insensitive matching with pandas"""
+    s = pd.Series(['John', 'john', 'JOHN', 'Jane'])
+    predicate = startswith('john', case=False)
+    result = predicate(s)
+    expected = pd.Series([True, True, True, False])
     pd.testing.assert_series_equal(result, expected)
 
 
@@ -217,18 +226,29 @@ def test_startswith_cudf_na_handling():
     """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', None, 'house'])
-    
+
     # Default NA handling
     predicate = startswith('ho')
     result = predicate(s).to_pandas()
     assert result[0] is False
     assert pd.isna(result[1])
     assert result[2] is True
-    
+
     # NA=False
     predicate = startswith('ho', na=False)
     result = predicate(s)
     expected = cudf.Series([False, False, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_startswith_cudf_case_insensitive():
+    """Test case-insensitive matching with cuDF"""
+    import cudf
+    s = cudf.Series(['John', 'john', 'JOHN', 'Jane'])
+    predicate = startswith('john', case=False)
+    result = predicate(s)
+    expected = cudf.Series([True, True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
@@ -251,11 +271,20 @@ def test_endswith_pandas_na_handling():
     assert result[0] is True
     assert pd.isna(result[1])
     assert result[2] is True
-    
+
     # Test with na parameter
     predicate = endswith('se', na=False)
     result = predicate(s)
     expected = pd.Series([True, False, True])
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_endswith_pandas_case_insensitive():
+    """Test case-insensitive matching with pandas"""
+    s = pd.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
+    predicate = endswith('.com', case=False)
+    result = predicate(s)
+    expected = pd.Series([True, True, True, False])
     pd.testing.assert_series_equal(result, expected)
 
 
@@ -275,18 +304,29 @@ def test_endswith_cudf_na_handling():
     """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', None, 'house'])
-    
+
     # Default NA handling
     predicate = endswith('se')
     result = predicate(s).to_pandas()
     assert result[0] is True
     assert pd.isna(result[1])
     assert result[2] is True
-    
+
     # NA=False
     predicate = endswith('se', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_endswith_cudf_case_insensitive():
+    """Test case-insensitive matching with cuDF"""
+    import cudf
+    s = cudf.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
+    predicate = endswith('.com', case=False)
+    result = predicate(s)
+    expected = cudf.Series([True, True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
