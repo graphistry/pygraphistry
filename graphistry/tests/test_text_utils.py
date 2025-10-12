@@ -39,8 +39,9 @@ class TestTextSearch(unittest.TestCase):
         # Test case with target columns (y parameter) - reproduces issue #629
         g5 = g.umap(X=['title'],
                     y=['label'],
-                    use_ngrams=False,
-                    min_words=2)
+                    use_ngrams=True,
+                    ngram_range=(1, 2),
+                    min_words=0)
 
         # here we just featurize since edges are given
         g4 = g_with_edges.featurize(X=['textual'],
