@@ -859,7 +859,7 @@ def test_startswith_cudf_single_element_tuple():
     s = cudf.Series(['apple', 'apricot', 'banana'])
     predicate = startswith(('app',))
     result = predicate(s)
-    expected = cudf.Series([True, True, False])
+    expected = cudf.Series([True, False, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 

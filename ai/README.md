@@ -189,36 +189,58 @@ CUDA_SHORT_VERSION=${CUDA_SHORT_VERSION:-12.8}
 IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG}-${CUDA_SHORT_VERSION}"
 docker images | grep graphistry-nvidia
 
-# Run GPU tests without rebuilding (mount pygraphistry source)
-docker run --rm --gpus all \
-    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
-    -v "$(pwd)/plans:/workspace:ro" \
-    -e PYTEST_CURRENT_TEST=TRUE \
-    $IMAGE \
-    pytest /opt/pygraphistry/graphistry/tests/test_file.py -v
+# Set up cache volumes (reusable across runs)
+CACHE_VOLS="-v /tmp/pytest_cache:/tmp/pytest_cache -v /tmp/ruff_cache:/tmp/ruff_cache -v /tmp/mypy_cache:/tmp/mypy_cache"
+CACHE_ENVS="-e PYTEST_CACHE_DIR=/tmp/pytest_cache -e RUFF_CACHE_DIR=/tmp/ruff_cache -e MYPY_CACHE_DIR=/tmp/mypy_cache"
 
-# Run GPU type checking
-docker run --rm --gpus all \
-    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
-    $IMAGE \
-    mypy /opt/pygraphistry/graphistry/module.py
-
-# Run GPU linting
-docker run --rm --gpus all \
-    -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
-    $IMAGE \
-    flake8 /opt/pygraphistry/graphistry/module.py
-
-# Test cuDF-specific functionality
+# Run GPU tests without rebuilding
 docker run --rm --gpus all \
     -v "$(pwd):/workspace:ro" \
+    $CACHE_VOLS \
+    -w /workspace \
+    -e PYTHONPATH=/workspace \
+    $CACHE_ENVS \
     $IMAGE \
-    python3 /workspace/test_script.py
+    pytest graphistry/tests/compute/predicates/test_str.py -v
+
+# Run GPU type checking (mypy)
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    $CACHE_VOLS \
+    -w /workspace \
+    -e PYTHONPATH=/workspace \
+    $CACHE_ENVS \
+    $IMAGE \
+    mypy graphistry/compute/predicates/str.py
+
+# Run GPU linting (ruff)
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    $CACHE_VOLS \
+    -w /workspace \
+    -e PYTHONPATH=/workspace \
+    $CACHE_ENVS \
+    $IMAGE \
+    ruff check graphistry/compute/predicates/str.py
+
+# Test cuDF-specific functionality with custom script
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    -w /workspace \
+    -e PYTHONPATH=/workspace \
+    $IMAGE \
+    python3 plans/test_script.py
 ```
+
+**Key components**:
+- **Read-only source**: `-v "$(pwd):/workspace:ro"` mounts repo read-only
+- **Writable caches**: Separate volumes for pytest/ruff/mypy caches
+- **PYTHONPATH override**: `-e PYTHONPATH=/workspace` uses your code instead of installed package
+- **Working directory**: `-w /workspace` runs commands from repo root
 
 **When to use each approach**:
 - **`./docker/test-gpu-local.sh`**: Full validation, CI/CD, before PR merge
-- **Direct `docker run`**: Fast iteration during development, cuDF verification, quick GPU tests
+- **Direct `docker run`**: Fast iteration during development (seconds vs minutes), cuDF verification, quick GPU tests
 
 ### Environment Control
 | Variable | Default | Purpose |

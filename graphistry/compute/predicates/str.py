@@ -135,21 +135,58 @@ class Startswith(ASTPredicate):
         # cudf.core.accessors.string.stringmethods.startswith/
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/
         # pandas.Series.str.startswith.html
-        if not self.case:
+
+        # Handle tuple patterns
+        if isinstance(self.pat, tuple):
+            # pandas supports tuples natively, cuDF doesn't
+            if not is_cudf and self.case:
+                # Use pandas native tuple support for case-sensitive
+                result = s.str.startswith(self.pat)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+            elif not is_cudf and not self.case:
+                # pandas tuple with case-insensitive - need workaround
+                if len(self.pat) == 0:
+                    import pandas as pd
+                    result = pd.Series([False] * len(s), dtype='bool', index=s.index)
+                else:
+                    s_lower = s.str.lower()
+                    patterns_lower = tuple(p.lower() for p in self.pat)
+                    # Use pandas native tuple support on lowercased data
+                    result = s_lower.str.startswith(patterns_lower)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+            else:
+                # cuDF - need manual OR logic
+                if len(self.pat) == 0:
+                    import cudf
+                    result = cudf.Series([False] * len(s), dtype='bool', index=s.index)
+                else:
+                    if not self.case:
+                        s_modified = s.str.lower()
+                        patterns = [p.lower() for p in self.pat]
+                    else:
+                        s_modified = s
+                        patterns = list(self.pat)
+                    # Start with first pattern
+                    result = s_modified.str.startswith(patterns[0])
+                    # OR with remaining patterns
+                    for pat in patterns[1:]:
+                        result = result | s_modified.str.startswith(pat)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+        elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
-            # Handle both str and tuple patterns
-            if isinstance(self.pat, tuple):
-                pat_modified: Union[str, tuple] = tuple(
-                    p.lower() for p in self.pat
-                )
-            else:
-                pat_modified = self.pat.lower()
+            pat_modified = self.pat.lower()
             result = s_modified.str.startswith(pat_modified)
         else:
             result = s.str.startswith(self.pat)
 
-        # Handle na parameter
+        # Handle na parameter for non-tuple cases
         if is_cudf:
             # cuDF doesn't support na parameter, use fillna
             if self.na is not None:
@@ -157,8 +194,7 @@ class Startswith(ASTPredicate):
             else:
                 return result
         else:
-            # pandas supports na parameter but only for case-sensitive
-            # Since we may have used str.lower(), handle na with fillna
+            # pandas supports na parameter for case-sensitive str patterns
             if not self.case:
                 if self.na is not None:
                     return result.fillna(self.na)
@@ -258,21 +294,58 @@ class Endswith(ASTPredicate):
         # cudf.core.accessors.string.stringmethods.endswith/
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/
         # pandas.Series.str.endswith.html
-        if not self.case:
+
+        # Handle tuple patterns
+        if isinstance(self.pat, tuple):
+            # pandas supports tuples natively, cuDF doesn't
+            if not is_cudf and self.case:
+                # Use pandas native tuple support for case-sensitive
+                result = s.str.endswith(self.pat)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+            elif not is_cudf and not self.case:
+                # pandas tuple with case-insensitive - need workaround
+                if len(self.pat) == 0:
+                    import pandas as pd
+                    result = pd.Series([False] * len(s), dtype='bool', index=s.index)
+                else:
+                    s_lower = s.str.lower()
+                    patterns_lower = tuple(p.lower() for p in self.pat)
+                    # Use pandas native tuple support on lowercased data
+                    result = s_lower.str.endswith(patterns_lower)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+            else:
+                # cuDF - need manual OR logic
+                if len(self.pat) == 0:
+                    import cudf
+                    result = cudf.Series([False] * len(s), dtype='bool', index=s.index)
+                else:
+                    if not self.case:
+                        s_modified = s.str.lower()
+                        patterns = [p.lower() for p in self.pat]
+                    else:
+                        s_modified = s
+                        patterns = list(self.pat)
+                    # Start with first pattern
+                    result = s_modified.str.endswith(patterns[0])
+                    # OR with remaining patterns
+                    for pat in patterns[1:]:
+                        result = result | s_modified.str.endswith(pat)
+                if self.na is not None:
+                    return result.fillna(self.na)
+                return result
+        elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
-            # Handle both str and tuple patterns
-            if isinstance(self.pat, tuple):
-                pat_modified: Union[str, tuple] = tuple(
-                    p.lower() for p in self.pat
-                )
-            else:
-                pat_modified = self.pat.lower()
+            pat_modified = self.pat.lower()
             result = s_modified.str.endswith(pat_modified)
         else:
             result = s.str.endswith(self.pat)
 
-        # Handle na parameter
+        # Handle na parameter for non-tuple cases
         if is_cudf:
             # cuDF doesn't support na parameter, use fillna
             if self.na is not None:
@@ -280,8 +353,7 @@ class Endswith(ASTPredicate):
             else:
                 return result
         else:
-            # pandas supports na parameter but only for case-sensitive
-            # Since we may have used str.lower(), handle na with fillna
+            # pandas supports na parameter for case-sensitive str patterns
             if not self.case:
                 if self.na is not None:
                     return result.fillna(self.na)
