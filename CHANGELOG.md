@@ -8,72 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
-* **GFQL Policy Shortcuts for reducing boilerplate** (#TBD)
-  * **New shortcuts** - Reduce policy definitions from 10 keys to 2 keys
-    * `'pre'` - Expands to all 5 pre* hooks (preload, prelet, prechain, preletbinding, precall)
-    * `'post'` - Expands to all 5 post* hooks (postload, postlet, postchain, postletbinding, postcall)
-    * `'load'`, `'let'`, `'chain'`, `'binding'`, `'call'` - Scope-specific shortcuts (both pre+post)
-  * **Automatic composition** - Multiple shortcuts naturally compose at same hook
-    * Pre hooks: Execute in order general → scope → specific
-    * Post hooks: Execute in reverse (LIFO cleanup order) specific → scope → general
-    * Enables natural multi-policy layering (tracing + size limits + validation)
-  * **`debug_policy()` helper** - Visibility into expansion and composition order
-  * **Use cases**:
-    * OpenTelemetry: 2 keys instead of 10 (`{'pre': create_span, 'post': end_span}`)
-    * Server multi-policy: Natural composition of telemetry, security, resource limits
-    * Clean separation of cross-cutting concerns
-  * **100% backward compatible** - Full hook names still work, can mix with shortcuts
-  * **Comprehensive testing** - 24 unit tests + 2 integration tests, all passing
-
-* **GFQL Policy System: Let and Chain level hooks for complete execution hierarchy** (#764, let/chain hooks)
-  * **New hooks** - Complete coverage at all execution levels
-    * `prelet` - Fires before `let()` DAG execution starts
-    * `postlet` - Fires after `let()` DAG execution completes (even on error)
-    * `prechain` - Fires before chain operations execute
-    * `postchain` - Fires after chain operations complete (even on error)
-    * Enables DAG-level and chain-level policy enforcement, performance tracking, and execution control
-  * **Complete hook hierarchy** - 10 hooks covering all execution levels:
-    * Query level: `preload`, `postload`
-    * Let/Chain level: `prelet`, `postlet`, `prechain`, `postchain` (NEW)
-    * Binding level: `preletbinding`, `postletbinding`
-    * Call level: `precall`, `postcall`
-  * **Use cases**:
-    * Complete OpenTelemetry span hierarchy (query → let/chain → binding → call)
-    * DAG/chain-level resource control and size limits
-    * Comprehensive performance tracking at all levels
-    * Complete execution observability
-  * **Backward compatible** - All new hooks are optional
-  * **Comprehensive testing** - 14 tests for new hooks (7 new + 7 existing), all passing
-
-* **GFQL Policy System: Binding hooks and hierarchy tracking for OpenTelemetry span tracing** (#764, binding hooks)
-  * **New hooks** - Per-binding execution control
-    * `preletbinding` - Fires before each binding execution in `let()` DAGs
-    * `postletbinding` - Fires after each binding (even on error)
-    * Enables per-binding policy enforcement, performance tracking, and execution control
-  * **Hierarchy tracking fields** - Enable OpenTelemetry span tracing with proper parent-child relationships
-    * `execution_depth` - Nesting depth (0=query, 1=let/chain, 2=binding, 3=call)
-    * `operation_path` - Unique operation identifier like "query.dag.binding:hg.call:hypergraph"
-    * `parent_operation` - Parent operation path for span parent relationships
-    * Available in ALL hook phases (preload, postload, preletbinding, postletbinding, precall, postcall)
-  * **Binding context fields** - Comprehensive binding information
-    * `binding_name` - Name of the current binding being executed
-    * `binding_index` - Execution order (0-indexed)
-    * `total_bindings` - Total bindings in let expression
-    * `binding_dependencies` - List of binding names this binding depends on
-    * `binding_ast` - The AST object being bound
-  * **Error context** - Complete error information in post* hooks
-    * `error` - Error message string (when success=False)
-    * `error_type` - Error type name (when success=False)
-    * Errors propagate through nested structures with full context
-  * **Use cases**:
-    * OpenTelemetry span tracing with hierarchical parent-child relationships
-    * Per-binding policy enforcement and feature gating
-    * Binding-level performance tracking and optimization
-    * Execution complexity visualization
-    * Complete error context in telemetry systems
-  * **Backward compatible** - All new hooks and fields are optional
-  * **Thread-safe** - Thread-local depth/path tracking for concurrent queries
-  * **Comprehensive testing** - 69 tests (55 regression + 14 new) all passing
+* **GFQL Policy System enhancements** (#764)
+  * **Policy shortcuts** - Reduce from 10 keys to 2: `'pre'`/`'post'` expand to all pre*/post* hooks, `'load'`/`'let'`/`'chain'`/`'binding'`/`'call'` for scope-specific hooks. Automatic composition with predictable order (general → scope → specific). Use `debug_policy()` for visibility.
+  * **Complete execution hierarchy** - 10 hooks covering all levels: query (preload/postload), let/chain (prelet/postlet/prechain/postchain), binding (preletbinding/postletbinding), call (precall/postcall)
+  * **OpenTelemetry fields** - `execution_depth`, `operation_path`, `parent_operation` enable proper span parent-child relationships
+  * **Binding context** - Per-binding control with `binding_name`, `binding_index`, `total_bindings`, `binding_dependencies`, `binding_ast`
+  * **Error context** - All post* hooks receive `success`, `error`, `error_type` fields
+  * **Use cases**: OpenTelemetry tracing (2 keys instead of 10), server multi-policy composition, per-binding/DAG/chain-level control
+  * 69 tests passing (48 core + 24 shortcuts + 14 let/chain + 5 binding hooks)
 
 ### Fixed
 * **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
