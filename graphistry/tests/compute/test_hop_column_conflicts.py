@@ -26,21 +26,24 @@ class TestHopColumnConflicts(NoAuthTestCase):
     ]
 
     def test_index_column_in_edges_no_edge_id(self):
-        """Test that an error is raised when edges have 'index' column and no edge ID is bound"""
-        
+        """Test that 'index' column is preserved when no edge ID is bound (auto-generates unique name)"""
+
         # Create edges with an 'index' column
         edges_df = pd.DataFrame({
-            's': ['a', 'b', 'c'], 
+            's': ['a', 'b', 'c'],
             'd': ['b', 'c', 'a'],
-            'index': [1, 2, 3]  # This should cause an error
+            'index': [1, 2, 3]  # This should be preserved via auto-increment naming
         })
-        
+
         # Create graph without binding edge ID
         g = CGFull().edges(edges_df, 's', 'd')
-        
-        # Hop should raise a ValueError about 'index' column
-        with pytest.raises(ValueError, match="Edges cannot have column \"index\""):
-            g.hop(pd.DataFrame({'id': ['a']}), 1)
+
+        # After fix: hop should work and preserve the user's 'index' column
+        result = g.hop(pd.DataFrame({'id': ['a']}), 1)
+        assert result._edges.shape[0] > 0
+        # User's 'index' column should be preserved in the result
+        assert 'index' in result._edges.columns
+        assert 1 in result._edges['index'].values  # edge from 'a' to 'b' has index=1
 
     def test_edge_id_same_as_index(self):
         """Test hop with edge ID column explicitly bound as 'index'"""

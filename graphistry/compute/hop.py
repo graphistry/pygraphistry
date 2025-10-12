@@ -376,30 +376,24 @@ def hop(self: Plottable,
     starting_nodes = nodes if nodes is not None else g2._nodes
 
     if g2._edge is None:
-        if 'index' in g2._edges.columns:
-            raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
-        edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges).reset_index()
-        EDGE_ID = 'index'
-        # Defensive check: ensure 'index' column exists after reset_index()
-        if EDGE_ID not in edges_indexed.columns:
-            # Fallback: if reset_index() didn't create 'index' column, use range index
-            edges_indexed = edges_indexed.reset_index(drop=False)
-            if 'index' not in edges_indexed.columns:
-                # Last resort: create a range index column manually
-                edges_indexed['index'] = range(len(edges_indexed))
+        # Get the pre-filtered edges
+        pre_indexed_edges = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
+
+        # Generate a guaranteed unique internal column name to avoid conflicts with user data
+        GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
+
+        # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
+        edges_indexed = pre_indexed_edges.reset_index(drop=False)
+        # Find the index column (it will be the first column that wasn't in original columns)
+        index_col_name = [col for col in edges_indexed.columns if col not in pre_indexed_edges.columns][0]
+        edges_indexed = edges_indexed.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+        EDGE_ID = GFQL_EDGE_INDEX
     else:
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
         EDGE_ID = g2._edge
         # Defensive check: ensure edge binding column exists
         if EDGE_ID not in edges_indexed.columns:
-            # If the edge binding column is missing, try to recover
-            if EDGE_ID == 'index':
-                # If looking for 'index' but it's missing, create it
-                edges_indexed = edges_indexed.reset_index(drop=False)
-                if 'index' not in edges_indexed.columns:
-                    edges_indexed['index'] = range(len(edges_indexed))
-            else:
-                raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
+            raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
 
     if g2._node is None:
         raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')

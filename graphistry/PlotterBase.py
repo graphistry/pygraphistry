@@ -219,6 +219,11 @@ class PlotterBase(Plottable):
         self._dbscan_nodes = None  # fit model
         self._dbscan_edges = None  # fit model
 
+        # Collapse operation internal column names (generated dynamically)
+        self._collapse_node_col: Optional[str] = None
+        self._collapse_src_col: Optional[str] = None
+        self._collapse_dst_col: Optional[str] = None
+
         self._adjacency = None
         self._entity_to_index: Optional[Dict] = None
         self._index_to_entity: Optional[Dict] = None

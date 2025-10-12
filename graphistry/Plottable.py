@@ -136,6 +136,11 @@ class Plottable(Protocol):
     _dbscan_nodes: Optional[Any]  # fit model
     _dbscan_edges: Optional[Any]  # fit model
 
+    # Collapse operation internal column names (generated dynamically)
+    _collapse_node_col: Optional[str]
+    _collapse_src_col: Optional[str]
+    _collapse_dst_col: Optional[str]
+
     _adjacency : Optional[Any]
     _entity_to_index : Optional[Dict]
     _index_to_entity : Optional[Dict]
