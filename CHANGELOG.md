@@ -12,9 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Case-insensitive matching**: Added `case` parameter (default `True`) to `startswith()` and `endswith()` predicates
   * **Tuple pattern matching**: Added tuple pattern support to `startswith()` and `endswith()` - enables OR logic: `startswith(('test', 'prod'))` matches either pattern
   * **Full-string matching**: Added `fullmatch(pat, case=True, flags=0, na=None)` predicate for exact pattern validation (emails, IDs, formats)
-  * Supports case-insensitive matching in both pandas and cuDF backends
+  * Supports case-insensitive matching with tuple patterns - `endswith(('.txt', '.csv'), case=False)`
+  * Supports all parameter combinations: tuple + case + na
+  * Works in both pandas and cuDF backends with workarounds for missing native support
   * `fullmatch()` uses `match('^...$')` workaround for cuDF compatibility (cuDF lacks native fullmatch)
-  * Works with all parameter combinations (case, na, tuple patterns)
   * Follows existing pattern from `contains()` and `match()` predicates
   * Updated documentation (language spec, quick reference, docstrings)
   * 67 CPU tests passing (33 pandas + 34 cuDF tests when GPU available)

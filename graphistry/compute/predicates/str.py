@@ -1,12 +1,18 @@
-from typing import Any, Optional
-import pandas as pd
+from typing import Optional, Union
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
 class Contains(ASTPredicate):
-    def __init__(self, pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None, regex: bool = True) -> None:
+    def __init__(
+        self,
+        pat: str,
+        case: bool = True,
+        flags: int = 0,
+        na: Optional[bool] = None,
+        regex: bool = True
+    ) -> None:
         self.pat = pat
         self.case = case
         self.flags = flags
@@ -16,26 +22,46 @@ class Contains(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
-        # workaround cuDF not supporting 'case' and 'na' parameters https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.contains/
+        # workaround cuDF not supporting 'case' and 'na' parameters
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.contains/
         if is_cudf:
             if not self.case:
                 s_modified = s.str.lower()
-                pat_modified = self.pat.lower() if isinstance(self.pat, str) else self.pat
-                result = s_modified.str.contains(pat_modified, regex=self.regex, flags=self.flags)
+                pat_modified = (
+                    self.pat.lower()
+                    if isinstance(self.pat, str)
+                    else self.pat
+                )
+                result = s_modified.str.contains(
+                    pat_modified,
+                    regex=self.regex,
+                    flags=self.flags
+                )
             else:
-                result = s.str.contains(self.pat, regex=self.regex, flags=self.flags)
+                result = s.str.contains(
+                    self.pat,
+                    regex=self.regex,
+                    flags=self.flags
+                )
 
             if self.na is not None and isinstance(self.na, bool):
                 result = result.fillna(self.na)
 
             return result
         else:
-            return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
+            return s.str.contains(
+                self.pat,
+                self.case,
+                self.flags,
+                self.na,
+                self.regex
+            )
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
+
         if not isinstance(self.pat, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -43,7 +69,7 @@ class Contains(ASTPredicate):
                 field="pat",
                 value=type(self.pat).__name__
             )
-        
+
         if not isinstance(self.case, bool):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -51,7 +77,7 @@ class Contains(ASTPredicate):
                 field="case",
                 value=type(self.case).__name__
             )
-        
+
         if not isinstance(self.flags, int):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -59,7 +85,7 @@ class Contains(ASTPredicate):
                 field="flags",
                 value=type(self.flags).__name__
             )
-        
+
         if not isinstance(self.na, (bool, type(None))):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -67,7 +93,7 @@ class Contains(ASTPredicate):
                 field="na",
                 value=type(self.na).__name__
             )
-        
+
         if not isinstance(self.regex, bool):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -76,7 +102,14 @@ class Contains(ASTPredicate):
                 value=type(self.regex).__name__
             )
 
-def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None, regex: bool = True) -> Contains:
+
+def contains(
+    pat: str,
+    case: bool = True,
+    flags: int = 0,
+    na: Optional[bool] = None,
+    regex: bool = True
+) -> Contains:
     """
     Return whether a given pattern or regex is contained within a string
     """
@@ -84,7 +117,12 @@ def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = N
 
 
 class Startswith(ASTPredicate):
-    def __init__(self, pat: str, case: bool = True, na: Optional[bool] = None) -> None:
+    def __init__(
+        self,
+        pat: Union[str, tuple],
+        case: bool = True,
+        na: Optional[bool] = None
+    ) -> None:
         self.pat = pat
         self.case = case
         self.na = na
@@ -92,13 +130,21 @@ class Startswith(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
-        # workaround: pandas and cuDF don't support 'case' parameter for startswith
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.startswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.startswith.html
+        # workaround: pandas and cuDF don't support 'case' parameter
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.startswith/
+        # https://pandas.pydata.org/pandas-docs/stable/reference/api/
+        # pandas.Series.str.startswith.html
         if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
-            pat_modified = self.pat.lower()
+            # Handle both str and tuple patterns
+            if isinstance(self.pat, tuple):
+                pat_modified: Union[str, tuple] = tuple(
+                    p.lower() for p in self.pat
+                )
+            else:
+                pat_modified = self.pat.lower()
             result = s_modified.str.startswith(pat_modified)
         else:
             result = s.str.startswith(self.pat)
@@ -106,12 +152,18 @@ class Startswith(ASTPredicate):
         # Handle na parameter
         if is_cudf:
             # cuDF doesn't support na parameter, use fillna
-            return result.fillna(self.na) if self.na is not None else result
+            if self.na is not None:
+                return result.fillna(self.na)
+            else:
+                return result
         else:
-            # pandas supports na parameter but only for case-sensitive version
-            # Since we may have used str.lower(), we need to handle na with fillna
+            # pandas supports na parameter but only for case-sensitive
+            # Since we may have used str.lower(), handle na with fillna
             if not self.case:
-                return result.fillna(self.na) if self.na is not None else result
+                if self.na is not None:
+                    return result.fillna(self.na)
+                else:
+                    return result
             else:
                 return s.str.startswith(self.pat, self.na)
 
@@ -119,13 +171,24 @@ class Startswith(ASTPredicate):
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
-        if not isinstance(self.pat, str):
+        if not isinstance(self.pat, (str, tuple)):
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "pat must be string",
+                "pat must be string or tuple of strings",
                 field="pat",
                 value=type(self.pat).__name__
             )
+
+        # If tuple, validate all elements are strings
+        if isinstance(self.pat, tuple):
+            for i, p in enumerate(self.pat):
+                if not isinstance(p, str):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"pat tuple element {i} must be string",
+                        field="pat",
+                        value=type(p).__name__
+                    )
 
         if not isinstance(self.case, bool):
             raise GFQLTypeError(
@@ -143,12 +206,20 @@ class Startswith(ASTPredicate):
                 value=type(self.na).__name__
             )
 
-def startswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Startswith:
+
+def startswith(
+    pat: Union[str, tuple],
+    case: bool = True,
+    na: Optional[bool] = None
+) -> Startswith:
     """
-    Return whether a given pattern is at the start of a string
+    Return whether a given pattern or tuple of patterns is at the
+    start of a string
 
     Args:
-        pat: Pattern to match at start of string
+        pat: Pattern (str) or tuple of patterns to match at start of
+             string. When tuple, returns True if string starts with ANY
+             pattern (OR logic)
         case: If True, case-sensitive matching (default: True)
         na: Fill value for missing values (default: None)
 
@@ -156,15 +227,25 @@ def startswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Starts
         Startswith predicate
 
     Examples:
-        >>> # Case-sensitive (default)
+        >>> # Single pattern, case-sensitive (default)
         >>> n({"name": startswith("John")})
-        >>> # Case-insensitive
+        >>> # Single pattern, case-insensitive
         >>> n({"name": startswith("john", case=False)})
+        >>> # Multiple patterns (OR logic)
+        >>> n({"filename": startswith(("test_", "demo_"))})
+        >>> # Multiple patterns, case-insensitive
+        >>> n({"filename": startswith(("TEST", "DEMO"), case=False)})
     """
     return Startswith(pat, case, na)
 
+
 class Endswith(ASTPredicate):
-    def __init__(self, pat: str, case: bool = True, na: Optional[bool] = None) -> None:
+    def __init__(
+        self,
+        pat: Union[str, tuple],
+        case: bool = True,
+        na: Optional[bool] = None
+    ) -> None:
         self.pat = pat
         self.case = case
         self.na = na
@@ -172,13 +253,21 @@ class Endswith(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
-        # workaround: pandas and cuDF don't support 'case' parameter for endswith
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.endswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.str.endswith.html
+        # workaround: pandas and cuDF don't support 'case' parameter
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.endswith/
+        # https://pandas.pydata.org/pandas-docs/stable/reference/api/
+        # pandas.Series.str.endswith.html
         if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
-            pat_modified = self.pat.lower()
+            # Handle both str and tuple patterns
+            if isinstance(self.pat, tuple):
+                pat_modified: Union[str, tuple] = tuple(
+                    p.lower() for p in self.pat
+                )
+            else:
+                pat_modified = self.pat.lower()
             result = s_modified.str.endswith(pat_modified)
         else:
             result = s.str.endswith(self.pat)
@@ -186,12 +275,18 @@ class Endswith(ASTPredicate):
         # Handle na parameter
         if is_cudf:
             # cuDF doesn't support na parameter, use fillna
-            return result.fillna(self.na) if self.na is not None else result
+            if self.na is not None:
+                return result.fillna(self.na)
+            else:
+                return result
         else:
-            # pandas supports na parameter but only for case-sensitive version
-            # Since we may have used str.lower(), we need to handle na with fillna
+            # pandas supports na parameter but only for case-sensitive
+            # Since we may have used str.lower(), handle na with fillna
             if not self.case:
-                return result.fillna(self.na) if self.na is not None else result
+                if self.na is not None:
+                    return result.fillna(self.na)
+                else:
+                    return result
             else:
                 return s.str.endswith(self.pat, self.na)
 
@@ -199,13 +294,24 @@ class Endswith(ASTPredicate):
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
-        if not isinstance(self.pat, str):
+        if not isinstance(self.pat, (str, tuple)):
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "pat must be string",
+                "pat must be string or tuple of strings",
                 field="pat",
                 value=type(self.pat).__name__
             )
+
+        # If tuple, validate all elements are strings
+        if isinstance(self.pat, tuple):
+            for i, p in enumerate(self.pat):
+                if not isinstance(p, str):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"pat tuple element {i} must be string",
+                        field="pat",
+                        value=type(p).__name__
+                    )
 
         if not isinstance(self.case, bool):
             raise GFQLTypeError(
@@ -223,12 +329,20 @@ class Endswith(ASTPredicate):
                 value=type(self.na).__name__
             )
 
-def endswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Endswith:
+
+def endswith(
+    pat: Union[str, tuple],
+    case: bool = True,
+    na: Optional[bool] = None
+) -> Endswith:
     """
-    Return whether a given pattern is at the end of a string
+    Return whether a given pattern or tuple of patterns is at the
+    end of a string
 
     Args:
-        pat: Pattern to match at end of string
+        pat: Pattern (str) or tuple of patterns to match at end of
+             string. When tuple, returns True if string ends with ANY
+             pattern (OR logic)
         case: If True, case-sensitive matching (default: True)
         na: Fill value for missing values (default: None)
 
@@ -236,28 +350,45 @@ def endswith(pat: str, case: bool = True, na: Optional[bool] = None) -> Endswith
         Endswith predicate
 
     Examples:
-        >>> # Case-sensitive (default)
+        >>> # Single pattern, case-sensitive (default)
         >>> n({"email": endswith(".com")})
-        >>> # Case-insensitive
-        >>> n({"email": endswith(".com", case=False)})
+        >>> # Single pattern, case-insensitive
+        >>> n({"email": endswith(".COM", case=False)})
+        >>> # Multiple patterns (OR logic)
+        >>> n({"filename": endswith((".txt", ".csv"))})
+        >>> # Multiple patterns, case-insensitive
+        >>> n({"filename": endswith((".TXT", ".CSV"), case=False)})
     """
     return Endswith(pat, case, na)
 
+
 class Match(ASTPredicate):
-    def __init__(self, pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> None:
+    def __init__(
+        self,
+        pat: str,
+        case: bool = True,
+        flags: int = 0,
+        na: Optional[bool] = None
+    ) -> None:
         self.pat = pat
         self.case = case
         self.flags = flags
         self.na = na
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        # workaround cuDF not supporting 'case' and 'na' parameters https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/cudf.core.accessors.string.stringmethods.match/
+        # workaround cuDF not supporting 'case' and 'na' parameters
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.match/
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
         if is_cudf:
             if not self.case:
                 s_modified = s.str.lower()
-                pat_modified = self.pat.lower() if isinstance(self.pat, str) else self.pat
+                pat_modified = (
+                    self.pat.lower()
+                    if isinstance(self.pat, str)
+                    else self.pat
+                )
                 result = s_modified.str.match(pat_modified, flags=self.flags)
             else:
                 result = s.str.match(self.pat, flags=self.flags)
@@ -272,7 +403,7 @@ class Match(ASTPredicate):
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
+
         if not isinstance(self.pat, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -280,7 +411,7 @@ class Match(ASTPredicate):
                 field="pat",
                 value=type(self.pat).__name__
             )
-        
+
         if not isinstance(self.case, bool):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -288,7 +419,7 @@ class Match(ASTPredicate):
                 field="case",
                 value=type(self.case).__name__
             )
-        
+
         if not isinstance(self.flags, int):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -296,7 +427,7 @@ class Match(ASTPredicate):
                 field="flags",
                 value=type(self.flags).__name__
             )
-        
+
         if not isinstance(self.na, (bool, type(None))):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -305,14 +436,27 @@ class Match(ASTPredicate):
                 value=type(self.na).__name__
             )
 
-def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Match:
+
+def match(
+    pat: str,
+    case: bool = True,
+    flags: int = 0,
+    na: Optional[bool] = None
+) -> Match:
     """
     Return whether a given pattern is at the start of a string
     """
     return Match(pat, case, flags, na)
 
+
 class Fullmatch(ASTPredicate):
-    def __init__(self, pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> None:
+    def __init__(
+        self,
+        pat: str,
+        case: bool = True,
+        flags: int = 0,
+        na: Optional[bool] = None
+    ) -> None:
         self.pat = pat
         self.case = case
         self.flags = flags
@@ -322,13 +466,17 @@ class Fullmatch(ASTPredicate):
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
         if is_cudf:
-            # cuDF doesn't have fullmatch, use match() with anchors as workaround
-            # fullmatch('abc') is equivalent to match('^abc$')
+            # cuDF doesn't have fullmatch, use match() with anchors as
+            # workaround. fullmatch('abc') is equivalent to match('^abc$')
             anchored_pat = f'^{self.pat}$'
 
             if not self.case:
                 s_modified = s.str.lower()
-                pat_modified = anchored_pat.lower() if isinstance(anchored_pat, str) else anchored_pat
+                pat_modified = (
+                    anchored_pat.lower()
+                    if isinstance(anchored_pat, str)
+                    else anchored_pat
+                )
                 result = s_modified.str.match(pat_modified, flags=self.flags)
             else:
                 result = s.str.match(anchored_pat, flags=self.flags)
@@ -377,7 +525,13 @@ class Fullmatch(ASTPredicate):
                 value=type(self.na).__name__
             )
 
-def fullmatch(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Fullmatch:
+
+def fullmatch(
+    pat: str,
+    case: bool = True,
+    flags: int = 0,
+    na: Optional[bool] = None
+) -> Fullmatch:
     """
     Return whether a given pattern matches the entire string
 
@@ -407,21 +561,25 @@ def fullmatch(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = 
     """
     return Fullmatch(pat, case, flags, na)
 
+
 class IsNumeric(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isnumeric()
-    
+
+
 def isnumeric() -> IsNumeric:
     """
     Return whether a given string is numeric
     """
     return IsNumeric()
 
+
 class IsAlpha(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalpha()
+
 
 def isalpha() -> IsAlpha:
     """
@@ -429,10 +587,12 @@ def isalpha() -> IsAlpha:
     """
     return IsAlpha()
 
+
 class IsDigit(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdigit()
+
 
 def isdigit() -> IsDigit:
     """
@@ -440,10 +600,12 @@ def isdigit() -> IsDigit:
     """
     return IsDigit()
 
+
 class IsLower(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.islower()
+
 
 def islower() -> IsLower:
     """
@@ -451,10 +613,12 @@ def islower() -> IsLower:
     """
     return IsLower()
 
+
 class IsUpper(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isupper()
+
 
 def isupper() -> IsUpper:
     """
@@ -462,32 +626,38 @@ def isupper() -> IsUpper:
     """
     return IsUpper()
 
+
 class IsSpace(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isspace()
-    
+
+
 def isspace() -> IsSpace:
     """
     Return whether a given string is whitespace
     """
     return IsSpace()
 
+
 class IsAlnum(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalnum()
-    
+
+
 def isalnum() -> IsAlnum:
     """
     Return whether a given string is alphanumeric
     """
     return IsAlnum()
 
+
 class IsDecimal(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdecimal()
+
 
 def isdecimal() -> IsDecimal:
     """
@@ -495,10 +665,12 @@ def isdecimal() -> IsDecimal:
     """
     return IsDecimal()
 
+
 class IsTitle(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.istitle()
+
 
 def istitle() -> IsTitle:
     """
@@ -506,10 +678,12 @@ def istitle() -> IsTitle:
     """
     return IsTitle()
 
+
 class IsNull(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.isnull()
+
 
 def isnull() -> IsNull:
     """
@@ -517,10 +691,12 @@ def isnull() -> IsNull:
     """
     return IsNull()
 
+
 class NotNull(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         return s.notnull()
+
 
 def notnull() -> NotNull:
     """
