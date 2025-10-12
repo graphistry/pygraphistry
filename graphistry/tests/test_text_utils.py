@@ -96,6 +96,69 @@ class TestTextSearch(unittest.TestCase):
         res = self.g_with_target.search_graph('DNS setup', thresh=100)
         assert not res._nodes.empty, 'search_graph with target columns should return results'
 
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_search_with_multiple_target_columns(self):
+        """Test search with multiple target columns (edge case for #629)"""
+        g = graphistry.nodes(ndf_reddit)
+        # Use multiple target columns
+        g_multi = g.umap(X=['title'], y=['label', 'type'], use_ngrams=True, min_words=0)
+
+        # Should not raise AssertionError about ydf
+        try:
+            res_df, query_vec = g_multi.search('DNS', fuzzy=True, thresh=100, top_n=10)
+            assert isinstance(res_df, pd.DataFrame), 'search should return DataFrame'
+        except AssertionError as e:
+            if 'ydf' in str(e) or 'transform data' in str(e):
+                pytest.fail(f"Issue #629 regression with multiple targets: {e}")
+            raise
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_search_with_no_target_columns(self):
+        """Test search without target columns (baseline case)"""
+        g = graphistry.nodes(ndf_reddit)
+        # No y parameter
+        g_no_target = g.umap(X=['title'], use_ngrams=True, min_words=0)
+
+        res_df, query_vec = g_no_target.search('DNS', fuzzy=True, thresh=100, top_n=10)
+        assert isinstance(res_df, pd.DataFrame), 'search should return DataFrame'
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_search_with_featurize_and_target(self):
+        """Test search with featurize() instead of umap() (edge case for #629)"""
+        g = graphistry.nodes(edge_df, 'src').edges(edge_df, 'src', 'dst')
+        # featurize with target columns
+        g_feat = g.featurize(X=['textual'], y=['emoji'], use_ngrams=True, min_words=0)
+
+        # Should not raise AssertionError about ydf
+        try:
+            res_df, query_vec = g_feat.search('wife', fuzzy=True, thresh=100, top_n=10)
+            assert isinstance(res_df, pd.DataFrame), 'search should return DataFrame'
+        except AssertionError as e:
+            if 'ydf' in str(e) or 'transform data' in str(e):
+                pytest.fail(f"Issue #629 regression with featurize(): {e}")
+            raise
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_search_with_empty_results(self):
+        """Test search that returns no results (edge case)"""
+        g = graphistry.nodes(ndf_reddit)
+        g_with_y = g.umap(X=['title'], y=['label'], use_ngrams=True, min_words=0)
+
+        # Query that likely returns empty results
+        res_df, query_vec = g_with_y.search('xyzabc123impossible', fuzzy=True, thresh=0.001, top_n=10)
+        assert isinstance(res_df, pd.DataFrame), 'search should return DataFrame even if empty'
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_search_non_fuzzy_with_target(self):
+        """Test non-fuzzy search with target columns (different code path)"""
+        g = graphistry.nodes(ndf_reddit)
+        g_with_y = g.umap(X=['title'], y=['label'], use_ngrams=True, min_words=0)
+
+        # Non-fuzzy search uses different code path (no transform call)
+        res_df, query_vec = g_with_y.search('DNS', fuzzy=False, cols=['title'], top_n=10)
+        assert isinstance(res_df, pd.DataFrame), 'non-fuzzy search should return DataFrame'
+        assert query_vec is None, 'non-fuzzy search should return None for query_vec'
+
 
 if __name__ == "__main__":
     unittest.main()
