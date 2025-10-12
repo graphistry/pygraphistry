@@ -9,6 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
+* ai: Compact CONVENTIONAL_COMMITS guide and enforce PLAN.md usage (3e537db)
+* ai: Streamline PLAN.md template with phases, timestamps, and linear structure (1a85e6e)
 
 ## [0.44.0 - 2025-10-11]
 

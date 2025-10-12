@@ -12,9 +12,9 @@
      2. Delete this entire meta section
      3. Replace all [placeholders] with actual values
      4. Make sure the context sections are filled out completely
-     5. Start with Step 1 marked as 🔄 IN_PROGRESS
-     
-     Key principle: There is EXACTLY ONE area that gets updated - the Steps section.
+     5. Start with Phase 1.A marked as 🔄 IN_PROGRESS
+
+     Key principle: There is EXACTLY ONE area that gets updated - the Phases section.
      Everything else is static context that never changes.
      
      ═══════════════════════════════════════════════════════════════════════════ -->
@@ -39,24 +39,12 @@
 
 **REMEMBER**: External memory is unreliable. This plan is your ONLY memory.
 
-## CRITICAL: NEVER LEAVE THIS PLAN
-**YOU WILL FAIL IF YOU DON'T FOLLOW THIS PLAN EXACTLY**
+## Execution Protocol
 
-### Anti-Drift Protocol - READ THIS EVERY TIME
-**THIS PLAN IS YOUR ONLY MEMORY. TREAT IT AS SACRED.**
-
-### The Three Commandments:
-1. **RELOAD BEFORE EVERY ACTION**: Your memory has been wiped. This plan is all you have.
-2. **UPDATE AFTER EVERY ACTION**: If you don't write it down, it never happened.
-3. **TRUST ONLY THE PLAN**: Not your memory, not your assumptions, ONLY what's written here.
-
-### Step Execution Protocol - MANDATORY
-**BEFORE EVERY SINGLE ACTION:**
-1. **RELOAD PLAN**: Read this file completely
-2. **FIND YOUR TASK**: Locate the current 🔄 IN_PROGRESS step
-3. **EXECUTE**: ONLY do what that step says
-4. **UPDATE IMMEDIATELY**: Record results before anything else
-5. **MARK STATUS**: Update step status (✅, ❌, etc.)
+**Before each action:**
+1. Reload plan → Find 🔄 IN_PROGRESS phase → Execute only that phase → Update result → Mark status
+2. If not in plan: STOP → Add phase → Save → Then execute
+3. Trust only what's written here
 
 ## Context (READ-ONLY - Fill at Creation)
 
@@ -69,9 +57,15 @@
 ### Success Criteria
 [How we know when the task is complete]
 
+### Related Plans (if applicable)
+**Previous Plans**: [Link to prior plan files if continuing work or referencing history]
+- `plans/[previous_task]/plan.md` - [Brief summary with key entities/terms]
+
 ### Git Strategy (if applicable)
 **Branch Strategy**: [How branches will be organized]
-**Merge Order**: [If multiple PRs, what order]
+**PR/Branch Stack**: [If stacked PRs, list order: PR#123 (branch-1) → PR#124 (branch-2)]
+**Merge Order**: [Order to merge if multiple PRs]
+**Note**: Track branch/PR per phase as they may change (e.g., rebase flows)
 
 ## Status Legend
 - 📝 **TODO**: Not started
@@ -83,21 +77,27 @@
 
 ## Quick Reference
 
-### Key Commands
+### Key Commands (Waterfall Order)
 ```bash
-# Project validation (PyGraphistry)
+# 1. Tests first (catch functional issues early)
+WITH_BUILD=0 WITH_LINT=0 WITH_TYPECHECK=0 ./test-cpu-local.sh graphistry/tests/test_file.py
+pytest graphistry/tests/ -xvs
+
+# 2. Then types (catch type issues before style)
+./bin/mypy.sh
+mypy graphistry/
+
+# 3. Finally linting (style last)
+./bin/lint.sh
+ruff check graphistry/ --fix
+
+# Full validation (PyGraphistry)
 cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 WITH_BUILD=0 ./test-cpu-local-minimal.sh
 
-# Type checking and linting
-./bin/lint.sh
-./bin/mypy.sh
-mypy graphistry/
-ruff check graphistry/ --fix
-
-# Testing
-WITH_BUILD=0 WITH_LINT=0 WITH_TYPECHECK=0 ./test-cpu-local.sh graphistry/tests/test_file.py
-pytest graphistry/tests/ -xvs
+# Docs (typically don't use, run at end if needed)
+./docs/html.sh        # Build docs
+./docs/ci.sh          # Full validation
 
 # Git operations
 git status
@@ -109,62 +109,62 @@ git log --oneline -n 10
 - Source: `graphistry/`
 - Tests: `graphistry/tests/`
 - Docs: `docs/`
-- Plans: `plans/`
+- Plans: `plans/` (gitignored - safe for auxiliary files, temp secrets, working data)
 - AI prompts: `ai/prompts/`
 - AI docs: `ai/docs/`
 
-### SECURITY: Credential Storage
-**NEVER save secrets to version-controlled directories!**
+### Security & Working Files
 
-**What counts as secrets:**
-- API keys and tokens
-- Passwords
-- Server URLs/hostnames
-- Organization names
-- Any customer-specific identifiers
+**plans/ is gitignored - safe for:**
+- Auxiliary working files
+- Temporary secrets (NEVER commit secrets anywhere else)
+- Scratch data, test outputs, etc.
 
-**Safe locations:**
-- ✅ **SAFE**: `plans/` and `tmp/` (gitignored)
-- ✅ **SAFE**: `.env` files in project root (gitignored)
-- ❌ **UNSAFE**: Any other directory (graphistry/, tests/, docs/, scripts/, etc.)
-
-**Always use .env files for secrets:**
+**Store secrets in plans/ as .env files:**
 ```bash
-# Create secrets in tmp/ or plans/
-echo "export GRAPHISTRY_API_KEY='secret'" > tmp/.env.local
-echo "export GRAPHISTRY_SERVER='https://hub.graphistry.com'" >> tmp/.env.local
-echo "export GRAPHISTRY_ORG='org-name'" >> tmp/.env.local
-# Source when needed
-source tmp/.env.local
+echo "export GRAPHISTRY_API_KEY='secret'" > plans/[task]/.env
+echo "export GRAPHISTRY_SERVER='https://hub.graphistry.com'" >> plans/[task]/.env
+source plans/[task]/.env
 ```
 
-## Step Protocol
+**For commits:** See [ai/prompts/CONVENTIONAL_COMMITS.md](CONVENTIONAL_COMMITS.md)
+
+## Phase Protocol
 
 ### RULES:
-- Only update the current 🔄 IN_PROGRESS step
-- Each step should be atomic and verifiable
+- Only update the current 🔄 IN_PROGRESS phase
+- Each phase should be atomic and verifiable
 - Include ALL context in results (commands, output, errors)
-- When adding new steps: Stop, add the step, save, then execute
+- When adding new phases: Stop, add the phase, save, then execute
 
-### NEW STEPS
+### NEW PHASES
 If you need to do something not in the plan:
 1. STOP - Do not execute
-2. ADD THE STEP - With clear description and success criteria
+2. ADD THE PHASE - With clear description and success criteria
 3. Mark as 🔄 IN_PROGRESS
 4. SAVE THE PLAN
 5. THEN EXECUTE
 
-### STEP COMPACTION
-Every ~20 completed steps:
-1. Move old steps to `## Archived Steps` section
-2. Keep summary of what was accomplished
-3. Continue with fresh step numbers
+### PHASE COMPACTION
+Every ~20 completed phases:
+1. Create inline summary at top of `## Phases` section with key accomplishments/decisions
+2. Remove completed phase details from `## Phases` section
+3. Continue with fresh phase numbers
+4. Plan remains linear - no jumping to separate archived section
 
-## Steps
+## Phases
 
-### Step 1: [Title]
+### Completed Phase Summary (if compacted)
+**Phases 1.A - 20.Z Summary**: [Brief summary of what was accomplished, key decisions, important results]
+
+### Phase 1.A: [Title]
 **Status:** 📝 TODO
-**Description:** [What this step accomplishes]
+**Branch:** [branch name]
+**PR:** [#number or N/A]
+**Issues:** [#number, #number or N/A]
+**Started:** [YYYY-MM-DD HH:MM:SS]
+**Completed:** [YYYY-MM-DD HH:MM:SS]
+**Description:** [What this phase accomplishes]
 **Actions:**
 ```bash
 # Specific commands to run
@@ -172,9 +172,14 @@ Every ~20 completed steps:
 **Success Criteria:** [How to verify completion]
 **Result:** [To be filled when complete]
 
-### Step 2: [Title]
+### Phase 1.B: [Title]
 **Status:** 📝 TODO
-**Description:** [What this step accomplishes]
+**Branch:** [branch name]
+**PR:** [#number or N/A]
+**Issues:** [#number, #number or N/A]
+**Started:** [YYYY-MM-DD HH:MM:SS]
+**Completed:** [YYYY-MM-DD HH:MM:SS]
+**Description:** [What this phase accomplishes]
 **Actions:**
 ```bash
 # Specific commands to run
@@ -183,7 +188,7 @@ Every ~20 completed steps:
 **Result:** [To be filled when complete]
 
 ## Context Preservation
-<!-- Update ONLY when directed by a step -->
+<!-- Update ONLY when directed by a phase -->
 
 ### Key Decisions Made
 - [Decision]: [Reasoning]
@@ -197,8 +202,6 @@ Every ~20 completed steps:
 [command that worked]
 ```
 
-## Archived Steps
-<!-- Move completed steps here when plan gets too long -->
 
 ---
 *Plan created: [date]*
