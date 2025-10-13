@@ -63,15 +63,18 @@ def assert_imported_cuml():
 
 
 def is_legacy_cuml():
-    try:
-        import cuml
+    # Use lazy import to handle broken cuML installations gracefully
+    has_cuml, _, cuml = lazy_cuml_import()
+    if not has_cuml:
+        return False
 
+    try:
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
         else:
             return False
-    except (ModuleNotFoundError, ImportError):
+    except Exception:
         return False
 
 
@@ -261,6 +264,8 @@ class UMAPMixin(MIXIN_BASE):
         from graphistry.models.ModelDict import ModelDict
 
         engine_resolved = resolve_umap_engine(engine)
+        original_engine_resolved = engine_resolved  # Track if we fall back
+
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
             has_umap, umap_msg, umap_engine = lazy_umap_import()
@@ -287,7 +292,7 @@ class UMAPMixin(MIXIN_BASE):
                     **umap_kwargs
                 }
             )
-        
+
         if (
             getattr(res, '_umap_params', None) == umap_params
             and getattr(res, '_umap_fit_kwargs', None) == umap_fit_kwargs
@@ -295,7 +300,7 @@ class UMAPMixin(MIXIN_BASE):
         ):
             logger.debug('Same umap params as last time, skipping new init')
             return res
-        
+
         logger.debug('lazy init')
         # set new umap kwargs
         res._umap_engine = engine_resolved
@@ -312,10 +317,49 @@ class UMAPMixin(MIXIN_BASE):
         res._local_connectivity = local_connectivity
         res._repulsion_strength = repulsion_strength
         res._negative_sample_rate = negative_sample_rate
-        res._umap = umap_engine.UMAP(**umap_params)
-        logger.debug('Initialized UMAP with params: %s', umap_params)
+
+        # Try to initialize UMAP with selected engine
+        # If cuML fails with runtime errors (e.g., broken RMM library), fall back to umap_learn
+        try:
+            res._umap = umap_engine.UMAP(**umap_params)
+            logger.debug('Initialized UMAP with params: %s', umap_params)
+        except (ImportError, OSError, RuntimeError) as e:
+            # cuML may fail at runtime even if import succeeds (e.g., broken RMM dependencies)
+            if engine_resolved == CUML and engine == 'auto':
+                logger.warning(
+                    "cuML UMAP initialization failed (likely broken GPU libraries): %s. "
+                    "Falling back to umap_learn (CPU mode).", str(e)
+                )
+                # Fall back to umap_learn for 'auto' mode
+                has_umap, umap_msg, umap_engine = lazy_umap_import()
+                if not has_umap:
+                    raise ValueError(f"cuML failed and umap_learn fallback not available: {umap_msg}") from e
+
+                engine_resolved = UMAP_LEARN
+                # Update umap_params to include metric (required for umap_learn)
+                umap_params = ModelDict("UMAP Parameters",
+                    **{
+                        "n_neighbors": n_neighbors,
+                        "min_dist": min_dist,
+                        "spread": spread,
+                        "local_connectivity": local_connectivity,
+                        "repulsion_strength": repulsion_strength,
+                        "negative_sample_rate": negative_sample_rate,
+                        "n_components": n_components,
+                        "metric": metric,  # Required for umap_learn
+                        **umap_kwargs
+                    }
+                )
+                res._umap_engine = engine_resolved
+                res._umap_params = umap_params
+                res._umap = umap_engine.UMAP(**umap_params)
+                logger.info('Successfully fell back to umap_learn engine')
+            else:
+                # Explicit cuML request or umap_learn failed - raise the error
+                raise
+
         res._suffix = suffix
-                                                            
+
         return res
 
     #@safe_gpu_dataframes
