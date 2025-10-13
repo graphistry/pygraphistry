@@ -20,72 +20,15 @@ When adding or modifying GFQL predicates, operators are **cross-cutting** - they
 
 ## 0️⃣ Module Exports 🚨 CRITICAL
 
-**Purpose**: Make predicate accessible to users via `from graphistry import predicate`
+**🚨 WITHOUT THIS, PREDICATE IS UNUSABLE!** Tests pass importing directly from module file, but users get ImportError.
 
-**🚨 WITHOUT THIS STEP, THE PREDICATE IS UNUSABLE!** Tests pass because they import directly from the module file.
+**Add to 4 files** (pattern: `fullmatch, Fullmatch` after similar predicates):
+1. `graphistry/compute/__init__.py` - import from `.predicates.str` + add to `__all__` list
+2. `graphistry/__init__.py` - import from `graphistry.compute`
+3. `graphistry/compute/ast.py` - import from `.predicates.str`
+4. `docs/source/conf.py` - add `('py:class', 'graphistry.compute.predicates.str.Fullmatch')` to `nitpick_ignore`
 
-**File 1**: `graphistry/compute/__init__.py`
-```python
-# Import
-from .predicates.str import (
-    contains, Contains,
-    startswith, Startswith,
-    endswith, Endswith,
-    match, Match,
-    fullmatch, Fullmatch,  # ← Add here
-    ...
-)
-
-# __all__ list
-__all__ = [
-    ...
-    'contains', 'Contains', 'startswith', 'Startswith',
-    'endswith', 'Endswith', 'match', 'Match',
-    'fullmatch', 'Fullmatch',  # ← Add here
-    ...
-]
-```
-
-**File 2**: `graphistry/__init__.py`
-```python
-from graphistry.compute import (
-    n, e, ...,
-    contains, Contains,
-    startswith, Startswith,
-    endswith, Endswith,
-    match, Match,
-    fullmatch, Fullmatch,  # ← Add here
-    ...
-)
-```
-
-**File 3**: `graphistry/compute/ast.py`
-```python
-from .predicates.str import (
-    contains, Contains,
-    startswith, Startswith,
-    endswith, Endswith,
-    match, Match,
-    fullmatch, Fullmatch,  # ← Add here
-    ...
-)
-```
-
-**File 4**: `docs/source/conf.py` (nitpick_ignore for Sphinx)
-```python
-nitpick_ignore = [
-    ...
-    ('py:class', 'graphistry.compute.predicates.str.Match'),
-    ('py:class', 'graphistry.compute.predicates.str.Fullmatch'),  # ← Add here
-    ...
-]
-```
-
-**Test exports work**:
-```bash
-python -c "from graphistry import fullmatch; print('✅ OK')"
-python -c "from graphistry.compute import fullmatch; print('✅ OK')"
-```
+**Verify**: `python -c "from graphistry import fullmatch; print('✅')"`
 
 ---
 
@@ -303,28 +246,12 @@ def startswith(pat: Union[str, tuple], case: bool = True, na: Optional[bool] = N
 
 ## 🔍 Common Patterns
 
-| Pattern | Workaround | Code |
-|---------|-----------|------|
-| **Case-insensitive** | Lowercase both | `s_lower = s.str.lower(); result = s_lower.str.startswith(pat.lower())` |
-| **NA parameter** | cuDF lacks `na`, use fillna | `result = s.str.startswith(pat); return result.fillna(na) if na else result` |
+| Pattern | Workaround | Code Snippet |
+|---------|-----------|--------------|
+| **Case-insensitive** | Lowercase both | `s_work = s.str.lower() if not self.case else s; pat_work = pat.lower() if not self.case else pat` |
+| **NA parameter** | cuDF lacks `na`, use fillna | `result = s.str.startswith(pat); return result.fillna(self.na) if is_cudf and self.na else result` |
 | **Tuple patterns** | cuDF fails ([#20237](https://github.com/rapidsai/cudf/issues/20237)), manual OR | `results = [s.str.startswith(p) for p in pat]; result = results[0]; for r in results[1:]: result \|= r` |
 | **JSON tuples** | JSON→list, convert back | `self.pat = tuple(pat) if isinstance(pat, list) else pat` (in `__init__`) |
-
-**Full case/NA/tuple example**:
-```python
-def __call__(self, s: SeriesT) -> SeriesT:
-    is_cudf = 'cudf' in s.__module__
-    pat = self.pat.lower() if not self.case else self.pat
-    s_work = s.str.lower() if not self.case else s
-
-    if isinstance(self.pat, tuple):
-        results = [s_work.str.startswith(p) for p in pat]
-        result = results[0]; [result := result | r for r in results[1:]]
-    else:
-        result = s_work.str.startswith(pat)
-
-    return result.fillna(self.na) if is_cudf and self.na else result
-```
 
 ---
 
@@ -363,35 +290,14 @@ def __call__(self, s: SeriesT) -> SeriesT:
 
 ---
 
-## ✅ Verification Checklist
-
-After implementing a new predicate, verify:
+## ✅ Verification
 
 ```bash
-# 1. Tests pass (pandas + cuDF)
-./bin/pytest.sh graphistry/tests/compute/predicates/test_str.py -v
-
-# 2. Type checking passes
-./bin/mypy.sh graphistry/compute/predicates/str.py
-
-# 3. JSON serialization works
-python -c "
-from graphistry.compute.predicates.str import startswith
-from graphistry.compute.predicates.from_json import from_json
-
-pred = startswith(('a', 'b'), case=False, na=True)
-json = pred.to_json()
-restored = from_json(json)
-assert restored.pat == ('a', 'b')
-assert restored.case == False
-print('✅ JSON serialization OK')
-"
-
-# 4. Documentation builds
-./docs/validate-docs.sh docs/source/gfql/*.rst
-
-# 5. Full CI validation
-cd docker && WITH_BUILD=0 ./test-cpu-local.sh
+./bin/pytest.sh graphistry/tests/compute/predicates/test_str.py -v  # Tests pass
+./bin/mypy.sh graphistry/compute/predicates/str.py                   # Type checking
+python -c "from graphistry import fullmatch; print('✅ Import OK')"  # Exports work
+python -c "from ...from_json import from_json; pred = fullmatch('x'); assert from_json(pred.to_json()).pat == 'x'"  # JSON
+cd docker && WITH_BUILD=0 ./test-cpu-local.sh                        # Full CI
 ```
 
 ---
