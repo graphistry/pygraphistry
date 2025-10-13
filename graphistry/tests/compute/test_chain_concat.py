@@ -10,6 +10,7 @@ Related issues: #777
 import os
 import pytest
 import pandas as pd
+import graphistry
 
 from graphistry.compute.ast import n, e, call
 from graphistry.tests.test_compute import CGFull
@@ -64,7 +65,8 @@ class TestChainCombineSteps:
             'dst': ['b', 'c', 'd', 'e']
         })
 
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+        # Use graphistry.Plotter (not CGFull) since UMAP requires UMAPMixin
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Chain: Node filter → UMAP → Node filter
         # This is the pattern from issue #777
@@ -136,7 +138,8 @@ class TestChainCombineSteps:
             'dst': ['b', 'c', 'd', 'e']
         })
 
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+        # Use graphistry.Plotter (not CGFull) since UMAP requires UMAPMixin
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Verify we're starting with cuDF
         assert isinstance(g._nodes, cudf.DataFrame)
