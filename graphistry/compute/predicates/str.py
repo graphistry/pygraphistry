@@ -149,7 +149,12 @@ class Startswith(ASTPredicate):
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     import pandas as pd
-                    result = pd.Series([False] * len(s), dtype='bool', index=s.index)
+                    # Create False for all values
+                    result = pd.Series([False] * len(s), index=s.index)
+                    # Preserve NA values when na=None (default)
+                    if self.na is None:
+                        result = result.astype(object)
+                        result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
                     patterns_lower = tuple(p.lower() for p in self.pat)
@@ -162,7 +167,18 @@ class Startswith(ASTPredicate):
                 # cuDF - need manual OR logic
                 if len(self.pat) == 0:
                     import cudf
-                    result = cudf.Series([False] * len(s), dtype='bool', index=s.index)
+                    import pandas as pd
+                    # Create False for all values
+                    result = cudf.Series([False] * len(s), index=s.index)
+                    # Preserve NA values when na=None (default) - match pandas behavior
+                    if self.na is None:
+                        # cuDF bool dtype can't hold None, so check if we need object dtype
+                        has_na = s.isna().any()
+                        if has_na:
+                            # Convert to object dtype to preserve None values
+                            result_pd = result.to_pandas().astype(object)
+                            result_pd[s.to_pandas().isna()] = None
+                            result = cudf.from_pandas(result_pd)
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
@@ -308,7 +324,12 @@ class Endswith(ASTPredicate):
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     import pandas as pd
-                    result = pd.Series([False] * len(s), dtype='bool', index=s.index)
+                    # Create False for all values
+                    result = pd.Series([False] * len(s), index=s.index)
+                    # Preserve NA values when na=None (default)
+                    if self.na is None:
+                        result = result.astype(object)
+                        result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
                     patterns_lower = tuple(p.lower() for p in self.pat)
@@ -321,7 +342,18 @@ class Endswith(ASTPredicate):
                 # cuDF - need manual OR logic
                 if len(self.pat) == 0:
                     import cudf
-                    result = cudf.Series([False] * len(s), dtype='bool', index=s.index)
+                    import pandas as pd
+                    # Create False for all values
+                    result = cudf.Series([False] * len(s), index=s.index)
+                    # Preserve NA values when na=None (default) - match pandas behavior
+                    if self.na is None:
+                        # cuDF bool dtype can't hold None, so check if we need object dtype
+                        has_na = s.isna().any()
+                        if has_na:
+                            # Convert to object dtype to preserve None values
+                            result_pd = result.to_pandas().astype(object)
+                            result_pd[s.to_pandas().isna()] = None
+                            result = cudf.from_pandas(result_pd)
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
