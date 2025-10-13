@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.44.1 - 2025-10-13]
+
 ### Added
 * **GFQL: Enhanced string predicates** (#697, #774)
   * **Case-insensitive matching**: `startswith()` and `endswith()` now support `case` parameter - `startswith('test', case=False)`
