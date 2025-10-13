@@ -175,7 +175,7 @@ class Startswith(ASTPredicate):
                     # Preserve NA values when na=None (default) - match pandas behavior
                     if self.na is None:
                         # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na = s.isna().any()
+                        has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
                             result_pd = result.to_pandas().astype('object')
@@ -352,7 +352,7 @@ class Endswith(ASTPredicate):
                     # Preserve NA values when na=None (default) - match pandas behavior
                     if self.na is None:
                         # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na = s.isna().any()
+                        has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
                             result_pd = result.to_pandas().astype('object')
