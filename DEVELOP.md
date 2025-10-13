@@ -118,6 +118,8 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 1. Manually update CHANGELOG.md
 
+1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
+
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
 	```sh
@@ -129,4 +131,16 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
-1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
+1. Create GitHub Release with detailed release notes
+
+	```sh
+	gh release create X.Y.Z --title "vX.Y.Z - Brief Title" --notes "Release notes in markdown..."
+	```
+
+	Or create via GitHub UI: https://github.com/graphistry/pygraphistry/releases/new?tag=X.Y.Z
+
+	**Release notes should include:**
+	- Critical fixes and breaking changes (if any)
+	- Major features from current and recent versions
+	- Links to full CHANGELOG and installation instructions
+	- Highlight important API changes, new capabilities, and use cases
