@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate
 from graphistry.compute.predicates.str import (
-    Contains, Startswith, Endswith, Match,
+    Contains, Startswith, Endswith, Match, Fullmatch,
     IsNumeric, IsAlpha, IsDigit, IsLower, IsUpper,
     IsSpace, IsAlnum, IsDecimal, IsTitle
 )
@@ -434,7 +434,7 @@ def _validate_predicate_type(predicate: ASTPredicate, column: str,
 
     # Define string predicate types
     STRING_PREDICATES = (
-        Contains, Startswith, Endswith, Match,
+        Contains, Startswith, Endswith, Match, Fullmatch,
         IsNumeric, IsAlpha, IsDigit, IsLower, IsUpper,
         IsSpace, IsAlnum, IsDecimal, IsTitle
     )

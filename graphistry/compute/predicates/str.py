@@ -123,7 +123,8 @@ class Startswith(ASTPredicate):
         case: bool = True,
         na: Optional[bool] = None
     ) -> None:
-        self.pat = pat
+        # Convert list to tuple for JSON deserialization compatibility
+        self.pat = tuple(pat) if isinstance(pat, list) else pat
         self.case = case
         self.na = na
 
@@ -300,7 +301,8 @@ class Endswith(ASTPredicate):
         case: bool = True,
         na: Optional[bool] = None
     ) -> None:
-        self.pat = pat
+        # Convert list to tuple for JSON deserialization compatibility
+        self.pat = tuple(pat) if isinstance(pat, list) else pat
         self.case = case
         self.na = na
 

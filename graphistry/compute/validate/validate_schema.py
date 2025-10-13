@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
-from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match
+from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
 
 
 def validate_chain_schema(
@@ -188,7 +188,7 @@ def _validate_filter_dict(
                     else:
                         raise error
 
-                if isinstance(val, (Contains, Startswith, Endswith, Match)) and not pd.api.types.is_string_dtype(col_dtype):
+                if isinstance(val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not pd.api.types.is_string_dtype(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: string predicate used on non-string {context} column "{col}"',
