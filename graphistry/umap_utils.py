@@ -264,7 +264,6 @@ class UMAPMixin(MIXIN_BASE):
         from graphistry.models.ModelDict import ModelDict
 
         engine_resolved = resolve_umap_engine(engine)
-        original_engine_resolved = engine_resolved  # Track if we fall back
 
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
