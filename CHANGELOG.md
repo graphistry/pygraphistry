@@ -111,13 +111,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.43.2 - 2025-10-09]
 
 ### Breaking 🔥
-* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763) - **FIXED in Development**
-  * Added `*` marker in `hypergraph()` signature enforcing keyword-only arguments for all parameters except `g` and `raw_events`
+* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763) - **FIXED in version 0.44.1**
+  * Added `*` marker in `hypergraph()` signature forcing keyword-only arguments
   * **Old code breaks**: `hypergraph(g, df, ['cols'])` → Must use `hypergraph(g, df, entity_types=['cols'])`
-  * **Affects**: `entity_types`, `opts`, `drop_na`, `drop_edge_attrs`, `verbose`, `direct`, `engine`, `npartitions`, `chunksize`, `from_edges`, `return_as`, `debug`
-  * **Migration**: Add parameter names to all arguments: `entity_types=`, `drop_na=`, etc.
-  * This change improves API stability but breaks existing positional argument usage
-  * **RESOLVED**: Breaking change was eliminated in Development branch (#785) - backward compatibility restored with smart type detection
+  * **Migration**: Upgrade to version 0.44.1+ for backward compatibility restoration - no code changes needed
+  * **Note**: This breaking change only affected versions 0.43.2 - 0.44.0 (short-lived)
 
 ### Added
 * **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
