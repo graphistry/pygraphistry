@@ -1,5 +1,5 @@
 """
-Shared utility functions for GFQL compute operations.
+Generate safe column names that avoid conflicts with existing DataFrame columns.
 """
 
 
