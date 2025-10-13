@@ -356,30 +356,19 @@ IsIn covers **all 9 required steps** plus **3 required docs** and **7 optional d
 
 **Summary**: IsIn appears in **10 docs files** (3 required + 7 optional) because it's a foundational, frequently-used predicate. New predicates **must update the 3 required docs**, and may add optional docs based on criteria.
 
-### Comparison: PR #774 (startswith/endswith/fullmatch)
+### Example: startswith/endswith/fullmatch (mid-level predicates)
 
-**Initial PR (Steps 1-56)** - Updated 2 docs, missing wire_protocol.md:
-- ✅ `spec/language.md` - Added grammar rules for case-insensitive matching
-- ✅ `predicates/quick.rst` - Added operator table rows for all 3 predicates
-- ❌ `spec/wire_protocol.md` - **MISSING** - Should have added but didn't!
+**Updated 3 required docs only:**
+- ✅ `spec/language.md` - Grammar rules
+- ✅ `predicates/quick.rst` - Operator table rows
+- ✅ `spec/wire_protocol.md` - JSON format with all parameters
 
-**Step 58 Fix** - Added wire_protocol.md (now 3/3 required docs):
-- ✅ `spec/wire_protocol.md` - Added complete JSON format for:
-  - Fullmatch predicate
-  - case parameter (case-insensitive matching)
-  - Tuple patterns (OR logic)
-  - NA handling
-  - All default values documented
+**Did NOT update optional docs - why:**
+- `overview.rst` / `quick.rst` - Not common enough for tutorials yet
+- `wire_protocol_examples.md` - Spec sufficient, no special examples needed
+- `spec/cypher_mapping.md` - Already had startswith/endswith (Cypher `STARTS WITH`/`ENDS WITH`)
+- `translate.rst` / `about.rst` / `datetime_filtering.md` - Not applicable
 
-Optional docs we did NOT update (and why that's correct):
-- ❌ `overview.rst` - Not common enough patterns for tutorial examples (yet)
-- ❌ `quick.rst` - Not in quick start guide (these are mid-level predicates)
-- ❌ `wire_protocol_examples.md` - No additional JSON examples needed (spec is sufficient)
-- ✅ `spec/cypher_mapping.md` - startswith/endswith already present (added in PR #698) - map to Cypher `STARTS WITH`/`ENDS WITH`
-- ❌ `translate.rst` - No translation-specific guidance needed
-- ❌ `about.rst` - Not a headline feature (incremental enhancement)
-- ❌ `datetime_filtering.md` - Not temporal predicates
+**Takeaway**: Mid-level predicates → 3 required docs only. Foundational predicates like IsIn → 10 docs (3 required + 7 optional).
 
-**Conclusion**: PR #774 now correctly updates all 3 required docs. Initially missed wire_protocol.md because checklist was unclear about it being required.
-
-**Reference PRs**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)
+**Reference**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)
