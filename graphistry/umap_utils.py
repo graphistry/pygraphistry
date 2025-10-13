@@ -71,7 +71,7 @@ def is_legacy_cuml():
             return True
         else:
             return False
-    except ModuleNotFoundError:
+    except (ModuleNotFoundError, ImportError):
         return False
 
 

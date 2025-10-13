@@ -18,6 +18,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
+* **GFQL: Extend engine coercion to let() and call() operations** (#783)
+  * Fixed `gfql(ASTLet, engine='pandas'|'cudf')` and `call('umap', ...)` to honor engine parameter
+  * Schema-changing operations (UMAP, hypergraph) in let/call context now correctly coerce DataFrames
+  * Added `ensure_engine_match()` helper with graceful degradation for defensive type conversion
+  * Added 40 comprehensive tests (8 helper + 16 let + 14 call + 2 get_indegrees integration) covering pandas↔cuDF coercion
+  * **Root cause fixes**:
+    * `is_legacy_cuml()` now catches both `ModuleNotFoundError` and `ImportError` for robust cuML handling
+    * `CGFull` test fixture now includes `UMAPMixin` and `FeatureMixin` for proper UMAP support
+  * Solves `get_indegrees()` merge error when UMAP creates cuDF edges but nodes remain pandas
+  * Complements #777 (chain engine coercion) with consistent behavior across all GFQL operations
 * **GFQL: Fix column name conflicts with internal tracking columns** (#776)
   * Fixed `collapse(column='index')` and similar operations failing when user columns conflicted with GFQL internal columns
   * Auto-generates unique internal column names to avoid all collisions

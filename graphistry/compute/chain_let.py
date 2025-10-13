@@ -6,6 +6,7 @@ from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
 from .execution_context import ExecutionContext
+from .engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -709,6 +710,11 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
             raise policy_error
     elif error is not None:
         raise error
+
+    # Ensure output matches requested engine (defensive coercion)
+    # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
+    if result is not None:
+        result = ensure_engine_match(result, engine_concrete)
 
     # Cast: At this point, all error paths have been handled, so result is guaranteed to be a Plottable
     return cast(Plottable, result)
