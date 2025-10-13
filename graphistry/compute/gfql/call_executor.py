@@ -10,6 +10,7 @@ from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
@@ -129,6 +130,11 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 value=f"{type(result).__name__}",
                 suggestion="Only methods that return Plottable objects are allowed"
             )
+
+        # Ensure result matches requested engine (defensive coercion)
+        # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
+        if isinstance(result, Plottable):
+            result = ensure_engine_match(result, engine)
 
         # Mark as successful
         success = True

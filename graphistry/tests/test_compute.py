@@ -4,6 +4,8 @@ import os, pandas as pd, pytest, unittest
 from graphistry.compute import ComputeMixin
 from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
+from graphistry.umap_utils import UMAPMixin
+from graphistry.feature_utils import FeatureMixin
 
 
 class CG(ComputeMixin):
@@ -12,11 +14,13 @@ class CG(ComputeMixin):
         ComputeMixin.__init__(self, *args, **kwargs)
 
 
-class CGFull(ComputeMixin, PlotterBase, object):
+class CGFull(UMAPMixin, FeatureMixin, ComputeMixin, PlotterBase, object):
     def __init__(self, *args, **kwargs):
         print("CGFull init")
         super(CGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
+        FeatureMixin.__init__(self, *args, **kwargs)
+        UMAPMixin.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
 
 
