@@ -324,20 +324,30 @@ def hop(self: Plottable,
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
     logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
+    # Early validation: ensure bindings are not None
+    if g2._node is None:
+        raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
+
+    if g2._source is None or g2._destination is None:
+        raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
+
+    # Type narrowing assertions for mypy - these are guaranteed by the checks above
+    assert g2._source is not None, "Source binding checked above"
+    assert g2._destination is not None, "Destination binding checked above"
+
     # Check for column name conflicts
     node_src_conflict = g2._node == g2._source
     node_dst_conflict = g2._node == g2._destination
-    
+
     # Only generate temp names if there's a conflict
-    # We know g2._source and g2._destination are strings, but mypy doesn't
-    TEMP_SRC_COL = str(g2._source) if g2._source is not None else ""
-    TEMP_DST_COL = str(g2._destination) if g2._destination is not None else ""
-    
+    TEMP_SRC_COL = str(g2._source)
+    TEMP_DST_COL = str(g2._destination)
+
     if node_src_conflict:
         TEMP_SRC_COL = generate_safe_column_name(g2._source, g2._edges)
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('Node column conflicts with source column, using temp name: %s', TEMP_SRC_COL)
-    
+
     if node_dst_conflict:
         TEMP_DST_COL = generate_safe_column_name(g2._destination, g2._edges)
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -364,12 +374,6 @@ def hop(self: Plottable,
         # Defensive check: ensure edge binding column exists
         if EDGE_ID not in edges_indexed.columns:
             raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
-
-    if g2._node is None:
-        raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
-
-    if g2._source is None or g2._destination is None:
-        raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
 
     hops_remaining = hops
 

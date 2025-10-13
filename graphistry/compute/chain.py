@@ -462,6 +462,10 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     logger.debug('final chain >> %s', ops)
 
+    # Store original edge binding from self before any transformations
+    # This will be restored at the end if we add a temporary index column
+    original_edge = self._edge
+
     # Initialize variables for finally block
     g_out = None
     error = None
@@ -469,9 +473,6 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-
-        # Store original edge binding to restore it if we add temporary index
-        original_edge = g._edge
 
         # Handle node-only graphs (e.g., for hypergraph transformation)
         if g._edges is None:

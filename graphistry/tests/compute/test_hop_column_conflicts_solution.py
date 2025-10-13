@@ -3,7 +3,7 @@ import pytest
 from graphistry.tests.common import NoAuthTestCase
 
 from graphistry.tests.test_compute import CGFull
-from graphistry.compute.hop import generate_safe_column_name
+from graphistry.compute.util import generate_safe_column_name
 
 
 class TestHopColumnConflictsSolution(NoAuthTestCase):
@@ -15,18 +15,18 @@ class TestHopColumnConflictsSolution(NoAuthTestCase):
         df = pd.DataFrame({
             'a': [1, 2, 3],
             'b': [4, 5, 6],
-            '__temp_c_0__': [7, 8, 9]
+            '__gfql_c_0__': [7, 8, 9]
         })
-        
-        # Test generating a safe column name
+
+        # Test generating a safe column name (default prefix/suffix: __gfql_*__)
         safe_name = generate_safe_column_name('c', df)
-        assert safe_name == '__temp_c_1__'
-        
-        # Test with a column that already has temp names
-        df['__temp_a_0__'] = [10, 11, 12]
+        assert safe_name == '__gfql_c_1__'
+
+        # Test with a column that already has GFQL names
+        df['__gfql_a_0__'] = [10, 11, 12]
         safe_name = generate_safe_column_name('a', df)
-        assert safe_name == '__temp_a_1__'
-        
+        assert safe_name == '__gfql_a_1__'
+
         # Test with custom prefix and suffix
         safe_name = generate_safe_column_name('b', df, prefix="--", suffix="++")
         assert safe_name == '--b_0++'
