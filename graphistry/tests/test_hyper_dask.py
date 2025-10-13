@@ -2136,3 +2136,236 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 )
                 self.assertEqual(len(h["edges"]), 9)
                 self.assertEqual(len(h["nodes"]), 9)
+
+
+@pytest.mark.skipif(
+    not ("TEST_PANDAS" in os.environ and os.environ["TEST_PANDAS"] == "1"),
+    reason="pandas tests need TEST_PANDAS=1",
+)
+class TestHypergraphAPICompatibility(NoAuthTestCase):
+    """Test suite to verify backward compatibility of hypergraph() API calling conventions.
+
+    This test suite prevents regressions on the smart type detection feature that allows
+    three different calling forms:
+    1. Old positional API: hypergraph(g, df, ['cols'])
+    2. New convenience API: hypergraph(g, ['cols']) - auto-selects dataframe from graph
+    3. Keyword API: hypergraph(g, entity_types=['cols'])
+    """
+
+    def test_positional_api_with_dataframe_and_list(self):
+        """Test old positional API: hypergraph(g, df, ['cols'])
+
+        This was the original API before entity_types became optional.
+        DataFrame as 2nd arg, list as 3rd arg.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_convenience_api_with_list_only(self):
+        """Test new convenience API: hypergraph(g, ['cols'])
+
+        When only a list is passed as 2nd arg, it's treated as entity_types
+        and dataframe is auto-selected from graph._nodes or graph._edges.
+        """
+        g = PyGraphistry.bind().nodes(triangleNodes)
+
+        h = hypergraph(
+            g,
+            ["id", "a1", "🙈"],  # List as 2nd arg triggers convenience mode
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_entity_types(self):
+        """Test keyword API: hypergraph(g, entity_types=['cols'])
+
+        Explicit keyword argument for entity_types.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_raw_events_and_entity_types(self):
+        """Test explicit keyword API: hypergraph(g, raw_events=df, entity_types=['cols'])
+
+        Both raw_events and entity_types passed as keywords.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            raw_events=triangleNodes,
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_all_apis_produce_identical_results(self):
+        """Verify all three API forms produce identical results"""
+        # Old positional API
+        h1 = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            ["id", "a1"],
+            verbose=False,
+        )
+
+        # New convenience API
+        g = PyGraphistry.bind().nodes(triangleNodes)
+        h2 = hypergraph(
+            g,
+            ["id", "a1"],
+            verbose=False,
+        )
+
+        # Keyword API
+        h3 = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            entity_types=["id", "a1"],
+            verbose=False,
+        )
+
+        # All should produce identical structure sizes
+        for h in [h1, h2, h3]:
+            self.assertEqual(len(h.entities), 6)
+            self.assertEqual(len(h.nodes), 9)
+            self.assertEqual(len(h.edges), 6)
+            self.assertEqual(len(h.events), 3)
+
+
+@pytest.mark.skipif(
+    not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+    reason="cudf tests need TEST_CUDF=1",
+)
+class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
+    """GPU version of API compatibility tests using cuDF"""
+
+    def test_positional_api_with_dataframe_and_list(self):
+        """Test old positional API with cuDF: hypergraph(g, gdf, ['cols'])"""
+        import cudf
+
+        h = hypergraph(
+            PyGraphistry.bind(),
+            cudf.DataFrame.from_pandas(triangleNodes),
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_convenience_api_with_list_only(self):
+        """Test new convenience API with cuDF: hypergraph(g, ['cols'])"""
+        import cudf
+
+        g = PyGraphistry.bind().nodes(cudf.DataFrame.from_pandas(triangleNodes))
+
+        h = hypergraph(
+            g,
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_entity_types(self):
+        """Test keyword API with cuDF: hypergraph(g, entity_types=['cols'])"""
+        import cudf
+
+        h = hypergraph(
+            PyGraphistry.bind(),
+            cudf.DataFrame.from_pandas(triangleNodes),
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_all_apis_produce_identical_results(self):
+        """Verify all three API forms produce identical results with cuDF"""
+        import cudf
+
+        gdf = cudf.DataFrame.from_pandas(triangleNodes)
+
+        # Old positional API
+        h1 = hypergraph(
+            PyGraphistry.bind(),
+            gdf,
+            ["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # New convenience API
+        g = PyGraphistry.bind().nodes(gdf)
+        h2 = hypergraph(
+            g,
+            ["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # Keyword API
+        h3 = hypergraph(
+            PyGraphistry.bind(),
+            gdf,
+            entity_types=["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # All should produce identical structure sizes
+        for h in [h1, h2, h3]:
+            self.assertEqual(len(h.entities), 6)
+            self.assertEqual(len(h.nodes), 9)
+            self.assertEqual(len(h.edges), 6)
+            self.assertEqual(len(h.events), 3)
