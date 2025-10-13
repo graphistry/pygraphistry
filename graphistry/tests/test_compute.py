@@ -74,6 +74,24 @@ class TestComputeMixin(NoAuthTestCase):
         assert g._node == "id"
 
 
+    def test_materialize_empty_edges(self):
+        """Test materialize_nodes() with empty edges DataFrame.
+
+        This is an edge case where materialize_nodes() returns early without
+        setting _node binding, which is why validation checks in hop() are necessary.
+        """
+        cg = CGFull()
+        # Create graph with empty edges
+        g = cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        # materialize_nodes() should return early for empty edges
+        g2 = g.materialize_nodes()
+
+        # The critical assertion: _node should be None because materialize_nodes()
+        # returns early at ComputeMixin.py line 196 without calling .nodes()
+        assert g2._node is None, "Empty edges should leave _node as None"
+        assert g2._nodes is None or len(g2._nodes) == 0
+
     def test_degrees_in(self):
         cg = CGFull()
         g = cg.edges(
