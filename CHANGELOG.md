@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
+* **GFQL: Fix column name conflicts with internal tracking columns** (#776)
+  * Fixed `collapse(column='index')` and similar operations failing when user columns conflicted with GFQL internal columns
+  * Auto-generates unique internal column names to avoid all collisions
 * **GFQL Chain: Fix engine parameter to correctly convert DataFrames after schema-changing operations** (#777)
   * Fixed `chain(engine='pandas'|'cudf')` returning wrong DataFrame type after UMAP/hypergraph operations
   * Added comprehensive test coverage (19 tests for pandas↔cuDF coercion with UMAP)

@@ -522,3 +522,73 @@ def test_hop_pred_cudf():
     g_edges = g.hop(edge_match={'src': is_in([0])})
     assert isinstance(g_edges._edges, cudf.DataFrame)
     assert len(g_edges._edges) == 1
+
+
+def test_hop_none_edge_binding_internal_index():
+    """Test that hop() correctly handles graphs with no edge binding.
+
+    When g._edge is None, hop() internally generates a temporary edge index
+    column using generate_safe_column_name to avoid conflicts. This test
+    verifies that:
+    1. hop() works correctly without an edge binding
+    2. The internal index column is properly cleaned up
+    3. No internal columns leak into the result
+    """
+    # Create a graph with NO edge binding (g._edge = None)
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+
+    g = CGFull().edges(edges_df, 's', 'd').nodes(nodes_df, 'v')
+
+    # Verify g._edge is None before hop
+    assert g._edge is None, "Input graph should have None edge binding"
+
+    # Run a hop operation
+    g_result = g.hop(nodes=pd.DataFrame({'v': ['a']}), hops=2)
+
+    # Verify the hop operation worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+
+    # Verify no internal GFQL columns leaked into the result
+    for col in g_result._edges.columns:
+        assert not col.startswith('__gfql_'), f"Internal column {col} should not be in result"
+
+    # Verify we got expected nodes (a's 2-hop neighbors)
+    result_nodes = set(g_result._nodes['v'].tolist())
+    assert 'b' in result_nodes
+    assert 'c' in result_nodes
+
+
+def test_hop_custom_edge_binding_preserved():
+    """Test that hop() preserves custom edge binding."""
+    # Create a graph WITH an edge binding
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd'],
+        'edge_id': ['e1', 'e2', 'e3']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+
+    g = CGFull().edges(edges_df, 's', 'd', edge='edge_id').nodes(nodes_df, 'v')
+
+    # Verify g._edge is 'edge_id' before hop
+    assert g._edge == 'edge_id', "Input graph should have 'edge_id' edge binding"
+
+    # Run a hop operation
+    g_result = g.hop(nodes=pd.DataFrame({'v': ['a']}), hops=2)
+
+    # Should preserve the 'edge_id' binding
+    assert g_result._edge == 'edge_id', f"Output graph should have 'edge_id' edge binding, but got: {g_result._edge}"
+
+    # Verify the hop operation actually worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+    assert 'edge_id' in g_result._edges.columns

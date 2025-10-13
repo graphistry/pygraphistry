@@ -8,40 +8,10 @@ from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
 from .typing import DataFrameT
+from .util import generate_safe_column_name
 
 
 logger = setup_logger(__name__)
-
-
-def generate_safe_column_name(base_name, df, prefix="__temp_", suffix="__"):
-    """
-    Generate a temporary column name that doesn't conflict with existing
-    columns. Uses a simple incrementing counter to avoid dependencies.
-    
-    Parameters:
-    -----------
-    base_name : str
-        The original column name to base the temporary name on
-    df : DataFrame
-        The DataFrame to check for column name conflicts
-    prefix : str
-        Prefix to prepend to the temporary column name
-    suffix : str
-        Suffix to append to the temporary column name
-        
-    Returns:
-    --------
-    str
-        A unique column name that doesn't exist in the DataFrame
-    """
-    counter = 0
-    temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-    
-    while temp_name in df.columns:
-        counter += 1
-        temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-        
-    return temp_name
 
 
 def prepare_merge_dataframe(
@@ -354,20 +324,30 @@ def hop(self: Plottable,
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
     logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
+    # Early validation: ensure bindings are not None
+    if g2._node is None:
+        raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
+
+    if g2._source is None or g2._destination is None:
+        raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
+
+    # Type narrowing assertions for mypy - these are guaranteed by the checks above
+    assert g2._source is not None, "Source binding checked above"
+    assert g2._destination is not None, "Destination binding checked above"
+
     # Check for column name conflicts
     node_src_conflict = g2._node == g2._source
     node_dst_conflict = g2._node == g2._destination
-    
+
     # Only generate temp names if there's a conflict
-    # We know g2._source and g2._destination are strings, but mypy doesn't
-    TEMP_SRC_COL = str(g2._source) if g2._source is not None else ""
-    TEMP_DST_COL = str(g2._destination) if g2._destination is not None else ""
-    
+    TEMP_SRC_COL = str(g2._source)
+    TEMP_DST_COL = str(g2._destination)
+
     if node_src_conflict:
         TEMP_SRC_COL = generate_safe_column_name(g2._source, g2._edges)
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('Node column conflicts with source column, using temp name: %s', TEMP_SRC_COL)
-    
+
     if node_dst_conflict:
         TEMP_DST_COL = generate_safe_column_name(g2._destination, g2._edges)
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -376,36 +356,26 @@ def hop(self: Plottable,
     starting_nodes = nodes if nodes is not None else g2._nodes
 
     if g2._edge is None:
-        if 'index' in g2._edges.columns:
-            raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
-        edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges).reset_index()
-        EDGE_ID = 'index'
-        # Defensive check: ensure 'index' column exists after reset_index()
-        if EDGE_ID not in edges_indexed.columns:
-            # Fallback: if reset_index() didn't create 'index' column, use range index
-            edges_indexed = edges_indexed.reset_index(drop=False)
-            if 'index' not in edges_indexed.columns:
-                # Last resort: create a range index column manually
-                edges_indexed['index'] = range(len(edges_indexed))
+        # Get the pre-filtered edges
+        pre_indexed_edges = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
+
+        # Generate a guaranteed unique internal column name to avoid conflicts with user data
+        GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
+
+        # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
+        edges_indexed = pre_indexed_edges.reset_index(drop=False)
+        # Find the index column (it will be the first column that wasn't in original columns)
+        # reset_index() always adds the new column at position 0, so we can use next() with a generator for early exit
+        pre_indexed_cols = set(pre_indexed_edges.columns)
+        index_col_name = next(col for col in edges_indexed.columns if col not in pre_indexed_cols)
+        edges_indexed = edges_indexed.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+        EDGE_ID = GFQL_EDGE_INDEX
     else:
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
         EDGE_ID = g2._edge
         # Defensive check: ensure edge binding column exists
         if EDGE_ID not in edges_indexed.columns:
-            # If the edge binding column is missing, try to recover
-            if EDGE_ID == 'index':
-                # If looking for 'index' but it's missing, create it
-                edges_indexed = edges_indexed.reset_index(drop=False)
-                if 'index' not in edges_indexed.columns:
-                    edges_indexed['index'] = range(len(edges_indexed))
-            else:
-                raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
-
-    if g2._node is None:
-        raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
-
-    if g2._source is None or g2._destination is None:
-        raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
+            raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
 
     hops_remaining = hops
 

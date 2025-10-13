@@ -462,3 +462,69 @@ def test_chain_binding_reuse():
     assert g2_chain._edges.shape[0] > 0
     assert g3_chain._nodes.shape[0] > 0
     assert g3_chain._edges.shape[0] > 0
+
+
+def test_chain_preserves_none_edge_binding():
+    """Test that chain() preserves None edge binding when no edge column is set.
+    
+    When g._edge is None, chain() internally adds a temporary index column for tracking,
+    but the output graph should restore the original None binding.
+    
+    Regression test for bug where output graph would have _edge set to internal column
+    name like '__gfql_edge_index_0__' instead of None.
+    """
+    # Create a graph with NO edge binding (g._edge = None)
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+    
+    g = CGFull().edges(edges_df, 's', 'd').nodes(nodes_df, 'v')
+    
+    # Verify g._edge is None before chain
+    assert g._edge is None, "Input graph should have None edge binding"
+    
+    # Run a simple chain operation
+    g_result = g.gfql([n({'v': 'a'}), e_forward(hops=2)])
+    
+    # The bug was that g_result._edge would be set to the internal column name like '__gfql_edge_index_0__'
+    # The fix ensures it's restored to None
+    assert g_result._edge is None, f"Output graph should have None edge binding, but got: {g_result._edge}"
+    
+    # Verify the chain operation actually worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+    # Verify the internal column was properly removed
+    assert '__gfql_edge_index_0__' not in g_result._edges.columns
+
+
+def test_chain_preserves_custom_edge_binding():
+    """Test that chain() preserves custom edge binding when edge column is set."""
+    # Create a graph WITH an edge binding
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd'],
+        'edge_id': ['e1', 'e2', 'e3']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+    
+    g = CGFull().edges(edges_df, 's', 'd', edge='edge_id').nodes(nodes_df, 'v')
+    
+    # Verify g._edge is 'edge_id' before chain
+    assert g._edge == 'edge_id', "Input graph should have 'edge_id' edge binding"
+    
+    # Run a simple chain operation
+    g_result = g.gfql([n({'v': 'a'}), e_forward(hops=2)])
+    
+    # Should preserve the 'edge_id' binding
+    assert g_result._edge == 'edge_id', f"Output graph should have 'edge_id' edge binding, but got: {g_result._edge}"
+    
+    # Verify the chain operation actually worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+    assert 'edge_id' in g_result._edges.columns

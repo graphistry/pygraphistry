@@ -8,6 +8,7 @@ from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
+from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 if TYPE_CHECKING:
@@ -461,6 +462,10 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     logger.debug('final chain >> %s', ops)
 
+    # Store original edge binding from self before any transformations
+    # This will be restored at the end if we add a temporary index column
+    original_edge = self._edge
+
     # Initialize variables for finally block
     g_out = None
     error = None
@@ -469,18 +474,21 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
-        # Store original edge binding to restore it if we add temporary index
-        original_edge = g._edge
-
         # Handle node-only graphs (e.g., for hypergraph transformation)
         if g._edges is None:
             added_edge_index = False
         elif g._edge is None:
-            if 'index' in g._edges.columns:
-                raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
+            # Generate a guaranteed unique internal column name to avoid conflicts with user data
+            GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
+
             added_edge_index = True
-            indexed_edges_df = g._edges.reset_index()
-            g = g.edges(indexed_edges_df, edge='index')
+            # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
+            indexed_edges_df = g._edges.reset_index(drop=False)
+            # Find the index column (first column not in original) with early exit
+            original_cols = set(g._edges.columns)
+            index_col_name = next(col for col in indexed_edges_df.columns if col not in original_cols)
+            indexed_edges_df = indexed_edges_df.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+            g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
         else:
             added_edge_index = False
 
@@ -587,7 +595,8 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         logger.debug('============ COMBINE EDGES ============')
         final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
         if added_edge_index:
-            final_edges_df = final_edges_df.drop(columns=['index'])
+            # Drop the internal edge index column (stored in g._edge after we added it)
+            final_edges_df = final_edges_df.drop(columns=[g._edge])
             # Fix: Restore original edge binding instead of using modified 'index' binding
             g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
         else:
