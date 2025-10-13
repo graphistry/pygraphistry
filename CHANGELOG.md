@@ -18,16 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
-* **GFQL: Remove identifier sensitivity by auto-generating unique internal column names** (#776)
-  * **Problem**: GFQL operations failed when user column names conflicted with internal tracking columns (e.g., `collapse(column='index')` or user DataFrame with `'index'` column)
-  * **Solution**: Auto-generate safe internal column names using `generate_safe_column_name()` with UUID suffixes to avoid all collisions
-  * **Changes**:
-    * Created `graphistry/compute/util/` package with collision-free column name generator
-    * Updated `chain.py` and `hop.py` to use dynamic column names for all internal tracking
-    * Optimized index column detection with generator-based early exit
-    * Fixed edge binding preservation - internal columns now properly excluded from final output
-  * **Test coverage**: New edge case tests for `materialize_nodes()` with empty edges and `hop()` edge binding preservation
-  * All 74+ GFQL tests passing on both CPU (pandas) and GPU (cuDF) backends
+* **GFQL: Fix column name conflicts with internal tracking columns** (#776)
+  * Fixed `collapse(column='index')` and similar operations failing when user columns conflicted with GFQL internal columns
+  * Auto-generates unique internal column names to avoid all collisions
 * **GFQL Chain: Fix engine parameter to correctly convert DataFrames after schema-changing operations** (#777)
   * Fixed `chain(engine='pandas'|'cudf')` returning wrong DataFrame type after UMAP/hypergraph operations
   * Added comprehensive test coverage (19 tests for pandas↔cuDF coercion with UMAP)
