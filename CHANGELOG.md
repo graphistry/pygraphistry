@@ -36,6 +36,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
   * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
+### Fixed
+* **GFQL: Fix chained ASTCall operations (filter_edges_by_dict, filter_nodes_by_dict)** (#786)
+  * **Problem**: Chained `filter_edges_by_dict` operations only applied the first filter, ignoring subsequent filters
+  * **Root cause**: Chain execution loop passed original graph to all operations instead of threading results
+  * **Solution**: Two-part fix in chain.py:
+    * Detect `ASTCall` operations and pass previous operation's result (`g_stack[-1]`) instead of original graph
+    * Skip backward validation pass for pure ASTCall chains (filters/transforms don't need path validation)
+  * **Impact**: Chained filters now work correctly: `[filter_by_type, filter_by_weight]` applies both filters sequentially
+  * **Applies to**: Both local `.gfql()` and remote `.gfql_remote()` execution
+  * **User migration**: No changes needed - existing code now works as expected
+  * Added comprehensive test suite (`test_astcall_chains.py`) with 24 tests covering filter chains, mixed operations, edge cases, and complex predicates
+
 ## [0.44.1 - 2025-10-13]
 
 ### Added

@@ -535,15 +535,28 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         #  g_step._edges: The edges used to reach those nodes
         # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
         g_stack : List[Plottable] = []
-        for op in ops:
-            prev_step_nodes = (  # start from only prev step's wavefront node
-                None  # first uses full graph
-                if len(g_stack) == 0
-                else g_stack[-1]._nodes
-            )
+        for i, op in enumerate(ops):
+            # Determine graph to pass based on operation type
+            # - ASTNode/ASTEdge: Use original graph `g` + wavefront tracking
+            # - ASTCall: Use previous operation's result (for chaining filters/transforms)
+            if isinstance(op, ASTCall):
+                # For ASTCall operations (filter_edges_by_dict, etc.), pass previous result
+                # This ensures chained filters apply sequentially: filter1(g) → filter2(result1) → ...
+                current_g = g_stack[-1] if g_stack else g
+                prev_step_nodes = None  # ASTCall doesn't use wavefronts
+            else:
+                # For ASTNode/ASTEdge operations, use original graph + wavefront
+                # Wavefronts track which nodes are "active" at each step
+                current_g = g
+                prev_step_nodes = (
+                    None  # first uses full graph
+                    if len(g_stack) == 0
+                    else g_stack[-1]._nodes
+                )
+
             g_step = (
                 op(
-                    g=g,  # transition via any original edge
+                    g=current_g,  # Pass appropriate graph for operation type
                     prev_node_wavefront=prev_step_nodes,
                     target_wave_front=None,  # implicit any
                     engine=engine_concrete
@@ -558,60 +571,74 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 logger.debug('nodes: %s', g_step._nodes)
                 logger.debug('edges: %s', g_step._edges)
 
-        logger.debug('======================== BACKWARDS ========================')
+        # Check if all operations are ASTCall (no traversals)
+        # For pure ASTCall chains, skip backward pass and combine - just return the last result
+        all_astcall = all(isinstance(op, ASTCall) for op in ops)
 
-        # Backwards
-        # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
-        # Each g node/edge represents a valid wavefront entry for that step.
-        g_stack_reverse : List[Plottable] = []
-        for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
-            prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
-            if len(g_stack_reverse) == len(g_stack) - 1:
-                prev_orig_step = None
-            else:
-                prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
-            assert prev_loop_step._nodes is not None
-            g_step_reverse = (
-                (op.reverse())(
-
-                    # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
-                    # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
-                    g=g_step,
-
-                    # check for hits against fully valid targets
-                    # ast will replace g.node() with this as its starting points
-                    prev_node_wavefront=prev_loop_step._nodes,
-
-                    # only allow transitions to these nodes (vs prev_node_wavefront)
-                    target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
-
-                    engine=engine_concrete
-                )
-            )
-            g_stack_reverse.append(g_step_reverse)
-
-        import logging
-        if logger.isEnabledFor(logging.DEBUG):
-            for (i, g_step) in enumerate(g_stack_reverse):
-                logger.debug('~' * 10 + '\nstep %s', i)
-                logger.debug('nodes: %s', g_step._nodes)
-                logger.debug('edges: %s', g_step._edges)
-
-        logger.debug('============ COMBINE NODES ============')
-        final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
-
-        logger.debug('============ COMBINE EDGES ============')
-        final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
-        if added_edge_index:
-            # Drop the internal edge index column (stored in g._edge after we added it)
-            final_edges_df = final_edges_df.drop(columns=[g._edge])
-            # Fix: Restore original edge binding instead of using modified 'index' binding
-            g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+        if all_astcall:
+            # For chains of only ASTCall operations (filters, transforms),
+            # the forward pass result is final - no path validation needed
+            g_out = g_stack[-1]
+            if added_edge_index:
+                # Drop the internal edge index column
+                final_edges_df = g_out._edges.drop(columns=[g._edge])
+                g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+            # Mark as successful
+            success = True
         else:
-            g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
-        # Mark as successful
-        success = True
+            # Backwards
+            # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
+            # Each g node/edge represents a valid wavefront entry for that step.
+            g_stack_reverse : List[Plottable] = []
+            for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
+                prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
+                if len(g_stack_reverse) == len(g_stack) - 1:
+                    prev_orig_step = None
+                else:
+                    prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
+                assert prev_loop_step._nodes is not None
+                g_step_reverse = (
+                    (op.reverse())(
+
+                        # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
+                        # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
+                        g=g_step,
+
+                        # check for hits against fully valid targets
+                        # ast will replace g.node() with this as its starting points
+                        prev_node_wavefront=prev_loop_step._nodes,
+
+                        # only allow transitions to these nodes (vs prev_node_wavefront)
+                        target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
+
+                        engine=engine_concrete
+                    )
+                )
+                g_stack_reverse.append(g_step_reverse)
+
+            import logging
+            if logger.isEnabledFor(logging.DEBUG):
+                for (i, g_step) in enumerate(g_stack_reverse):
+                    logger.debug('~' * 10 + '\nstep %s', i)
+                    logger.debug('nodes: %s', g_step._nodes)
+                    logger.debug('edges: %s', g_step._edges)
+
+            logger.debug('============ COMBINE NODES ============')
+            final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+
+            logger.debug('============ COMBINE EDGES ============')
+            final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+            if added_edge_index:
+                # Drop the internal edge index column (stored in g._edge after we added it)
+                final_edges_df = final_edges_df.drop(columns=[g._edge])
+                # Fix: Restore original edge binding instead of using modified 'index' binding
+                g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+            else:
+                g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+            # Mark as successful
+            success = True
 
     except Exception as e:
         # Capture error for postload hook
