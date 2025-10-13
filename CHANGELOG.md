@@ -9,16 +9,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * **GFQL: Enhanced string predicates** (#697, #774)
-  * **Case-insensitive matching**: Added `case` parameter (default `True`) to `startswith()` and `endswith()` predicates
-  * **Tuple pattern matching**: Added tuple pattern support to `startswith()` and `endswith()` - enables OR logic: `startswith(('test', 'prod'))` matches either pattern
-  * **Full-string matching**: Added `fullmatch(pat, case=True, flags=0, na=None)` predicate for exact pattern validation (emails, IDs, formats)
-  * Supports case-insensitive matching with tuple patterns - `endswith(('.txt', '.csv'), case=False)`
-  * Supports all parameter combinations: tuple + case + na
-  * Works in both pandas and cuDF backends with workarounds for missing native support
-  * `fullmatch()` uses `match('^...$')` workaround for cuDF compatibility (cuDF lacks native fullmatch)
-  * Follows existing pattern from `contains()` and `match()` predicates
-  * Updated documentation (language spec, quick reference, docstrings)
-  * 67 CPU tests passing (33 pandas + 34 cuDF tests when GPU available)
+  * **Case-insensitive matching**: `startswith()` and `endswith()` now support `case` parameter - `startswith('test', case=False)`
+  * **Tuple pattern matching**: OR logic via tuples - `startswith(('test', 'prod'))` matches either pattern
+  * **Full-string matching**: New `fullmatch(pat, case=True)` predicate for exact pattern validation
+  * Examples:
+    * `n({'filename': endswith(('.txt', '.csv'), case=False)})` - Case-insensitive file extensions
+    * `n({'email': fullmatch(r'.*@company\.com')})` - Email validation
+  * Works in both pandas and cuDF backends
 
 ### Docs
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
