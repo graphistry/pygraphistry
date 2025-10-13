@@ -177,70 +177,22 @@ WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 ./test-embed.sh            # Embedding features
 ```
 
-### GPU Testing Optimization (Fast Alternative)
+### GPU Testing - Fast (Reuse Base Image)
 
-**Problem**: `./docker/test-gpu-local.sh` rebuilds images which is slow
-**Solution**: Reuse existing base graphistry images instead
+Docker containers include: **pytest, mypy, ruff** (preinstalled)
 
 ```bash
-# Check if base image exists
-APP_BUILD_TAG=${APP_BUILD_TAG:-latest}
-CUDA_SHORT_VERSION=${CUDA_SHORT_VERSION:-12.8}
-IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG}-${CUDA_SHORT_VERSION}"
-docker images | grep graphistry-nvidia
+# Reuse existing graphistry image (no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
 
-# Set up cache volumes (reusable across runs)
-CACHE_VOLS="-v /tmp/pytest_cache:/tmp/pytest_cache -v /tmp/ruff_cache:/tmp/ruff_cache -v /tmp/mypy_cache:/tmp/mypy_cache"
-CACHE_ENVS="-e PYTEST_CACHE_DIR=/tmp/pytest_cache -e RUFF_CACHE_DIR=/tmp/ruff_cache -e MYPY_CACHE_DIR=/tmp/mypy_cache"
-
-# Run GPU tests without rebuilding
 docker run --rm --gpus all \
     -v "$(pwd):/workspace:ro" \
-    $CACHE_VOLS \
-    -w /workspace \
-    -e PYTHONPATH=/workspace \
-    $CACHE_ENVS \
-    $IMAGE \
-    pytest graphistry/tests/compute/predicates/test_str.py -v
-
-# Run GPU type checking (mypy)
-docker run --rm --gpus all \
-    -v "$(pwd):/workspace:ro" \
-    $CACHE_VOLS \
-    -w /workspace \
-    -e PYTHONPATH=/workspace \
-    $CACHE_ENVS \
-    $IMAGE \
-    mypy graphistry/compute/predicates/str.py
-
-# Run GPU linting (ruff)
-docker run --rm --gpus all \
-    -v "$(pwd):/workspace:ro" \
-    $CACHE_VOLS \
-    -w /workspace \
-    -e PYTHONPATH=/workspace \
-    $CACHE_ENVS \
-    $IMAGE \
-    ruff check graphistry/compute/predicates/str.py
-
-# Test cuDF-specific functionality with custom script
-docker run --rm --gpus all \
-    -v "$(pwd):/workspace:ro" \
-    -w /workspace \
-    -e PYTHONPATH=/workspace \
-    $IMAGE \
-    python3 plans/test_script.py
+    -w /workspace -e PYTHONPATH=/workspace \
+    $IMAGE pytest graphistry/tests/test_file.py -v
 ```
 
-**Key components**:
-- **Read-only source**: `-v "$(pwd):/workspace:ro"` mounts repo read-only
-- **Writable caches**: Separate volumes for pytest/ruff/mypy caches
-- **PYTHONPATH override**: `-e PYTHONPATH=/workspace` uses your code instead of installed package
-- **Working directory**: `-w /workspace` runs commands from repo root
-
-**When to use each approach**:
-- **`./docker/test-gpu-local.sh`**: Full validation, CI/CD, before PR merge
-- **Direct `docker run`**: Fast iteration during development (seconds vs minutes), cuDF verification, quick GPU tests
+**Fast iteration**: Use this during development
+**Full rebuild**: Use `./docker/test-gpu-local.sh` before merge
 
 ### Environment Control
 | Variable | Default | Purpose |
