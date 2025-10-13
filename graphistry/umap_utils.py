@@ -273,7 +273,21 @@ class UMAPMixin(MIXIN_BASE):
         elif engine_resolved == CUML:
             has_cuml, cuml_msg, umap_engine = lazy_cuml_import()
             if not has_cuml:
-                raise ValueError(f"cuML engine selected but library not available: {cuml_msg}")
+                # If cuML was selected via 'auto' mode, try falling back to umap_learn
+                if engine == 'auto':
+                    logger.warning(
+                        "cuML selected via 'auto' but library not available: %s. "
+                        "Falling back to umap_learn.", cuml_msg
+                    )
+                    has_umap, umap_msg, umap_engine = lazy_umap_import()
+                    if not has_umap:
+                        raise ValueError(
+                            f"Both cuML and umap_learn unavailable: cuML ({cuml_msg}), umap_learn ({umap_msg})"
+                        )
+                    engine_resolved = cast(UMAPEngineConcrete, UMAP_LEARN)
+                else:
+                    # Explicit cuML request - raise
+                    raise ValueError(f"cuML engine selected but library not available: {cuml_msg}")
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
