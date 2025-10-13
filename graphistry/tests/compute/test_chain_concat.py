@@ -90,6 +90,8 @@ class TestChainCombineSteps:
         assert isinstance(result._nodes, pd.DataFrame)
         # UMAP creates new node embeddings, may have 0 edges
         assert result._edges is not None
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"engine='pandas' should return pandas edges, got {type(result._edges)}"
 
     @skip_gpu
     def test_chain_node_filter_cudf(self):
@@ -170,6 +172,8 @@ class TestChainCombineSteps:
             f"Expected cudf.DataFrame for nodes, got {type(result._nodes)}"
         assert result._edges is not None
         # After UMAP schema change, edges should still be cuDF
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"engine='cudf' should return cuDF edges, got {type(result._edges)}"
 
     @skip_gpu
     def test_combine_steps_with_cudf_dataframes(self):
@@ -200,6 +204,9 @@ class TestChainCombineSteps:
         # combine_steps should handle cuDF concat correctly
         assert result._nodes is not None
         assert isinstance(result._nodes, cudf.DataFrame)
+        assert result._edges is not None
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"engine='cudf' should return cuDF edges, got {type(result._edges)}"
         # Should have boolean columns for named steps
         assert 'step1' in result._nodes.columns
         assert 'step2' in result._nodes.columns
