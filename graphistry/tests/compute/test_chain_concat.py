@@ -14,12 +14,16 @@ import graphistry
 
 from graphistry.compute.ast import n, e, call
 from graphistry.tests.test_compute import CGFull
+from graphistry.utils.lazy_import import lazy_umap_import
 
 # Skip GPU tests if TEST_CUDF not set
 skip_gpu = pytest.mark.skipif(
     not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
     reason="cudf tests need TEST_CUDF=1"
 )
+
+# Check if UMAP is available (AI dependency, not minimal)
+has_umap, _, _ = lazy_umap_import()
 
 
 class TestChainCombineSteps:
@@ -53,6 +57,7 @@ class TestChainCombineSteps:
         assert result._edges is not None
         assert isinstance(result._edges, pd.DataFrame)
 
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_chain_umap_with_node_filters_pandas(self):
         """Test UMAP with node filters in pandas mode (CPU baseline)"""
         nodes_df = pd.DataFrame({
@@ -124,6 +129,7 @@ class TestChainCombineSteps:
             f"Expected cudf.DataFrame for edges, got {type(result._edges)}"
 
     @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_chain_umap_with_node_filters_cudf(self):
         """Test UMAP with node filters in cuDF mode (GPU test for issue #777)"""
         import cudf
