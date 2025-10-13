@@ -514,16 +514,36 @@ def __init__(self, pat: Union[str, tuple], ...):
 
 ## 📦 Summary: Files to Update
 
+### Core Implementation (Required)
+
 | File | Purpose | What to Add |
 |------|---------|-------------|
 | `predicates/str.py` | Implementation | Class + function + validation |
 | `predicates/from_json.py` | Deserialization | Import + registry entry |
 | `gfql/validate.py` | Schema validation | Import + predicate tuple |
 | `validate/validate_schema.py` | Type checking | Import + isinstance check |
-| `docs/.../language.md` | Grammar spec | Grammar + operator reference |
-| `docs/.../quick.rst` | Quick reference | Operator table row |
 | `tests/.../test_str.py` | Tests | Comprehensive test class |
 | `utils/json.py` | JSON support | Handle special types (tuples, etc.) |
+
+### Documentation (Required)
+
+| File | Purpose | What to Add |
+|------|---------|-------------|
+| `docs/source/gfql/spec/language.md` | Grammar spec | Grammar + operator reference |
+| `docs/source/gfql/predicates/quick.rst` | Quick reference | Operator table row |
+
+### Extended Documentation (If Applicable)
+
+| File | Purpose | When to Update |
+|------|---------|----------------|
+| `docs/source/gfql/overview.rst` | Tutorial examples | If predicate useful for common patterns |
+| `docs/source/gfql/quick.rst` | Quick start guide | If predicate commonly used |
+| `docs/source/gfql/spec/cypher_mapping.md` | Cypher translation | If predicate has Cypher equivalent |
+| `docs/source/gfql/spec/wire_protocol.md` | JSON wire format | If predicate has complex serialization |
+| `docs/source/gfql/wire_protocol_examples.md` | Wire examples | If showing JSON format helpful |
+| `docs/source/gfql/datetime_filtering.md` | Temporal guide | If temporal predicate |
+| `docs/source/gfql/translate.rst` | Translation guide | If predicate helps translations |
+| `docs/source/gfql/about.rst` | About page | If predicate is a key feature |
 
 ---
 
@@ -573,6 +593,92 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh
 ---
 
 ## 📚 Reference Examples
+
+### Complete Real-World Example: IsIn Predicate
+
+To verify our checklist is complete, here's every file `IsIn` appears in:
+
+**1. Implementation** (`graphistry/compute/predicates/is_in.py`):
+```python
+class IsIn(ASTPredicate):
+    def __init__(self, options: list) -> None:
+        self.options = options
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        return s.isin(self.options)
+
+    def _validate_fields(self) -> None:
+        if not isinstance(self.options, list):
+            raise GFQLTypeError(...)
+
+def is_in(options: list) -> IsIn:
+    return IsIn(options)
+```
+
+**2. JSON Registry** (`graphistry/compute/predicates/from_json.py`):
+```python
+from graphistry.compute.predicates.is_in import IsIn
+
+predicates : List[Type[ASTPredicate]] = [
+    Duplicated,
+    IsIn,  # ← Registered here
+    GT, LT, ...
+]
+```
+
+**3. Documentation - Language Spec** (`docs/source/gfql/spec/language.md`):
+```markdown
+membership ::= "is_in(" "[" value ("," value)* "]" ")"
+
+is_in([value1, value2, ...])  # Value in list
+```
+
+**4. Documentation - Quick Reference** (`docs/source/gfql/predicates/quick.rst`):
+```rst
+   * - ``is_in(values)``
+     - Value in list ``values``.
+     - ``n({ "type": is_in(["person", "company"]) })``
+```
+
+**5. Documentation - Overview** (`docs/source/gfql/overview.rst`):
+```python
+from graphistry import n, e_forward, is_in
+
+g.chain([
+    n({"type": is_in(["person", "company"])}),
+    ...
+])
+```
+
+**6. Documentation - Wire Protocol** (`docs/source/gfql/spec/wire_protocol.md`):
+```json
+{
+    "type": "IsIn",
+    "options": ["value1", "value2"]
+}
+```
+
+**7. Documentation - Cypher Mapping** (`docs/source/gfql/spec/cypher_mapping.md`):
+```markdown
+| `n.id IN [1,2,3]` | `is_in([1,2,3])` | `{"type": "IsIn", "options": [1,2,3]}` |
+```
+
+**8. Tests** (`graphistry/tests/compute/predicates/test_is_in.py`):
+```python
+class TestIsIn:
+    def test_is_in_basic(self, engine):
+        s = make_series([1, 2, 3], engine)
+        result = is_in([1, 3])(s)
+        expected = make_series([True, False, True], engine)
+        assert_series_equal(result, expected)
+```
+
+**Files NOT requiring updates for IsIn** (but might for other predicates):
+- ❌ `gfql/validate.py` - IsIn is not in STRING_PREDICATES (it's general-purpose)
+- ❌ `validate/validate_schema.py` - No special type checking needed
+- ❌ `utils/json.py` - Lists already supported
+
+### Recent PR Examples
 
 See recent PRs for complete examples:
 - **PR #774**: Added `fullmatch()`, updated `startswith()`/`endswith()` with `case` and tuple support
