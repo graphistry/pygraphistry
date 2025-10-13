@@ -46,6 +46,17 @@
 2. If not in plan: STOP → Add phase → Save → Then execute
 3. Trust only what's written here
 
+## Bug Fix Protocol (Bug Fixes Only)
+
+**For bug fixes, follow TDD: Investigate → Reproduce → Test → Fix → Validate → Finalize**
+
+1. **Investigate**: Read code, understand patterns, identify root cause
+2. **Reproduce**: Create minimal repro script, confirm bug
+3. **Test**: Write failing test (GPU/CPU as needed), verify baseline
+4. **Fix**: Implement fix, verify test passes
+5. **Validate**: Typecheck, lint, full test suite
+6. **Finalize**: CHANGELOG, commit, PR
+
 ## Context (READ-ONLY - Fill at Creation)
 
 ### Objective
@@ -107,7 +118,7 @@ git log --oneline -n 10
 
 ### Important Paths
 - Source: `graphistry/`
-- Tests: `graphistry/tests/`
+- Tests: `graphistry/tests/` (mirrors source structure: `graphistry/foo/bar.py` → `graphistry/tests/foo/test_bar.py`)
 - Docs: `docs/`
 - Plans: `plans/` (gitignored - safe for auxiliary files, temp secrets, working data)
 - AI prompts: `ai/prompts/`

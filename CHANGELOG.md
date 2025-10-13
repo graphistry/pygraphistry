@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
+* **GFQL Chain: Fix engine parameter to correctly convert DataFrames after schema-changing operations** (#777)
+  * Fixed `chain(engine='pandas'|'cudf')` returning wrong DataFrame type after UMAP/hypergraph operations
+  * Added comprehensive test coverage (19 tests for pandas↔cuDF coercion with UMAP)
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 
 ### Docs

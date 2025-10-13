@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -178,8 +178,6 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
             for (op, g_step) in steps
         ]
 
-    concat = df_concat(engine)
-
     logger.debug('-----------[ combine %s ---------------]', kind)
 
     # df[[id]] - with defensive checks for column existence
@@ -192,7 +190,16 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
-    
+
+    # Honor user's engine request by converting DataFrames to match requested engine
+    # This ensures API contract: engine parameter guarantees output DataFrame type
+    if len(dfs_to_concat) > 0:
+        actual_engine = resolve_engine(EngineAbstract.AUTO, dfs_to_concat[0])
+        if actual_engine != engine:
+            logger.debug('Engine mismatch detected: param=%s, actual=%s. Converting data to match requested engine.', actual_engine, engine)
+            dfs_to_concat = [df_to_engine(df, engine) for df in dfs_to_concat]
+
+    concat = df_concat(engine)
     out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
@@ -206,14 +213,21 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
     for (op, g_step) in steps:
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
-            out_df = out_df.merge(
-                getattr(g_step, df_fld)[[id, op._name]],
-                on=id,
-                how='left'
-            )
+            step_df = getattr(g_step, df_fld)[[id, op._name]]
+            # Ensure step DataFrame matches requested engine for merge compatibility
+            step_df_engine = resolve_engine(EngineAbstract.AUTO, step_df)
+            if step_df_engine != engine:
+                step_df = df_to_engine(step_df, engine)
+            out_df = out_df.merge(step_df, on=id, how='left')
             s = out_df[op._name]
             out_df[op._name] = s.where(s.notna(), False).astype('bool')
-    out_df = out_df.merge(getattr(g, df_fld), on=id, how='left')
+
+    # Ensure original graph DataFrame matches requested engine for final merge
+    g_df = getattr(g, df_fld)
+    g_df_engine = resolve_engine(EngineAbstract.AUTO, g_df)
+    if g_df_engine != engine:
+        g_df = df_to_engine(g_df, engine)
+    out_df = out_df.merge(g_df, on=id, how='left')
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 
