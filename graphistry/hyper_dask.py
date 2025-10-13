@@ -757,7 +757,6 @@ class Hypergraph():
 def hypergraph(
     g,
     raw_events: Optional[DataframeLike] = None,
-    *,
     entity_types: Optional[List[str]] = None,
     opts: dict = {},
     drop_na: bool = True,
@@ -779,7 +778,14 @@ def hypergraph(
     # TODO: String -> categorical
     # TODO: col_name column can be prohibitively wide & sparse: drop / warning?
 
-    # Handle from_edges parameter: select dataframe from g if raw_events not provided
+    # Smart parameter detection: Allow list as second param (convenience) or explicit dataframe
+    # Supports both: hypergraph(g, df, ['cols']) and hypergraph(g, ['cols'])
+    if raw_events is not None and isinstance(raw_events, list):
+        # Convenience: second param is entity_types list, auto-select dataframe from graph
+        entity_types = raw_events
+        raw_events = None
+
+    # Handle from_edges parameter or auto-select dataframe from graph if not provided
     if raw_events is None:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
         if from_edges:
