@@ -18,12 +18,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
-* **Tests: Fix GPU hypergraph test signatures for keyword-only arguments** (#785)
-  * Fixed 4 tests in `TestHypergraphCudf` that were broken by breaking change in 0.43.2 (#763)
-  * Updated tests to use `entity_types=` keyword argument: `test_drop_edge_attrs`, `test_drop_edge_attrs_direct`, `test_hyper_to_pa_all`, `test_hyper_to_pa_all_direct`
-  * Tests were using old positional syntax `hypergraph(g, df, ['cols'])` which broke when `*` marker was added in 0.43.2
-  * All GPU hypergraph tests now pass (18 passed, 1 xpassed)
-  * **Note**: This fix updates tests to match the breaking API change - user code will need similar updates
+* **Hypergraph: Restore backward compatibility with smart type detection** (#785)
+  * **Breaking change from 0.43.2 has been eliminated** - all three API styles now work:
+    * Old positional: `hypergraph(g, df, ['cols'])` - works again!
+    * New convenience: `hypergraph(g, ['cols'])` - auto-selects dataframe from graph
+    * Keyword: `hypergraph(g, entity_types=['cols'])` - explicit keyword style
+  * **Solution**: Removed keyword-only argument restriction (`*` marker) and added smart type detection
+  * When second parameter is a list, treats it as `entity_types` and auto-selects dataframe from graph
+  * When second parameter is DataFrame-like, treats it as `raw_events`
+  * **User impact**: No migration needed - existing code continues to work as before 0.43.2
+  * Added comprehensive API compatibility test suites (`TestHypergraphAPICompatibility`, `TestHypergraphAPICompatibilityCudf`) with 9 tests total to prevent future regressions
 * **GFQL: Extend engine coercion to let() and call() operations** (#783)
   * Fixed `gfql(ASTLet, engine='pandas'|'cudf')` and `call('umap', ...)` to honor engine parameter
   * Schema-changing operations (UMAP, hypergraph) in let/call context now correctly coerce DataFrames
@@ -104,12 +108,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.43.2 - 2025-10-09]
 
 ### Breaking 🔥
-* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763)
+* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763) - **FIXED in Development**
   * Added `*` marker in `hypergraph()` signature enforcing keyword-only arguments for all parameters except `g` and `raw_events`
   * **Old code breaks**: `hypergraph(g, df, ['cols'])` → Must use `hypergraph(g, df, entity_types=['cols'])`
   * **Affects**: `entity_types`, `opts`, `drop_na`, `drop_edge_attrs`, `verbose`, `direct`, `engine`, `npartitions`, `chunksize`, `from_edges`, `return_as`, `debug`
   * **Migration**: Add parameter names to all arguments: `entity_types=`, `drop_na=`, etc.
   * This change improves API stability but breaks existing positional argument usage
+  * **RESOLVED**: Breaking change was eliminated in Development branch (#785) - backward compatibility restored with smart type detection
 
 ### Added
 * **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
