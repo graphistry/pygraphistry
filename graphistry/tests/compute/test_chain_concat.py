@@ -292,3 +292,49 @@ class TestChainCombineSteps:
             f"engine='pandas' should return pandas nodes, got {type(result._nodes)}"
         assert isinstance(result._edges, pd.DataFrame), \
             f"engine='pandas' should return pandas edges, got {type(result._edges)}"
+
+    @skip_gpu
+    def test_engine_coerces_cudf_to_pandas(self):
+        """Test that engine='pandas' converts cuDF inputs to pandas (cross-engine coercion)"""
+        import cudf
+
+        nodes_df = cudf.DataFrame({'id': ['a', 'b', 'c']})
+        edges_df = cudf.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # Verify we're starting with cuDF
+        assert isinstance(g._nodes, cudf.DataFrame)
+        assert isinstance(g._edges, cudf.DataFrame)
+
+        # Request pandas engine - should coerce cuDF to pandas
+        result = g.chain([n(), e(), n()], engine='pandas')
+
+        # Output should be pandas (coerced from cuDF)
+        assert isinstance(result._nodes, pd.DataFrame), \
+            f"engine='pandas' with cuDF input should return pandas nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"engine='pandas' with cuDF input should return pandas edges, got {type(result._edges)}"
+
+    @skip_gpu
+    def test_engine_coerces_pandas_to_cudf(self):
+        """Test that engine='cudf' converts pandas inputs to cuDF (cross-engine coercion)"""
+        import cudf
+
+        nodes_df = pd.DataFrame({'id': ['a', 'b', 'c']})
+        edges_df = pd.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # Verify we're starting with pandas
+        assert isinstance(g._nodes, pd.DataFrame)
+        assert isinstance(g._edges, pd.DataFrame)
+
+        # Request cudf engine - should coerce pandas to cuDF
+        result = g.chain([n(), e(), n()], engine='cudf')
+
+        # Output should be cuDF (coerced from pandas)
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"engine='cudf' with pandas input should return cuDF nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"engine='cudf' with pandas input should return cuDF edges, got {type(result._edges)}"

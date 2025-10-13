@@ -22,7 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Problem**: `chain()` operations with explicit `engine='pandas'` or `engine='cudf'` parameter could return wrong DataFrame type after schema-changing operations (UMAP, hypergraph), violating API contract
   * **Solution**: Honor user's explicit engine request by converting DataFrames to match requested type throughout `combine_steps()`. Uses `df_to_engine()` to convert concatenation inputs and merge sources when engine mismatch detected.
   * **API Contract**: `engine` parameter now guarantees output DataFrame type matches request (e.g., `engine='cudf'` returns cuDF DataFrames, `engine='pandas'` returns pandas DataFrames)
-  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain_concat.py` (9 tests covering basic chains, UMAP chains, edge concatenation, and engine coercion)
+  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain_concat.py` (11 tests covering basic chains, UMAP chains, edge concatenation, and cross-engine coercion)
+  * **Cross-engine coercion**: Tests verify pandas→cuDF and cuDF→pandas conversion when explicit engine parameter differs from input types
   * **Related**: Upstream cuDF issue https://github.com/rapidsai/cudf/issues/20237
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 
