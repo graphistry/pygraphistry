@@ -80,7 +80,7 @@ class TestChainCombineSteps:
             call('umap', {
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})  # Another identity filter
         ], engine='pandas')
@@ -158,7 +158,7 @@ class TestChainCombineSteps:
             call('umap', {
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})  # Another identity filter
         ], engine='cudf')
@@ -368,7 +368,7 @@ class TestChainCombineSteps:
                 'engine': 'auto',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='cudf')
@@ -404,7 +404,7 @@ class TestChainCombineSteps:
                 'engine': 'cuml',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='cudf')
@@ -440,7 +440,7 @@ class TestChainCombineSteps:
                 'engine': 'umap_learn',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='cudf')
@@ -477,7 +477,7 @@ class TestChainCombineSteps:
                 'engine': 'auto',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='pandas')
@@ -513,7 +513,7 @@ class TestChainCombineSteps:
                 'engine': 'cuml',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='pandas')
@@ -549,7 +549,7 @@ class TestChainCombineSteps:
                 'engine': 'umap_learn',
                 'n_components': 2,
                 'n_neighbors': 3,
-                'umap_kwargs': {'random_state': 42}
+                'umap_kwargs': {'random_state': 42, 'n_epochs': 3}
             }),
             n({})
         ], engine='pandas')
