@@ -43,8 +43,9 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
         - Conversion path (types differ): ~10-100ms depending on data size
     """
     try:
-        # Detect actual engine from nodes DataFrame
-        actual_engine = resolve_engine(EngineAbstract.AUTO, g._nodes)
+        # Detect actual engine from first defined DataFrame (nodes or edges)
+        df_for_sniffing = g._nodes if g._nodes is not None else g._edges
+        actual_engine = resolve_engine(EngineAbstract.AUTO, df_for_sniffing)
 
         # If types already match, return as-is (no-op optimization)
         if actual_engine == requested_engine:
