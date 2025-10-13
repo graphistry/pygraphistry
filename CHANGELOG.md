@@ -18,10 +18,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
-* **GFQL Chain: Fix cuDF/pandas concat error in combine_steps()** (#777)
-  * **Problem**: `chain()` operations could fail with `TypeError: cannot concatenate object of type '<class 'cudf.core.dataframe.DataFrame'>'` when engine parameter became stale after schema-changing operations (UMAP, hypergraph)
-  * **Solution**: Added defensive engine resolution in `combine_steps()` that detects actual DataFrame type before concatenation and uses appropriate concat function (cudf.concat vs pd.concat)
-  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain.py` (7 tests covering node filters, edge concatenation, and multi-step chain operations)
+* **GFQL Chain: Honor user's engine parameter by converting DataFrames** (#777)
+  * **Problem**: `chain()` operations with explicit `engine='pandas'` or `engine='cudf'` parameter could return wrong DataFrame type after schema-changing operations (UMAP, hypergraph), violating API contract
+  * **Solution**: Honor user's explicit engine request by converting DataFrames to match requested type throughout `combine_steps()`. Uses `df_to_engine()` to convert concatenation inputs and merge sources when engine mismatch detected.
+  * **API Contract**: `engine` parameter now guarantees output DataFrame type matches request (e.g., `engine='cudf'` returns cuDF DataFrames, `engine='pandas'` returns pandas DataFrames)
+  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain_concat.py` (9 tests covering basic chains, UMAP chains, edge concatenation, and engine coercion)
   * **Related**: Upstream cuDF issue https://github.com/rapidsai/cudf/issues/20237
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 

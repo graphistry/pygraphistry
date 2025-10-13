@@ -259,3 +259,36 @@ class TestChainCombineSteps:
         assert isinstance(result._edges, cudf.DataFrame)
         assert 'e1' in result._edges.columns
         assert 'e2' in result._edges.columns
+
+    @skip_gpu
+    def test_engine_honors_cudf_request_with_cudf_input(self):
+        """Test that engine='cudf' request returns cuDF when inputs are cuDF"""
+        import cudf
+
+        nodes_df = cudf.DataFrame({'id': ['a', 'b', 'c']})
+        edges_df = cudf.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        result = g.chain([n(), e(), n()], engine='cudf')
+
+        # Output should be cuDF (honoring the request)
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"engine='cudf' should return cuDF nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"engine='cudf' should return cuDF edges, got {type(result._edges)}"
+
+    def test_engine_honors_pandas_request_with_pandas_input(self):
+        """Test that engine='pandas' request returns pandas when inputs are pandas"""
+        nodes_df = pd.DataFrame({'id': ['a', 'b', 'c']})
+        edges_df = pd.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        result = g.chain([n(), e(), n()], engine='pandas')
+
+        # Output should be pandas (honoring the request)
+        assert isinstance(result._nodes, pd.DataFrame), \
+            f"engine='pandas' should return pandas nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"engine='pandas' should return pandas edges, got {type(result._edges)}"
