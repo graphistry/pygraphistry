@@ -22,9 +22,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Problem**: `chain()` operations with explicit `engine='pandas'` or `engine='cudf'` parameter could return wrong DataFrame type after schema-changing operations (UMAP, hypergraph), violating API contract
   * **Solution**: Honor user's explicit engine request by converting DataFrames to match requested type throughout `combine_steps()`. Uses `df_to_engine()` to convert concatenation inputs and merge sources when engine mismatch detected.
   * **API Contract**: `engine` parameter now guarantees output DataFrame type matches request (e.g., `engine='cudf'` returns cuDF DataFrames, `engine='pandas'` returns pandas DataFrames)
-  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain_concat.py` (17 tests covering basic chains, UMAP chains, edge concatenation, and cross-engine coercion)
+  * **Added**: Comprehensive GPU/CPU test coverage in `graphistry/tests/compute/test_chain_concat.py` (19 tests covering basic chains, UMAP chains, edge concatenation, and cross-engine coercion)
   * **Cross-engine coercion**: Tests verify pandas→cuDF and cuDF→pandas conversion when explicit engine parameter differs from input types
-  * **UMAP cross-engine tests**: Complete 3D matrix coverage (Input Type × UMAP Engine × Chain Engine) with 6 tests covering all combinations of UMAP engines (auto/cuml/umap_learn) and cross-engine coercion scenarios
+  * **UMAP cross-engine tests**: Complete 3D matrix coverage (Input Type × UMAP Engine × Chain Engine) with 10 UMAP tests covering all combinations of UMAP engines (auto/cuml/umap_learn) with both coercion and preservation scenarios
   * **Related**: Upstream cuDF issue https://github.com/rapidsai/cudf/issues/20237
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 
