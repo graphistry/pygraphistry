@@ -740,7 +740,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         h = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             verbose=False,
             drop_edge_attrs=True,
             engine=Engine.CUDF,
@@ -785,7 +785,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         h = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             verbose=False,
             direct=True,
             drop_edge_attrs=True,
@@ -954,7 +954,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         hg = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             engine=Engine.CUDF,
         )
         nodes_arr = hg.graph._nodes.to_arrow()
@@ -970,7 +970,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         hg = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             direct=True,
             engine=Engine.CUDF,
         )
