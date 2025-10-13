@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Develop
 
+### Fixed
+* **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
+
 ### Docs
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
 * ai: Compact CONVENTIONAL_COMMITS guide and enforce PLAN.md usage (3e537db)
