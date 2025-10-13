@@ -2,7 +2,9 @@
 
 When adding or modifying GFQL predicates, operators are **cross-cutting** - they touch multiple systems. This guide ensures all integration points are updated.
 
-## 📋 9-Step Implementation Checklist
+## 📋 9-Step Implementation Checklist (Minimum Requirements)
+
+**Note**: Steps 0-8 are MINIMUM requirements. See "Extended Documentation" section for optional docs (add based on criteria).
 
 | # | Step | File(s) | Required |
 |---|------|---------|----------|
@@ -314,13 +316,15 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh                        # Full CI
 
 ---
 
-## 📚 Reference: IsIn Cross-Check
+## 📚 Reference: IsIn - Complete Documentation Map
 
-IsIn appears in all 9 steps (verified for checklist completeness):
+IsIn covers **all 9 required steps** plus **5 optional docs** (shown below for completeness):
+
+### Required Steps (0-8)
 
 | Step | File | What's Added |
 |------|------|--------------|
-| 0️⃣ | `compute/__init__.py`, `__init__.py`, `ast.py` | Import + __all__ exports |
+| 0️⃣ | `compute/__init__.py`, `__init__.py`, `ast.py`, `conf.py` | Import + __all__ exports + nitpick_ignore |
 | 1️⃣ | `predicates/is_in.py` | `class IsIn(ASTPredicate)` + `def is_in(options)` |
 | 2️⃣ | Same | `_validate_fields()` checks `isinstance(options, list)` |
 | 3️⃣ | `from_json.py` | Import + registry: `predicates = [Duplicated, IsIn, ...]` |
@@ -330,6 +334,37 @@ IsIn appears in all 9 steps (verified for checklist completeness):
 | 7️⃣ | `test_is_in.py` | `class TestIsIn` with comprehensive tests |
 | 8️⃣ | `is_in.py` | Factory function docstring |
 
-**Also appears in** (optional): `overview.rst` (examples), `wire_protocol.md` (JSON format), `cypher_mapping.md` (translation)
+### Optional Docs (IsIn appears in 8 of these)
+
+| File | Why IsIn Appears Here | Criteria Met |
+|------|-----------------------|--------------|
+| `overview.rst` | Tutorial example: "Filter by Multiple Node Types" | ✅ Common pattern for filtering |
+| `quick.rst` | Quick start guide example | ✅ Frequently used predicate |
+| `spec/wire_protocol.md` | Dedicated "IsIn Predicate" JSON format section | ✅ Complex serialization (arrays) |
+| `wire_protocol_examples.md` | JSON examples showing is_in serialization | ✅ Illustrates JSON format |
+| `spec/cypher_mapping.md` | Maps to Cypher `IN` operator | ✅ Has Cypher equivalent |
+| `translate.rst` | Translation examples using is_in | ✅ Helps with translations |
+| `about.rst` | Mentioned in feature overview | ✅ Key/common feature |
+| `datetime_filtering.md` | Examples with temporal values in is_in | ✅ Works with temporal predicates |
+
+**Summary**: IsIn appears in **10 docs files** (2 required + 8 optional) because it's a foundational, frequently-used predicate. New predicates typically only need the 2 required docs unless they meet optional criteria.
+
+### Comparison: PR #774 (startswith/endswith/fullmatch)
+
+Our PR updated **2 required docs** (minimum requirements met):
+- ✅ `spec/language.md` - Added grammar rules for case-insensitive matching
+- ✅ `predicates/quick.rst` - Added operator table rows for all 3 predicates
+
+Optional docs we did NOT update (and why that's correct):
+- ❌ `overview.rst` - Not common enough patterns for tutorial examples (yet)
+- ❌ `quick.rst` - Not in quick start guide (these are mid-level predicates)
+- ❌ `spec/wire_protocol.md` - No complex serialization beyond standard string predicates
+- ❌ `wire_protocol_examples.md` - No additional JSON examples needed
+- ✅ `spec/cypher_mapping.md` - startswith/endswith already present (added in PR #698) - map to Cypher `STARTS WITH`/`ENDS WITH`
+- ❌ `translate.rst` - No translation-specific guidance needed
+- ❌ `about.rst` - Not a headline feature (incremental enhancement)
+- ❌ `datetime_filtering.md` - Not temporal predicates
+
+**Conclusion**: PR #774 correctly updated only required docs. Optional docs would be added later if/when these predicates become common patterns.
 
 **Reference PRs**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)
