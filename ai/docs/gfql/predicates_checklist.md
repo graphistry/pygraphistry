@@ -2,10 +2,11 @@
 
 When adding or modifying GFQL predicates, operators are **cross-cutting** - they touch multiple systems. This guide ensures all integration points are updated.
 
-## 📋 8-Step Implementation Checklist
+## 📋 9-Step Implementation Checklist
 
 | # | Step | File(s) | Required |
 |---|------|---------|----------|
+| 0 | **Module Exports** | `compute/__init__.py`, `__init__.py`, `ast.py`, `conf.py` | ✅ 🚨 CRITICAL - Users can't import without |
 | 1 | **Implementation** | `predicates/*.py` | ✅ Class + function + `__call__` |
 | 2 | **Validation** | Same file | ✅ Add `_validate_fields()` |
 | 3 | **JSON Registry** | `from_json.py` | ✅ Import + registry entry |
@@ -14,6 +15,77 @@ When adding or modifying GFQL predicates, operators are **cross-cutting** - they
 | 6 | **Quick Reference** | `docs/.../quick.rst` | ✅ Operator table row |
 | 7 | **Tests** | `tests/.../test_*.py` | ✅ Comprehensive tests |
 | 8 | **Docstrings** | Implementation file | ✅ Full docstring + examples |
+
+---
+
+## 0️⃣ Module Exports 🚨 CRITICAL
+
+**Purpose**: Make predicate accessible to users via `from graphistry import predicate`
+
+**🚨 WITHOUT THIS STEP, THE PREDICATE IS UNUSABLE!** Tests pass because they import directly from the module file.
+
+**File 1**: `graphistry/compute/__init__.py`
+```python
+# Import
+from .predicates.str import (
+    contains, Contains,
+    startswith, Startswith,
+    endswith, Endswith,
+    match, Match,
+    fullmatch, Fullmatch,  # ← Add here
+    ...
+)
+
+# __all__ list
+__all__ = [
+    ...
+    'contains', 'Contains', 'startswith', 'Startswith',
+    'endswith', 'Endswith', 'match', 'Match',
+    'fullmatch', 'Fullmatch',  # ← Add here
+    ...
+]
+```
+
+**File 2**: `graphistry/__init__.py`
+```python
+from graphistry.compute import (
+    n, e, ...,
+    contains, Contains,
+    startswith, Startswith,
+    endswith, Endswith,
+    match, Match,
+    fullmatch, Fullmatch,  # ← Add here
+    ...
+)
+```
+
+**File 3**: `graphistry/compute/ast.py`
+```python
+from .predicates.str import (
+    contains, Contains,
+    startswith, Startswith,
+    endswith, Endswith,
+    match, Match,
+    fullmatch, Fullmatch,  # ← Add here
+    ...
+)
+```
+
+**File 4**: `docs/source/conf.py` (nitpick_ignore for Sphinx)
+```python
+nitpick_ignore = [
+    ...
+    ('py:class', 'graphistry.compute.predicates.str.Match'),
+    ('py:class', 'graphistry.compute.predicates.str.Fullmatch'),  # ← Add here
+    ...
+]
+```
+
+**Test exports work**:
+```bash
+python -c "from graphistry import fullmatch; print('✅ OK')"
+python -c "from graphistry.compute import fullmatch; print('✅ OK')"
+```
 
 ---
 
@@ -338,10 +410,11 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh
 
 ## 📚 Reference: IsIn Cross-Check
 
-IsIn appears in all 8 steps (verified for checklist completeness):
+IsIn appears in all 9 steps (verified for checklist completeness):
 
 | Step | File | What's Added |
 |------|------|--------------|
+| 0️⃣ | `compute/__init__.py`, `__init__.py`, `ast.py` | Import + __all__ exports |
 | 1️⃣ | `predicates/is_in.py` | `class IsIn(ASTPredicate)` + `def is_in(options)` |
 | 2️⃣ | Same | `_validate_fields()` checks `isinstance(options, list)` |
 | 3️⃣ | `from_json.py` | Import + registry: `predicates = [Duplicated, IsIn, ...]` |

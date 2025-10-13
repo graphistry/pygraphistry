@@ -104,6 +104,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.predicates.str.IsTitle'),
     ('py:class', 'graphistry.compute.predicates.str.IsUpper'),
     ('py:class', 'graphistry.compute.predicates.str.Match'),
+    ('py:class', 'graphistry.compute.predicates.str.Fullmatch'),
     ('py:class', 'graphistry.compute.predicates.str.NotNull'),
     ('py:class', 'graphistry.compute.predicates.str.Startswith'),
     ('py:class', 'graphistry.compute.predicates.temporal.IsLeapYear'),

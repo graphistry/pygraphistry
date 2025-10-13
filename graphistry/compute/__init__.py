@@ -43,6 +43,7 @@ from .predicates.str import (
     startswith, Startswith,
     endswith, Endswith,
     match, Match,
+    fullmatch, Fullmatch,
     isnumeric, IsNumeric,
     isalpha, IsAlpha,
     isdigit, IsDigit,
@@ -83,6 +84,7 @@ __all__ = [
     # String predicates
     'contains', 'Contains', 'startswith', 'Startswith',
     'endswith', 'Endswith', 'match', 'Match',
+    'fullmatch', 'Fullmatch',
     'isnumeric', 'IsNumeric', 'isalpha', 'IsAlpha',
     'isdigit', 'IsDigit', 'islower', 'IsLower',
     'isupper', 'IsUpper', 'isspace', 'IsSpace',
