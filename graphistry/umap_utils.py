@@ -263,9 +263,13 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import()
+            has_umap, umap_msg, umap_engine = lazy_umap_import()
+            if not has_umap:
+                raise ValueError(f"UMAP-LEARN engine selected but library not available: {umap_msg}")
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import()
+            has_cuml, cuml_msg, umap_engine = lazy_cuml_import()
+            if not has_cuml:
+                raise ValueError(f"cuML engine selected but library not available: {cuml_msg}")
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
