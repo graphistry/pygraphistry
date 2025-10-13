@@ -59,7 +59,12 @@ class TestCallOperationsGPU:
         # Verify the computation is correct
         assert len(result._nodes) == 4
         # Node 2 has the highest degree (3 connections)
-        degrees = result._nodes['degree'].tolist() if hasattr(result._nodes['degree'], 'tolist') else list(result._nodes['degree'])
+        # Use cuDF-compatible conversion
+        import cudf
+        if isinstance(result._nodes, cudf.DataFrame):
+            degrees = result._nodes['degree'].to_arrow().to_pylist()
+        else:
+            degrees = result._nodes['degree'].tolist()
         assert max(degrees) == 3
     
     @skip_gpu
@@ -132,7 +137,12 @@ class TestCallOperationsGPU:
         assert 'pr_score' in result._nodes.columns
         # Verify scores are computed (all nodes should have scores)
         assert len(result._nodes) == 4  # 4 unique nodes
-        scores = result._nodes['pr_score'].tolist() if hasattr(result._nodes['pr_score'], 'tolist') else list(result._nodes['pr_score'])
+        # Use cuDF-compatible conversion
+        import cudf
+        if isinstance(result._nodes, cudf.DataFrame):
+            scores = result._nodes['pr_score'].to_arrow().to_pylist()
+        else:
+            scores = result._nodes['pr_score'].tolist()
         assert all(score > 0 for score in scores)
     
     @skip_gpu
