@@ -137,8 +137,10 @@ class Startswith(ASTPredicate):
         # pandas.Series.str.startswith.html
 
         # Handle tuple patterns
+        # Workaround for cuDF bug: docs claim tuple support but implementation fails
+        # See: https://github.com/rapidsai/cudf/issues/20237
         if isinstance(self.pat, tuple):
-            # pandas supports tuples natively, cuDF doesn't
+            # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.startswith(self.pat)
@@ -164,7 +166,7 @@ class Startswith(ASTPredicate):
                     return result.fillna(self.na)
                 return result
             else:
-                # cuDF - need manual OR logic
+                # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
                     import pandas as pd
@@ -312,8 +314,10 @@ class Endswith(ASTPredicate):
         # pandas.Series.str.endswith.html
 
         # Handle tuple patterns
+        # Workaround for cuDF bug: docs claim tuple support but implementation fails
+        # See: https://github.com/rapidsai/cudf/issues/20237
         if isinstance(self.pat, tuple):
-            # pandas supports tuples natively, cuDF doesn't
+            # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.endswith(self.pat)
@@ -339,7 +343,7 @@ class Endswith(ASTPredicate):
                     return result.fillna(self.na)
                 return result
             else:
-                # cuDF - need manual OR logic
+                # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
                     import pandas as pd
