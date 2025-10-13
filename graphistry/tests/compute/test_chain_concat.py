@@ -338,3 +338,223 @@ class TestChainCombineSteps:
             f"engine='cudf' with pandas input should return cuDF nodes, got {type(result._nodes)}"
         assert isinstance(result._edges, cudf.DataFrame), \
             f"engine='cudf' with pandas input should return cuDF edges, got {type(result._edges)}"
+
+    # UMAP Cross-Engine Coercion Tests - Testing 3D matrix: input type x UMAP engine x chain engine
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_auto_coerces_pandas_to_cudf(self):
+        """UMAP(engine='auto') with pandas input → chain(engine='cudf') → cuDF output"""
+        import cudf
+
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = pd.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+        assert isinstance(g._nodes, pd.DataFrame)
+
+        # UMAP with engine='auto' may pick cuML/umap_learn internally
+        # But chain engine='cudf' should force cuDF output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'auto',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='cudf')
+
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF edges, got {type(result._edges)}"
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_cuml_coerces_pandas_to_cudf(self):
+        """UMAP(engine='cuml') with pandas input → chain(engine='cudf') → cuDF output"""
+        import cudf
+
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = pd.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # UMAP with explicit engine='cuml' produces cuDF internally
+        # Chain engine='cudf' should preserve cuDF output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'cuml',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='cudf')
+
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF edges, got {type(result._edges)}"
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_umap_learn_coerces_pandas_to_cudf(self):
+        """UMAP(engine='umap_learn') with pandas input → chain(engine='cudf') → cuDF output"""
+        import cudf
+
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = pd.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # UMAP with engine='umap_learn' produces pandas internally
+        # But chain engine='cudf' should convert to cuDF output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'umap_learn',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='cudf')
+
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"chain(engine='cudf') should return cuDF edges, got {type(result._edges)}"
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_auto_coerces_cudf_to_pandas(self):
+        """UMAP(engine='auto') with cuDF input → chain(engine='pandas') → pandas output"""
+        import cudf
+
+        nodes_df = cudf.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = cudf.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+        assert isinstance(g._nodes, cudf.DataFrame)
+
+        # UMAP with engine='auto' may pick cuML/umap_learn internally
+        # But chain engine='pandas' should force pandas output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'auto',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='pandas')
+
+        assert isinstance(result._nodes, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas edges, got {type(result._edges)}"
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_cuml_coerces_cudf_to_pandas(self):
+        """UMAP(engine='cuml') with cuDF input → chain(engine='pandas') → pandas output"""
+        import cudf
+
+        nodes_df = cudf.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = cudf.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # UMAP with engine='cuml' produces cuDF internally
+        # But chain engine='pandas' should convert to pandas output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'cuml',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='pandas')
+
+        assert isinstance(result._nodes, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas edges, got {type(result._edges)}"
+
+    @skip_gpu
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_umap_learn_coerces_cudf_to_pandas(self):
+        """UMAP(engine='umap_learn') with cuDF input → chain(engine='pandas') → pandas output"""
+        import cudf
+
+        nodes_df = cudf.DataFrame({
+            'id': ['a', 'b', 'c', 'd', 'e'],
+            'x': [1.0, 2.0, 3.0, 4.0, 5.0],
+            'y': [2.0, 3.0, 4.0, 5.0, 6.0]
+        })
+        edges_df = cudf.DataFrame({
+            'src': ['a', 'b', 'c', 'd'],
+            'dst': ['b', 'c', 'd', 'e']
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+        # UMAP with engine='umap_learn' produces pandas internally
+        # Chain engine='pandas' should preserve pandas output
+        result = g.chain([
+            n({}),
+            call('umap', {
+                'engine': 'umap_learn',
+                'n_components': 2,
+                'n_neighbors': 3,
+                'umap_kwargs': {'random_state': 42}
+            }),
+            n({})
+        ], engine='pandas')
+
+        assert isinstance(result._nodes, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas nodes, got {type(result._nodes)}"
+        assert isinstance(result._edges, pd.DataFrame), \
+            f"chain(engine='pandas') should return pandas edges, got {type(result._edges)}"
