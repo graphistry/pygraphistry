@@ -478,7 +478,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             added_edge_index = False
         elif g._edge is None:
             # Import the helper that generates unique column names
-            from .hop import generate_safe_column_name
+            from .util import generate_safe_column_name
 
             # Generate a guaranteed unique internal column name to avoid conflicts with user data
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')

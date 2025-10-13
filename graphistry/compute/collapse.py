@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 from graphistry.PlotterBase import Plottable
+from .util import generate_safe_column_name
 
 logger = logging.getLogger(__name__)
 # Handler configuration removed - let users control their own logging setup
@@ -21,37 +22,6 @@ FINAL_DST = 'dst_final'
 WRAP = "~"
 DEFAULT_VAL = "None"
 VERBOSE = False
-
-
-def generate_safe_column_name(base_name: str, df, prefix: str = "__gfql_", suffix: str = "__") -> str:
-    """
-    Generate a column name that doesn't conflict with existing columns.
-    Uses auto-increment pattern to guarantee uniqueness.
-
-    Parameters:
-    -----------
-    base_name : str
-        The base name for the column
-    df : DataFrame
-        The DataFrame to check for column name conflicts
-    prefix : str
-        Prefix to prepend to the column name
-    suffix : str
-        Suffix to append to the column name
-
-    Returns:
-    --------
-    str
-        A unique column name that doesn't exist in the DataFrame
-    """
-    counter = 0
-    temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-
-    while temp_name in df.columns:
-        counter += 1
-        temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-
-    return temp_name
 
 
 def unpack(g: Plottable):

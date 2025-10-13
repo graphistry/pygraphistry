@@ -8,40 +8,10 @@ from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
 from .typing import DataFrameT
+from .util import generate_safe_column_name
 
 
 logger = setup_logger(__name__)
-
-
-def generate_safe_column_name(base_name, df, prefix="__temp_", suffix="__"):
-    """
-    Generate a temporary column name that doesn't conflict with existing
-    columns. Uses a simple incrementing counter to avoid dependencies.
-    
-    Parameters:
-    -----------
-    base_name : str
-        The original column name to base the temporary name on
-    df : DataFrame
-        The DataFrame to check for column name conflicts
-    prefix : str
-        Prefix to prepend to the temporary column name
-    suffix : str
-        Suffix to append to the temporary column name
-        
-    Returns:
-    --------
-    str
-        A unique column name that doesn't exist in the DataFrame
-    """
-    counter = 0
-    temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-    
-    while temp_name in df.columns:
-        counter += 1
-        temp_name = f"{prefix}{base_name}_{counter}{suffix}"
-        
-    return temp_name
 
 
 def prepare_merge_dataframe(
