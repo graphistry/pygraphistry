@@ -178,8 +178,6 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
             for (op, g_step) in steps
         ]
 
-    concat = df_concat(engine)
-
     logger.debug('-----------[ combine %s ---------------]', kind)
 
     # df[[id]] - with defensive checks for column existence
@@ -192,7 +190,16 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
-    
+
+    # Defensive: Re-resolve engine from actual DataFrames to handle cases where
+    # engine parameter doesn't match DataFrame types (e.g., after schema-changing ops)
+    if len(dfs_to_concat) > 0:
+        actual_engine = resolve_engine(EngineAbstract.AUTO, dfs_to_concat[0])
+        if actual_engine != engine:
+            logger.debug('Engine mismatch detected: param=%s, actual=%s. Using actual.', engine, actual_engine)
+            engine = actual_engine
+
+    concat = df_concat(engine)
     out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
