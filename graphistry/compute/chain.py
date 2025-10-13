@@ -486,8 +486,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             added_edge_index = True
             # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
             indexed_edges_df = g._edges.reset_index(drop=False)
-            # Find the index column (it will be the first column that wasn't in original columns)
-            index_col_name = [col for col in indexed_edges_df.columns if col not in g._edges.columns][0]
+            # Find the index column (first column not in original) with early exit
+            original_cols = set(g._edges.columns)
+            index_col_name = next(col for col in indexed_edges_df.columns if col not in original_cols)
             indexed_edges_df = indexed_edges_df.rename(columns={index_col_name: GFQL_EDGE_INDEX})
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
         else:
