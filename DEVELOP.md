@@ -116,18 +116,30 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 ## Publish: Merge, Tag, & Upload
 
-1. Manually update CHANGELOG.md
+1. Update CHANGELOG.md in your PR branch
+	- Convert `## [Development]` section to `## [X.Y.Z - YYYY-MM-DD]`
+	- Document all changes following [Keep a Changelog](https://keepachangelog.com/) format
+	- Commit and push to PR branch
 
-1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
+1. Merge the PR to master (via GitHub UI or `gh pr merge`)
 
-1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
+1. Switch to master and pull the merged changes
+	```sh
+	git checkout master
+	git pull
+	```
+
+1. Tag the repository with the new version number (semantic versioning *X.Y.Z*)
 
 	```sh
 	git tag X.Y.Z
 	git push --tags
 	```
 
-1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/), or manually run it for the master branch
+1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/)
+	- Auto-triggers on tag push
+	- Manually trigger for master branch if needed
+	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
