@@ -276,6 +276,7 @@ def startswith(pat: Union[str, tuple], case: bool = True, na: Optional[bool] = N
 |------|---------|-------------|
 | `docs/source/gfql/spec/language.md` | Grammar spec | Grammar + operator reference |
 | `docs/source/gfql/predicates/quick.rst` | Quick reference | Operator table row |
+| `docs/source/gfql/spec/wire_protocol.md` | JSON wire format (EXHAUSTIVE) | Complete JSON serialization with all parameters |
 
 ### Extended Documentation (If Applicable)
 
@@ -284,7 +285,6 @@ def startswith(pat: Union[str, tuple], case: bool = True, na: Optional[bool] = N
 | `docs/source/gfql/overview.rst` | Tutorial examples | If predicate useful for common patterns |
 | `docs/source/gfql/quick.rst` | Quick start guide | If predicate commonly used |
 | `docs/source/gfql/spec/cypher_mapping.md` | Cypher translation | If predicate has Cypher equivalent |
-| `docs/source/gfql/spec/wire_protocol.md` | JSON wire format | If predicate has complex serialization |
 | `docs/source/gfql/wire_protocol_examples.md` | Wire examples | If showing JSON format helpful |
 | `docs/source/gfql/datetime_filtering.md` | Temporal guide | If temporal predicate |
 | `docs/source/gfql/translate.rst` | Translation guide | If predicate helps translations |
@@ -318,7 +318,7 @@ cd docker && WITH_BUILD=0 ./test-cpu-local.sh                        # Full CI
 
 ## 📚 Reference: IsIn - Complete Documentation Map
 
-IsIn covers **all 9 required steps** plus **5 optional docs** (shown below for completeness):
+IsIn covers **all 9 required steps** plus **3 required docs** and **7 optional docs** (shown below for completeness):
 
 ### Required Steps (0-8)
 
@@ -334,37 +334,52 @@ IsIn covers **all 9 required steps** plus **5 optional docs** (shown below for c
 | 7️⃣ | `test_is_in.py` | `class TestIsIn` with comprehensive tests |
 | 8️⃣ | `is_in.py` | Factory function docstring |
 
-### Optional Docs (IsIn appears in 8 of these)
+### Required Docs (3 files)
+
+| File | What's Added |
+|------|--------------|
+| `spec/language.md` | Grammar + operator signature |
+| `predicates/quick.rst` | Operator table row |
+| `spec/wire_protocol.md` | Complete JSON format with all parameters |
+
+### Optional Docs (IsIn appears in 7 of these)
 
 | File | Why IsIn Appears Here | Criteria Met |
 |------|-----------------------|--------------|
 | `overview.rst` | Tutorial example: "Filter by Multiple Node Types" | ✅ Common pattern for filtering |
 | `quick.rst` | Quick start guide example | ✅ Frequently used predicate |
-| `spec/wire_protocol.md` | Dedicated "IsIn Predicate" JSON format section | ✅ Complex serialization (arrays) |
 | `wire_protocol_examples.md` | JSON examples showing is_in serialization | ✅ Illustrates JSON format |
 | `spec/cypher_mapping.md` | Maps to Cypher `IN` operator | ✅ Has Cypher equivalent |
 | `translate.rst` | Translation examples using is_in | ✅ Helps with translations |
 | `about.rst` | Mentioned in feature overview | ✅ Key/common feature |
 | `datetime_filtering.md` | Examples with temporal values in is_in | ✅ Works with temporal predicates |
 
-**Summary**: IsIn appears in **10 docs files** (2 required + 8 optional) because it's a foundational, frequently-used predicate. New predicates typically only need the 2 required docs unless they meet optional criteria.
+**Summary**: IsIn appears in **10 docs files** (3 required + 7 optional) because it's a foundational, frequently-used predicate. New predicates **must update the 3 required docs**, and may add optional docs based on criteria.
 
 ### Comparison: PR #774 (startswith/endswith/fullmatch)
 
-Our PR updated **2 required docs** (minimum requirements met):
+**Initial PR (Steps 1-56)** - Updated 2 docs, missing wire_protocol.md:
 - ✅ `spec/language.md` - Added grammar rules for case-insensitive matching
 - ✅ `predicates/quick.rst` - Added operator table rows for all 3 predicates
+- ❌ `spec/wire_protocol.md` - **MISSING** - Should have added but didn't!
+
+**Step 58 Fix** - Added wire_protocol.md (now 3/3 required docs):
+- ✅ `spec/wire_protocol.md` - Added complete JSON format for:
+  - Fullmatch predicate
+  - case parameter (case-insensitive matching)
+  - Tuple patterns (OR logic)
+  - NA handling
+  - All default values documented
 
 Optional docs we did NOT update (and why that's correct):
 - ❌ `overview.rst` - Not common enough patterns for tutorial examples (yet)
 - ❌ `quick.rst` - Not in quick start guide (these are mid-level predicates)
-- ❌ `spec/wire_protocol.md` - No complex serialization beyond standard string predicates
-- ❌ `wire_protocol_examples.md` - No additional JSON examples needed
+- ❌ `wire_protocol_examples.md` - No additional JSON examples needed (spec is sufficient)
 - ✅ `spec/cypher_mapping.md` - startswith/endswith already present (added in PR #698) - map to Cypher `STARTS WITH`/`ENDS WITH`
 - ❌ `translate.rst` - No translation-specific guidance needed
 - ❌ `about.rst` - Not a headline feature (incremental enhancement)
 - ❌ `datetime_filtering.md` - Not temporal predicates
 
-**Conclusion**: PR #774 correctly updated only required docs. Optional docs would be added later if/when these predicates become common patterns.
+**Conclusion**: PR #774 now correctly updates all 3 required docs. Initially missed wire_protocol.md because checklist was unclear about it being required.
 
 **Reference PRs**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)

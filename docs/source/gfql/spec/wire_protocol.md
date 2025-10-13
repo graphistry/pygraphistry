@@ -270,12 +270,39 @@ call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
 
 ### String Predicates
 
+**Basic forms** (defaults: `case=true`, `na=null`, `flags=0`):
 ```json
-{"type": "Contains", "pattern": "search"}
-{"type": "Startswith", "pattern": "prefix"}
-{"type": "Endswith", "pattern": "suffix"}
-{"type": "Match", "pattern": "^[A-Z]+\\d+$"}
+{"type": "Contains", "pat": "search", "case": true, "flags": 0, "na": null, "regex": true}
+{"type": "Startswith", "pat": "prefix", "case": true, "na": null}
+{"type": "Endswith", "pat": "suffix", "case": true, "na": null}
+{"type": "Match", "pat": "^[A-Z]+\\d+$", "case": true, "flags": 0, "na": null}
+{"type": "Fullmatch", "pat": "^[A-Z]+$", "case": true, "flags": 0, "na": null}
 ```
+
+**Case-insensitive matching** (using `case=false`):
+```json
+{"type": "Startswith", "pat": "prefix", "case": false, "na": null}
+{"type": "Fullmatch", "pat": "^test$", "case": false, "flags": 0, "na": null}
+```
+
+**Tuple patterns** (OR logic - match any):
+```json
+{"type": "Startswith", "pat": ["app", "ban"], "case": true, "na": null}
+{"type": "Endswith", "pat": [".jpg", ".png", ".gif"], "case": true, "na": null}
+```
+
+**NA handling** (fill value for missing data):
+```json
+{"type": "Startswith", "pat": "test", "case": true, "na": false}
+{"type": "Endswith", "pat": "end", "case": true, "na": true}
+```
+
+**Notes**:
+- `pat`: Pattern string or array of strings (array uses OR logic)
+- `case`: Case-sensitive if `true` (default: `true`)
+- `na`: Fill value for null/missing values (default: `null` preserves NA)
+- `flags`: Regex flags for `Match`/`Fullmatch` (default: `0`)
+- `regex`: Whether pattern is regex for `Contains` (default: `true`)
 
 ### Null Predicates
 
