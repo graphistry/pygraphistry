@@ -334,7 +334,7 @@ class UMAPMixin(MIXIN_BASE):
                 if not has_umap:
                     raise ValueError(f"cuML failed and umap_learn fallback not available: {umap_msg}") from e
 
-                engine_resolved = UMAP_LEARN
+                engine_resolved = cast(UMAPEngineConcrete, UMAP_LEARN)
                 # Update umap_params to include metric (required for umap_learn)
                 umap_params = ModelDict("UMAP Parameters",
                     **{
