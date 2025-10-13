@@ -48,6 +48,7 @@ from .predicates.str import (
     startswith, Startswith,
     endswith, Endswith,
     match, Match,
+    fullmatch, Fullmatch,
     isnumeric, IsNumeric,
     isalpha, IsAlpha,
     isdigit, IsDigit,

@@ -22,6 +22,14 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 # Run specific tests fast
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
 
+# GPU tests - FAST (reuse base image, no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+docker run --rm --gpus all -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    $IMAGE pytest /opt/pygraphistry/graphistry/tests/test_file.py -v
+
+# GPU tests - SLOW (full rebuild, use before merge)
+cd docker && ./test-gpu-local.sh
+
 # Validate RST documentation syntax
 ./docs/validate-docs.sh                           # All docs
 ./docs/validate-docs.sh docs/source/gfql/*.rst   # Specific files
@@ -165,9 +173,26 @@ WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Specific features
 ./test-umap-learn-core.sh  # UMAP embeddings
-./test-dgl.sh              # Graph neural networks  
+./test-dgl.sh              # Graph neural networks
 ./test-embed.sh            # Embedding features
 ```
+
+### GPU Testing - Fast (Reuse Base Image)
+
+Docker containers include: **pytest, mypy, ruff** (preinstalled)
+
+```bash
+# Reuse existing graphistry image (no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    -w /workspace -e PYTHONPATH=/workspace \
+    $IMAGE pytest graphistry/tests/test_file.py -v
+```
+
+**Fast iteration**: Use this during development
+**Full rebuild**: Use `./docker/test-gpu-local.sh` before merge
 
 ### Environment Control
 | Variable | Default | Purpose |

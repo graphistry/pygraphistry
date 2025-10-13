@@ -75,18 +75,21 @@ The following table lists the available operators, their descriptions, and examp
    * - Operator
      - Description
      - Example
-   * - ``contains(pattern)``
-     - String contains ``pattern``.
-     - ``n({ "name": contains("Smith") })``
-   * - ``startswith(prefix)``
-     - String starts with ``prefix``.
-     - ``n({ "username": startswith("admin") })``
-   * - ``endswith(suffix)``
-     - String ends with ``suffix``.
-     - ``n({ "email": endswith("@example.com") })``
-   * - ``match(pattern)``
-     - String matches regex ``pattern``.
+   * - ``contains(pattern, case=True)``
+     - String contains ``pattern``. Case-insensitive if ``case=False``.
+     - ``n({ "name": contains("smith", case=False) })``
+   * - ``startswith(prefix, case=True)``
+     - String starts with ``prefix``. Case-insensitive if ``case=False``.
+     - ``n({ "username": startswith("admin", case=False) })``
+   * - ``endswith(suffix, case=True)``
+     - String ends with ``suffix``. Case-insensitive if ``case=False``.
+     - ``n({ "email": endswith(".com", case=False) })``
+   * - ``match(pattern, case=True)``
+     - String matches regex ``pattern`` from start. Case-insensitive if ``case=False``.
      - ``n({ "phone": match(r"^\d{3}-\d{4}$") })``
+   * - ``fullmatch(pattern, case=True)``
+     - String matches regex ``pattern`` entirely. Case-insensitive if ``case=False``.
+     - ``n({ "code": fullmatch(r"\d{3}", case=False) })``
    * - ``isnumeric()``
      - String is numeric.
      - ``n({ "code": isnumeric() })``

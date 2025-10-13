@@ -5,7 +5,17 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## Develop
+## [Development]
+
+### Added
+* **GFQL: Enhanced string predicates** (#697, #774)
+  * **Case-insensitive matching**: `startswith()` and `endswith()` now support `case` parameter - `startswith('test', case=False)`
+  * **Tuple pattern matching**: OR logic via tuples - `startswith(('test', 'prod'))` matches either pattern
+  * **Full-string matching**: New `fullmatch(pat, case=True)` predicate for exact pattern validation
+  * Examples:
+    * `n({'filename': endswith(('.txt', '.csv'), case=False)})` - Case-insensitive file extensions
+    * `n({'email': fullmatch(r'.*@company\.com')})` - Email validation
+  * Works in both pandas and cuDF backends
 
 ### Fixed
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
