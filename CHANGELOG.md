@@ -19,14 +19,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * **Hypergraph: Restore backward compatibility with smart type detection** (#785)
-  * **Breaking change from 0.43.2 has been eliminated** - all three API styles now work:
+  * **Breaking change introduced in version 0.43.2 has been eliminated** - all three API styles now work:
     * Old positional: `hypergraph(g, df, ['cols'])` - works again!
     * New convenience: `hypergraph(g, ['cols'])` - auto-selects dataframe from graph
     * Keyword: `hypergraph(g, entity_types=['cols'])` - explicit keyword style
-  * **Solution**: Removed keyword-only argument restriction (`*` marker) and added smart type detection
+  * **Root cause**: Version 0.43.2 added `*` marker forcing keyword-only arguments, breaking existing user code
+  * **Solution**: Removed keyword-only argument restriction and added smart type detection
   * When second parameter is a list, treats it as `entity_types` and auto-selects dataframe from graph
   * When second parameter is DataFrame-like, treats it as `raw_events`
-  * **User impact**: No migration needed - existing code continues to work as before 0.43.2
+  * **User impact**: No migration needed - existing code continues to work as before version 0.43.2
   * Added comprehensive API compatibility test suites (`TestHypergraphAPICompatibility`, `TestHypergraphAPICompatibilityCudf`) with 9 tests total to prevent future regressions
 * **GFQL: Extend engine coercion to let() and call() operations** (#783)
   * Fixed `gfql(ASTLet, engine='pandas'|'cudf')` and `call('umap', ...)` to honor engine parameter
