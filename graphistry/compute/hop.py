@@ -365,7 +365,9 @@ def hop(self: Plottable,
         # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
         edges_indexed = pre_indexed_edges.reset_index(drop=False)
         # Find the index column (it will be the first column that wasn't in original columns)
-        index_col_name = [col for col in edges_indexed.columns if col not in pre_indexed_edges.columns][0]
+        # reset_index() always adds the new column at position 0, so we can use next() with a generator for early exit
+        pre_indexed_cols = set(pre_indexed_edges.columns)
+        index_col_name = next(col for col in edges_indexed.columns if col not in pre_indexed_cols)
         edges_indexed = edges_indexed.rename(columns={index_col_name: GFQL_EDGE_INDEX})
         EDGE_ID = GFQL_EDGE_INDEX
     else:
