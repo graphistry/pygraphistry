@@ -217,6 +217,15 @@ Before generating GFQL:
 
 ## 📚 Additional Resources
 
+### For AI Assistants
+
+- **`predicates_checklist.md`** - Complete implementation guide for adding/modifying GFQL predicates
+  - Covers all 16 integration points (implementation, JSON, validators, docs)
+  - Real-world examples using IsIn predicate
+  - Common patterns and mistakes to avoid
+
+### Full Specifications
+
 - Full specifications in: `AI_PROGRESS/gfql_llm_specs/`
   - `gfql_language_spec.md` - Complete language specification
   - `gfql_wire_protocol_spec.md` - JSON wire format
