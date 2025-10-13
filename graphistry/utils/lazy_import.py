@@ -27,6 +27,10 @@ def lazy_cuml_import():
         return True, "ok", cuml
     except ModuleNotFoundError as e:
         return False, e, None
+    except ImportError as e:
+        # Catch ImportError for broken library dependencies (e.g., RMM)
+        logger.debug("cuML import failed with ImportError: %s", e)
+        return False, e, None
     except Exception as e:
         logger.warn("Unexpected exn during lazy import", exc_info=e)
         return False, e, None
@@ -50,6 +54,10 @@ def lazy_dbscan_import():
     except ModuleNotFoundError:
         has_cuml_dependency = False
         logger.info("Please install cuml for GPU DBSCAN")
+    except ImportError as e:
+        # Catch ImportError for broken library dependencies (e.g., RMM)
+        has_cuml_dependency = False
+        logger.debug("cuML DBSCAN import failed with ImportError: %s", e)
     except Exception as e:
         has_cuml_dependency = False
         logger.warn("Unexpected exn during lazy import", exc_info=e)

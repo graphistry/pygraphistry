@@ -52,7 +52,7 @@ class TestChainDagGPU:
         
         # Empty DAG should work
         dag = ASTLet({})
-        result = g.chain_let(dag)
+        result = chain_let_impl(g, dag)
         
         # Result should preserve GPU mode
         assert isinstance(result._edges, cudf.DataFrame)
@@ -66,7 +66,8 @@ class TestChainDagGPU:
         
         # Empty DAG with cudf engine
         dag = ASTLet({})
-        result = g.chain_let(dag, engine='cudf')
+        from graphistry.Engine import Engine
+        result = chain_let_impl(g, dag, Engine.CUDF)
         
         # Should have materialized nodes
         assert result._nodes is not None
@@ -88,7 +89,7 @@ class TestChainDagGPU:
         
         # Try to execute
         try:
-            g.chain_let(dag)  # engine='auto' by default
+            chain_let_impl(g, dag)  # engine='auto' by default
         except RuntimeError as e:
             # Should fail on execution, but engine should be detected
             assert "Failed to execute node 'step1'" in str(e)
@@ -166,9 +167,9 @@ class TestChainDagGPU:
         
         # Create a simple DAG
         dag = ASTLet({})  # Empty DAG
-        
+
         # Execute
-        result = g.chain_let(dag)
+        result = chain_let_impl(g, dag)
         
         # Should preserve GPU mode
         assert isinstance(result._edges, cudf.DataFrame)
