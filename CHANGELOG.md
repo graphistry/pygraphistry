@@ -18,6 +18,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Works in both pandas and cuDF backends
 
 ### Fixed
+* **Tests: Fix GPU hypergraph test signatures for keyword-only arguments** (#785)
+  * Fixed 4 tests in `TestHypergraphCudf` that were broken by breaking change in 0.43.2 (#763)
+  * Updated tests to use `entity_types=` keyword argument: `test_drop_edge_attrs`, `test_drop_edge_attrs_direct`, `test_hyper_to_pa_all`, `test_hyper_to_pa_all_direct`
+  * Tests were using old positional syntax `hypergraph(g, df, ['cols'])` which broke when `*` marker was added in 0.43.2
+  * All GPU hypergraph tests now pass (18 passed, 1 xpassed)
+  * **Note**: This fix updates tests to match the breaking API change - user code will need similar updates
 * **GFQL: Extend engine coercion to let() and call() operations** (#783)
   * Fixed `gfql(ASTLet, engine='pandas'|'cudf')` and `call('umap', ...)` to honor engine parameter
   * Schema-changing operations (UMAP, hypergraph) in let/call context now correctly coerce DataFrames
@@ -96,6 +102,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Best practices and performance considerations
 
 ## [0.43.2 - 2025-10-09]
+
+### Breaking 🔥
+* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763)
+  * Added `*` marker in `hypergraph()` signature enforcing keyword-only arguments for all parameters except `g` and `raw_events`
+  * **Old code breaks**: `hypergraph(g, df, ['cols'])` → Must use `hypergraph(g, df, entity_types=['cols'])`
+  * **Affects**: `entity_types`, `opts`, `drop_na`, `drop_edge_attrs`, `verbose`, `direct`, `engine`, `npartitions`, `chunksize`, `from_edges`, `return_as`, `debug`
+  * **Migration**: Add parameter names to all arguments: `entity_types=`, `drop_na=`, etc.
+  * This change improves API stability but breaks existing positional argument usage
 
 ### Added
 * **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
