@@ -57,13 +57,13 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
             return g
 
         # Log conversion for debugging
-        if nodes_need_conversion:
+        if nodes_need_conversion and nodes_engine is not None:
             logger.info(
                 "Engine mismatch in nodes: requested %s but data is %s. Converting.",
                 requested_engine.value,
                 nodes_engine.value
             )
-        if edges_need_conversion:
+        if edges_need_conversion and edges_engine is not None:
             logger.info(
                 "Engine mismatch in edges: requested %s but data is %s. Converting.",
                 requested_engine.value,
