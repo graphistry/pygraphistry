@@ -37,16 +37,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
 ### Fixed
-* **GFQL: Fix chained ASTCall operations (filter_edges_by_dict, filter_nodes_by_dict)** (#786)
-  * **Problem**: Chained `filter_edges_by_dict` operations only applied the first filter, ignoring subsequent filters
-  * **Root cause**: Chain execution loop passed original graph to all operations instead of threading results
-  * **Solution**: Two-part fix in chain.py:
-    * Detect `ASTCall` operations and pass previous operation's result (`g_stack[-1]`) instead of original graph
-    * Skip backward validation pass for pure ASTCall chains (filters/transforms don't need path validation)
-  * **Impact**: Chained filters now work correctly: `[filter_by_type, filter_by_weight]` applies both filters sequentially
+* **GFQL: Fix chained ASTCall operations for pure call() chains** (#786, #791)
+  * **Problem**: Chained `call()` operations (e.g., `call('filter_edges_by_dict')`) only applied first operation
+  * **Root cause**: Chain execution passed original graph to all operations instead of threading results
+  * **Solution**: Detect pure ASTCall chains and pass previous result to each operation
+  * **What works now**: Pure `call()` chains apply sequentially
+    * Example: `[call('filter_edges', type='forward'), call('filter_edges', weight>5)]` now correctly applies both filters
+  * **Known limitation** (tracked in #791): Mixing `call()` enrichments with traversals (`n()`, `e()`) has unexpected behavior
+    * Example: `[n({'type': 'person'}), call('get_degrees')]` computes degrees on full graph, not person subgraph
+    * **Workaround**: Use `let()` for complex sequencing that mixes enrichments and traversals
   * **Applies to**: Both local `.gfql()` and remote `.gfql_remote()` execution
-  * **User migration**: No changes needed - existing code now works as expected
-  * Added comprehensive test suite (`test_astcall_chains.py`) with 24 tests covering filter chains, mixed operations, edge cases, and complex predicates
+  * Added comprehensive test suites:
+    * `test_astcall_chains.py` - 24 tests for pure call() chains (all passing)
+    * `test_astcall_topology.py` - 22 tests for mixed call()/traversal chains (18 xfail, documenting #791)
 
 ## [0.44.1 - 2025-10-13]
 
