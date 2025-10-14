@@ -5,7 +5,7 @@ from .ast import (
 )
 from .chain import Chain
 from .calls import hypergraph
-from .call_types import CallMethodName
+from graphistry.models.gfql.types.call import CallMethodName
 from .predicates.is_in import (
     is_in, IsIn
 )
