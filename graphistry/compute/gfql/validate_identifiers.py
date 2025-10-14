@@ -1,5 +1,5 @@
 """
-Validation utilities for GFQL predicates and filter dictionaries.
+Validation utilities for GFQL identifiers and column references.
 """
 
 from typing import Optional, Dict, Any
@@ -9,12 +9,12 @@ from graphistry.compute.reserved_identifiers import (
 )
 
 
-def validate_filter_dict_keys(
+def validate_column_references(
     filter_dict: Optional[Dict[str, Any]],
-    context: str = "Filter"
+    context: str = "Operation"
 ) -> None:
     """
-    Validate that filter dictionary keys don't reference internal GFQL columns.
+    Validate that column references don't use internal GFQL identifiers.
 
     Internal columns using pattern '__gfql_*__' are temporary and only exist
     during certain operations. Filtering on them would be unpredictable and
@@ -34,8 +34,8 @@ def validate_filter_dict_keys(
 
     Examples
     --------
-    >>> validate_filter_dict_keys({'col': 1, 'val': 2})  # OK
-    >>> validate_filter_dict_keys({'__gfql_temp__': 1})  # Raises ValueError
+    >>> validate_column_references({'col': 1, 'val': 2})  # OK
+    >>> validate_column_references({'__gfql_temp__': 1})  # Raises ValueError
     """
     if not filter_dict:
         return
