@@ -1108,20 +1108,31 @@ class ASTCall(ASTObject):
                     f"call('{self.function}')"
                 )
 
-        # Validate degree operations for internal column names in output parameters
-        if self.function in ('get_degrees', 'get_indegrees', 'get_outdegrees', 'get_topological_levels'):
-            from graphistry.compute.gfql.identifiers import validate_column_name
-            # Validate output column name parameters
-            if self.function == 'get_degrees':
-                for param in ['col', 'degree_in', 'degree_out']:
-                    if param in self.params:
-                        validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
-            elif self.function in ('get_indegrees', 'get_outdegrees'):
-                if 'col' in self.params:
-                    validate_column_name(self.params['col'], f"call('{self.function}') col parameter")
-            elif self.function == 'get_topological_levels':
-                if 'level_col' in self.params:
-                    validate_column_name(self.params['level_col'], f"call('{self.function}') level_col parameter")
+        # Validate output column name parameters to prevent __gfql_*__ internal column conflicts
+        from graphistry.compute.gfql.identifiers import validate_column_name
+
+        # Map function names to their output column parameter names
+        output_col_params = {
+            'get_degrees': ['col', 'degree_in', 'degree_out'],
+            'get_indegrees': ['col'],
+            'get_outdegrees': ['col'],
+            'get_topological_levels': ['level_col'],
+            'compute_cugraph': ['out_col'],
+            'compute_igraph': ['out_col'],
+            'encode_point_color': ['column'],
+            'encode_edge_color': ['column'],
+            'encode_point_size': ['column'],
+            'encode_point_icon': ['column'],
+            'layout_igraph': ['x_out_col', 'y_out_col'],
+            'layout_cugraph': ['x_out_col', 'y_out_col'],
+            'layout_graphviz': ['x_out_col', 'y_out_col'],
+            'collapse': ['column'],
+        }
+
+        if self.function in output_col_params:
+            for param in output_col_params[self.function]:
+                if param in self.params:
+                    validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
 
     def to_json(self, validate: bool = True) -> dict:
         """Convert Call to JSON representation.
