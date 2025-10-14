@@ -442,6 +442,14 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
 
     if validate_schema:
+        # Validate AST structure (including identifier validation) BEFORE schema validation
+        # This ensures we catch reserved identifier errors before schema errors
+        if isinstance(ops, Chain):
+            ops.validate(collect_all=False)
+        else:
+            # Create temporary Chain for validation
+            Chain(ops).validate(collect_all=False)
+
         validate_chain_schema(self, ops, collect_all=False)
 
     if len(ops) == 0:

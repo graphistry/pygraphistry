@@ -132,10 +132,6 @@ class ASTNode(ASTObject):
         self.filter_dict = filter_dict
         self.query = query
 
-        # Validate internal columns early (before schema validation)
-        from graphistry.compute.gfql.validate_identifiers import validate_column_references
-        validate_column_references(self.filter_dict, "n()")
-
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
     
@@ -304,12 +300,6 @@ class ASTEdge(ASTObject):
         self.source_node_query = source_node_query
         self.destination_node_query = destination_node_query
         self.edge_query = edge_query
-
-        # Validate internal columns early (before schema validation)
-        from graphistry.compute.gfql.validate_identifiers import validate_column_references
-        validate_column_references(self.source_node_match, f"e_{self.direction}() source_node_match")
-        validate_column_references(self.edge_match, f"e_{self.direction}() edge_match")
-        validate_column_references(self.destination_node_match, f"e_{self.direction}() destination_node_match")
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
@@ -1092,15 +1082,6 @@ class ASTCall(ASTObject):
         super().__init__()
         self.function = function
         self.params = params or {}
-
-        # Validate internal columns early (before schema validation)
-        if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
-            from graphistry.compute.gfql.validate_identifiers import validate_column_references
-            if 'filter_dict' in self.params:
-                validate_column_references(
-                    self.params.get('filter_dict'),
-                    f"call('{self.function}')"
-                )
 
     def _validate_fields(self) -> None:
         """Validate Call fields."""
