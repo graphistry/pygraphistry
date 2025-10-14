@@ -78,7 +78,7 @@ class TestTopologicalChains:
         result = rich_graph.gfql([
             n({'type': 'person'}),                                      # Filter nodes: type=person (A, B)
             ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': LE(5)}}),  # Filter edges: weight<=5
-            ASTCall('filter_edges_by_dict', {'filter_dict': {'category': 'low'}}), # Filter edges: category=low
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'category': 'low'}}),  # Filter edges: category=low
             n({'score': GE(15)})                                      # Filter nodes: score>=15
         ])
 
