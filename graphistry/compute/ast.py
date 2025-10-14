@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast, overload
 )
 from typing_extensions import Literal
 
@@ -1238,4 +1238,165 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTRef  # noqa: E305
-call = ASTCall  # noqa: E305
+
+
+# Type-safe call() function with overloads
+# Import type definitions
+if TYPE_CHECKING:
+    from graphistry.compute.call_types import (
+        CallMethodName,
+        HopParams, UmapParams, HypergraphParams,
+        GetDegreesParams, FilterEdgesByDictParams, FilterNodesByDictParams,
+        ComputeCugraphParams, ComputeIgraphParams,
+        EncodePointColorParams, EncodeEdgeColorParams,
+        EncodePointSizeParams, EncodePointIconParams,
+        LayoutIgraphParams, LayoutCugraphParams, LayoutGraphvizParams,
+        Fa2LayoutParams, GroupInABoxLayoutParams,
+        GetIndegreesParams, GetOutdegreesParams,
+        MaterializeNodesParams, PruneSelfEdgesParams,
+        CollapseParams, DropNodesParams, KeepNodesParams,
+        GetTopologicalLevelsParams, NameParams, DescriptionParams,
+    )
+
+
+# Overload signatures for type checking
+@overload
+def call(function: Literal['hop'], params: 'HopParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['umap'], params: 'UmapParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['hypergraph'], params: 'HypergraphParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['get_degrees'], params: 'GetDegreesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['filter_edges_by_dict'], params: 'FilterEdgesByDictParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['filter_nodes_by_dict'], params: 'FilterNodesByDictParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['compute_cugraph'], params: 'ComputeCugraphParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['compute_igraph'], params: 'ComputeIgraphParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['encode_point_color'], params: 'EncodePointColorParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['encode_edge_color'], params: 'EncodeEdgeColorParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['encode_point_size'], params: 'EncodePointSizeParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['encode_point_icon'], params: 'EncodePointIconParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['layout_igraph'], params: 'LayoutIgraphParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['layout_cugraph'], params: 'LayoutCugraphParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['layout_graphviz'], params: 'LayoutGraphvizParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['fa2_layout'], params: 'Fa2LayoutParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['group_in_a_box_layout'], params: 'GroupInABoxLayoutParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['get_indegrees'], params: 'GetIndegreesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['get_outdegrees'], params: 'GetOutdegreesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['materialize_nodes'], params: 'MaterializeNodesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['prune_self_edges'], params: 'PruneSelfEdgesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['collapse'], params: 'CollapseParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['drop_nodes'], params: 'DropNodesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['keep_nodes'], params: 'KeepNodesParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['get_topological_levels'], params: 'GetTopologicalLevelsParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['name'], params: 'NameParams' = ...) -> ASTCall:
+    ...
+
+@overload
+def call(function: Literal['description'], params: 'DescriptionParams' = ...) -> ASTCall:
+    ...
+
+# Generic fallback for other methods
+@overload
+def call(function: 'CallMethodName', params: Optional[Dict[str, Any]] = ...) -> ASTCall:
+    ...
+
+# Runtime implementation
+def call(function: str, params: Optional[Union[Dict[str, Any], 'HopParams', 'UmapParams', 'HypergraphParams',
+         'GetDegreesParams', 'FilterEdgesByDictParams', 'FilterNodesByDictParams',
+         'ComputeCugraphParams', 'ComputeIgraphParams', 'EncodePointColorParams',
+         'EncodeEdgeColorParams', 'EncodePointSizeParams', 'EncodePointIconParams',
+         'LayoutIgraphParams', 'LayoutCugraphParams', 'LayoutGraphvizParams',
+         'Fa2LayoutParams', 'GroupInABoxLayoutParams', 'GetIndegreesParams',
+         'GetOutdegreesParams', 'MaterializeNodesParams', 'PruneSelfEdgesParams',
+         'CollapseParams', 'DropNodesParams', 'KeepNodesParams',
+         'GetTopologicalLevelsParams', 'NameParams', 'DescriptionParams']] = None) -> ASTCall:
+    """Create a type-safe Call operation for GFQL.
+
+    Type-checked overloads ensure parameter correctness for each method.
+
+    Args:
+        function: Name of the Plottable method to call
+        params: Dictionary of parameters matching the method signature
+
+    Returns:
+        ASTCall object for use in gfql() or gfql_remote()
+
+    Example:
+        >>> call('hop', {'hops': 2, 'direction': 'forward'})
+        >>> call('umap', {'n_neighbors': 15, 'engine': 'cuml'})
+    """
+    # TypedDict is compatible with dict at runtime, so we can safely cast
+    return ASTCall(function, cast(Optional[Dict[str, Any]], params))
