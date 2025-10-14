@@ -7,34 +7,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.45.0 - 2025-01-15]
 
+### Breaking 🔥
+* **GFQL: Chains must be homogeneous** (#786, #791)
+  * Chains must be either all `call()` or all `n()`/`e()` operations, cannot mix
+  * Mixed chains raise `GFQLValidationError` with guidance to use `let()` composition
+  * Migration: `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})` for complex patterns
+  * Affects both `.gfql()` and `.gfql_remote()`
+
 ### Added
-* **GFQL: Type-safe call() operations** (#789)
-  * Top-level exports `call` and `CallMethodName` for consistent API
-  * TypedDict parameter classes with IDE autocomplete for all 26 call methods
+* **GFQL: Type-safe call() operations** - `from graphistry import call, CallMethodName` (#789)
+  * TypedDict parameter classes with IDE autocomplete (e.g., `HopParams`, `UmapParams`)
   * Overloaded signatures for MyPy type checking
-  * Centralized type definitions in `models/gfql/types/call.py`
-  * Works with both dictionary and TypedDict parameter styles
 * **GFQL: Internal column validation** (#788)
-  * Prevents filtering on `__gfql_*__` internal columns
-  * Prevents using `__gfql_*__` pattern in output column names
-  * Clear error messages guide users to choose different column names
-  * Works with both pandas and cuDF backends
+  * Prevents filtering on or using `__gfql_*__` pattern in column names
 
 ### Fixed
 * **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
-  * Previously hardcoded column names instead of using parameter values
-* **GFQL: Fix chained ASTCall operations for pure call() chains** (#786, #791)
-  * Chained `call()` operations now correctly apply sequentially instead of only first operation
-  * **⚠️ BREAKING**: Chains must be homogeneous - either all `call()` or all `n()`/`e()`, cannot mix
-  * Mixed chains raise `GFQLValidationError` with guidance to use `let()` composition
-  * Migration: Use `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})` for complex patterns
-  * Both local `.gfql()` and remote `.gfql_remote()` affected
-  * Added 49 tests (27 chain + 22 topology) documenting new behavior
+* **GFQL: Fix chained ASTCall operations** - Pure `call()` chains now correctly apply sequentially (#786)
 
 ### Infra
 * **Tests: Column name restriction coverage** (#788)
-  * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
-  * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
 ## [0.44.1 - 2025-10-13]
 
