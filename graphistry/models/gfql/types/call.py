@@ -1,9 +1,13 @@
 """Type definitions for GFQL call() operations.
 
-Provides TypedDict classes and Literal types for type-safe call() usage.
+Provides TypedDict classes, Literal types, and overloaded function signatures
+for type-safe call() usage.
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, cast, overload
+
+if TYPE_CHECKING:
+    from graphistry.compute.ast import ASTCall
 
 
 # Literal type of all valid call method names
@@ -328,3 +332,140 @@ CallParams = Union[
     NameParams,
     DescriptionParams,
 ]
+
+
+# Overload signatures for type checking
+@overload
+def call(function: Literal['hop'], params: HopParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['umap'], params: UmapParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['hypergraph'], params: HypergraphParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['get_degrees'], params: GetDegreesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['filter_edges_by_dict'], params: FilterEdgesByDictParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['filter_nodes_by_dict'], params: FilterNodesByDictParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['compute_cugraph'], params: ComputeCugraphParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['compute_igraph'], params: ComputeIgraphParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_color'], params: EncodePointColorParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_color'], params: EncodeEdgeColorParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_size'], params: EncodePointSizeParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_icon'], params: EncodePointIconParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['layout_igraph'], params: LayoutIgraphParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['layout_cugraph'], params: LayoutCugraphParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['layout_graphviz'], params: LayoutGraphvizParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['fa2_layout'], params: Fa2LayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['group_in_a_box_layout'], params: GroupInABoxLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['get_indegrees'], params: GetIndegreesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['get_outdegrees'], params: GetOutdegreesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['materialize_nodes'], params: MaterializeNodesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['prune_self_edges'], params: PruneSelfEdgesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['collapse'], params: CollapseParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['drop_nodes'], params: DropNodesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['keep_nodes'], params: KeepNodesParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['get_topological_levels'], params: GetTopologicalLevelsParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['name'], params: NameParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['description'], params: DescriptionParams = ...) -> 'ASTCall':
+    ...
+
+# Generic fallback for other methods
+@overload
+def call(function: CallMethodName, params: Optional[Dict[str, Any]] = ...) -> 'ASTCall':
+    ...
+
+# Runtime implementation
+def call(function: str, params: Optional[Union[Dict[str, Any], CallParams]] = None) -> 'ASTCall':
+    """Create a type-safe Call operation for GFQL.
+
+    Type-checked overloads ensure parameter correctness for each method.
+
+    Args:
+        function: Name of the Plottable method to call
+        params: Dictionary of parameters matching the method signature
+
+    Returns:
+        ASTCall object for use in gfql() or gfql_remote()
+
+    Example:
+        >>> call('hop', {'hops': 2, 'direction': 'forward'})
+        >>> call('umap', {'n_neighbors': 15, 'engine': 'cuml'})
+    """
+    # Import here to avoid circular dependency
+    from graphistry.compute.ast import ASTCall
+    # TypedDict is compatible with dict at runtime, so we can safely cast
+    return ASTCall(function, cast(Optional[Dict[str, Any]], params))
