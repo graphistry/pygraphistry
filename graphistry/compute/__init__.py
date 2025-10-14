@@ -5,6 +5,7 @@ from .ast import (
 )
 from .chain import Chain
 from .calls import hypergraph
+from graphistry.models.gfql.types.call import CallMethodName
 from .predicates.is_in import (
     is_in, IsIn
 )
@@ -64,6 +65,8 @@ __all__ = [
     # AST nodes
     'n', 'e', 'e_forward', 'e_reverse', 'e_undirected',
     'let', 'remote', 'ref', 'call',
+    # Call types
+    'CallMethodName',
     # Predicates
     'is_in', 'IsIn',
     'duplicated', 'Duplicated',

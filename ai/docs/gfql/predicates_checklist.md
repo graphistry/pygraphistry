@@ -372,3 +372,30 @@ IsIn covers **all 9 required steps** plus **3 required docs** and **7 optional d
 **Takeaway**: Mid-level predicates → 3 required docs only. Foundational predicates like IsIn → 10 docs (3 required + 7 optional).
 
 **Reference**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)
+
+---
+
+## 🔧 Type-Safe call() Operations (Step 9)
+
+When adding new methods to `call()` safelist, update `models/gfql/types/call.py`:
+
+1. Add `TypedDict` class for parameters
+2. Add method name to `CallMethodName` Literal
+3. Add TypedDict to `CallParams` Union
+4. Add `@overload` signature
+
+**Example**: Adding `new_method`
+```python
+# models/gfql/types/call.py
+class NewMethodParams(TypedDict, total=False):
+    param1: str  # Required in safelist comment
+    engine: Literal['pandas', 'cudf']
+
+CallMethodName = Literal['hop', 'new_method', 'umap']  # Add alphabetically
+CallParams = Union[HopParams, NewMethodParams, UmapParams]
+
+@overload
+def call(function: Literal['new_method'], params: NewMethodParams = ...) -> 'ASTCall': ...
+```
+
+**Verify**: `./bin/mypy.sh graphistry/models/gfql/types/call.py`

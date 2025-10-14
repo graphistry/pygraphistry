@@ -1238,4 +1238,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTRef  # noqa: E305
-call = ASTCall  # noqa: E305
+
+# Import type-safe call() function from models/gfql/types/call
+# This provides overloaded signatures for IDE autocomplete and type checking
+from graphistry.models.gfql.types.call import call  # noqa: E305 E402 F401
