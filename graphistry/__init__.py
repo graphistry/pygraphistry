@@ -41,6 +41,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     kusto_from_client,
     kql,
     kusto_graph,
+    configure_sentinel,
+    sentinel_from_client,
     gsql,
     gsql_endpoint,
     cosmos,
