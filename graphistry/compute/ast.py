@@ -738,11 +738,11 @@ class ASTLet(ASTObject):
                 )
             # Check if value is a valid GraphOperation type
             # Import Chain here due to circular dependency
-            from graphistry.compute.chain import Chain  # noqa: F401, F811
+            from graphistry.compute.chain import Chain as ChainClass  # noqa: F401
 
             # GraphOperation now includes all AST types
             # ASTNode/ASTEdge are now allowed and will operate on the root graph
-            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
+            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, ChainClass)):
                 raise GFQLTypeError(
                     ErrorCode.E201,
                     "binding value must be a valid operation (ASTNode, ASTEdge, Chain, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, or Plottable)",
