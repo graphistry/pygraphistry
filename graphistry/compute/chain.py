@@ -470,6 +470,24 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     logger.debug('final chain >> %s', ops)
 
+    # Enforce homogeneous chains: either all call() or all n()/e(), not mixed
+    # Mixing these operation types leads to unexpected behavior due to architectural differences:
+    # - n()/e() use wavefront semantics (filter active nodes, immutable graph)
+    # - call() use transformation semantics (modify graph structure)
+    # For complex patterns, use let() to compose independent chains
+    has_call = any(isinstance(op, ASTCall) for op in ops)
+    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
+
+    if has_call and has_traversal:
+        from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+        raise GFQLValidationError(
+            code=ErrorCode.E201,
+            message="Cannot mix call() operations with n()/e() traversals in same chain",
+            suggestion="Use let() to compose complex patterns. "
+                      "Example: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}). "
+                      "See issue #791: https://github.com/graphistry/pygraphistry/issues/791"
+        )
+
     # Store original edge binding from self before any transformations
     # This will be restored at the end if we add a temporary index column
     original_edge = self._edge

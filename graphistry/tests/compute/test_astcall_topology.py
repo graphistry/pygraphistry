@@ -1,6 +1,10 @@
 """
 Topological sensitivity tests for ASTCall operations in GFQL chains.
 
+NOTE: As of PR #787, mixing call() with n()/e() in the same chain is not supported
+and will raise GFQLValidationError. These tests document the behaviors that led to
+this restriction. See issue #791 for architectural details and future enhancement plans.
+
 This test suite validates that ASTCall operations (filters, enrichments) work
 correctly when mixed with ASTNode/ASTEdge traversal operations in complex
 topological patterns.
@@ -13,7 +17,10 @@ Key test principles:
 3. Topology sensitivity - test various chain positions, graph structures,
    and operation orderings
 
-Related: Issue #786, PR #787
+Related Issues:
+- #786 - Chained filter operations (fixed for pure call() chains)
+- #791 - Mixed call()/traversal chains (architectural limitation)
+- PR #787 - Implementation and enforcement
 """
 import pandas as pd
 import pytest
