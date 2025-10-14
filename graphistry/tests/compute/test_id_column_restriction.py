@@ -854,5 +854,75 @@ class TestInternalColumnValidation(NoAuthTestCase):
             g.chain([n({'__gfql_user_column__': 'A'}), e_forward(), n()])
 
 
+class TestCallOperationColumnNames(NoAuthTestCase):
+    """Test that call operations reject __gfql_ column names for output columns"""
+
+    def test_get_degrees_rejects_internal_column_names(self):
+        """get_degrees() should reject __gfql_ column names"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Should reject __gfql_ pattern for col parameter
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_degrees(col='__gfql_degree__')
+
+        # Should reject __gfql_ pattern for degree_in parameter
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_degrees(degree_in='__gfql_in__')
+
+        # Should reject __gfql_ pattern for degree_out parameter
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_degrees(degree_out='__gfql_out__')
+
+    def test_get_indegrees_rejects_internal_column_names(self):
+        """get_indegrees() should reject __gfql_ column names"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_indegrees(col='__gfql_indegree__')
+
+    def test_get_outdegrees_rejects_internal_column_names(self):
+        """get_outdegrees() should reject __gfql_ column names"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_outdegrees(col='__gfql_outdegree__')
+
+    def test_get_topological_levels_rejects_internal_column_names(self):
+        """get_topological_levels() should reject __gfql_ column names"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.get_topological_levels(level_col='__gfql_level__')
+
+    def test_call_operations_allow_normal_column_names(self):
+        """Verify normal column names work fine in call operations"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # These should all work fine
+        g2 = g.get_degrees(col='my_degree', degree_in='my_in', degree_out='my_out')
+        assert 'my_degree' in g2._nodes.columns
+        assert 'my_in' in g2._nodes.columns
+        assert 'my_out' in g2._nodes.columns
+
+        g3 = g.get_indegrees(col='custom_indegree')
+        assert 'custom_indegree' in g3._nodes.columns
+
+        g4 = g.get_outdegrees(col='custom_outdegree')
+        assert 'custom_outdegree' in g4._nodes.columns
+
+        g5 = g.get_topological_levels(level_col='custom_level')
+        assert 'custom_level' in g5._nodes.columns
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

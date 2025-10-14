@@ -50,6 +50,37 @@ def is_internal_column(name: str) -> bool:
     )
 
 
+def validate_column_name(name: str, context: str = "Column") -> None:
+    """Validate that a column name doesn't use the internal GFQL pattern.
+
+    This is used to validate output column names created by operations like
+    get_degrees(), get_topological_levels(), etc.
+
+    Parameters
+    ----------
+    name : str
+        Column name to validate
+    context : str
+        Context string for error message (e.g., "get_degrees() col parameter")
+
+    Raises
+    ------
+    ValueError
+        If name matches the internal column pattern '__gfql_*__'
+
+    Examples
+    --------
+    >>> validate_column_name('degree')  # OK
+    >>> validate_column_name('__gfql_temp__')  # Raises ValueError
+    """
+    if is_internal_column(name):
+        raise ValueError(
+            f"{context} cannot use column name '{name}'. "
+            f"Column names matching pattern '{INTERNAL_COLUMN_PATTERN}' are reserved for internal use. "
+            f"Please choose a different column name."
+        )
+
+
 # Reserved column names (legacy - for documentation only)
 # Note: These are NOT enforced client-side, only documented
 # Server-side enforcement at server/client/graph/processing_handler.py:649
