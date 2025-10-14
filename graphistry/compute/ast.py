@@ -13,6 +13,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
@@ -171,8 +172,6 @@ class ASTNode(ASTObject):
                     )
 
             # Validate that filter_dict doesn't reference internal columns
-            # Circular import via gfql/__init__.py → validate.py → chain.py
-            from graphistry.compute.gfql.identifiers import validate_column_references
             validate_column_references(self.filter_dict, "n()")
 
         # Validate name
@@ -366,8 +365,6 @@ class ASTEdge(ASTObject):
                         )
 
         # Validate that filter dicts don't reference internal columns
-        # Circular import via gfql/__init__.py → validate.py → chain.py
-        from graphistry.compute.gfql.identifiers import validate_column_references
         validate_column_references(self.source_node_match, f"e_{self.direction}() source_node_match")
         validate_column_references(self.edge_match, f"e_{self.direction}() edge_match")
         validate_column_references(self.destination_node_match, f"e_{self.direction}() destination_node_match")
@@ -1106,8 +1103,6 @@ class ASTCall(ASTObject):
         if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
             # For these functions, the filter_dict is passed as a parameter
             if 'filter_dict' in self.params:
-                # Circular import via gfql/__init__.py → validate.py → chain.py
-                from graphistry.compute.gfql.identifiers import validate_column_references
                 validate_column_references(
                     self.params.get('filter_dict'),
                     f"call('{self.function}')"

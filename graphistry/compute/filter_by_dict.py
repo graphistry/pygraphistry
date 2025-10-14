@@ -4,6 +4,7 @@ from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine, s_co
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.identifiers import validate_column_references
 from .predicates.ASTPredicate import ASTPredicate
 from .typing import DataFrameT
 
@@ -112,8 +113,6 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter nodes to those that match all values in filter_dict
     """
-    # Circular import via gfql/__init__.py → validate.py → chain.py
-    from graphistry.compute.gfql.identifiers import validate_column_references
     validate_column_references(filter_dict, "filter_nodes_by_dict()")
 
     nodes2 = filter_by_dict(self._nodes, filter_dict, engine)
@@ -124,8 +123,6 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter edges to those that match all values in filter_dict
     """
-    # Circular import via gfql/__init__.py → validate.py → chain.py
-    from graphistry.compute.gfql.identifiers import validate_column_references
     validate_column_references(filter_dict, "filter_edges_by_dict()")
 
     edges2 = filter_by_dict(self._edges, filter_dict, engine)
