@@ -163,14 +163,14 @@ class TestPolicyBehavior:
                         )
 
         limiter = RateLimiter(max_calls=2)
-        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = graphistry.edges(df, 's', 'd')
 
-        # Note: hop gets called multiple times internally
-        # so even one gfql call may exceed the limit
+        # Use multiple chained hop calls to trigger rate limit
+        # Each hop call will trigger precall, so 3 hops > 2 max_calls
         with pytest.raises(PolicyException) as exc_info:
             g.gfql(
-                call('hop', {'hops': 1}),
+                [call('hop', {'hops': 1}), call('hop', {'hops': 1}), call('hop', {'hops': 1})],
                 policy={'precall': limiter.policy}
             )
         assert exc_info.value.code == 429
