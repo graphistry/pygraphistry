@@ -42,12 +42,10 @@ def is_internal_column(name: str) -> bool:
     >>> is_internal_column('gfql_foo__')  # Missing prefix
     False
     """
-    return (
-        isinstance(name, str) and
-        name.startswith(INTERNAL_COLUMN_PREFIX) and
-        name.endswith(INTERNAL_COLUMN_SUFFIX) and
-        len(name) > len(INTERNAL_COLUMN_PREFIX) + len(INTERNAL_COLUMN_SUFFIX)
-    )
+    return (isinstance(name, str)
+            and name.startswith(INTERNAL_COLUMN_PREFIX)
+            and name.endswith(INTERNAL_COLUMN_SUFFIX)
+            and len(name) > len(INTERNAL_COLUMN_PREFIX) + len(INTERNAL_COLUMN_SUFFIX))
 
 
 def validate_column_name(name: str, context: str = "Column") -> None:

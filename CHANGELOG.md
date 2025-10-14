@@ -19,6 +19,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     * IDE autocomplete: `call('hop', {'hops': <Ctrl+Space shows: int>})`
     * Literal validation: `CallMethodName` restricts to valid method names
   * Works with both dictionary and TypedDict parameter styles
+* **GFQL: Internal column validation** (#788)
+  * Prevents filtering on `__gfql_*__` internal columns that are temporary and unpredictable
+  * Prevents using `__gfql_*__` pattern in output column names (e.g., `get_degrees(col='...')`)
+  * Centralized validation in `graphistry.compute.reserved_identifiers` module with DRY pattern checking
+  * Clear error messages guide users to choose different column names
+  * Pattern: `n({'__gfql_foo__': 1})` raises ValueError, `get_degrees(col='__gfql_x__')` raises ValueError
+  * Works with both pandas and cuDF backends
+
+### Fixed
+* **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
+  * `get_degrees(degree_in='in', degree_out='out')` now correctly uses custom column names when summing degrees
+  * Previously hardcoded `'degree_in'` and `'degree_out'` strings instead of using the parameter values
+  * Fixes issue where users couldn't customize the intermediate column names
+
+### Infra
+* **Tests: Comprehensive column name restriction coverage** (#788)
+  * 47 tests documenting PyGraphistry client support for reserved column names ('id', 'index', 'node', etc.)
+  * 9 validation tests ensuring `__gfql_*__` internal columns rejected in filter predicates and output parameters
+  * Coverage across 7 operators, 7 predicates, 12 call operations, 22 binding names
+  * All 555 compute tests pass with no regressions
 
 ## [0.44.1 - 2025-10-13]
 
