@@ -27,7 +27,7 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
     # For filter->enrich->filter patterns, use let()
     result = g.gfql(let({
         'persons': n({'type': 'person'}),
-        'with_degrees': call('get_degrees', {'col': 'degree'}, g=ref('persons')),
+        'with_degrees': ref('persons', [call('get_degrees', {'col': 'degree'})]),
         'high_degree': ref('with_degrees', [n({'degree': gt(10)})]),
         'connected': ref('high_degree', [e_forward(), n()])
     }))
