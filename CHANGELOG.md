@@ -34,11 +34,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Fixes issue where users couldn't customize the intermediate column names
 
 ### Infra
-* **Tests: Comprehensive column name restriction coverage** (#788)
-  * 47 tests documenting PyGraphistry client support for reserved column names ('id', 'index', 'node', etc.)
-  * 9 validation tests ensuring `__gfql_*__` internal columns rejected in filter predicates and output parameters
-  * Coverage across 7 operators, 7 predicates, 12 call operations, 22 binding names
-  * All 555 compute tests pass with no regressions
+* **Tests: Column name restriction coverage** (#788)
+  * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
+  * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
 ## [0.44.1 - 2025-10-13]
 
