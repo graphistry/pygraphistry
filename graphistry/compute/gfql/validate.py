@@ -23,9 +23,8 @@ import warnings
 import pandas as pd
 
 if TYPE_CHECKING:
-    from graphistry.compute.ast import ASTNode, ASTEdge, ASTObject
-    from graphistry.compute.chain import Chain
     from graphistry.Plottable import Plottable
+
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate
 from graphistry.compute.predicates.str import (
