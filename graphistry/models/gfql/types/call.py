@@ -2,6 +2,9 @@
 
 Provides TypedDict classes, Literal types, and overloaded function signatures
 for type-safe call() usage.
+
+Note: Type system can't express all constraints (e.g., no __gfql_*__ columns).
+Additional validation happens at runtime in graphistry.compute.ast::ASTCall._validate_fields().
 """
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, cast, overload

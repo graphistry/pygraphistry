@@ -400,6 +400,8 @@ def call(function: Literal['new_method'], params: NewMethodParams = ...) -> 'AST
 
 **Verify**: `./bin/mypy.sh graphistry/models/gfql/types/call.py`
 
+**Note**: Type system can't express all constraints (e.g., no `__gfql_*__` columns). `ast.py::ASTCall._validate_fields()` handles these - see [🔒 ASTCall Validation](#-astcall-validation-non-obvious).
+
 ---
 
 ## 🔒 ASTCall Validation (Non-obvious!)
