@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+* **GFQL: Type-safe call() operations** (#789)
+  * **TypedDict parameter classes**: IDE autocomplete for all 26 call methods (`HopParams`, `UmapParams`, `HypergraphParams`, etc.)
+  * **Overloaded signatures**: MyPy type checking ensures parameter correctness - `call('hop', {'hops': 2, 'direction': 'forward'})`
+  * **CallMethodName export**: Import `from graphistry.compute import CallMethodName` for type-safe method names
+  * **Centralized type definitions**: All call types in `models/gfql/types/call.py` for maintainability
+  * Examples:
+    * Type-safe params: `call('umap', UmapParams(n_neighbors=15, engine='cuml'))`
+    * IDE autocomplete: `call('hop', {'hops': <Ctrl+Space shows: int>})`
+    * Literal validation: `CallMethodName` restricts to valid method names
+  * Works with both dictionary and TypedDict parameter styles
+
 ## [0.44.1 - 2025-10-13]
 
 ### Added
