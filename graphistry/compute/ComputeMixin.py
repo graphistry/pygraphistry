@@ -10,7 +10,6 @@ from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject
 from .chain import Chain, chain as chain_base
-from .gfql.identifiers import validate_column_name
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .chain_remote import (
@@ -242,8 +241,6 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
-        validate_column_name(col, "get_indegrees() col parameter")
-
         g = self
         g_nodes = g.materialize_nodes()
 
@@ -287,8 +284,6 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        validate_column_name(col, "get_outdegrees() col parameter")
-
         g = self
         g2 = g.edges(
             g._edges.rename(
@@ -321,10 +316,6 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        validate_column_name(col, "get_degrees() col parameter")
-        validate_column_name(degree_in, "get_degrees() degree_in parameter")
-        validate_column_name(degree_out, "get_degrees() degree_out parameter")
-
         g = self
         g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
         g2._nodes[col] = g2._nodes[degree_in] + g2._nodes[degree_out]
@@ -440,8 +431,6 @@ class ComputeMixin(Plottable):
         g2._nodes.info()  # pd.DataFrame with | 'id' , 'level' |
 
         """
-        validate_column_name(level_col, "get_topological_levels() level_col parameter")
-
         g2_base = self.materialize_nodes()
 
         g2 = g2_base

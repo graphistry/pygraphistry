@@ -1108,6 +1108,21 @@ class ASTCall(ASTObject):
                     f"call('{self.function}')"
                 )
 
+        # Validate degree operations for internal column names in output parameters
+        if self.function in ('get_degrees', 'get_indegrees', 'get_outdegrees', 'get_topological_levels'):
+            from graphistry.compute.gfql.identifiers import validate_column_name
+            # Validate output column name parameters
+            if self.function == 'get_degrees':
+                for param in ['col', 'degree_in', 'degree_out']:
+                    if param in self.params:
+                        validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
+            elif self.function in ('get_indegrees', 'get_outdegrees'):
+                if 'col' in self.params:
+                    validate_column_name(self.params['col'], f"call('{self.function}') col parameter")
+            elif self.function == 'get_topological_levels':
+                if 'level_col' in self.params:
+                    validate_column_name(self.params['level_col'], f"call('{self.function}') level_col parameter")
+
     def to_json(self, validate: bool = True) -> dict:
         """Convert Call to JSON representation.
         
