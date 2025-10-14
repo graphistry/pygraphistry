@@ -24,6 +24,8 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate
