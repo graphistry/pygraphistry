@@ -795,5 +795,64 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             assert result._edge_color == col_name
 
 
+class TestInternalColumnValidation(NoAuthTestCase):
+    """Test that __gfql_ internal columns are rejected in predicates"""
+
+    def test_reject_gfql_internal_columns_in_node_predicates(self):
+        """n() should reject __gfql_ internal columns in predicates"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3], 'value': [10, 20, 30]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Should reject filtering on internal columns
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n({'__gfql_edge_index_0__': 1}), e_forward(), n()])
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n({'__gfql_temp__': 'foo'}), e_forward(), n()])
+
+    def test_reject_gfql_internal_columns_in_edge_predicates(self):
+        """e_forward() should reject __gfql_ internal columns in predicates"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3], 'weight': [0.5, 0.8]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Should reject filtering on internal edge columns
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n(), e_forward({'__gfql_edge_index_0__': 1}), n()])
+
+    def test_reject_gfql_internal_columns_in_source_dest_predicates(self):
+        """Edge operations should reject __gfql_ in source/destination predicates"""
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Should reject in source_node_match
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n(), e_forward(source_node_match={'__gfql_node_id__': 1}), n()])
+
+        # Should reject in destination_node_match
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n(), e_forward(destination_node_match={'__gfql_node_id__': 2}), n()])
+
+    def test_allow_user_gfql_columns_in_data(self):
+        """User can HAVE __gfql_ columns in their data, just not filter on them in GFQL"""
+        # User has their own __gfql_ column
+        nodes_df = pd.DataFrame({
+            'nid': [1, 2, 3],
+            '__gfql_user_column__': ['A', 'B', 'C']  # User's column
+        })
+        edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Column exists in result
+        result = g.chain([n(), e_forward(), n()])
+        assert '__gfql_user_column__' in result._nodes.columns
+
+        # But can't filter on it in GFQL predicates
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            g.chain([n({'__gfql_user_column__': 'A'}), e_forward(), n()])
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

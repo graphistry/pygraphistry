@@ -132,6 +132,10 @@ class ASTNode(ASTObject):
         self.filter_dict = filter_dict
         self.query = query
 
+        # Validate internal columns early (before schema validation)
+        from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+        validate_filter_dict_keys(self.filter_dict, "n()")
+
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
     
@@ -170,6 +174,10 @@ class ASTNode(ASTObject):
                         value=type(value).__name__,
                         suggestion="Use predicates like gt(5) or simple values",
                     )
+
+            # Validate that filter_dict doesn't reference internal columns
+            from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+            validate_filter_dict_keys(self.filter_dict, "n()")
 
         # Validate name
         if self._name is not None and not isinstance(self._name, str):
@@ -297,6 +305,12 @@ class ASTEdge(ASTObject):
         self.destination_node_query = destination_node_query
         self.edge_query = edge_query
 
+        # Validate internal columns early (before schema validation)
+        from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+        validate_filter_dict_keys(self.source_node_match, f"e_{self.direction}() source_node_match")
+        validate_filter_dict_keys(self.edge_match, f"e_{self.direction}() edge_match")
+        validate_filter_dict_keys(self.destination_node_match, f"e_{self.direction}() destination_node_match")
+
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
 
@@ -362,6 +376,12 @@ class ASTEdge(ASTObject):
                             field=f"{filter_name}.{key}",
                             value=type(value).__name__,
                         )
+
+        # Validate that filter dicts don't reference internal columns
+        from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+        validate_filter_dict_keys(self.source_node_match, f"e_{self.direction}() source_node_match")
+        validate_filter_dict_keys(self.edge_match, f"e_{self.direction}() edge_match")
+        validate_filter_dict_keys(self.destination_node_match, f"e_{self.direction}() destination_node_match")
 
         # Validate name
         if self._name is not None and not isinstance(self._name, str):
@@ -1064,7 +1084,7 @@ class ASTCall(ASTObject):
     """
     def __init__(self, function: str, params: Optional[Dict[str, Any]] = None) -> None:
         """Initialize a Call operation.
-        
+
         Args:
             function: Name of the Plottable method to call
             params: Optional dictionary of parameters for the method
@@ -1072,7 +1092,16 @@ class ASTCall(ASTObject):
         super().__init__()
         self.function = function
         self.params = params or {}
-    
+
+        # Validate internal columns early (before schema validation)
+        if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
+            from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+            if 'filter_dict' in self.params:
+                validate_filter_dict_keys(
+                    self.params.get('filter_dict'),
+                    f"call('{self.function}')"
+                )
+
     def _validate_fields(self) -> None:
         """Validate Call fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -1100,7 +1129,17 @@ class ASTCall(ASTObject):
                 field="params",
                 value=type(self.params).__name__
             )
-    
+
+        # Validate filter_*_by_dict calls for internal column references
+        if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
+            from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+            # For these functions, the filter_dict is passed as a parameter
+            if 'filter_dict' in self.params:
+                validate_filter_dict_keys(
+                    self.params.get('filter_dict'),
+                    f"call('{self.function}')"
+                )
+
     def to_json(self, validate: bool = True) -> dict:
         """Convert Call to JSON representation.
         

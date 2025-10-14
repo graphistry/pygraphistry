@@ -112,6 +112,9 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter nodes to those that match all values in filter_dict
     """
+    from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+    validate_filter_dict_keys(filter_dict, "filter_nodes_by_dict()")
+
     nodes2 = filter_by_dict(self._nodes, filter_dict, engine)
     return self.nodes(nodes2)
 
@@ -120,5 +123,8 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter edges to those that match all values in filter_dict
     """
+    from graphistry.compute.util.validate_predicates import validate_filter_dict_keys
+    validate_filter_dict_keys(filter_dict, "filter_edges_by_dict()")
+
     edges2 = filter_by_dict(self._edges, filter_dict, engine)
     return self.edges(edges2)
