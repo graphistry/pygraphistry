@@ -372,3 +372,109 @@ IsIn covers **all 9 required steps** plus **3 required docs** and **7 optional d
 **Takeaway**: Mid-level predicates → 3 required docs only. Foundational predicates like IsIn → 10 docs (3 required + 7 optional).
 
 **Reference**: #774 (fullmatch + case/tuple support), #697 (case-insensitive predicates)
+
+---
+
+## 🔧 Type-Safe call() Operations
+
+### When call() Methods Are Safelisted
+
+When adding new methods to GFQL's `call()` safelist (e.g., `call('new_method', params)`), you must update the TypedDict type system to provide IDE autocompletion and static type checking.
+
+**Files to Update**:
+
+1. **`compute/call_types.py`** - Add TypedDict parameter class
+2. **`compute/call_types.py`** - Add method name to `CallMethodName` Literal
+3. **`compute/ast.py`** - Add `@overload` signature for type dispatch
+4. **`gfql/call_safelist.py`** - Add method to safelist (already done if you're here)
+
+### Example: Adding `new_method` to call() Types
+
+**Step 1**: Add TypedDict in `call_types.py`:
+```python
+class NewMethodParams(TypedDict, total=False):
+    """Parameters for new_method operation."""
+    param1: str              # Required in safelist
+    param2: int
+    param3: bool
+    engine: Literal['pandas', 'cudf', 'auto']
+```
+
+**Step 2**: Add to `CallMethodName` Literal in `call_types.py`:
+```python
+CallMethodName = Literal[
+    'collapse',
+    'compute_cugraph',
+    # ... existing methods ...
+    'new_method',  # ← Add alphabetically
+    'umap'
+]
+```
+
+**Step 3**: Export from `CallParams` Union in `call_types.py`:
+```python
+CallParams = Union[
+    HopParams,
+    UmapParams,
+    # ... existing params ...
+    NewMethodParams,  # ← Add here
+]
+```
+
+**Step 4**: Add import in `ast.py`:
+```python
+if TYPE_CHECKING:
+    from graphistry.compute.call_types import (
+        CallMethodName,
+        HopParams, UmapParams, HypergraphParams,
+        # ... existing imports ...
+        NewMethodParams,  # ← Add here
+    )
+```
+
+**Step 5**: Add `@overload` signature in `ast.py`:
+```python
+@overload
+def call(function: Literal['new_method'], params: 'NewMethodParams' = ...) -> ASTCall:
+    ...
+```
+
+### Benefits
+
+✅ IDE autocomplete for method names and parameters
+✅ Mypy catches mismatches between method name and params
+✅ Documentation via type hints
+✅ Prevents runtime errors at development time
+
+### Verification
+
+```bash
+# Type checking
+./bin/mypy.sh graphistry/compute/ast.py graphistry/compute/call_types.py
+
+# Test that types work
+python -c "from graphistry.compute import call, CallMethodName; c = call('new_method', {'param1': 'value'})"
+
+# Verify in IDE - should see autocompletion for:
+# - call('new_method', {  # ← method name autocomplete
+# - call('new_method', {'param1':   # ← param name autocomplete
+```
+
+### Common Patterns
+
+| Scenario | Pattern |
+|----------|---------|
+| **Required params** | Add comment `# Required in safelist` to field |
+| **Enum types** | Use `Literal['option1', 'option2']` |
+| **Optional params** | Use `TypedDict(total=False)` - all fields optional |
+| **Any type** | Use `Any` for dynamic/flexible types |
+| **Engine param** | Use `engine: Literal['pandas', 'cudf', 'auto']` or `engine: str` |
+
+### Related Files
+
+- **Safelist validation**: `gfql/call_safelist.py` - Runtime parameter validation
+- **Type definitions**: `compute/call_types.py` - Static type definitions
+- **Function overloads**: `compute/ast.py` - Type dispatch signatures
+- **Tests**: `tests/compute/test_call_operations.py` - Safelist tests already cover this
+
+**Reference**: PR adding type-safe call() system with 26 safelist methods
