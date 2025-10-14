@@ -3,7 +3,7 @@ Validation utilities for GFQL identifiers and column references.
 """
 
 from typing import Optional, Dict, Any
-from graphistry.compute.reserved_identifiers import (
+from graphistry.compute.gfql.reserved_identifiers import (
     is_internal_column,
     INTERNAL_COLUMN_PATTERN
 )
