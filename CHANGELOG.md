@@ -5,78 +5,36 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.45.0 - 2025-01-15]
 
 ### Added
 * **GFQL: Type-safe call() operations** (#789)
-  * **Top-level exports**: Import `from graphistry import call, CallMethodName` for consistent API
-  * **TypedDict parameter classes**: IDE autocomplete for all 26 call methods (`HopParams`, `UmapParams`, `HypergraphParams`, etc.)
-  * **Overloaded signatures**: MyPy type checking ensures parameter correctness - `call('hop', {'hops': 2, 'direction': 'forward'})`
-  * **Centralized type definitions**: All call types in `models/gfql/types/call.py` for maintainability
-  * Examples:
-    * Top-level import: `from graphistry import call, CallMethodName`
-    * Type-safe params: `call('umap', UmapParams(n_neighbors=15, engine='cuml'))`
-    * IDE autocomplete: `call('hop', {'hops': <Ctrl+Space shows: int>})`
-    * Literal validation: `CallMethodName` restricts to valid method names
+  * Top-level exports `call` and `CallMethodName` for consistent API
+  * TypedDict parameter classes with IDE autocomplete for all 26 call methods
+  * Overloaded signatures for MyPy type checking
+  * Centralized type definitions in `models/gfql/types/call.py`
   * Works with both dictionary and TypedDict parameter styles
 * **GFQL: Internal column validation** (#788)
-  * Prevents filtering on `__gfql_*__` internal columns that are temporary and unpredictable
-  * Prevents using `__gfql_*__` pattern in output column names (e.g., `get_degrees(col='...')`)
-  * Centralized validation in `graphistry.compute.reserved_identifiers` module with DRY pattern checking
+  * Prevents filtering on `__gfql_*__` internal columns
+  * Prevents using `__gfql_*__` pattern in output column names
   * Clear error messages guide users to choose different column names
-  * Pattern: `n({'__gfql_foo__': 1})` raises ValueError, `get_degrees(col='__gfql_x__')` raises ValueError
   * Works with both pandas and cuDF backends
 
 ### Fixed
 * **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
   * Previously hardcoded column names instead of using parameter values
+* **GFQL: Fix chained ASTCall operations for pure call() chains** (#786, #791)
+  * Chained `call()` operations now correctly apply sequentially instead of only first operation
+  * **⚠️ BREAKING**: Chains must be homogeneous - either all `call()` or all `n()`/`e()`, cannot mix
+  * Mixed chains raise `GFQLValidationError` with guidance to use `let()` composition
+  * Migration: Use `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})` for complex patterns
+  * Both local `.gfql()` and remote `.gfql_remote()` affected
+  * Added 49 tests (27 chain + 22 topology) documenting new behavior
 
 ### Infra
 * **Tests: Column name restriction coverage** (#788)
   * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
   * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
-
-### Fixed
-* **GFQL: Fix chained ASTCall operations for pure call() chains** (#786, #791)
-  * **Problem**: Chained `call()` operations (e.g., `call('filter_edges_by_dict')`) only applied first operation
-  * **Root cause**: Chain execution passed original graph to all operations instead of threading results
-  * **Solution**: Detect pure ASTCall chains and pass previous result to each operation
-  * **What works now**: Pure `call()` chains apply sequentially
-    * Example: `[call('filter_edges', type='forward'), call('filter_edges', weight>5)]` now correctly applies both filters
-  * **⚠️ BREAKING CHANGE**: Chains must be homogeneous - either all `call()` or all `n()`/`e()`, no mixing
-    * Mixed chains now raise `GFQLValidationError` with guidance to use `let()`
-    * Example: `[n({'type': 'person'}), call('get_degrees')]` now raises clear error
-  * **Migration Guide**:
-    * **Before (no longer works)**:
-      ```python
-      # Mixed chain: n()/e() + call()
-      g.gfql([
-          n({'type': 'person'}),
-          e_forward({'status': 'active'}),
-          call('get_degrees')
-      ])
-      ```
-    * **After (use let() composition)**:
-      ```python
-      # Pattern 1: Filter then enrich
-      g.gfql(let({
-          'filtered': [n({'type': 'person'}), e_forward({'status': 'active'}), n()],
-          'enriched': ref('filtered', [call('get_degrees')])
-      }))
-
-      # Pattern 2: Standalone call() operations
-      g.gfql([
-          call('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),
-          call('filter_edges_by_dict', {'filter_dict': {'status': 'active'}}),
-          call('get_degrees')
-      ])
-      ```
-  * **Why**: Mixing causes unexpected behavior due to architectural differences (wavefront vs transformation semantics)
-    * Full details tracked in #791
-  * **Applies to**: Both local `.gfql()` and remote `.gfql_remote()` execution
-  * Added comprehensive test suites:
-    * `test_astcall_chains.py` - 27 tests for pure call() chains (all passing)
-    * `test_astcall_topology.py` - 22 tests documenting mixed chain behaviors (#791)
 
 ## [0.44.1 - 2025-10-13]
 
