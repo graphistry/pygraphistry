@@ -10,8 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Breaking 🔥
 * **GFQL: Chains must be homogeneous** (#786, #791)
   * Chains must be either all `call()` or all `n()`/`e()` operations, cannot mix
-  * Mixed chains raise `GFQLValidationError` with guidance to use `let()` composition
-  * Migration: `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})` for complex patterns
+  * Previous behavior was likely buggy - mixed chains had unpredictable results
+  * Mixed chains now raise `GFQLValidationError` with clear guidance
+  * Migration: Use `let()` to compose sequences, e.g., `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})`
   * Affects both `.gfql()` and `.gfql_remote()`
 
 ### Added
