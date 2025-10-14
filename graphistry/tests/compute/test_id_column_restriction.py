@@ -927,6 +927,51 @@ class TestCallOperationColumnNames(NoAuthTestCase):
         g5 = g.get_topological_levels(level_col='custom_level')
         assert 'custom_level' in g5._nodes.columns
 
+    def test_get_degrees_custom_column_names_regression(self):
+        """Regression test: get_degrees() passes custom degree_in/degree_out to underlying methods
+
+        This verifies that custom column names are correctly propagated through the implementation:
+        g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
+
+        Without this test, refactoring could accidentally hardcode default column names.
+        """
+        nodes_df = pd.DataFrame({'nid': [1, 2, 3, 4]})
+        edges_df = pd.DataFrame({
+            'src': [1, 1, 2, 3],  # Node 1: 2 outgoing, Node 2: 1 outgoing, Node 3: 1 outgoing
+            'dst': [2, 3, 3, 4]   # Node 2: 1 incoming, Node 3: 2 incoming, Node 4: 1 incoming
+        })
+        g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
+
+        # Test with custom column names
+        g2 = g.get_degrees(
+            col='total_degree',
+            degree_in='custom_in',
+            degree_out='custom_out'
+        )
+
+        # Verify all three custom columns exist
+        assert 'total_degree' in g2._nodes.columns
+        assert 'custom_in' in g2._nodes.columns
+        assert 'custom_out' in g2._nodes.columns
+
+        # Verify default columns don't exist
+        assert 'degree' not in g2._nodes.columns
+        assert 'degree_in' not in g2._nodes.columns
+        assert 'degree_out' not in g2._nodes.columns
+
+        # Verify computation is correct: total_degree = custom_in + custom_out
+        # Node 2: 1 in + 1 out = 2 total
+        node2 = g2._nodes[g2._nodes['nid'] == 2].iloc[0]
+        assert node2['custom_in'] == 1, "Node 2 should have 1 incoming edge"
+        assert node2['custom_out'] == 1, "Node 2 should have 1 outgoing edge"
+        assert node2['total_degree'] == 2, "Node 2 total degree should be 2"
+
+        # Node 3: 2 in + 1 out = 3 total
+        node3 = g2._nodes[g2._nodes['nid'] == 3].iloc[0]
+        assert node3['custom_in'] == 2, "Node 3 should have 2 incoming edges"
+        assert node3['custom_out'] == 1, "Node 3 should have 1 outgoing edge"
+        assert node3['total_degree'] == 3, "Node 3 total degree should be 3"
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
