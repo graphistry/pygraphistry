@@ -29,9 +29,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
-  * `get_degrees(degree_in='in', degree_out='out')` now correctly uses custom column names when summing degrees
-  * Previously hardcoded `'degree_in'` and `'degree_out'` strings instead of using the parameter values
-  * Fixes issue where users couldn't customize the intermediate column names
+  * Previously hardcoded column names instead of using parameter values
 
 ### Infra
 * **Tests: Column name restriction coverage** (#788)
