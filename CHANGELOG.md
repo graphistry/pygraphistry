@@ -43,15 +43,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Solution**: Detect pure ASTCall chains and pass previous result to each operation
   * **What works now**: Pure `call()` chains apply sequentially
     * Example: `[call('filter_edges', type='forward'), call('filter_edges', weight>5)]` now correctly applies both filters
-  * **Restriction added**: Chains must be homogeneous - either all `call()` or all `n()`/`e()`, no mixing
+  * **⚠️ BREAKING CHANGE**: Chains must be homogeneous - either all `call()` or all `n()`/`e()`, no mixing
     * Mixed chains now raise `GFQLValidationError` with guidance to use `let()`
     * Example: `[n({'type': 'person'}), call('get_degrees')]` now raises clear error
-    * **Workaround**: Use `let()` for complex patterns: `let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))})`
+  * **Migration Guide**:
+    * **Before (no longer works)**:
+      ```python
+      # Mixed chain: n()/e() + call()
+      g.gfql([
+          n({'type': 'person'}),
+          e_forward({'status': 'active'}),
+          call('get_degrees')
+      ])
+      ```
+    * **After (use let() composition)**:
+      ```python
+      # Pattern 1: Filter then enrich
+      g.gfql(let({
+          'filtered': [n({'type': 'person'}), e_forward({'status': 'active'}), n()],
+          'enriched': ref('filtered', [call('get_degrees')])
+      }))
+
+      # Pattern 2: Standalone call() operations
+      g.gfql([
+          call('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),
+          call('filter_edges_by_dict', {'filter_dict': {'status': 'active'}}),
+          call('get_degrees')
+      ])
+      ```
   * **Why**: Mixing causes unexpected behavior due to architectural differences (wavefront vs transformation semantics)
     * Full details tracked in #791
   * **Applies to**: Both local `.gfql()` and remote `.gfql_remote()` execution
   * Added comprehensive test suites:
-    * `test_astcall_chains.py` - 24 tests for pure call() chains (all passing)
+    * `test_astcall_chains.py` - 27 tests for pure call() chains (all passing)
     * `test_astcall_topology.py` - 22 tests documenting mixed chain behaviors (#791)
 
 ## [0.44.1 - 2025-10-13]
