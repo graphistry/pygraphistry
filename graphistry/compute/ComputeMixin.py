@@ -318,7 +318,7 @@ class ComputeMixin(Plottable):
         """
         g = self
         g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
-        g2._nodes[col] = g2._nodes["degree_in"] + g2._nodes["degree_out"]
+        g2._nodes[col] = g2._nodes[degree_in] + g2._nodes[degree_out]
         return g2
 
     def drop_nodes(self, nodes):
@@ -431,7 +431,6 @@ class ComputeMixin(Plottable):
         g2._nodes.info()  # pd.DataFrame with | 'id' , 'level' |
 
         """
-
         g2_base = self.materialize_nodes()
 
         g2 = g2_base

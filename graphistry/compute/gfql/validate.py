@@ -22,11 +22,11 @@ from typing import List, Optional, Dict, Union, Any, Tuple, TYPE_CHECKING
 import warnings
 import pandas as pd
 
-from graphistry.compute.chain import Chain
-from graphistry.compute.ast import ASTNode, ASTEdge, ASTObject
-
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate
 from graphistry.compute.predicates.str import (
@@ -172,7 +172,7 @@ def _format_error(error_key: str, **kwargs) -> Tuple[str, str]:
     return message, suggestion
 
 
-def validate_syntax(chain: Union[Chain, List]) -> List[ValidationIssue]:
+def validate_syntax(chain: Union["Chain", List]) -> List[ValidationIssue]:
     """
     Validate GFQL query syntax without requiring data.
 
@@ -183,6 +183,10 @@ def validate_syntax(chain: Union[Chain, List]) -> List[ValidationIssue]:
         List of validation issues (errors and warnings)
     """
     issues = []
+
+    # Import here to avoid circular import with ast.py
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.ast import ASTNode, ASTEdge, ASTObject
 
     # Convert to list if Chain object
     if isinstance(chain, Chain):
@@ -268,9 +272,12 @@ def validate_syntax(chain: Union[Chain, List]) -> List[ValidationIssue]:
     return issues
 
 
-def _validate_semantics(operations: List[ASTObject]) -> List[ValidationIssue]:
+def _validate_semantics(operations: List["ASTObject"]) -> List[ValidationIssue]:
     """Validate semantic correctness of operation sequence."""
     issues = []
+
+    # Import here to avoid circular import with ast.py
+    from graphistry.compute.ast import ASTEdge
 
     # Check for orphaned edges (edges not between nodes)
     for i, op in enumerate(operations):
@@ -296,7 +303,7 @@ def _validate_semantics(operations: List[ASTObject]) -> List[ValidationIssue]:
     return issues
 
 
-def validate_schema(chain: Union[Chain, List],
+def validate_schema(chain: Union["Chain", List],
                     schema: Schema) -> List[ValidationIssue]:
     """
     Validate query against data schema.
@@ -318,6 +325,10 @@ def validate_schema(chain: Union[Chain, List],
     if any(issue.level == 'error' for issue in issues):
         return issues  # Don't do schema validation if syntax errors
 
+    # Import here to avoid circular import with ast.py
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.ast import ASTNode, ASTEdge
+
     # Convert to list if Chain object
     operations = chain.chain if isinstance(chain, Chain) else chain
 
@@ -331,7 +342,7 @@ def validate_schema(chain: Union[Chain, List],
     return issues
 
 
-def _validate_node_schema(node: ASTNode, schema: Schema,
+def _validate_node_schema(node: "ASTNode", schema: Schema,
                           op_index: int) -> List[ValidationIssue]:
     """Validate node operation against schema."""
     issues = []
@@ -363,7 +374,7 @@ def _validate_node_schema(node: ASTNode, schema: Schema,
     return issues
 
 
-def _validate_edge_schema(edge: ASTEdge, schema: Schema,
+def _validate_edge_schema(edge: "ASTEdge", schema: Schema,
                           op_index: int) -> List[ValidationIssue]:
     """Validate edge operation against schema."""
     issues = []
@@ -507,7 +518,7 @@ def _get_type_category(dtype_str: str) -> str:
         return 'unknown'
 
 
-def validate_query(chain: Union[Chain, List],
+def validate_query(chain: Union["Chain", List],
                    nodes_df: Optional[pd.DataFrame] = None,
                    edges_df: Optional[pd.DataFrame] = None
                    ) -> List[ValidationIssue]:
@@ -627,7 +638,7 @@ def format_validation_errors(issues: List[ValidationIssue]) -> str:
     return "\n".join(lines)
 
 
-def suggest_fixes(chain: Union[Chain, List],
+def suggest_fixes(chain: Union["Chain", List],
                   issues: List[ValidationIssue]) -> List[str]:
     """
     Generate fix suggestions for validation issues.

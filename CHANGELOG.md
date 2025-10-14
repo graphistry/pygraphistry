@@ -19,6 +19,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     * IDE autocomplete: `call('hop', {'hops': <Ctrl+Space shows: int>})`
     * Literal validation: `CallMethodName` restricts to valid method names
   * Works with both dictionary and TypedDict parameter styles
+* **GFQL: Internal column validation** (#788)
+  * Prevents filtering on `__gfql_*__` internal columns that are temporary and unpredictable
+  * Prevents using `__gfql_*__` pattern in output column names (e.g., `get_degrees(col='...')`)
+  * Centralized validation in `graphistry.compute.reserved_identifiers` module with DRY pattern checking
+  * Clear error messages guide users to choose different column names
+  * Pattern: `n({'__gfql_foo__': 1})` raises ValueError, `get_degrees(col='__gfql_x__')` raises ValueError
+  * Works with both pandas and cuDF backends
+
+### Fixed
+* **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
+  * Previously hardcoded column names instead of using parameter values
+
+### Infra
+* **Tests: Column name restriction coverage** (#788)
+  * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
+  * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
 ## [0.44.1 - 2025-10-13]
 

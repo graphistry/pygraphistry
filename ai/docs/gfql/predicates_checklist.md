@@ -399,3 +399,28 @@ def call(function: Literal['new_method'], params: NewMethodParams = ...) -> 'AST
 ```
 
 **Verify**: `./bin/mypy.sh graphistry/models/gfql/types/call.py`
+
+**Note**: Type system can't express all constraints (e.g., no `__gfql_*__` columns). `ast.py::ASTCall._validate_fields()` handles these - see [🔒 ASTCall Validation](#-astcall-validation-non-obvious).
+
+---
+
+## 🔒 ASTCall Validation (Non-obvious!)
+
+**Location**: `graphistry/compute/ast.py::ASTCall._validate_fields()`
+
+Validation for `call()` operations happens **inside ASTCall**, not in the method implementations. Pattern follows AST architecture:
+
+```python
+# ASTCall._validate_fields() validates call parameters BEFORE execution
+if self.function in ('get_degrees', 'get_indegrees', 'get_outdegrees', 'get_topological_levels'):
+    # Validate output column names
+    validate_column_name(self.params['col'], f"call('{self.function}') col parameter")
+
+if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
+    # Validate filter_dict keys
+    validate_column_references(self.params['filter_dict'], f"call('{self.function}')")
+```
+
+**Why here?** Direct Python calls (`g.get_degrees()`) skip validation - user controls names. GFQL calls (`call('get_degrees')`) get validated in AST layer.
+
+**When adding call methods**: Add validation to `ASTCall._validate_fields()` if method accepts column names or filter dicts.

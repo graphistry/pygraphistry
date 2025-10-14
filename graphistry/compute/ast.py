@@ -8,10 +8,12 @@ from typing_extensions import Literal
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, EngineAbstract
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
@@ -137,8 +139,6 @@ class ASTNode(ASTObject):
     
     def _validate_fields(self) -> None:
         """Validate node fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
         # Validate filter_dict
         if self.filter_dict is not None:
             if not isinstance(self.filter_dict, dict):
@@ -170,6 +170,9 @@ class ASTNode(ASTObject):
                         value=type(value).__name__,
                         suggestion="Use predicates like gt(5) or simple values",
                     )
+
+            # Validate that filter_dict doesn't reference internal columns
+            validate_column_references(self.filter_dict, "n()")
 
         # Validate name
         if self._name is not None and not isinstance(self._name, str):
@@ -302,8 +305,6 @@ class ASTEdge(ASTObject):
 
     def _validate_fields(self) -> None:
         """Validate edge fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
-
         # Validate hops
         if self.hops is not None:
             if not isinstance(self.hops, int) or self.hops < 1:
@@ -362,6 +363,11 @@ class ASTEdge(ASTObject):
                             field=f"{filter_name}.{key}",
                             value=type(value).__name__,
                         )
+
+        # Validate that filter dicts don't reference internal columns
+        validate_column_references(self.source_node_match, f"e_{self.direction}() source_node_match")
+        validate_column_references(self.edge_match, f"e_{self.direction}() edge_match")
+        validate_column_references(self.destination_node_match, f"e_{self.direction}() destination_node_match")
 
         # Validate name
         if self._name is not None and not isinstance(self._name, str):
@@ -695,8 +701,8 @@ class ASTLet(ASTObject):
                 obj_type = value.get('type')
                 # Check if it's a valid GraphOperation type
                 if obj_type == 'Chain':
-                    # Import and convert Chain
-                    from graphistry.compute.chain import Chain
+                    # Import Chain here due to circular dependency
+                    from graphistry.compute.chain import Chain  # noqa: F401, F811
                     chain_obj = Chain.from_json(value, validate=False)
                     processed_bindings[name] = chain_obj  # type: ignore
                 else:
@@ -714,8 +720,6 @@ class ASTLet(ASTObject):
     
     def _validate_fields(self) -> None:
         """Validate Let fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
         if not isinstance(self.bindings, dict):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -733,12 +737,12 @@ class ASTLet(ASTObject):
                     value=type(k).__name__
                 )
             # Check if value is a valid GraphOperation type
-            # Import here to avoid circular imports
-            from graphistry.compute.chain import Chain  # noqa: F402
+            # Import Chain here due to circular dependency
+            from graphistry.compute.chain import Chain as ChainClass  # noqa: F401
 
             # GraphOperation now includes all AST types
             # ASTNode/ASTEdge are now allowed and will operate on the root graph
-            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, Chain)):
+            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, ChainClass)):
                 raise GFQLTypeError(
                     ErrorCode.E201,
                     "binding value must be a valid operation (ASTNode, ASTEdge, Chain, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, or Plottable)",
@@ -794,10 +798,10 @@ class ASTLet(ASTObject):
         :raises AssertionError: If 'bindings' field is missing
         """
         assert 'bindings' in d, "Let missing bindings"
-        
-        # Import here to avoid circular imports
-        from graphistry.compute.chain import Chain
-        
+
+        # Import Chain here due to circular dependency
+        from graphistry.compute.chain import Chain  # noqa: F401, F811
+
         bindings: Dict[str, Any] = {}
         for k, v in d['bindings'].items():
             # Handle Chain objects specially
@@ -810,11 +814,11 @@ class ASTLet(ASTObject):
         out = cls(bindings=bindings, validate=validate)  # type: ignore
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT], 
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
                  target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
         # Let bindings don't use wavefronts - execute via chain_let_impl
-        from graphistry.compute.chain_let import chain_let_impl
-        from graphistry.Engine import EngineAbstract
+        # Import here due to circular dependency
+        from graphistry.compute.chain_let import chain_let_impl  # noqa: F401, F811
         return chain_let_impl(g, self, EngineAbstract(engine.value))
     
     def reverse(self) -> 'ASTLet':
@@ -856,8 +860,6 @@ class ASTRemoteGraph(ASTObject):
     
     def _validate_fields(self) -> None:
         """Validate RemoteGraph fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
         if not isinstance(self.dataset_id, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -962,8 +964,6 @@ class ASTRef(ASTObject):
     
     def _validate_fields(self) -> None:
         """Validate Ref fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
         if not isinstance(self.ref, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -1064,7 +1064,7 @@ class ASTCall(ASTObject):
     """
     def __init__(self, function: str, params: Optional[Dict[str, Any]] = None) -> None:
         """Initialize a Call operation.
-        
+
         Args:
             function: Name of the Plottable method to call
             params: Optional dictionary of parameters for the method
@@ -1072,11 +1072,9 @@ class ASTCall(ASTObject):
         super().__init__()
         self.function = function
         self.params = params or {}
-    
+
     def _validate_fields(self) -> None:
         """Validate Call fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-        
         if not isinstance(self.function, str):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -1100,7 +1098,42 @@ class ASTCall(ASTObject):
                 field="params",
                 value=type(self.params).__name__
             )
-    
+
+        # Validate filter_*_by_dict calls for internal column references
+        if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
+            # For these functions, the filter_dict is passed as a parameter
+            if 'filter_dict' in self.params:
+                validate_column_references(
+                    self.params.get('filter_dict'),
+                    f"call('{self.function}')"
+                )
+
+        # Validate output column name parameters to prevent __gfql_*__ internal column conflicts
+        from graphistry.compute.gfql.identifiers import validate_column_name
+
+        # Map function names to their output column parameter names
+        output_col_params = {
+            'get_degrees': ['col', 'degree_in', 'degree_out'],
+            'get_indegrees': ['col'],
+            'get_outdegrees': ['col'],
+            'get_topological_levels': ['level_col'],
+            'compute_cugraph': ['out_col'],
+            'compute_igraph': ['out_col'],
+            'encode_point_color': ['column'],
+            'encode_edge_color': ['column'],
+            'encode_point_size': ['column'],
+            'encode_point_icon': ['column'],
+            'layout_igraph': ['x_out_col', 'y_out_col'],
+            'layout_cugraph': ['x_out_col', 'y_out_col'],
+            'layout_graphviz': ['x_out_col', 'y_out_col'],
+            'collapse': ['column'],
+        }
+
+        if self.function in output_col_params:
+            for param in output_col_params[self.function]:
+                if param in self.params:
+                    validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
+
     def to_json(self, validate: bool = True) -> dict:
         """Convert Call to JSON representation.
         
@@ -1161,7 +1194,8 @@ class ASTCall(ASTObject):
             GFQLTypeError: If method not in safelist or parameters invalid
         """
         # For chain_let, we don't use wavefronts, just execute the call
-        from graphistry.compute.gfql.call_executor import execute_call
+        # Import here due to circular dependency
+        from graphistry.compute.gfql.call_executor import execute_call  # noqa: F401, F811
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
@@ -1173,8 +1207,6 @@ class ASTCall(ASTObject):
 ###
 
 def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]:
-    from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
-
     if not isinstance(o, dict):
         raise GFQLSyntaxError(ErrorCode.E101, "AST JSON must be a dictionary", value=type(o).__name__)
 
