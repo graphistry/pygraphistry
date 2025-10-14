@@ -254,7 +254,13 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 
 ### Before Committing
 1. Run Docker tests: `cd docker && WITH_BUILD=0 ./test-cpu-local.sh`
-2. Update CHANGELOG.md under `## [Development]`
+2. Update CHANGELOG.md under `## [Development]` for user-visible changes:
+   - **Add**: New features, predicates, call methods, API additions
+   - **Fixed**: Bug fixes, breaking changes resolved
+   - **Changed**: Behavior changes, deprecations
+   - **Breaking 🔥**: API changes that require user code updates
+   - Include PR/issue numbers, examples, and impact descriptions
+   - Omit: Internal refactorings, test updates, type-only changes
 3. Use conventional commit: `fix(scope): description` (see `prompts/CONVENTIONAL_COMMITS.md`)
 4. Remove debug code and Claude comments
 
