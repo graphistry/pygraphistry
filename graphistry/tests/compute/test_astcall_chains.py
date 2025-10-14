@@ -4,13 +4,14 @@ Comprehensive test suite for ASTCall operations in GFQL chains.
 Tests various hazard types and operation combinations to ensure proper
 chaining behavior for filter, enrichment, and transformation operations.
 
-This test suite should be run BEFORE implementing fixes to document
-current behavior and ensure no regressions during fix implementation.
+This test suite documents the behavior of pure call() chains (which work correctly)
+and mixed call()/n()/e() chains (which raise GFQLValidationError per #791).
 """
 import pandas as pd
 import pytest
 from graphistry import PyGraphistry
 from graphistry.compute.ast import ASTCall, n, e_forward
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 
 
@@ -137,33 +138,28 @@ class TestASTCallChainHazards:
         assert all(result._edges['type'] == 'forward') if len(result._edges) > 0 else True
 
     def test_hop_then_filter(self, sample_graph):
-        """Perform traversal first, then filter the result."""
-        # Start at node A, hop forward
-        result = sample_graph.gfql([
-            n({'id': 'A'}),
-            e_forward(),
-            n(),
-            ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 5}}})
-        ])
-
-        # Should traverse from A, then filter to high-weight edges
-        # This tests if filter receives the traversal result
-        assert len(result._edges) >= 0  # May fail if filter operates on original graph
+        """Mixed chains now raise GFQLValidationError (#791)."""
+        # Start at node A, hop forward, then filter - this is a mixed chain
+        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
+            sample_graph.gfql([
+                n({'id': 'A'}),
+                e_forward(),
+                n(),
+                ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 5}}})
+            ])
 
     def test_filter_between_hops(self, sample_graph):
-        """Filter in the middle of a multi-hop traversal."""
-        result = sample_graph.gfql([
-            n({'id': 'A'}),
-            e_forward(),
-            ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
-            n(),
-            e_forward(),
-            n()
-        ])
-
-        # Filter should affect subsequent hops
-        # This is a complex interaction test
-        assert len(result._nodes) >= 0
+        """Mixed chains now raise GFQLValidationError (#791)."""
+        # Filter in the middle of traversal - this is a mixed chain
+        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
+            sample_graph.gfql([
+                n({'id': 'A'}),
+                e_forward(),
+                ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
+                n(),
+                e_forward(),
+                n()
+            ])
 
     # ========================================================================
     # CATEGORY 3: Enrichment Operations (Non-filter ASTCalls)
@@ -303,21 +299,17 @@ class TestASTCallChainHazards:
     # ========================================================================
 
     def test_complex_mixed_chain(self, sample_graph):
-        """Complex chain mixing filters, traversals, and multiple operation types."""
-        # Start at high-score nodes, filter edges, traverse, filter again
-        result = sample_graph.gfql([
-            ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': {'gte': 30}}}),  # C, D, E
-            ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),     # Only forward edges
-            n(),  # Get nodes
-            e_forward(),  # Traverse forward
-            n(),  # Get destination nodes
-            ASTCall('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),     # Only person nodes
-        ])
-
-        # This is a complex integration test
-        # Just verify it doesn't crash and returns some reasonable structure
-        assert result._nodes is not None
-        assert result._edges is not None
+        """Mixed chains now raise GFQLValidationError (#791)."""
+        # Complex chain mixing call() with n()/e_forward() - this is a mixed chain
+        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
+            sample_graph.gfql([
+                ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': {'gte': 30}}}),  # C, D, E
+                ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),     # Only forward edges
+                n(),  # Get nodes
+                e_forward(),  # Traverse forward
+                n(),  # Get destination nodes
+                ASTCall('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),     # Only person nodes
+            ])
 
     # ========================================================================
     # CATEGORY 9: Safelist Validation
