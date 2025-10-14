@@ -16,19 +16,20 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
 
 .. code-block:: python
 
-    from graphistry import call, n, e_forward
-    
-    # Basic usage in a chain
+    from graphistry import call, let, ref, n, e_forward, gt
+
+    # Pure call() chains work - filter then enrich
     result = g.gfql([
-        n({'type': 'person'}),
-        call('get_degrees', {'col': 'degree'}),
-        n({'degree': gt(10)})
+        call('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),
+        call('get_degrees', {'col': 'degree'})
     ])
-    
-    # Usage in Let bindings
+
+    # For filter->enrich->filter patterns, use let()
     result = g.gfql(let({
-        'high_degree': [n(), call('get_degrees'), n({'degree': gt(10)})],
-        'connected': ref('high_degree', [e_forward()])
+        'persons': n({'type': 'person'}),
+        'with_degrees': ref('persons', [call('get_degrees', {'col': 'degree'})]),
+        'high_degree': ref('with_degrees', [n({'degree': gt(10)})]),
+        'connected': ref('high_degree', [e_forward(), n()])
     }))
 
 All Call operations:
@@ -498,11 +499,13 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
         call('get_degrees', {'col': 'degree'})
     ])
     
-    # Filter by degree
-    g.gfql([
-        call('get_degrees', {'col': 'degree'}),
-        n({'degree': gt(10)})
-    ])
+    # Filter by degree using let()
+    from graphistry import let, ref, call, n, gt
+
+    g.gfql(let({
+        'with_degrees': call('get_degrees', {'col': 'degree'}),
+        'filtered': ref('with_degrees', [n({'degree': gt(10)})])
+    }))
 
 **Schema Effects:** Adds up to 3 columns to nodes (based on parameters provided).
 
@@ -1642,15 +1645,17 @@ Best Practices
 
    .. code-block:: python
 
-       # After get_degrees, these columns exist:
-       g.gfql([
-           call('get_degrees', {
+       # After get_degrees, these columns exist - use let() for mixed operations:
+       from graphistry import let, ref, call, n, gt
+
+       g.gfql(let({
+           'enriched': call('get_degrees', {
                'col': 'total',
                'col_in': 'incoming',
                'col_out': 'outgoing'
            }),
-           n({'total': gt(10)})  # Can now filter on degree
-       ])
+           'filtered': ref('enriched', [n({'total': gt(10)})])  # Filter on degree
+       }))
 
 See Also
 --------

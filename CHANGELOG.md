@@ -5,36 +5,29 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.45.0 - 2025-01-15]
+
+### Breaking 🔥
+* **GFQL: Chains must be homogeneous** (#786, #791)
+  * Chains must be either all `call()` or all `n()`/`e()` operations, cannot mix
+  * Previous behavior was likely buggy - mixed chains had unpredictable results
+  * Mixed chains now raise `GFQLValidationError` with clear guidance
+  * Migration: Use `let()` to compose sequences, e.g., `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})`
+  * Affects both `.gfql()` and `.gfql_remote()`
 
 ### Added
-* **GFQL: Type-safe call() operations** (#789)
-  * **Top-level exports**: Import `from graphistry import call, CallMethodName` for consistent API
-  * **TypedDict parameter classes**: IDE autocomplete for all 26 call methods (`HopParams`, `UmapParams`, `HypergraphParams`, etc.)
-  * **Overloaded signatures**: MyPy type checking ensures parameter correctness - `call('hop', {'hops': 2, 'direction': 'forward'})`
-  * **Centralized type definitions**: All call types in `models/gfql/types/call.py` for maintainability
-  * Examples:
-    * Top-level import: `from graphistry import call, CallMethodName`
-    * Type-safe params: `call('umap', UmapParams(n_neighbors=15, engine='cuml'))`
-    * IDE autocomplete: `call('hop', {'hops': <Ctrl+Space shows: int>})`
-    * Literal validation: `CallMethodName` restricts to valid method names
-  * Works with both dictionary and TypedDict parameter styles
+* **GFQL: Type-safe call() operations** - `from graphistry import call, CallMethodName` (#789)
+  * TypedDict parameter classes with IDE autocomplete (e.g., `HopParams`, `UmapParams`)
+  * Overloaded signatures for MyPy type checking
 * **GFQL: Internal column validation** (#788)
-  * Prevents filtering on `__gfql_*__` internal columns that are temporary and unpredictable
-  * Prevents using `__gfql_*__` pattern in output column names (e.g., `get_degrees(col='...')`)
-  * Centralized validation in `graphistry.compute.reserved_identifiers` module with DRY pattern checking
-  * Clear error messages guide users to choose different column names
-  * Pattern: `n({'__gfql_foo__': 1})` raises ValueError, `get_degrees(col='__gfql_x__')` raises ValueError
-  * Works with both pandas and cuDF backends
+  * Prevents filtering on or using `__gfql_*__` pattern in column names
 
 ### Fixed
 * **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
-  * Previously hardcoded column names instead of using parameter values
+* **GFQL: Fix chained ASTCall operations** - Pure `call()` chains now correctly apply sequentially (#786)
 
 ### Infra
 * **Tests: Column name restriction coverage** (#788)
-  * Tests document client support for reserved column names ('id', 'index', 'node', etc.)
-  * Validation tests ensure `__gfql_*__` internal columns rejected in filters and output parameters
 
 ## [0.44.1 - 2025-10-13]
 

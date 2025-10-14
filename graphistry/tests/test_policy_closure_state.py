@@ -125,9 +125,10 @@ class TestClosureBasedState:
         })
         g = graphistry.edges(df, 's', 'd')
 
-        # Should fail quickly due to low limit (hop is called multiple times internally)
+        # Use multiple chained hop calls to trigger rate limit
+        # Each call will trigger precall once, so 2 calls > 1 max_calls
         with pytest.raises(PolicyException) as exc_info:
-            g.gfql(call('hop', {'hops': 1}), policy={'precall': policy_func})
+            g.gfql([call('hop', {'hops': 1}), call('hop', {'hops': 1})], policy={'precall': policy_func})
 
         assert exc_info.value.code == 429
         assert 'Rate limit' in exc_info.value.reason

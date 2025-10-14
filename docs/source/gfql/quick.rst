@@ -372,12 +372,13 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      from graphistry import call
+      from graphistry import call, let, ref, n
 
-      result = g.gfql([
-          n({'type': 'person'}),
-          call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
-      ])
+      # Use let() to compose filter + enrichment
+      result = g.gfql(let({
+          'persons': n({'type': 'person'}),
+          'ranked': ref('persons', [call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})])
+      }))
 
       # Results have pagerank column
       top_nodes = result._nodes.sort_values('pagerank', ascending=False).head(10)
@@ -386,11 +387,13 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      result = g.gfql([
-          n({'active': True}),
-          e_forward(to_fixed_point=True),
-          call('compute_cugraph', {'alg': 'louvain'})
-      ])
+      from graphistry import call, let, ref, n, e_forward
+
+      # Use let() to compose traversal + community detection
+      result = g.gfql(let({
+          'reachable': [n({'active': True}), e_forward(to_fixed_point=True), n()],
+          'communities': ref('reachable', [call('compute_cugraph', {'alg': 'louvain'})])
+      }))
 
       # Results have community column
       communities = result._nodes.groupby('community').size()
@@ -399,26 +402,26 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
+      from graphistry import call, let, ref, n, gt
+
+      # Split mixed chain into separate bindings
       result = g.gfql(let({
           'suspects': n({'flagged': True}),
-          'ranked': ref('suspects', [
-              call('compute_cugraph', {'alg': 'pagerank'})
-          ]),
-          'influencers': ref('ranked', [
-              n({'pagerank': gt(0.01)})
-          ])
+          'ranked': ref('suspects', [call('compute_cugraph', {'alg': 'pagerank'})]),
+          'influencers': ref('ranked', [n({'pagerank': gt(0.01)})])
       }))
 
 - **Apply layout algorithms:**
 
   .. code-block:: python
 
-      # ForceAtlas2 layout
-      result = g.gfql([
-          n({'type': is_in(['person', 'company'])}),
-          e_forward(),
-          call('fa2_layout', {'iterations': 100})
-      ])
+      from graphistry import call, let, ref, n, e_forward, is_in
+
+      # Use let() to compose traversal + layout
+      result = g.gfql(let({
+          'entities': [n({'type': is_in(['person', 'company'])}), e_forward(), n()],
+          'positioned': ref('entities', [call('fa2_layout', {'iterations': 100})])
+      }))
 
       # Results have x, y coordinates for visualization
       result.plot()
