@@ -241,7 +241,7 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
-        from graphistry.compute.gfql.reserved_identifiers import validate_column_name
+        from graphistry.compute.gfql.identifiers import validate_column_name
         validate_column_name(col, "get_indegrees() col parameter")
 
         g = self
@@ -287,7 +287,7 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        from graphistry.compute.gfql.reserved_identifiers import validate_column_name
+        from graphistry.compute.gfql.identifiers import validate_column_name
         validate_column_name(col, "get_outdegrees() col parameter")
 
         g = self
@@ -322,7 +322,7 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        from graphistry.compute.gfql.reserved_identifiers import validate_column_name
+        from graphistry.compute.gfql.identifiers import validate_column_name
         validate_column_name(col, "get_degrees() col parameter")
         validate_column_name(degree_in, "get_degrees() degree_in parameter")
         validate_column_name(degree_out, "get_degrees() degree_out parameter")
@@ -442,7 +442,7 @@ class ComputeMixin(Plottable):
         g2._nodes.info()  # pd.DataFrame with | 'id' , 'level' |
 
         """
-        from graphistry.compute.gfql.reserved_identifiers import validate_column_name
+        from graphistry.compute.gfql.identifiers import validate_column_name
         validate_column_name(level_col, "get_topological_levels() level_col parameter")
 
         g2_base = self.materialize_nodes()

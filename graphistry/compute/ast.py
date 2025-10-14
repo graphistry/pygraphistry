@@ -171,7 +171,7 @@ class ASTNode(ASTObject):
                     )
 
             # Validate that filter_dict doesn't reference internal columns
-            from graphistry.compute.gfql.validate_identifiers import validate_column_references  # noqa: F401
+            from graphistry.compute.gfql.identifiers import validate_column_references  # noqa: F401
             validate_column_references(self.filter_dict, "n()")
 
         # Validate name
@@ -365,7 +365,7 @@ class ASTEdge(ASTObject):
                         )
 
         # Validate that filter dicts don't reference internal columns
-        from graphistry.compute.gfql.validate_identifiers import validate_column_references  # noqa: F401
+        from graphistry.compute.gfql.identifiers import validate_column_references  # noqa: F401
         validate_column_references(self.source_node_match, f"e_{self.direction}() source_node_match")
         validate_column_references(self.edge_match, f"e_{self.direction}() edge_match")
         validate_column_references(self.destination_node_match, f"e_{self.direction}() destination_node_match")
@@ -1104,7 +1104,7 @@ class ASTCall(ASTObject):
         if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):
             # For these functions, the filter_dict is passed as a parameter
             if 'filter_dict' in self.params:
-                from graphistry.compute.gfql.validate_identifiers import validate_column_references  # noqa: F401
+                from graphistry.compute.gfql.identifiers import validate_column_references  # noqa: F401
                 validate_column_references(
                     self.params.get('filter_dict'),
                     f"call('{self.function}')"
