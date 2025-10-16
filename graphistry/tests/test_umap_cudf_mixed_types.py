@@ -15,6 +15,10 @@ import os
 import pytest
 import pandas as pd
 import graphistry
+from graphistry.utils.lazy_import import lazy_umap_import
+
+# Check if umap is available
+has_umap, _, _ = lazy_umap_import()
 
 # Skip GPU tests if TEST_CUDF not set
 skip_gpu = pytest.mark.skipif(
@@ -123,6 +127,7 @@ class TestUMAPCuDFMixedTypes:
                 pytest.fail(f"Chain operation failed with mixed DataFrame types: {e}")
             raise
 
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_umap_pandas_engine_still_works(self):
         """
         Test that UMAP with default/pandas engine still works correctly.
