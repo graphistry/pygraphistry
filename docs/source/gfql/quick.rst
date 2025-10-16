@@ -332,10 +332,8 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
       from graphistry import let, ref, Chain
 
-      # Note: Currently, Let bindings must be Chain/Plottable objects, not bare matchers
-      # This will be improved in a future release
       result = g.gfql(let({
-          'suspects': Chain([n({'risk_score': gt(80)})]),
+          'suspects': [n({'risk_score': gt(80)})],
           'connections': ref('suspects', [
               e_forward({'type': 'transaction'}),
               n()
@@ -353,7 +351,7 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
       from graphistry import Chain
 
       result = g.gfql(let({
-          'high_value': Chain([n({'balance': gt(100000)})]),
+          'high_value': [n({'balance': gt(100000)})],
           'large_transfers': ref('high_value', [
               e_forward({'type': 'transfer', 'amount': gt(10000)}),
               n()
@@ -372,11 +370,11 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      from graphistry import call, let, ref, n
+      from graphistry import call, let, ref, n, e
 
       # Use let() to compose filter + enrichment
       result = g.gfql(let({
-          'persons': n({'type': 'person'}),
+          'persons': [n({'type': 'person'}), e(), n()],
           'ranked': ref('persons', [call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})])
       }))
 
@@ -402,13 +400,17 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      from graphistry import call, let, ref, n, gt
+      from graphistry import call, let, ref, n, e, gt
 
       # Split mixed chain into separate bindings
       result = g.gfql(let({
-          'suspects': n({'flagged': True}),
-          'ranked': ref('suspects', [call('compute_cugraph', {'alg': 'pagerank'})]),
-          'influencers': ref('ranked', [n({'pagerank': gt(0.01)})])
+          'suspects': [n({'flagged': True}), e(), n()],
+          'ranked': ref('suspects', [
+              call('compute_cugraph', {'alg': 'pagerank'})
+          ]),
+          'influencers': ref('ranked', [
+              n({'pagerank': gt(0.01)})
+          ])
       }))
 
 - **Apply layout algorithms:**

@@ -175,9 +175,8 @@ GFQL Let approach (declarative DAG with named bindings):
     from graphistry import let, ref, Chain
 
     # GFQL Let: Define a DAG of named operations
-    # Note: Currently requires Chain wrapper for matchers (will be simplified in future)
     result = g.gfql(let({
-        'persons': Chain([n({'type': 'person'})]),
+        'persons': [n({'type': 'person'})],
         'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
         'connections': ref('adults', [
             e_forward({'type': 'knows'}),

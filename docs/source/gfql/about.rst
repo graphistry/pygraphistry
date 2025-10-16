@@ -285,8 +285,8 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
     from graphistry import let, ref, call, Chain
 
     result = g.gfql(let({
-        # Stage 1: Find suspicious accounts (Chain wrapper required currently)
-        'suspicious_accounts': Chain([n({'risk_score': gt(80), 'created_recent': True})]),
+        # Stage 1: Find suspicious accounts
+        'suspicious_accounts': [n({'risk_score': gt(80), 'created_recent': True})],
 
         # Stage 2: Trace money flows from suspicious accounts
         'money_flows': ref('suspicious_accounts', [
@@ -302,6 +302,8 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
         # Stage 4: Identify high-risk clusters
         'high_risk_clusters': ref('ranked', [
             n({'pagerank': gt(0.01)}),
+            e(),
+            n(),
             call('compute_cugraph', {'alg': 'louvain'})
         ])
     }))
