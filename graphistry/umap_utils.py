@@ -12,7 +12,6 @@ from graphistry.Engine import Engine, df_to_engine
 from graphistry.models.compute.features import GraphEntityKind
 from graphistry.models.compute.umap import UMAPEngine, UMAPEngineConcrete, umap_engine_values
 from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
     lazy_umap_import,
     lazy_cuml_import,
 )
@@ -131,8 +130,6 @@ def make_safe_umap_gpu_dataframes(
         raise ValueError(f"Expected engine to be umap_learn or cuml, got {engine}")
 
     def safe_cudf(X, y):
-        import cudf
-
         #if y is not None and normalize:
         #    X, y = normalize_X_y(X, y)
         #    logger.debug('Normalized X: %s %s', X.dtypes, y.dtypes if y is not None else None)
@@ -1028,7 +1025,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-            
+
         if isinstance(df, type(emb)):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
@@ -1036,6 +1033,7 @@ class UMAPMixin(MIXIN_BASE):
             df[x_name] = emb.to_numpy().T[0]
             df[y_name] = emb.to_numpy().T[1]
 
+        # Update graph with modified DataFrame
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
@@ -1050,6 +1048,32 @@ class UMAPMixin(MIXIN_BASE):
                 f"embedding of shape {res._edges.shape}"
             )
             res = res.bind(edge_weight=w_name)
+
+            # Ensure DataFrame type consistency when engine='cuml' is specified
+            # This fixes mixed DataFrame types (pandas nodes + cuDF edges) that cause
+            # chain concatenation to fail with TypeError
+            # Note: This must run AFTER edges are created above
+            if hasattr(res, '_umap_engine'):
+                engine = res._umap_engine
+                if engine == CUML:
+                    # When using cuML engine, ensure nodes DataFrame matches edges type (cuDF)
+                    # Check if nodes are pandas but edges are cuDF
+                    if res._edges is not None and isinstance(res._nodes, pd.DataFrame) and not isinstance(res._nodes, type(res._edges)):
+                        try:
+                            import cudf
+                            res = res.nodes(cudf.DataFrame.from_pandas(res._nodes))
+                            logger.debug('Converted nodes to cuDF to match cuML engine and cuDF edges')
+                        except (ImportError, AttributeError) as e:
+                            logger.warning(f'Could not convert nodes to cuDF despite cuML engine: {e}')
+                elif engine == UMAP_LEARN:
+                    # When using umap_learn engine, ensure nodes DataFrame matches edges type (pandas)
+                    # Check if nodes are cuDF but edges are pandas
+                    if res._edges is not None and 'cudf.core.dataframe' in str(getmodule(res._nodes)) and 'cudf.core.dataframe' not in str(getmodule(res._edges)):
+                        try:
+                            res = res.nodes(res._nodes.to_pandas())
+                            logger.debug('Converted nodes to pandas to match umap_learn engine and pandas edges')
+                        except (AttributeError) as e:
+                            logger.warning(f'Could not convert nodes to pandas despite umap_learn engine: {e}')
 
         if encode_position and kind == "nodes":
             if play is not None:

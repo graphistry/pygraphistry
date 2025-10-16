@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+* **UMAP: Fix mixed DataFrame types when engine='cudf' causing GFQL chain concatenation to fail** (#794)
+  * **Problem**: UMAP with `engine='cuml'` was returning pandas nodes + cuDF edges, causing `TypeError: can only concatenate objects which are instances of...` in GFQL chain operations
+  * **Example that now works**: `g.gfql([call('umap', {'X': ['col1', 'col2'], 'engine': 'cuml'}), call('name', {'name': 'result'})], engine='cudf')`
+  * **Solution**: Now ensures both nodes and edges match the specified engine type (cuDF or pandas)
+  * Added comprehensive test coverage in `TestCudfUmap` class
+
 ### Docs
 * **GFQL: Fix critical documentation bugs where graph algorithms were called without edges** (#795)
   * **Critical fixes (3 instances):** PageRank and Louvain examples were calling algorithms on node-only patterns `n({...})` that lack the edges these algorithms require for meaningful computation
