@@ -5,6 +5,18 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [Development]
+<!-- Do Not Erase This Section - Used for tracking unreleased changes -->
+
+### Docs
+* **GFQL: Fix documentation examples calling graph algorithms on node-only patterns** (#795)
+  * Fixed critical bug in PageRank/Louvain examples - node-only patterns before algorithms lack edges needed for meaningful computation
+  * Fixed 3 instances in quick.rst, 1 in about.rst where graph algorithms (PageRank, Louvain) were called on node-only patterns
+  * Added proper edge patterns `[n(...), e(), n()]` to enable meaningful centrality and community detection
+  * Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb (4 instances)
+  * Removed unnecessary `Chain([...])` wrapper in overview.rst Let binding example
+  * Graph algorithms like PageRank and Louvain require edges to function - PageRank computes centrality from links, Louvain finds communities through connections
+
 ## [0.45.0 - 2025-01-15]
 
 ### Breaking 🔥
@@ -77,11 +89,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 
 ### Docs
-* **GFQL: Fix calling forms in documentation examples**
-  * RST docs: Removed unnecessary `Chain([...])` wrappers in Let binding examples (quick.rst, about.rst, overview.rst)
-  * RST docs: Fixed critical PageRank example to include edges for meaningful centrality computation (quick.rst)
-  * Notebook: Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb
-  * Changes make examples follow current best practices for simplified Let binding syntax
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
 * ai: Compact CONVENTIONAL_COMMITS guide and enforce PLAN.md usage (3e537db)
 * ai: Streamline PLAN.md template with phases, timestamps, and linear structure (1a85e6e)
