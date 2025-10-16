@@ -77,6 +77,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
 
 ### Docs
+* **GFQL: Fix calling forms in documentation examples**
+  * RST docs: Removed unnecessary `Chain([...])` wrappers in Let binding examples (quick.rst, about.rst, overview.rst)
+  * RST docs: Fixed critical PageRank example to include edges for meaningful centrality computation (quick.rst)
+  * Notebook: Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb
+  * Changes make examples follow current best practices for simplified Let binding syntax
 * README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
 * ai: Compact CONVENTIONAL_COMMITS guide and enforce PLAN.md usage (3e537db)
 * ai: Streamline PLAN.md template with phases, timestamps, and linear structure (1a85e6e)
