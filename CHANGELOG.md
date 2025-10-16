@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.1 - 2025-10-16]
+
 ### Fixed
 * **UMAP: Fix mixed DataFrame types when engine='cudf' causing GFQL chain concatenation to fail** (#794)
   * **Problem**: UMAP with `engine='cuml'` was returning pandas nodes + cuDF edges, causing `TypeError: can only concatenate objects which are instances of...` in GFQL chain operations
