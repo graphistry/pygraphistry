@@ -12,7 +12,6 @@ from graphistry.Engine import Engine, df_to_engine
 from graphistry.models.compute.features import GraphEntityKind
 from graphistry.models.compute.umap import UMAPEngine, UMAPEngineConcrete, umap_engine_values
 from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
     lazy_umap_import,
     lazy_cuml_import,
 )
@@ -131,8 +130,6 @@ def make_safe_umap_gpu_dataframes(
         raise ValueError(f"Expected engine to be umap_learn or cuml, got {engine}")
 
     def safe_cudf(X, y):
-        import cudf
-
         #if y is not None and normalize:
         #    X, y = normalize_X_y(X, y)
         #    logger.debug('Normalized X: %s %s', X.dtypes, y.dtypes if y is not None else None)
@@ -1071,7 +1068,7 @@ class UMAPMixin(MIXIN_BASE):
                 elif engine == UMAP_LEARN:
                     # When using umap_learn engine, ensure nodes DataFrame matches edges type (pandas)
                     # Check if nodes are cuDF but edges are pandas
-                    if res._edges is not None and 'cudf.core.dataframe' in str(getmodule(res._nodes)) and not 'cudf.core.dataframe' in str(getmodule(res._edges)):
+                    if res._edges is not None and 'cudf.core.dataframe' in str(getmodule(res._nodes)) and 'cudf.core.dataframe' not in str(getmodule(res._edges)):
                         try:
                             res = res.nodes(res._nodes.to_pandas())
                             logger.debug('Converted nodes to pandas to match umap_learn engine and pandas edges')
