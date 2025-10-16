@@ -9,13 +9,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Docs
-* **GFQL: Fix documentation examples calling graph algorithms on node-only patterns** (#795)
-  * Fixed critical bug in PageRank/Louvain examples - node-only patterns before algorithms lack edges needed for meaningful computation
-  * Fixed 3 instances in quick.rst, 1 in about.rst where graph algorithms (PageRank, Louvain) were called on node-only patterns
-  * Added proper edge patterns `[n(...), e(), n()]` to enable meaningful centrality and community detection
-  * Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb (4 instances)
-  * Removed unnecessary `Chain([...])` wrapper in overview.rst Let binding example
-  * Graph algorithms like PageRank and Louvain require edges to function - PageRank computes centrality from links, Louvain finds communities through connections
+* **GFQL: Fix critical documentation bugs where graph algorithms were called without edges** (#795)
+  * **Critical fixes (3 instances):** PageRank and Louvain examples were calling algorithms on node-only patterns `n({...})` that lack the edges these algorithms require for meaningful computation
+    * PageRank computes centrality from link structure - calling on nodes without edges produces meaningless scores
+    * Louvain detects communities through connections - calling on nodes without edges cannot identify communities
+  * Fixed 2 instances in quick.rst (lines ~377, ~407 PageRank Let binding examples)
+  * Fixed 1 instance in about.rst (line ~305 Louvain multi-stage fraud analysis)
+  * Changed patterns from `n({...})` to `[n({...}), e(), n()]` to include graph structure
+  * **Style improvements:**
+    * Removed unnecessary `Chain([...])` wrappers in Let binding examples (quick.rst lines ~335, ~353; about.rst ~287; overview.rst ~178)
+    * Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb (4 instances)
+  * Examples now follow best practices and produce meaningful results when executed
 
 ## [0.45.0 - 2025-01-15]
 
