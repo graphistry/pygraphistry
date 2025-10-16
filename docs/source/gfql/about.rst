@@ -302,6 +302,8 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
         # Stage 4: Identify high-risk clusters
         'high_risk_clusters': ref('ranked', [
             n({'pagerank': gt(0.01)}),
+            e(),
+            n(),
             call('compute_cugraph', {'alg': 'louvain'})
         ])
     }))
