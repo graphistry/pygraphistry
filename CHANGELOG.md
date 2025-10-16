@@ -41,6 +41,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 * **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
 * **GFQL: Fix chained ASTCall operations** - Pure `call()` chains now correctly apply sequentially (#786)
+* **UMAP: Fix mixed DataFrame types when engine='cudf' causing chain concatenation to fail**
+  * UMAP with `engine='cudf'` was returning pandas nodes + cuDF edges, causing TypeError in chain operations
+  * Now ensures both nodes and edges match the specified engine type (cuDF or pandas)
 
 ### Infra
 * **Tests: Column name restriction coverage** (#788)
