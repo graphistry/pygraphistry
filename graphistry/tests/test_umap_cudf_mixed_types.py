@@ -70,9 +70,7 @@ class TestUMAPCuDFMixedTypes:
         assert isinstance(g_umap._edges, cudf.DataFrame), \
             f"Expected edges to be cuDF DataFrame, got {type(g_umap._edges)}"
 
-        # Verify both are the same type (no mixed types)
-        assert type(g_umap._nodes) == type(g_umap._edges), \
-            "Nodes and edges must be the same DataFrame type"
+        # Both assertions passed means both are cuDF - no mixed types
 
     @skip_gpu
     def test_umap_cuml_chain_operations_work(self):
