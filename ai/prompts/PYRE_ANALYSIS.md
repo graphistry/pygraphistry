@@ -1,7 +1,5 @@
 # Pyre/Pysa Analysis for PyGraphistry
 
-**Status**: ✅ Pysa found 2 bugs AST missed (2025-10-16, Pyre v0.9.25)
-
 **Recommendation**: Use AST (< 1s) for direct patterns, then Pysa (~60s) for call chains
 
 ## Quick Commands
@@ -21,25 +19,6 @@ python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
 ```
 
 **Config**: `.pyre_configuration` (excludes hop.py to prevent hang)
-
-## Pysa Workflow
-
-1. **Run Pysa** (60s, one-time per codebase state):
-   - Generates call-graph.json covering entire codebase
-   - Query it multiple times without re-running
-   - Regenerate after significant code changes
-
-2. **Extract callers** using `ai/assets/pysa_extract_callers.py`
-
-3. **LLM filter** to real bugs:
-   ```
-   For each caller:
-   1. Modifies dataset state? (Y/N)
-   2. Invalidates _dataset_id after? (Y/N)
-   3. If Y and N → BUG
-   ```
-
-**Results**: Found `style()` and `infer_labels()` - both use indirect `bind()` calls that AST missed
 
 ## Timeout Debugging
 
