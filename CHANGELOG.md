@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.2 - 2025-10-17]
+
 ### Fixed
 * **GFQL Remote: Metadata hydration after server-computed operations** (#798)
   * Server-computed metadata (bindings, encodings, styles, name/description) now returned to client after GFQL operations like `call('umap')`
