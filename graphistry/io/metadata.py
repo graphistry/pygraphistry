@@ -10,67 +10,17 @@ Format mirrors the arrow uploader metadata structure:
 - metadata: name, description
 - style: visualization styles
 """
-from typing import Any, Dict, List, TYPE_CHECKING, TypedDict
+from typing import Any, Dict, List, TYPE_CHECKING
 import copy
+
+from graphistry.io.types import (
+    EncodingsDict,
+    MetadataDict,
+    PlottableMetadata,
+)
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
-
-
-class MetadataDict(TypedDict, total=False):
-    """Name and description metadata.
-
-    All fields are optional - only present fields are included in serialization.
-    """
-    name: str
-    description: str
-
-
-class EncodingsDict(TypedDict, total=False):
-    """Visual encodings for nodes and edges.
-
-    All fields are optional - only present fields are included in serialization.
-    Maps column names to encoding attributes (colors, sizes, labels, etc.).
-    """
-    # Node encodings
-    point_color: str
-    point_size: str
-    point_title: str
-    point_label: str
-    point_icon: str
-    point_opacity: str
-    point_x: str
-    point_y: str
-    # Edge encodings
-    edge_color: str
-    edge_size: str
-    edge_title: str
-    edge_label: str
-    edge_icon: str
-    edge_opacity: str
-    edge_source_color: str
-    edge_destination_color: str
-    edge_weight: str
-    # Complex encodings (nested structure)
-    complex_encodings: Dict[str, Any]
-
-
-class PlottableMetadata(TypedDict, total=False):
-    """Complete Plottable metadata structure for JSON serialization.
-
-    All fields are optional - only present fields are included in serialization.
-    This structure mirrors the arrow uploader format and is used for both
-    upload metadata and GFQL response metadata.
-
-    :field bindings: Column name mappings (node, source, destination, edge)
-    :field encodings: Visual encoding mappings (colors, sizes, labels, etc.)
-    :field metadata: Graph metadata (name, description)
-    :field style: Visualization styles (background, layout, etc.)
-    """
-    bindings: Dict[str, str]
-    encodings: EncodingsDict
-    metadata: MetadataDict
-    style: Dict[str, Any]
 
 
 def serialize_bindings(g: 'Plottable', field_mapping: List[List[str]]) -> Dict[str, str]:
