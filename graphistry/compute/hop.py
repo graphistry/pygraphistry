@@ -1,11 +1,7 @@
 """
 Graph hop/traversal operations for PyGraphistry
 
-NOTE: This file is excluded from pyre type checking (.pyre_configuration)
-Reason: The hop() function (384 lines, complex control flow) exceeds pyre's
-        analysis complexity limit, causing pyre to hang indefinitely.
-        Use mypy for type checking this file instead.
-See: plans/fix_dataset_file_id_invalidation/pyre_type_hints_proposal.md
+NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import logging
 from typing import List, Optional, Tuple, TYPE_CHECKING, Union
