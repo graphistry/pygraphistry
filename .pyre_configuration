@@ -4,10 +4,10 @@
     "graphistry"
   ],
   "exclude": [
-    ".*/tests/.*",
     ".*/demos/.*",
     ".*/docs/.*",
-    ".*/__pycache__/.*"
+    ".*/__pycache__/.*",
+    ".*/compute/hop.py"
   ],
   "strict": false,
   "python_version": "3.8"

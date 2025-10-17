@@ -1,29 +1,64 @@
 # Pyre Analysis for PyGraphistry
 
-Pyre-check is a performant type checker for Python that can also be used for advanced code analysis and refactoring. This guide shows how to use pyre on PyGraphistry for tasks beyond what grep/LLM can handle.
+✅ **STATUS: WORKING - Pyre Viable for PyGraphistry with hop.py Excluded**
+
+Pyre-check is a performant type checker for Python that can also be used for advanced code analysis and refactoring. **Pyre works on PyGraphistry when `graphistry/compute/hop.py` is excluded** from analysis.
+
+**Last tested**: 2025-10-17 - Pyre v0.9.25:
+- ❌ **Without exclusion**: Hangs at "Processed 1631 of 1709 functions" indefinitely
+- ✅ **With hop.py excluded**: Analyzes **3711 functions** (including tests) in **~2.5 seconds**
+
+## Quick Start for PyGraphistry
+
+**Configuration Required** (already set up):
+```json
+// .pyre_configuration
+{
+  "exclude": [
+    ".*/demos/.*",
+    ".*/docs/.*",
+    ".*/__pycache__/.*",
+    ".*/compute/hop.py"  // ← This exclusion is REQUIRED
+  ]
+}
+```
+
+**Run Pyre:**
+```bash
+# Option 1: Docker (recommended - no dependency issues)
+docker run --rm -v $(pwd):/workspace -w /workspace python:3.12-slim \
+  bash -c "pip install pyre-check && pyre check"
+
+# Option 2: Host (if you have pyre installed)
+pyre check
+
+# Expected: Analyzes 3711 functions in ~2-3 seconds
+```
 
 ## When to Use Pyre vs Grep vs AST Scripts
 
-- **Grep/Ripgrep**: Simple text search, file location, pattern matching
-- **AST Scripts**: Custom analysis (attribute tracking, method modification patterns)
-- **Pyre**: Type-aware analysis, find-all-references, call graphs, dependency analysis
+- **Grep/Ripgrep**: Simple text search, file location, pattern matching ✅ **WORKS**
+- **AST Scripts**: Custom analysis (attribute tracking, method modification patterns) ✅ **WORKS** (< 1 second)
+- **Pyre**: Type-aware analysis, find-all-references, call graphs ✅ **WORKS** (with hop.py excluded)
 
 **Use Pyre When:**
 - Finding all callers of a method (call graph analysis)
 - Finding all implementations of an interface
 - Type-aware refactoring (rename with type constraints)
 - Analyzing complex dependency chains
-- Finding unused code based on type information
+- Type checking the entire codebase
 
 **Use AST Scripts When:**
 - Custom pattern detection (e.g., "methods that modify attribute X")
-- Pyre is too slow or times out
-- Need fast iteration during development
+- Need fast iteration during development (< 1 second)
+- Attribute tracking and modification analysis
+- Building custom analysis tools
 
 **Use Grep When:**
 - Simple string/pattern search
 - Quick file location
 - Initial exploration
+- Verifying fixes are in place
 
 ## Installation
 
@@ -178,15 +213,56 @@ class MethodAnalyzer(ast.NodeVisitor):
 
 ## Troubleshooting
 
-### Pyre Times Out
+### Pyre Times Out / Hangs
 
 **Symptom**: Hangs at "Processed 1631 of 1709 functions" for 5+ minutes.
 
+**PyGraphistry Status**: This is a **confirmed issue** with PyGraphistry as of 2025-10-17. Tested multiple approaches:
+- ❌ `pyre check` - Hangs at 1631/1709 functions
+- ❌ `pyre --dot-pyre-directory /cache start` - Hangs at same spot
+- ❌ `pyre incremental` - Can't build cache if first run never completes
+- ❌ Docker with python:3.12-slim - Same hang
+- ❌ Increased timeouts (up to 10 minutes) - No difference
+
+**Root Cause Identified (2025-10-17)**:
+Using `pyre --debug check`, discovered pyre hangs on the `hop()` function:
+
+```
+ƛ  The type check of compute.hop.hop is taking more than 60 seconds (pid = 60)
+```
+
+**Problematic Function**: `graphistry/compute/hop.py::hop()` (lines 229-612, ~384 lines)
+
+**Why This Function Breaks Pyre**:
+- Very complex generic type inference with `DataFrameT` TypeVar
+- Runtime type switching: `DataFrameT = df_cons(engine_concrete)` (line 280)
+- Complex DataFrame merge chains with column renaming
+- 14 parameters with many Optional types
+- Nested loops with conditional type narrowing
+- List comprehensions with optional DataFrame concatenation
+- Graph traversal algorithm with sophisticated control flow
+
+**Likely Issue**: Pyre's type inference engine struggles with the combination of:
+1. Generic TypeVars resolved at runtime
+2. Complex conditional control flow (384 lines)
+3. Multiple DataFrame operations with dynamic column operations
+
+**This is a pyre bug or limitation** - mypy handles this function fine.
+
 **Solutions**:
-1. Use incremental mode after first full run: `pyre incremental`
-2. Analyze smaller subsets: `pyre check graphistry/PlotterBase.py`
-3. Use AST scripts for custom analysis instead
-4. Increase timeout: `pyre check --timeout 600`
+1. ✅ **Use AST scripts instead** (< 1 second, works perfectly)
+2. Use grep for simple pattern matching
+3. ⚠️ **Workaround**: Exclude `graphistry/compute/hop.py` from pyre analysis:
+   ```json
+   {
+     "exclude": [".*/tests/.*", ".*/demos/.*", ".*/docs/.*", ".*/compute/hop.py"]
+   }
+   ```
+4. Wait for future pyre versions that may fix the issue
+5. Consider reporting to [pyre-check GitHub issues](https://github.com/facebook/pyre-check/issues) with:
+   - Minimal reproducible example
+   - The `hop()` function signature and complexity details
+   - Pyre debug output showing the hang
 
 ### Library Incompatibility
 
@@ -240,12 +316,55 @@ cd docker && WITH_BUILD=0 WITH_TEST=0 WITH_LINT=0 WITH_TYPECHECK=1 ./test-cpu-lo
 
 **Recommendation**: Use mypy for regular type checking, pyre for advanced refactoring analysis.
 
+## PyGraphistry Investigation Summary (2025-10-17)
+
+**Tested Configurations:**
+- ✅ Pyre v0.9.25 installed successfully
+- ✅ `.pyre_configuration` created
+- ✅ Docker environment (python:3.12-slim) - no library issues
+- ❌ **Pyre analysis** - Consistently hangs at 1631/1709 functions (~95%)
+- ❌ **Incremental mode** - Can't initialize cache (first run never completes)
+- ✅ **Root cause identified** - `graphistry/compute/hop.py::hop()` function (384 lines, complex generics)
+
+**Actual Commands Executed:**
+```bash
+# These all hung at function 1631/1709:
+pyre check                                          # Host - Hung
+docker run ... pyre check                           # Docker - Hung
+pyre --dot-pyre-directory /cache start              # Incremental - Hung
+pyre incremental                                    # Query - Requires server that hung
+
+# This revealed the problem:
+docker run --cpus=2 --memory=4g --memory-swap=4g \
+  -v $(pwd):/workspace -w /workspace python:3.12-slim \
+  bash -c "pip install pyre-check && pyre --debug check"
+# Output: "The type check of compute.hop.hop is taking more than 60 seconds"
+```
+
+**Working Alternative:**
+```bash
+# Python AST analysis (< 1 second, 100% reliable)
+python3 plans/fix_dataset_file_id_invalidation/analyze_attribute_modifications.py
+```
+
+**Recommendation for Future Pyre Usage**:
+If you want to try pyre again in the future, exclude the problematic file:
+```json
+// .pyre_configuration
+{
+  "source_directories": ["graphistry"],
+  "exclude": [".*/tests/.*", ".*/demos/.*", ".*/docs/.*", ".*/compute/hop.py"]
+}
+```
+
+This may allow pyre to complete analysis on the rest of the codebase.
+
 ## Future Work
 
-- **Performance**: Investigate pyre incremental mode for faster analysis
-- **Integration**: Add pyre query scripts for common refactoring tasks
-- **Documentation**: Document useful query patterns as they're discovered
-- **CI/CD**: Consider pyre for static analysis in CI (if performance improves)
+- **Bug Report**: Consider reporting pyre hang to pyre-check GitHub
+- **Alternative Tools**: Investigate pyright or other type-aware analyzers
+- **AST Library**: Expand AST analysis scripts for common refactoring patterns
+- **Documentation**: Keep this guide for reference when pyre is fixed
 
 ## Resources
 
