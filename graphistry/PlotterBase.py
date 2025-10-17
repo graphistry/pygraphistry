@@ -1247,39 +1247,6 @@ class PlotterBase(Plottable):
         res._dataset_id = None
         return res
 
-    def _hydrate_metadata_from_response(self, metadata: dict) -> 'Plottable':
-        """Hydrate Plottable from server metadata response.
-
-        When gfql_remote() returns metadata computed by the server (e.g., from operations
-        like call('umap') that modify bindings/encodings), this method applies those
-        changes to the returned Plottable.
-
-        The metadata format mirrors what the arrow uploader sends and includes:
-        - bindings: node, source, destination, edge column names
-        - encodings: simple (point_color, point_size, etc.) and complex encodings
-        - metadata: name, description
-        - style: visualization styles
-
-        :param metadata: Server metadata dictionary
-        :type metadata: dict
-        :return: New Plottable with hydrated metadata
-        :rtype: Plottable
-
-        **Example**
-
-        ::
-
-            # Internal use by gfql_remote()
-            metadata = {
-                'bindings': {'source': 'umap_src', 'destination': 'umap_dst'},
-                'encodings': {'point_color': 'umap_cluster'}
-            }
-            g2 = g1._hydrate_metadata_from_response(metadata)
-            # g2._source == 'umap_src', g2._point_color == 'umap_cluster'
-        """
-        from graphistry.io.metadata import deserialize_plottable_metadata
-        return deserialize_plottable_metadata(metadata, self)
-
 
     def edges(self: Plottable, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.

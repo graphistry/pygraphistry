@@ -9,6 +9,7 @@ import zipfile
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 
@@ -199,7 +200,7 @@ def chain_remote_generic(
 
                         # Hydrate GFQL-computed metadata (separate from persistence metadata)
                         if 'gfql_metadata' in metadata:
-                            result = result._hydrate_metadata_from_response(metadata['gfql_metadata'])
+                            result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
 
                     except Exception as e:
                         # Gracefully handle metadata parsing errors
@@ -287,7 +288,7 @@ def chain_remote_generic(
 
         # Hydrate GFQL-computed metadata (bindings, encodings, name, description, style)
         if 'metadata' in o:
-            result = result._hydrate_metadata_from_response(o['metadata'])
+            result = deserialize_plottable_metadata(o['metadata'], result)
 
         return result
     else:
