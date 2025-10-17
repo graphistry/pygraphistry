@@ -8,40 +8,22 @@ from typing import Any, Dict, TypedDict
 
 
 # Complex Encodings Structure
-class ComplexEncodingMode(TypedDict, total=False):
-    """Single encoding definition within a mode (default or current).
-
-    Keys are encoding names like 'pointColorEncoding', 'edgeColorEncoding', etc.
-    Values are nested dictionaries with encoding configuration (graphType, encodingType,
-    attribute, variation, mapping, etc.).
-
-    Example:
-        {
-            'pointColorEncoding': {
-                'graphType': 'point',
-                'encodingType': 'color',
-                'attribute': 'category',
-                'variation': 'categorical',
-                'mapping': {'categorical': {'fixed': {'A': 'red', 'B': 'blue'}}}
-            }
-        }
-    """
-    # Keys are dynamic encoding names, values are encoding configurations
-    # Using Dict[str, Any] since encoding configs have many optional nested fields
-
-
-class ComplexEncodingModes(TypedDict, total=False):
+class ComplexEncodingModes(TypedDict):
     """Current and default modes for complex encodings.
+
+    Both keys are always present (may be empty dicts).
 
     :field default: Default encoding settings
     :field current: Current encoding settings (may override defaults)
     """
-    default: Dict[str, Any]  # ComplexEncodingMode with dynamic keys
-    current: Dict[str, Any]  # ComplexEncodingMode with dynamic keys
+    default: Dict[str, Any]
+    current: Dict[str, Any]
 
 
-class ComplexEncodingsDict(TypedDict, total=False):
+class ComplexEncodingsDict(TypedDict):
     """Complete complex encodings structure.
+
+    Both keys are always present.
 
     :field node_encodings: Complex encodings for node/point visualizations
     :field edge_encodings: Complex encodings for edge visualizations

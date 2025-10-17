@@ -122,11 +122,16 @@ def serialize_node_encodings(g: 'Plottable') -> NodeEdgeEncodingsDict:
     encodings: NodeEdgeEncodingsDict = {
         'bindings': serialize_node_bindings(g)
     }
-    for mode in ['current', 'default']:
-        if len(g._complex_encodings['node_encodings'][mode].keys()) > 0:
-            if not ('complex' in encodings):
-                encodings['complex'] = {}
-            encodings['complex'][mode] = g._complex_encodings['node_encodings'][mode]
+    # Check current mode
+    if len(g._complex_encodings['node_encodings']['current'].keys()) > 0:
+        if not ('complex' in encodings):
+            encodings['complex'] = {}
+        encodings['complex']['current'] = g._complex_encodings['node_encodings']['current']
+    # Check default mode
+    if len(g._complex_encodings['node_encodings']['default'].keys()) > 0:
+        if not ('complex' in encodings):
+            encodings['complex'] = {}
+        encodings['complex']['default'] = g._complex_encodings['node_encodings']['default']
     return encodings
 
 
@@ -146,11 +151,16 @@ def serialize_edge_encodings(g: 'Plottable') -> NodeEdgeEncodingsDict:
     encodings: NodeEdgeEncodingsDict = {
         'bindings': serialize_edge_bindings(g)
     }
-    for mode in ['current', 'default']:
-        if len(g._complex_encodings['edge_encodings'][mode].keys()) > 0:
-            if not ('complex' in encodings):
-                encodings['complex'] = {}
-            encodings['complex'][mode] = g._complex_encodings['edge_encodings'][mode]
+    # Check current mode
+    if len(g._complex_encodings['edge_encodings']['current'].keys()) > 0:
+        if not ('complex' in encodings):
+            encodings['complex'] = {}
+        encodings['complex']['current'] = g._complex_encodings['edge_encodings']['current']
+    # Check default mode
+    if len(g._complex_encodings['edge_encodings']['default'].keys()) > 0:
+        if not ('complex' in encodings):
+            encodings['complex'] = {}
+        encodings['complex']['default'] = g._complex_encodings['edge_encodings']['default']
     return encodings
 
 
@@ -214,7 +224,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
 
     # Add complex encodings
     if hasattr(g, '_complex_encodings') and g._complex_encodings:
-        complex_encs: ComplexEncodingsDict = g._complex_encodings  # type: ignore[assignment]
+        complex_encs: ComplexEncodingsDict = g._complex_encodings
         encodings['complex_encodings'] = complex_encs
 
     # Build metadata
@@ -315,7 +325,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 if 'complex_encodings' in encodings:
                     res = copy.copy(res)
                     complex_encs: ComplexEncodingsDict = encodings['complex_encodings']  # type: ignore[typeddict-item]
-                    res._complex_encodings = complex_encs  # type: ignore[assignment]
+                    res._complex_encodings = complex_encs
 
         except Exception as e:
             warnings.warn(f"Failed to hydrate encodings from metadata: {e}", UserWarning, stacklevel=2)
