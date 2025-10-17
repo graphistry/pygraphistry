@@ -87,9 +87,9 @@ git diff "$BASE_BRANCH...HEAD" --unified=10 | while IFS= read -r line; do
     fi
 
     # Detect added import lines that are indented (dynamic)
-    if [[ "$line" =~ ^\\+[[:space:]]+(import\ |from\ .*\ import\ ) ]]; then
+    if [[ "$line" =~ ^\+[[:space:]]+(import\ |from\ .*\ import\ ) ]]; then
         # Skip docstring lines
-        if [[ "$line" =~ ^\\+[[:space:]]*\"\"\" ]] || [[ "$line" =~ ^\\+[[:space:]]*\'\'\' ]]; then
+        if [[ "$line" =~ ^\+[[:space:]]*\"\"\" ]] || [[ "$line" =~ ^\+[[:space:]]*\'\'\' ]]; then
             continue
         fi
 
