@@ -10,11 +10,67 @@ Format mirrors the arrow uploader metadata structure:
 - metadata: name, description
 - style: visualization styles
 """
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING, TypedDict
 import copy
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+
+
+class MetadataDict(TypedDict, total=False):
+    """Name and description metadata.
+
+    All fields are optional - only present fields are included in serialization.
+    """
+    name: str
+    description: str
+
+
+class EncodingsDict(TypedDict, total=False):
+    """Visual encodings for nodes and edges.
+
+    All fields are optional - only present fields are included in serialization.
+    Maps column names to encoding attributes (colors, sizes, labels, etc.).
+    """
+    # Node encodings
+    point_color: str
+    point_size: str
+    point_title: str
+    point_label: str
+    point_icon: str
+    point_opacity: str
+    point_x: str
+    point_y: str
+    # Edge encodings
+    edge_color: str
+    edge_size: str
+    edge_title: str
+    edge_label: str
+    edge_icon: str
+    edge_opacity: str
+    edge_source_color: str
+    edge_destination_color: str
+    edge_weight: str
+    # Complex encodings (nested structure)
+    complex_encodings: Dict[str, Any]
+
+
+class PlottableMetadata(TypedDict, total=False):
+    """Complete Plottable metadata structure for JSON serialization.
+
+    All fields are optional - only present fields are included in serialization.
+    This structure mirrors the arrow uploader format and is used for both
+    upload metadata and GFQL response metadata.
+
+    :field bindings: Column name mappings (node, source, destination, edge)
+    :field encodings: Visual encoding mappings (colors, sizes, labels, etc.)
+    :field metadata: Graph metadata (name, description)
+    :field style: Visualization styles (background, layout, etc.)
+    """
+    bindings: Dict[str, str]
+    encodings: EncodingsDict
+    metadata: MetadataDict
+    style: Dict[str, Any]
 
 
 def serialize_bindings(g: 'Plottable', field_mapping: List[List[str]]) -> Dict[str, str]:
@@ -146,14 +202,14 @@ def serialize_edge_encodings(g: 'Plottable') -> Dict[str, Any]:
     return encodings
 
 
-def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
+def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     """Serialize complete Plottable metadata to JSON format.
 
     Extracts all metadata that should be sent to the server during uploads
     or that the server might return after GFQL operations.
 
     :param g: Plottable object
-    :return: Dictionary with bindings, encodings, metadata, style
+    :return: PlottableMetadata with bindings, encodings, metadata, style
 
     **Example**
 
@@ -173,7 +229,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
     bindings.update(serialize_edge_bindings(g))
 
     # Collect all simple encodings
-    encodings: Dict[str, Any] = {}
+    encodings: EncodingsDict = {}
     node_bindings: Dict[str, str] = serialize_node_bindings(g)
     edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
@@ -201,16 +257,16 @@ def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
 
     for server_key, encoding_key in simple_encoding_map.items():
         if server_key in node_bindings:
-            encodings[encoding_key] = node_bindings[server_key]
+            encodings[encoding_key] = node_bindings[server_key]  # type: ignore[literal-required]
         elif server_key in edge_bindings:
-            encodings[encoding_key] = edge_bindings[server_key]
+            encodings[encoding_key] = edge_bindings[server_key]  # type: ignore[literal-required]
 
     # Add complex encodings
     if hasattr(g, '_complex_encodings') and g._complex_encodings:
         encodings['complex_encodings'] = g._complex_encodings
 
     # Build metadata
-    metadata_obj: Dict[str, str] = {}
+    metadata_obj: MetadataDict = {}
     if hasattr(g, '_name') and g._name:
         metadata_obj['name'] = g._name
     if hasattr(g, '_description') and g._description:
@@ -221,7 +277,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
     if hasattr(g, '_style') and g._style:
         style = g._style
 
-    result: Dict[str, Any] = {}
+    result: PlottableMetadata = {}
     if bindings:
         result['bindings'] = bindings
     if encodings:
@@ -234,14 +290,14 @@ def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
     return result
 
 
-def deserialize_plottable_metadata(metadata: Dict[str, Any], g: 'Plottable') -> 'Plottable':
+def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') -> 'Plottable':
     """Deserialize JSON metadata back into Plottable.
 
     Applies metadata from server responses (e.g., after GFQL operations)
     back into the Plottable object. Handles bindings, encodings, metadata,
     and style gracefully with error handling.
 
-    :param metadata: Server metadata dictionary
+    :param metadata: Server metadata (PlottableMetadata structure)
     :param g: Plottable object to hydrate
     :return: New Plottable with hydrated metadata
 
@@ -284,7 +340,7 @@ def deserialize_plottable_metadata(metadata: Dict[str, Any], g: 'Plottable') -> 
     # Hydrate simple encodings
     if 'encodings' in metadata:
         try:
-            encodings: Dict[str, Any] = metadata['encodings']
+            encodings: EncodingsDict = metadata['encodings']
             if isinstance(encodings, dict):
                 encode_kwargs: Dict[str, str] = {}
 
@@ -298,8 +354,8 @@ def deserialize_plottable_metadata(metadata: Dict[str, Any], g: 'Plottable') -> 
                 ]
 
                 for key in simple_encoding_keys:
-                    if key in encodings and encodings[key] is not None:
-                        encode_kwargs[key] = encodings[key]
+                    if key in encodings and encodings.get(key) is not None:  # type: ignore[misc]
+                        encode_kwargs[key] = encodings[key]  # type: ignore[literal-required, typeddict-item]
 
                 if encode_kwargs:
                     res = res.bind(**encode_kwargs)
@@ -315,12 +371,12 @@ def deserialize_plottable_metadata(metadata: Dict[str, Any], g: 'Plottable') -> 
     # Hydrate metadata (name, description)
     if 'metadata' in metadata:
         try:
-            meta: Dict[str, str] = metadata['metadata']
+            meta: MetadataDict = metadata['metadata']
             if isinstance(meta, dict):
-                if 'name' in meta and meta['name'] is not None:
-                    res = res.name(meta['name'])
-                if 'description' in meta and meta['description'] is not None:
-                    res = res.description(meta['description'])
+                if 'name' in meta and meta.get('name') is not None:
+                    res = res.name(meta['name'])  # type: ignore[typeddict-item]
+                if 'description' in meta and meta.get('description') is not None:
+                    res = res.description(meta['description'])  # type: ignore[typeddict-item]
         except Exception as e:
             warnings.warn(f"Failed to hydrate name/description from metadata: {e}", UserWarning, stacklevel=2)
 
