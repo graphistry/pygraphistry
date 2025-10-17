@@ -10,8 +10,11 @@ Format mirrors the arrow uploader metadata structure:
 - metadata: name, description
 - style: visualization styles
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 import copy
+
+if TYPE_CHECKING:
+    from graphistry.Plottable import Plottable
 
 
 def serialize_bindings(g, field_mapping) -> Dict[str, Any]:
