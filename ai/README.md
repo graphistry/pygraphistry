@@ -94,6 +94,7 @@ ai/
     ├── PLAN.md                   # Task planning template with strict execution protocol
     ├── LINT_TYPES_CHECK.md       # Code quality enforcement (with P0-P5)
     ├── CONVENTIONAL_COMMITS.md   # Git commit workflow with PyGraphistry conventions
+    ├── PYRE_ANALYSIS.md          # Advanced code analysis with pyre-check
     ├── IMPLEMENTATION_PLAN.md    # [TODO] Feature implementation tracking
     └── USER_TESTING_PLAYBOOK.md  # [TODO] AI-driven testing workflows
 ```
@@ -149,9 +150,10 @@ When adding a new guide:
 - **PLAN.md**: Task planning template with strict execution protocol for multi-step work
 - **LINT_TYPES_CHECK.md**: Code quality enforcement with P0-P5 priorities
 - **CONVENTIONAL_COMMITS.md**: Git commit workflow following PyGraphistry conventions
+- **PYRE_ANALYSIS.md**: Advanced code analysis with pyre-check for refactoring and type-aware searching
 - **IMPLEMENTATION_PLAN.md** [TODO]: Systematic feature implementation
 - **USER_TESTING_PLAYBOOK.md** [TODO]: AI-driven testing workflows
-- **Load when**: Starting new tasks, creating commits, fixing code quality issues, planning complex work
+- **Load when**: Starting new tasks, creating commits, fixing code quality issues, planning complex work, refactoring code
 
 ## 🧪 Testing Quick Reference
 
@@ -202,6 +204,36 @@ docker run --rm --gpus all \
 | `WITH_BUILD` | 0 | Build documentation |
 | `WITH_NEO4J` | 0 | Run Neo4j integration tests |
 | `PYTHON_VERSION` | - | Override Python version |
+
+## 🔍 Code Analysis & Search Tools
+
+### Tool Selection Guide
+
+**Use Grep/Ripgrep for:**
+- Simple text/pattern search
+- Quick file location
+- Initial exploration
+```bash
+grep -r "dataset_id" graphistry/*.py
+rg "_dataset_id" --type py
+```
+
+**Use AST Scripts for:**
+- Custom pattern detection (e.g., "methods that modify attribute X")
+- Fast iteration during development (< 1 second)
+- When pyre is too slow or times out
+```bash
+python3 plans/task_name/analyze_*.py
+```
+
+**Use Pyre for:**
+- Type-aware analysis and refactoring
+- Find-all-references (call graph analysis)
+- Finding all implementations of an interface
+- Complex dependency chain analysis
+- See [prompts/PYRE_ANALYSIS.md](prompts/PYRE_ANALYSIS.md) for detailed guide
+
+**Recommendation**: Start with grep for exploration, use AST scripts for custom analysis, use pyre only when you need type-aware refactoring or call graphs.
 
 ## 🔧 Common Patterns
 

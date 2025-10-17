@@ -1,0 +1,14 @@
+{
+  "site_package_search_strategy": "pep561",
+  "source_directories": [
+    "graphistry"
+  ],
+  "exclude": [
+    ".*/tests/.*",
+    ".*/demos/.*",
+    ".*/docs/.*",
+    ".*/__pycache__/.*"
+  ],
+  "strict": false,
+  "python_version": "3.8"
+}

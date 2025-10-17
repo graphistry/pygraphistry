@@ -431,6 +431,7 @@ class PlotterBase(Plottable):
 
         out = self.bind()
         out._complex_encodings = complex_encodings
+        out._dataset_id = None
         return out
 
 
@@ -951,6 +952,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         res._complex_encodings = complex_encodings
+        res._dataset_id = None
         return res
 
 
@@ -1121,7 +1123,19 @@ class PlotterBase(Plottable):
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
         res._edges_file_id = edges_file_id or self._edges_file_id
-        
+
+        # Invalidate dataset_id if we're changing encodings, not setting IDs
+        encoding_params_changed = any([
+            edge_title, edge_label, edge_color, edge_source_color,
+            edge_destination_color, edge_size, edge_weight, edge_icon, edge_opacity,
+            point_title, point_label, point_color, point_size, point_weight,
+            point_opacity, point_icon, point_x, point_y
+        ])
+        id_params_set = any([dataset_id, url, nodes_file_id, edges_file_id])
+
+        if encoding_params_changed and not id_params_set:
+            res._dataset_id = None
+
         return res
 
     def copy(self) -> Plottable:
@@ -1217,6 +1231,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         res._name = name
+        res._dataset_id = None
         return res
 
     def description(self, description):
@@ -1227,6 +1242,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         res._description = description
+        res._dataset_id = None
         return res
 
 
