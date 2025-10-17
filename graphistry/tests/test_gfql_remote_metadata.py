@@ -6,9 +6,12 @@ back into the returned Plottable. When remote GFQL operations (like call('umap')
 modify bindings, encodings, or other metadata, the client should receive and apply
 those changes.
 """
+from io import BytesIO
+import json
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
+import zipfile
 
 import graphistry
 from graphistry.compute.ast import ASTNode
@@ -346,10 +349,6 @@ class TestGFQLRemoteMetadataHydration(unittest.TestCase):
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_zip_format_metadata_hydrated(self, mock_post):
         """Zip format (parquet) - verify metadata hydration works."""
-        import zipfile
-        import json
-        from io import BytesIO
-
         # Create mock zip response with metadata
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w') as zip_ref:

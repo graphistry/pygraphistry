@@ -2,11 +2,15 @@ from inspect import getmodule
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
+import json
 import pandas as pd
 import requests
+import uuid
+import warnings
 import zipfile
 
 from graphistry.Plottable import Plottable
+from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.io.metadata import deserialize_plottable_metadata
@@ -171,7 +175,6 @@ def chain_remote_generic(
                 # Check for metadata.json in zip (both persist and GFQL metadata)
                 if 'metadata.json' in zip_ref.namelist():
                     try:
-                        import json
                         metadata_content = zip_ref.read('metadata.json')
                         metadata = json.loads(metadata_content.decode('utf-8'))
 
@@ -182,9 +185,6 @@ def chain_remote_generic(
 
                                 # Generate URL using existing infrastructure
                                 if result._dataset_id:  # Type guard
-                                    import uuid
-                                    from graphistry.client_session import DatasetInfo
-
                                     info: DatasetInfo = {
                                         'name': result._dataset_id,
                                         'type': 'arrow',
@@ -201,7 +201,6 @@ def chain_remote_generic(
                             result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
 
                     except Exception as e:
-                        import warnings
                         if persist:
                             warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
                                     f"URL generation will not be available. This may indicate an older server version.",
@@ -210,7 +209,6 @@ def chain_remote_generic(
                             warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
                                     UserWarning, stacklevel=2)
                 elif persist:
-                    import warnings
                     warnings.warn("persist=True requested but server did not return metadata.json. "
                                 "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
                                 UserWarning, stacklevel=2)
@@ -266,9 +264,6 @@ def chain_remote_generic(
 
                 # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
-                    import uuid
-                    from graphistry.client_session import DatasetInfo
-
                     dataset_info: DatasetInfo = {
                         'name': result._dataset_id,
                         'type': 'arrow',
@@ -277,7 +272,6 @@ def chain_remote_generic(
 
                     result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
             else:
-                import warnings
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
                             UserWarning, stacklevel=2)

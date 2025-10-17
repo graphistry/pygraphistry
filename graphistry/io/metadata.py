@@ -12,6 +12,7 @@ Format mirrors the arrow uploader metadata structure:
 """
 from typing import Any, Dict, List, TYPE_CHECKING
 import copy
+import warnings
 
 from graphistry.io.types import (
     ComplexEncodingsDict,
@@ -275,8 +276,6 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
         g2 = deserialize_plottable_metadata(metadata, g1)
         # g2._source == 'umap_src', g2._point_color == 'umap_cluster'
     """
-    import warnings
-
     res: 'Plottable' = g
 
     # Hydrate bindings
