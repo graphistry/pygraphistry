@@ -214,3 +214,153 @@ class TestMixedScenarios:
         # Final graph should have invalidated dataset_id
         assert g2._dataset_id is None, \
             "Chained modifications should invalidate dataset_id"
+
+
+class TestPysaDiscoveredBugs:
+    """Test bugs discovered by Pysa call graph analysis that AST analysis missed."""
+
+    def setup_method(self):
+        """Create a simple graph for testing."""
+        self.nodes = pd.DataFrame({
+            'id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie'],
+            'color_val': ['red', 'blue', 'green']
+        })
+        self.edges = pd.DataFrame({
+            'src': [1, 2],
+            'dst': [2, 3]
+        })
+        self.g = graphistry.edges(self.edges, 'src', 'dst').nodes(self.nodes, 'id')
+
+    def test_style_invalidates_dataset_id(self):
+        """Pysa Bug #1: style() calls bind() and modifies _style without invalidating."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # style() modifies _style attribute (affects visualization)
+        g2 = g1.style(bg={'color': 'black'}, fg={'blendMode': 'screen'})
+
+        # Should invalidate dataset_id
+        assert g2._dataset_id is None, \
+            "style() should invalidate dataset_id (Pysa found this bug)"
+
+    def test_addStyle_invalidates_dataset_id(self):
+        """Pysa Bug #2: addStyle() calls bind() and modifies _style without invalidating."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # addStyle() modifies _style attribute (affects visualization)
+        g2 = g1.addStyle(bg={'color': 'black'})
+
+        # Should invalidate dataset_id
+        assert g2._dataset_id is None, \
+            "addStyle() should invalidate dataset_id (Pysa found this bug)"
+
+    def test_infer_labels_invalidates_dataset_id(self):
+        """Pysa Bug #3: infer_labels() calls bind(point_title=...) which should invalidate."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # infer_labels() calls bind(point_title=...) to set label encoding
+        g2 = g1.infer_labels()
+
+        # Should invalidate dataset_id (via bind's conditional invalidation)
+        assert g2._dataset_id is None, \
+            "infer_labels() should invalidate dataset_id (calls bind with encoding)"
+
+
+class TestAllEncodingMethods:
+    """Comprehensive parametric tests for all encoding methods to prevent future regressions."""
+
+    def setup_method(self):
+        """Create a graph with all necessary columns for encoding tests."""
+        self.nodes = pd.DataFrame({
+            'id': [1, 2, 3],
+            'color_val': ['red', 'blue', 'green'],
+            'size_val': [10, 20, 30],
+            'icon_val': ['user', 'star', 'heart'],
+            'badge_val': ['A', 'B', 'C']
+        })
+        self.edges = pd.DataFrame({
+            'src': [1, 2],
+            'dst': [2, 3],
+            'edge_color': ['red', 'blue'],
+            'edge_icon': ['arrow', 'line'],
+            'edge_badge': ['X', 'Y']
+        })
+        self.g = graphistry.edges(self.edges, 'src', 'dst').nodes(self.nodes, 'id')
+
+    @pytest.mark.parametrize("method,kwargs", [
+        ("encode_point_color", {"column": "color_val"}),
+        ("encode_point_size", {"column": "size_val"}),
+        ("encode_point_icon", {"column": "icon_val"}),
+        ("encode_point_badge", {"column": "badge_val"}),
+        ("encode_edge_color", {"column": "edge_color"}),
+        ("encode_edge_icon", {"column": "edge_icon"}),
+        ("encode_edge_badge", {"column": "edge_badge"}),
+        ("encode_axis", {"rows": []}),
+    ])
+    def test_encoding_method_invalidates_dataset_id(self, method, kwargs):
+        """ALL encoding methods must invalidate dataset_id - future-proof parametric test."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # Call the encoding method dynamically
+        g2 = getattr(g1, method)(**kwargs)
+
+        # Should invalidate dataset_id
+        assert g2._dataset_id is None, \
+            f"{method}() should invalidate dataset_id"
+
+
+class TestBindConditionalLogic:
+    """Test edge cases for bind()'s conditional invalidation logic."""
+
+    def setup_method(self):
+        """Create a simple graph for testing."""
+        self.nodes = pd.DataFrame({
+            'id': [1, 2, 3],
+            'color_val': ['red', 'blue', 'green']
+        })
+        self.edges = pd.DataFrame({
+            'src': [1, 2],
+            'dst': [2, 3],
+            'weight': [1.0, 2.0]
+        })
+        self.g = graphistry.edges(self.edges, 'src', 'dst').nodes(self.nodes, 'id')
+
+    def test_bind_multiple_encodings_invalidates(self):
+        """bind() with multiple encoding params should invalidate."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # Multiple encodings at once
+        g2 = g1.bind(point_color='color_val', edge_size='weight')
+
+        # Should invalidate
+        assert g2._dataset_id is None, \
+            "bind() with multiple encodings should invalidate dataset_id"
+
+    def test_bind_no_params_preserves(self):
+        """bind() with no params should preserve dataset_id."""
+        g1 = self.g.bind(dataset_id='test_id_123')
+        assert g1._dataset_id == 'test_id_123'
+
+        # Call bind() with no parameters
+        g2 = g1.bind()
+
+        # Should preserve the ID
+        assert g2._dataset_id == 'test_id_123', \
+            "bind() with no params should preserve dataset_id"
+
+    def test_bind_dataset_id_with_encoding_preserves_id(self):
+        """bind() setting dataset_id should preserve it even if also setting encoding."""
+        g1 = self.g.bind(dataset_id='old_id')
+        assert g1._dataset_id == 'old_id'
+
+        # Set NEW dataset_id AND encoding simultaneously
+        g2 = g1.bind(dataset_id='new_id', point_color='color_val')
+
+        # Should preserve the NEW id we're explicitly setting
+        assert g2._dataset_id == 'new_id', \
+            "bind() with dataset_id param should preserve that ID even if also setting encodings"
