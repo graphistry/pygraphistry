@@ -2,13 +2,18 @@ from inspect import getmodule
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
+import json
 import pandas as pd
 import requests
+import uuid
+import warnings
 import zipfile
 
 from graphistry.Plottable import Plottable
+from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 
@@ -167,24 +172,19 @@ def chain_remote_generic(
 
                 result = self.edges(edges_df).nodes(nodes_df)
 
-                # Handle persist response for zip format
-                if persist:
-                    # Look for metadata.json in zip (new servers)
-                    if 'metadata.json' in zip_ref.namelist():
-                        try:
-                            import json
-                            metadata_content = zip_ref.read('metadata.json')
-                            metadata = json.loads(metadata_content.decode('utf-8'))
+                # Check for metadata.json in zip (both persist and GFQL metadata)
+                if 'metadata.json' in zip_ref.namelist():
+                    try:
+                        metadata_content = zip_ref.read('metadata.json')
+                        metadata = json.loads(metadata_content.decode('utf-8'))
 
+                        if persist:
                             # Extract dataset_id for URL generation
                             if 'dataset_id' in metadata:
                                 result._dataset_id = metadata['dataset_id']
 
                                 # Generate URL using existing infrastructure
                                 if result._dataset_id:  # Type guard
-                                    import uuid
-                                    from graphistry.client_session import DatasetInfo
-
                                     info: DatasetInfo = {
                                         'name': result._dataset_id,
                                         'type': 'arrow',
@@ -197,18 +197,21 @@ def chain_remote_generic(
                             if 'privacy' in metadata:
                                 result._privacy = metadata['privacy']
 
-                        except Exception as e:
-                            # Gracefully handle metadata parsing errors
-                            import warnings
+                        if 'gfql_metadata' in metadata:
+                            result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
+
+                    except Exception as e:
+                        if persist:
                             warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
                                     f"URL generation will not be available. This may indicate an older server version.",
                                     UserWarning, stacklevel=2)
-                    else:
-                        # No metadata.json found - older server
-                        import warnings
-                        warnings.warn("persist=True requested but server did not return metadata.json. "
-                                    "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                        else:
+                            warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
                                     UserWarning, stacklevel=2)
+                elif persist:
+                    warnings.warn("persist=True requested but server did not return metadata.json. "
+                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                                UserWarning, stacklevel=2)
 
                 return result
         except zipfile.BadZipFile as e:
@@ -261,9 +264,6 @@ def chain_remote_generic(
 
                 # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
-                    import uuid
-                    from graphistry.client_session import DatasetInfo
-
                     dataset_info: DatasetInfo = {
                         'name': result._dataset_id,
                         'type': 'arrow',
@@ -272,10 +272,12 @@ def chain_remote_generic(
 
                     result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
             else:
-                import warnings
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
                             UserWarning, stacklevel=2)
+
+        if 'metadata' in o:
+            result = deserialize_plottable_metadata(o['metadata'], result)
 
         return result
     else:

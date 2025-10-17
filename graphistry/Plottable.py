@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
+from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.ModelDict import ModelDict
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.models.compute.dbscan import DBSCANEngine
@@ -83,7 +84,7 @@ class Plottable(Protocol):
     _name : Optional[str]
     _description : Optional[str]
     _style : Optional[dict]
-    _complex_encodings : dict
+    _complex_encodings : ComplexEncodingsDict
     _bolt_driver : Any
     _tigergraph : Any
 

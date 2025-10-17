@@ -1,6 +1,7 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload
 from typing_extensions import Literal
+from graphistry.io.types import ComplexEncodingsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
@@ -159,7 +160,7 @@ class PlotterBase(Plottable):
         self._name : Optional[str] = None
         self._description : Optional[str] = None
         self._style : Optional[dict] = None
-        self._complex_encodings : dict = {
+        self._complex_encodings : ComplexEncodingsDict = {
             'node_encodings': {'current': {}, 'default': {} },
             'edge_encodings': {'current': {}, 'default': {} }
         }
@@ -418,12 +419,17 @@ class PlotterBase(Plottable):
 
         """
 
-        complex_encodings = {**self._complex_encodings} if self._complex_encodings else {}
-        node_encodings = {**complex_encodings['node_encodings']} if 'node_encodings' not in complex_encodings else {}
-        complex_encodings['node_encodings'] = node_encodings
-        node_encodings['current'] = {**node_encodings['current']} if 'current' in node_encodings else {}
-        node_encodings['default'] = {**node_encodings['default']} if 'default' in node_encodings else {}
-        node_encodings['default']["pointAxisEncoding"] = {
+        complex_encodings: ComplexEncodingsDict = {
+            'node_encodings': {
+                'current': {**self._complex_encodings['node_encodings']['current']},
+                'default': {**self._complex_encodings['node_encodings']['default']}
+            },
+            'edge_encodings': {
+                'current': {**self._complex_encodings['edge_encodings']['current']},
+                'default': {**self._complex_encodings['edge_encodings']['default']}
+            }
+        }
+        complex_encodings['node_encodings']['default']["pointAxisEncoding"] = {
             "graphType": "point",
             "encodingType": "axis",
             "variation": "categorical",
@@ -947,10 +953,16 @@ class PlotterBase(Plottable):
         graph_type_2 = 'node' if graph_type == 'point' else graph_type
 
         #NOTE: parameter feature_binding for cases like Legend
-        if for_current:
-            complex_encodings[f'{graph_type_2}_encodings']['current'][feature_binding] = encoding
-        if for_default:
-            complex_encodings[f'{graph_type_2}_encodings']['default'][feature_binding] = encoding
+        if graph_type_2 == 'node':
+            if for_current:
+                complex_encodings['node_encodings']['current'][feature_binding] = encoding
+            if for_default:
+                complex_encodings['node_encodings']['default'][feature_binding] = encoding
+        else:  # edge
+            if for_current:
+                complex_encodings['edge_encodings']['current'][feature_binding] = encoding
+            if for_default:
+                complex_encodings['edge_encodings']['default'][feature_binding] = encoding
 
         res = copy.copy(self)
         res._complex_encodings = complex_encodings
