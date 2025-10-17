@@ -14,8 +14,10 @@ from typing import Any, Dict, List, TYPE_CHECKING
 import copy
 
 from graphistry.io.types import (
+    ComplexEncodingsDict,
     EncodingsDict,
     MetadataDict,
+    NodeEdgeEncodingsDict,
     PlottableMetadata,
 )
 
@@ -104,7 +106,7 @@ def serialize_edge_bindings(g: 'Plottable') -> Dict[str, str]:
     ])
 
 
-def serialize_node_encodings(g: 'Plottable') -> Dict[str, Any]:
+def serialize_node_encodings(g: 'Plottable') -> NodeEdgeEncodingsDict:
     """Extract node encodings (bindings + complex) from Plottable.
 
     :param g: Plottable object
@@ -117,7 +119,7 @@ def serialize_node_encodings(g: 'Plottable') -> Dict[str, Any]:
         encodings = serialize_node_encodings(g)
         # {'bindings': {...}, 'complex': {'default': {...}, 'current': {...}}}
     """
-    encodings = {
+    encodings: NodeEdgeEncodingsDict = {
         'bindings': serialize_node_bindings(g)
     }
     for mode in ['current', 'default']:
@@ -128,7 +130,7 @@ def serialize_node_encodings(g: 'Plottable') -> Dict[str, Any]:
     return encodings
 
 
-def serialize_edge_encodings(g: 'Plottable') -> Dict[str, Any]:
+def serialize_edge_encodings(g: 'Plottable') -> NodeEdgeEncodingsDict:
     """Extract edge encodings (bindings + complex) from Plottable.
 
     :param g: Plottable object
@@ -141,7 +143,7 @@ def serialize_edge_encodings(g: 'Plottable') -> Dict[str, Any]:
         encodings = serialize_edge_encodings(g)
         # {'bindings': {...}, 'complex': {'default': {...}, 'current': {...}}}
     """
-    encodings = {
+    encodings: NodeEdgeEncodingsDict = {
         'bindings': serialize_edge_bindings(g)
     }
     for mode in ['current', 'default']:
@@ -212,7 +214,8 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
 
     # Add complex encodings
     if hasattr(g, '_complex_encodings') and g._complex_encodings:
-        encodings['complex_encodings'] = g._complex_encodings
+        complex_encs: ComplexEncodingsDict = g._complex_encodings  # type: ignore[assignment]
+        encodings['complex_encodings'] = complex_encs
 
     # Build metadata
     metadata_obj: MetadataDict = {}
@@ -311,7 +314,8 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 # Complex encodings (direct assignment)
                 if 'complex_encodings' in encodings:
                     res = copy.copy(res)
-                    res._complex_encodings = encodings['complex_encodings']
+                    complex_encs: ComplexEncodingsDict = encodings['complex_encodings']  # type: ignore[typeddict-item]
+                    res._complex_encodings = complex_encs  # type: ignore[assignment]
 
         except Exception as e:
             warnings.warn(f"Failed to hydrate encodings from metadata: {e}", UserWarning, stacklevel=2)

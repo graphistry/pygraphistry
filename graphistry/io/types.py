@@ -111,6 +111,18 @@ class EncodingsDict(TypedDict, total=False):
     complex_encodings: ComplexEncodingsDict
 
 
+class NodeEdgeEncodingsDict(TypedDict, total=False):
+    """Intermediate encoding structure with bindings and complex encodings.
+
+    Used internally by serialize_node_encodings() and serialize_edge_encodings().
+
+    :field bindings: Column name mappings for the entity (node or edge)
+    :field complex: Complex encoding modes (default and/or current)
+    """
+    bindings: Dict[str, str]
+    complex: Dict[str, Any]  # ComplexEncodingModes with dynamic keys
+
+
 class PlottableMetadata(TypedDict, total=False):
     """Complete Plottable metadata structure for JSON serialization.
 
