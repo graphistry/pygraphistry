@@ -20,6 +20,12 @@ python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
 
 **Config**: `.pyre_configuration` (excludes hop.py to prevent hang)
 
+**Optional - Taint models**: To use taint models, add to your local `.pyre_configuration`:
+```json
+"taint_models_path": ["path/to/your/taint_models"]
+```
+Note: Taint models are experimental and not committed to the repo.
+
 ## Timeout Debugging
 
 If Pysa hangs or times out:
