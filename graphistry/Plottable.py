@@ -76,6 +76,8 @@ class Plottable(Protocol):
     _point_opacity : Optional[str]
     _point_x : Optional[str]
     _point_y : Optional[str]
+    _point_longitude : Optional[str]
+    _point_latitude : Optional[str]
     _height : int
     _render : RenderModesConcrete
     _url_params : dict
@@ -343,6 +345,8 @@ class Plottable(Protocol):
         point_icon: Optional[str] = None,
         point_x: Optional[str] = None,
         point_y: Optional[str] = None,
+        point_longitude: Optional[str] = None,
+        point_latitude: Optional[str] = None,
         dataset_id: Optional[str] = None,
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
