@@ -4,18 +4,28 @@
 
 ## Quick Commands
 
-**Pysa call graph analysis** (finds indirect bugs via call chains):
+**1. Generate call graph** (60s, finds indirect bugs via call chains):
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace python:3.12-slim \
   bash -c "pip install -q pyre-check && pyre analyze --save-results-to ./pysa_results"
-# Output: pysa_results/call-graph.json (16MB, 37626 functions)
 ```
 
-**Extract callers** (see `ai/assets/pysa_extract_callers.py`):
+**2. Verify call graph generated**:
 ```bash
+ls -lh pysa_results/call-graph.json  # Should be ~16MB, 37626 functions
+```
+
+**3. Extract callers** (see `ai/assets/pysa_extract_callers.py`):
+```bash
+# Single method
+python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
+  PlotterBase.PlotterBase.bind
+
+# Multiple methods
 python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
   PlotterBase.PlotterBase.bind \
-  PlotterBase.PlotterBase.nodes
+  PlotterBase.PlotterBase.nodes \
+  PlotterBase.PlotterBase.edges
 ```
 
 **Config**: `.pyre_configuration` (excludes hop.py to prevent hang)
