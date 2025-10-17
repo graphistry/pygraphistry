@@ -146,6 +146,7 @@ source plans/[task]/.env
 - Only update the current 🔄 IN_PROGRESS phase
 - Each phase should be atomic and verifiable
 - Include ALL context in results (commands, output, errors)
+- **RECORD ALL TOOL CALLS**: When documenting results, include the actual tool calls executed (redact secrets with *****)
 - When adding new phases: Stop, add the phase, save, then execute
 
 ### NEW PHASES
@@ -183,6 +184,13 @@ Every ~20 completed phases:
 **Success Criteria:** [How to verify completion]
 **Result:** [To be filled when complete]
 
+**IMPORTANT**: When filling **Result**, include:
+1. What actually happened (success/failure/partial)
+2. **Actual tool calls executed** (with secrets redacted: `--api-key=*****`)
+3. Key outputs/errors (can be summarized if long)
+4. Any deviations from planned actions
+5. Links to auxiliary files created in plans/[task]/ if applicable
+
 ### Phase 1.B: [Title]
 **Status:** 📝 TODO
 **Branch:** [branch name]
@@ -197,6 +205,13 @@ Every ~20 completed phases:
 ```
 **Success Criteria:** [How to verify completion]
 **Result:** [To be filled when complete]
+
+**IMPORTANT**: When filling **Result**, include:
+1. What actually happened (success/failure/partial)
+2. **Actual tool calls executed** (with secrets redacted: `--api-key=*****`)
+3. Key outputs/errors (can be summarized if long)
+4. Any deviations from planned actions
+5. Links to auxiliary files created in plans/[task]/ if applicable
 
 ## Context Preservation
 <!-- Update ONLY when directed by a phase -->

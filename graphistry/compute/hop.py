@@ -1,3 +1,8 @@
+"""
+Graph hop/traversal operations for PyGraphistry
+
+NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
+"""
 import logging
 from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 
