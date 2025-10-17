@@ -9,10 +9,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
+* **GFQL Remote: Metadata hydration after server-computed operations** (#798)
+  * Server-computed metadata (bindings, encodings, styles, name/description) now returned to client after GFQL operations like `call('umap')`
+  * Centralized metadata serialization/deserialization in `graphistry.io.metadata` with TypedDict structures
+  * Properly typed `_complex_encodings` as `ComplexEncodingsDict` throughout codebase
 * **Plot: Fix dataset_id invalidation in encoding and style methods** (#797)
   * Fixed 7 methods not invalidating `dataset_id` after modifying encodings/metadata/styles: `__encode()`, `encode_axis()`, `name()`, `description()`, `bind()` (conditional), `style()`, `addStyle()`
   * Added 25 tests in `test_dataset_id_invalidation.py` with parametric coverage of all encoding methods
   * Found via AST pattern matching + Pysa call graph analysis (Pysa found 2 additional bugs AST missed)
+
+### Refactored
+* **Import organization**: Hoisted dynamic imports to module level following PEP 8 conventions (#798)
 
 ## [0.45.1 - 2025-10-16]
 
