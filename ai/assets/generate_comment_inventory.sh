@@ -86,7 +86,7 @@ in_hunk && /^[^+\-]/ {
     gsub(/^[[:space:]]+/, "", comment)  # Trim leading whitespace
 
     # Skip if this looks like a docstring marker or code with # in string
-    if (match(comment, /^"""/) || match(comment, /^'\'''\'''\'''/)) next
+    if (match(comment, /^"""/)) next
 
     comment_num++
 
@@ -109,11 +109,14 @@ in_hunk && /^[^+\-]/ {
     print "---"
     print ""
 }
-' 2>/dev/null || {
-    echo "Error: Failed to parse git diff. Make sure you're in a git repository."
-    echo "Usage: $0 [base_branch] [output_file]"
+'
+
+# Check if awk command succeeded
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to parse git diff. Make sure you're in a git repository." >&2
+    echo "Usage: $0 [base_branch] [output_file]" >&2
     exit 1
-}
+fi
 
 # Footer
 cat <<EOF
