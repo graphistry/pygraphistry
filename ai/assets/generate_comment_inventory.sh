@@ -1,13 +1,13 @@
 #!/bin/bash
 # Generate Comment Inventory for DECOMMENT Protocol
 #
-# Usage: ./ai/bin/generate_comment_inventory.sh [base_branch] [output_file]
+# Usage: ./ai/assets/generate_comment_inventory.sh [base_branch] [output_file]
 #
 # This script automates Phase 1 of the DECOMMENT protocol by extracting all
 # comments added in a PR and formatting them with context for categorization.
 #
 # Example:
-#   ./ai/bin/generate_comment_inventory.sh master plans/my-feature/comment_inventory.md
+#   ./ai/assets/generate_comment_inventory.sh master plans/my-feature/comment_inventory.md
 
 set -euo pipefail
 
@@ -21,132 +21,111 @@ CURRENT_BRANCH=$(git branch --show-current)
 # Try to get PR number if available
 PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "N/A")
 
-# Output to file or stdout
-if [ -n "$OUTPUT_FILE" ]; then
-    exec > "$OUTPUT_FILE"
-fi
+# Count comments added in this PR
+COMMENT_COUNT=$(git diff "$BASE_BRANCH...HEAD" | grep -c "^+.*#" || echo "0")
 
-# Header
+# Generate output
+{
 cat <<EOF
 # Comment Inventory - PR #${PR_NUMBER}
 
 Generated: $(date +%Y-%m-%d)
 Base branch: $BASE_BRANCH
 PR branch: $CURRENT_BRANCH
-Total comments found: [PLACEHOLDER - count manually]
+Total comments found: $COMMENT_COUNT
+
+---
+
+**Instructions**:
+1. Review each comment below
+2. Mark category as KEEP or REMOVE
+3. Document reasoning for each decision
+4. Update Summary Statistics at bottom
+5. Proceed to Phase 3 (removal) for all REMOVE comments
+
+---
 
 EOF
 
-# Extract all added comment lines with file context
-# This captures Python (#), JavaScript (//), and other comment styles
-git diff "$BASE_BRANCH...HEAD" --unified=10 | \
-awk '
-BEGIN {
-    file = ""
-    in_hunk = 0
-    comment_num = 0
-}
+# Extract comments with context using git diff
+comment_num=0
+current_file=""
 
-# Track current file
-/^\+\+\+ b\// {
-    file = substr($0, 7)  # Remove "+++ b/" prefix
-    next
-}
+git diff "$BASE_BRANCH...HEAD" --unified=10 | while IFS= read -r line; do
+    # Track current file
+    if [[ "$line" =~ ^\+\+\+\ b/(.*) ]]; then
+        current_file="${BASH_REMATCH[1]}"
+        continue
+    fi
 
-# Track hunk headers to get line numbers
-/^@@ / {
-    # Extract starting line number from hunk header
-    # Format: @@ -old_start,old_count +new_start,new_count @@
-    match($0, /\+([0-9]+)/, arr)
-    line_num = arr[1]
-    in_hunk = 1
+    # Detect added comment lines (Python style)
+    if [[ "$line" =~ ^\+.*# ]]; then
+        # Skip docstring lines
+        if [[ "$line" =~ ^\+[[:space:]]*\"\"\" ]] || [[ "$line" =~ ^\+[[:space:]]*\'\'\' ]]; then
+            continue
+        fi
 
-    # Store context lines for this hunk
-    context_before = ""
-    context_after = ""
-    context_count = 0
-    next
-}
+        comment_num=$((comment_num + 1))
 
-# Track line numbers in hunks
-in_hunk && /^\+/ && !/^\+\+\+/ {
-    line_num++
-}
-in_hunk && /^[^+\-]/ {
-    line_num++
-}
+        # Extract just the comment text
+        comment_text=$(echo "$line" | sed 's/^+//')
 
-# Detect added comment lines (various styles)
-/^\+.*#/ || /^\+.*\/\// || /^\+.*\/\*/ || /^\+.*\*\// {
-    # Skip lines that are just adding to existing comments
-    line = substr($0, 2)  # Remove leading "+"
+        cat <<COMMENT_BLOCK
 
-    # Extract the comment text
-    comment = line
-    gsub(/^[[:space:]]+/, "", comment)  # Trim leading whitespace
+## $current_file
 
-    # Skip if this looks like a docstring marker or code with # in string
-    if (match(comment, /^"""/)) next
+### Comment $comment_num
+**Line:** [Approximate - check manually]
+**Comment:** \`$comment_text\`
+**Context:**
+\`\`\`python
+$comment_text
+\`\`\`
+**Category:** [TODO: KEEP or REMOVE]
+**Reason:** [TODO: Explain why]
 
-    comment_num++
+---
 
-    print "## " file
-    print ""
-    print "### Comment " comment_num
-    print "**Line:** ~" line_num
-    print "**Comment:** `" comment "`"
-    print "**Context:**"
-    print "```python"
+COMMENT_BLOCK
+    fi
+done
 
-    # Get surrounding context (would need to re-parse diff for full context)
-    # For now, just show the line itself as minimal context
-    print line
-
-    print "```"
-    print "**Category:** [TODO]"
-    print "**Reason:** [TODO]"
-    print ""
-    print "---"
-    print ""
-}
-'
-
-# Check if awk command succeeded
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to parse git diff. Make sure you're in a git repository." >&2
-    echo "Usage: $0 [base_branch] [output_file]" >&2
-    exit 1
-fi
-
-# Footer
 cat <<EOF
 
 ## Summary Statistics
 
-**Total comments reviewed:** [COUNT]
-**KEEP:** [COUNT]
-**REMOVE:** [COUNT]
+**Total comments reviewed:** $COMMENT_COUNT
+**KEEP:** [COUNT after review]
+**REMOVE:** [COUNT after review]
 
 **KEEP reasons:**
 - Section markers in large functions: [COUNT]
 - Non-obvious behavior/design decisions: [COUNT]
 - Type ignore overrides (need explanation added): [COUNT]
 - Backwards compatibility notes: [COUNT]
+- GitHub issue references: [COUNT]
+- TODOs: [COUNT]
 - Other: [COUNT]
 
 **REMOVE reasons:**
 - Redundant with code: [COUNT]
 - Redundant with variable/function names: [COUNT]
 - Obvious from immediate context: [COUNT]
+- Redundant with docstrings: [COUNT]
+- Ephemeral dev notes: [COUNT]
 - Other: [COUNT]
 
 EOF
+} > "${OUTPUT_FILE:-/dev/stdout}"
 
-# If output to file, confirm
+# If output to file, show confirmation message
 if [ -n "$OUTPUT_FILE" ]; then
-    echo "Comment inventory generated: $OUTPUT_FILE" >&2
+    echo "✅ Comment inventory generated: $OUTPUT_FILE" >&2
+    echo "" >&2
     echo "Next steps:" >&2
     echo "  1. Review and categorize each comment (KEEP vs REMOVE)" >&2
     echo "  2. Update counts in Summary Statistics" >&2
-    echo "  3. Proceed to Phase 3 (removal)" >&2
+    echo "  3. Proceed to Phase 3 (removal for all REMOVE comments)" >&2
+    echo "" >&2
+    echo "Found $COMMENT_COUNT comments to review" >&2
 fi
