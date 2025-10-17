@@ -184,7 +184,6 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
     # Map server format back to simple encoding names
-    # Node bindings: node_color -> point_color, etc.
     simple_encoding_map: Dict[str, str] = {
         'node_color': 'point_color',
         'node_size': 'point_size',
@@ -294,7 +293,6 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             if isinstance(encodings, dict):
                 encode_kwargs: Dict[str, str] = {}
 
-                # Simple encodings that bind() supports
                 simple_encoding_keys: List[str] = [
                     'point_color', 'point_size', 'point_title', 'point_label',
                     'point_icon', 'point_badge', 'point_opacity', 'point_x', 'point_y',
@@ -318,7 +316,6 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
         except Exception as e:
             warnings.warn(f"Failed to hydrate encodings from metadata: {e}", UserWarning, stacklevel=2)
 
-    # Hydrate metadata (name, description)
     if 'metadata' in metadata:
         try:
             meta: MetadataDict = metadata['metadata']
@@ -330,7 +327,6 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
         except Exception as e:
             warnings.warn(f"Failed to hydrate name/description from metadata: {e}", UserWarning, stacklevel=2)
 
-    # Hydrate style
     if 'style' in metadata:
         try:
             style: Dict[str, Any] = metadata['style']

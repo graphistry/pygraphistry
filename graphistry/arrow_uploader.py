@@ -469,7 +469,6 @@ class ArrowUploader:
         return b.getvalue()
 
 
-    # Delegate to io.metadata functions for DRY
     def g_to_node_bindings(self, g):
         return serialize_node_bindings(g)
 

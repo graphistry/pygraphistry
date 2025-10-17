@@ -175,7 +175,6 @@ def chain_remote_generic(
                         metadata_content = zip_ref.read('metadata.json')
                         metadata = json.loads(metadata_content.decode('utf-8'))
 
-                        # Handle persist response for zip format
                         if persist:
                             # Extract dataset_id for URL generation
                             if 'dataset_id' in metadata:
@@ -198,12 +197,10 @@ def chain_remote_generic(
                             if 'privacy' in metadata:
                                 result._privacy = metadata['privacy']
 
-                        # Hydrate GFQL-computed metadata (separate from persistence metadata)
                         if 'gfql_metadata' in metadata:
                             result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
 
                     except Exception as e:
-                        # Gracefully handle metadata parsing errors
                         import warnings
                         if persist:
                             warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
@@ -213,7 +210,6 @@ def chain_remote_generic(
                             warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
                                     UserWarning, stacklevel=2)
                 elif persist:
-                    # No metadata.json found but persist requested - older server
                     import warnings
                     warnings.warn("persist=True requested but server did not return metadata.json. "
                                 "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
@@ -286,7 +282,6 @@ def chain_remote_generic(
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
                             UserWarning, stacklevel=2)
 
-        # Hydrate GFQL-computed metadata (bindings, encodings, name, description, style)
         if 'metadata' in o:
             result = deserialize_plottable_metadata(o['metadata'], result)
 
