@@ -150,6 +150,8 @@ class PlotterBase(Plottable):
         self._point_opacity : Optional[str] = None
         self._point_x : Optional[str] = None
         self._point_y : Optional[str] = None
+        self._point_longitude : Optional[str] = None
+        self._point_latitude : Optional[str] = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
@@ -981,6 +983,8 @@ class PlotterBase(Plottable):
             point_icon: Optional[str] = None,
             point_x: Optional[str] = None,
             point_y: Optional[str] = None,
+            point_longitude: Optional[str] = None,
+            point_latitude: Optional[str] = None,
             dataset_id: Optional[str] = None,
             url: Optional[str] = None,
             nodes_file_id: Optional[str] = None,
@@ -1035,6 +1039,12 @@ class PlotterBase(Plottable):
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
         :type point_y: Optional[str]
+
+        :param point_longitude: Attribute containing node's longitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_longitude: Optional[str]
+
+        :param point_latitude: Attribute containing node's latitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_latitude: Optional[str]
 
         :param dataset_id: Remote dataset id
         :type dataset_id: Optional[str]
@@ -1121,6 +1131,8 @@ class PlotterBase(Plottable):
         res._point_icon = point_icon or self._point_icon
         res._point_x = point_x or self._point_x
         res._point_y = point_y or self._point_y
+        res._point_longitude = point_longitude or self._point_longitude
+        res._point_latitude = point_latitude or self._point_latitude
         res._dataset_id = dataset_id or self._dataset_id
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
@@ -1131,7 +1143,7 @@ class PlotterBase(Plottable):
             edge_title, edge_label, edge_color, edge_source_color,
             edge_destination_color, edge_size, edge_weight, edge_icon, edge_opacity,
             point_title, point_label, point_color, point_size, point_weight,
-            point_opacity, point_icon, point_x, point_y
+            point_opacity, point_icon, point_x, point_y, point_longitude, point_latitude
         ])
         id_params_set = any([dataset_id, url, nodes_file_id, edges_file_id])
 
