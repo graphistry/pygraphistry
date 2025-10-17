@@ -2,7 +2,7 @@
 
 **Branch**: `feat/gfql-remote-metadata-hydration`
 **Created**: 2025-10-17
-**Status**: Planning → Testing → Implementation
+**Status**: ✅ COMPLETED
 
 ## Problem
 
@@ -220,9 +220,69 @@ print(g2._complex_encodings)
 ✅ Graceful handling of missing metadata
 ✅ No regressions in existing gfql_remote() behavior
 
-## Next Steps
+## Implementation Summary
 
-1. Start with Phase 1: Write failing tests
-2. Define mock metadata structures
-3. Implement Phase 2: Hydration logic
-4. Validate Phase 3: Integration testing
+### What Was Implemented
+
+**Phase 1: TDD - Tests First (COMPLETED)**
+- ✅ Created `graphistry/tests/test_gfql_remote_metadata.py` with 12 comprehensive tests
+- ✅ All tests initially failed as expected (TDD red phase)
+- ✅ Mock server responses defined for UMAP, name/description, style, and full metadata scenarios
+- ✅ Edge case tests for malformed metadata, None values, and overriding existing bindings
+
+**Phase 2: Core Implementation (COMPLETED)**
+- ✅ Created new `graphistry/io/` module for metadata serialization/deserialization
+- ✅ Implemented `graphistry/io/metadata.py` with:
+  - `serialize_plottable_metadata()` - extract metadata from Plottable for upload
+  - `deserialize_plottable_metadata()` - hydrate metadata from server response
+  - Helper functions: `serialize_node_bindings()`, `serialize_edge_bindings()`, etc.
+- ✅ Updated `PlotterBase._hydrate_metadata_from_response()` to use new io module (thin wrapper)
+- ✅ Integrated hydration into `chain_remote.py` for both JSON and zip formats:
+  - JSON format: `if 'metadata' in response: result._hydrate_metadata_from_response(response['metadata'])`
+  - Zip format: `if 'gfql_metadata' in metadata.json: result._hydrate_metadata_from_response(...)`
+
+**Phase 3: Validation (COMPLETED)**
+- ✅ All 12 new tests passing (100% pass rate)
+- ✅ All 13 existing persistence tests passing (zero regressions)
+- ✅ Graceful error handling with warnings for malformed metadata
+- ✅ Comprehensive docstrings in `io/metadata.py` module
+
+### Key Design Decisions
+
+1. **Unified io/ module**: Created `graphistry/io/metadata.py` to house both serialization (for upload) and deserialization (from response) in one place, ensuring format consistency.
+
+2. **Separation of concerns**: GFQL metadata (`gfql_metadata`) is separate from persistence metadata (`dataset_id`, `privacy`) in zip responses.
+
+3. **Backward compatibility**: Thin wrappers in PlotterBase preserve existing API while using new io module internally.
+
+4. **Graceful degradation**: Missing or partial metadata doesn't break the request - warnings are logged but execution continues.
+
+### Files Created/Modified
+
+**Created:**
+- `graphistry/io/__init__.py` - Module exports
+- `graphistry/io/metadata.py` - Serialization/deserialization logic (370 lines)
+- `graphistry/tests/test_gfql_remote_metadata.py` - Test suite (436 lines, 12 tests)
+
+**Modified:**
+- `graphistry/PlotterBase.py` - Refactored `_hydrate_metadata_from_response()` to use io module
+- `graphistry/compute/chain_remote.py` - Added metadata hydration to JSON and zip response handlers
+
+### Test Coverage
+
+**New Tests (12 total):**
+- ✅ `test_umap_bindings_hydrated` - Bindings transfer from server
+- ✅ `test_umap_encodings_hydrated` - Encodings (simple + complex) transfer
+- ✅ `test_name_description_hydrated` - Metadata fields transfer
+- ✅ `test_style_hydrated` - Style configuration transfers
+- ✅ `test_empty_metadata_doesnt_break` - Graceful handling of missing metadata
+- ✅ `test_partial_metadata_hydrated` - Partial metadata works
+- ✅ `test_full_metadata_hydrated` - Complete metadata scenario
+- ✅ `test_metadata_preserves_existing_dataframes` - DataFrames not modified
+- ✅ `test_zip_format_metadata_hydrated` - Zip format support
+- ✅ `test_malformed_metadata_graceful_handling` - Error resilience
+- ✅ `test_metadata_with_none_values` - None value handling
+- ✅ `test_metadata_overrides_existing_bindings` - Server metadata takes precedence
+
+**Existing Tests (13 total):**
+- ✅ All persistence tests still passing (zero regressions)

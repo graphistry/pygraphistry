@@ -167,15 +167,15 @@ def chain_remote_generic(
 
                 result = self.edges(edges_df).nodes(nodes_df)
 
-                # Handle persist response for zip format
-                if persist:
-                    # Look for metadata.json in zip (new servers)
-                    if 'metadata.json' in zip_ref.namelist():
-                        try:
-                            import json
-                            metadata_content = zip_ref.read('metadata.json')
-                            metadata = json.loads(metadata_content.decode('utf-8'))
+                # Check for metadata.json in zip (both persist and GFQL metadata)
+                if 'metadata.json' in zip_ref.namelist():
+                    try:
+                        import json
+                        metadata_content = zip_ref.read('metadata.json')
+                        metadata = json.loads(metadata_content.decode('utf-8'))
 
+                        # Handle persist response for zip format
+                        if persist:
                             # Extract dataset_id for URL generation
                             if 'dataset_id' in metadata:
                                 result._dataset_id = metadata['dataset_id']
@@ -197,18 +197,26 @@ def chain_remote_generic(
                             if 'privacy' in metadata:
                                 result._privacy = metadata['privacy']
 
-                        except Exception as e:
-                            # Gracefully handle metadata parsing errors
-                            import warnings
+                        # Hydrate GFQL-computed metadata (separate from persistence metadata)
+                        if 'gfql_metadata' in metadata:
+                            result = result._hydrate_metadata_from_response(metadata['gfql_metadata'])
+
+                    except Exception as e:
+                        # Gracefully handle metadata parsing errors
+                        import warnings
+                        if persist:
                             warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
                                     f"URL generation will not be available. This may indicate an older server version.",
                                     UserWarning, stacklevel=2)
-                    else:
-                        # No metadata.json found - older server
-                        import warnings
-                        warnings.warn("persist=True requested but server did not return metadata.json. "
-                                    "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                        else:
+                            warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
                                     UserWarning, stacklevel=2)
+                elif persist:
+                    # No metadata.json found but persist requested - older server
+                    import warnings
+                    warnings.warn("persist=True requested but server did not return metadata.json. "
+                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                                UserWarning, stacklevel=2)
 
                 return result
         except zipfile.BadZipFile as e:
@@ -276,6 +284,10 @@ def chain_remote_generic(
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
                             UserWarning, stacklevel=2)
+
+        # Hydrate GFQL-computed metadata (bindings, encodings, name, description, style)
+        if 'metadata' in o:
+            result = result._hydrate_metadata_from_response(o['metadata'])
 
         return result
     else:
