@@ -10,21 +10,21 @@ Format mirrors the arrow uploader metadata structure:
 - metadata: name, description
 - style: visualization styles
 """
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 import copy
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 
-def serialize_bindings(g, field_mapping) -> Dict[str, Any]:
+def serialize_bindings(g: 'Plottable', field_mapping: List[List[str]]) -> Dict[str, str]:
     """Extract bindings from Plottable using field mapping.
 
     :param g: Plottable object
     :param field_mapping: List of (plottable_attr, json_key) tuples
-    :return: Dictionary of bindings
+    :return: Dictionary of bindings (column name mappings)
     """
-    out = {}
+    out: Dict[str, str] = {}
     for old_field_name, new_field_name in field_mapping:
         try:
             val = getattr(g, old_field_name)
@@ -37,14 +37,14 @@ def serialize_bindings(g, field_mapping) -> Dict[str, Any]:
     return out
 
 
-def serialize_node_bindings(g) -> Dict[str, Any]:
+def serialize_node_bindings(g: 'Plottable') -> Dict[str, str]:
     """Extract node bindings from Plottable.
 
     Maps internal Plottable attributes (_node, _point_color, etc.)
     to server format (node, node_color, etc.).
 
     :param g: Plottable object
-    :return: Dictionary of node bindings
+    :return: Dictionary of node bindings (column name mappings)
 
     **Example**
 
@@ -67,14 +67,14 @@ def serialize_node_bindings(g) -> Dict[str, Any]:
     ])
 
 
-def serialize_edge_bindings(g) -> Dict[str, Any]:
+def serialize_edge_bindings(g: 'Plottable') -> Dict[str, str]:
     """Extract edge bindings from Plottable.
 
     Maps internal Plottable attributes (_source, _edge_color, etc.)
     to server format (source, edge_color, etc.).
 
     :param g: Plottable object
-    :return: Dictionary of edge bindings
+    :return: Dictionary of edge bindings (column name mappings)
 
     **Example**
 
@@ -98,7 +98,7 @@ def serialize_edge_bindings(g) -> Dict[str, Any]:
     ])
 
 
-def serialize_node_encodings(g) -> Dict[str, Any]:
+def serialize_node_encodings(g: 'Plottable') -> Dict[str, Any]:
     """Extract node encodings (bindings + complex) from Plottable.
 
     :param g: Plottable object
@@ -122,7 +122,7 @@ def serialize_node_encodings(g) -> Dict[str, Any]:
     return encodings
 
 
-def serialize_edge_encodings(g) -> Dict[str, Any]:
+def serialize_edge_encodings(g: 'Plottable') -> Dict[str, Any]:
     """Extract edge encodings (bindings + complex) from Plottable.
 
     :param g: Plottable object
@@ -146,7 +146,7 @@ def serialize_edge_encodings(g) -> Dict[str, Any]:
     return encodings
 
 
-def serialize_plottable_metadata(g) -> Dict[str, Any]:
+def serialize_plottable_metadata(g: 'Plottable') -> Dict[str, Any]:
     """Serialize complete Plottable metadata to JSON format.
 
     Extracts all metadata that should be sent to the server during uploads
@@ -168,18 +168,18 @@ def serialize_plottable_metadata(g) -> Dict[str, Any]:
         # }
     """
     # Collect all bindings (both node and edge)
-    bindings = {}
+    bindings: Dict[str, str] = {}
     bindings.update(serialize_node_bindings(g))
     bindings.update(serialize_edge_bindings(g))
 
     # Collect all simple encodings
-    encodings = {}
-    node_bindings = serialize_node_bindings(g)
-    edge_bindings = serialize_edge_bindings(g)
+    encodings: Dict[str, Any] = {}
+    node_bindings: Dict[str, str] = serialize_node_bindings(g)
+    edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
     # Map server format back to simple encoding names
     # Node bindings: node_color -> point_color, etc.
-    simple_encoding_map = {
+    simple_encoding_map: Dict[str, str] = {
         'node_color': 'point_color',
         'node_size': 'point_size',
         'node_title': 'point_title',
@@ -210,18 +210,18 @@ def serialize_plottable_metadata(g) -> Dict[str, Any]:
         encodings['complex_encodings'] = g._complex_encodings
 
     # Build metadata
-    metadata_obj = {}
+    metadata_obj: Dict[str, str] = {}
     if hasattr(g, '_name') and g._name:
         metadata_obj['name'] = g._name
     if hasattr(g, '_description') and g._description:
         metadata_obj['description'] = g._description
 
     # Build style
-    style = {}
+    style: Dict[str, Any] = {}
     if hasattr(g, '_style') and g._style:
         style = g._style
 
-    result = {}
+    result: Dict[str, Any] = {}
     if bindings:
         result['bindings'] = bindings
     if encodings:
@@ -234,7 +234,7 @@ def serialize_plottable_metadata(g) -> Dict[str, Any]:
     return result
 
 
-def deserialize_plottable_metadata(metadata: dict, g: 'Plottable') -> 'Plottable':
+def deserialize_plottable_metadata(metadata: Dict[str, Any], g: 'Plottable') -> 'Plottable':
     """Deserialize JSON metadata back into Plottable.
 
     Applies metadata from server responses (e.g., after GFQL operations)
@@ -259,14 +259,14 @@ def deserialize_plottable_metadata(metadata: dict, g: 'Plottable') -> 'Plottable
     """
     import warnings
 
-    res = g
+    res: 'Plottable' = g
 
     # Hydrate bindings
     if 'bindings' in metadata:
         try:
-            bindings = metadata['bindings']
+            bindings: Dict[str, str] = metadata['bindings']
             if isinstance(bindings, dict):
-                bind_kwargs = {}
+                bind_kwargs: Dict[str, str] = {}
                 if 'node' in bindings and bindings['node'] is not None:
                     bind_kwargs['node'] = bindings['node']
                 if 'source' in bindings and bindings['source'] is not None:
@@ -284,12 +284,12 @@ def deserialize_plottable_metadata(metadata: dict, g: 'Plottable') -> 'Plottable
     # Hydrate simple encodings
     if 'encodings' in metadata:
         try:
-            encodings = metadata['encodings']
+            encodings: Dict[str, Any] = metadata['encodings']
             if isinstance(encodings, dict):
-                encode_kwargs = {}
+                encode_kwargs: Dict[str, str] = {}
 
                 # Simple encodings that bind() supports
-                simple_encoding_keys = [
+                simple_encoding_keys: List[str] = [
                     'point_color', 'point_size', 'point_title', 'point_label',
                     'point_icon', 'point_badge', 'point_opacity', 'point_x', 'point_y',
                     'edge_color', 'edge_size', 'edge_title', 'edge_label',
@@ -315,7 +315,7 @@ def deserialize_plottable_metadata(metadata: dict, g: 'Plottable') -> 'Plottable
     # Hydrate metadata (name, description)
     if 'metadata' in metadata:
         try:
-            meta = metadata['metadata']
+            meta: Dict[str, str] = metadata['metadata']
             if isinstance(meta, dict):
                 if 'name' in meta and meta['name'] is not None:
                     res = res.name(meta['name'])
@@ -327,7 +327,7 @@ def deserialize_plottable_metadata(metadata: dict, g: 'Plottable') -> 'Plottable
     # Hydrate style
     if 'style' in metadata:
         try:
-            style = metadata['style']
+            style: Dict[str, Any] = metadata['style']
             if isinstance(style, dict):
                 res = res.style(**style)
         except Exception as e:
