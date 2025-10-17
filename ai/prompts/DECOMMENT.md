@@ -38,7 +38,11 @@ This protocol guides the systematic removal of redundant comments from code chan
 
 **Commands:**
 ```bash
-# Get base branch (usually master or main)
+# Automated inventory generation (RECOMMENDED)
+./ai/assets/generate_comment_inventory.sh master plans/[task]/comment_inventory.md
+
+# Manual alternatives:
+# Get base branch
 BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName)
 
 # Generate diff showing only additions
