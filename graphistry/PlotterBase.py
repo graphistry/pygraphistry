@@ -323,8 +323,9 @@ class PlotterBase(Plottable):
                     style[k] = v
         res = self.bind()
         res._style = style
+        res._dataset_id = None  # Style changes affect visualization, invalidate dataset
         return res
-        
+
 
 
     def style(
@@ -381,6 +382,7 @@ class PlotterBase(Plottable):
                 style[k] = v
         res = self.bind()
         res._style = style
+        res._dataset_id = None  # Style changes affect visualization, invalidate dataset
         return res
 
 
