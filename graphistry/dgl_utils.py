@@ -306,15 +306,16 @@ class DGLGraphMixin(FeatureMixin):
             )
         # now check that self._entity_to_index is in 1-1 to with self.ndf[node_column]
         # nodes = self._nodes[node_column]
-        res = nodes.isin(self._entity_to_index)
-        if res.sum() != len(nodes):
-            logger.warning(
-                "Some Edges connect to Nodes not explicitly mentioned in nodes DataFrame (ndf)"
-            )
-        if len(self._entity_to_index) > len(nodes):
-            logger.warning(
-                "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
-            )
+        if self._entity_to_index is not None:
+            res = nodes.isin(self._entity_to_index)
+            if res.sum() != len(nodes):
+                logger.warning(
+                    "Some Edges connect to Nodes not explicitly mentioned in nodes DataFrame (ndf)"
+                )
+            if len(self._entity_to_index) > len(nodes):
+                logger.warning(
+                    "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
+                )
 
     def _convert_edge_dataframe_to_DGL(
         self, weight_column: Optional[str] = None, inplace: bool = False
