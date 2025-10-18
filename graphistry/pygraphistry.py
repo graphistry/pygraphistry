@@ -854,7 +854,7 @@ class GraphistryClient(AuthManagerProtocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: EngineType = "auto",
+        engine: Union[EngineAbstract, str] = "auto",
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
     ) -> HypergraphResult:

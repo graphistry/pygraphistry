@@ -19,6 +19,7 @@ class EngineAbstract(Enum):
     DASK_CUDF = Engine.DASK_CUDF.value
     AUTO = 'auto'
 
+
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
