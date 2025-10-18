@@ -19,6 +19,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
 
 ### Fixed
+* **Plot: Fix UnboundLocalError and improve API version error handling**
+  * Fixed `UnboundLocalError` when calling `plot()` with `api_version=1` and certain render modes
+  * Added proper initialization of `uploader` variable before conditional branches
+  * Added clear error message for unsupported API versions (only 1 and 3 are supported)
+  * Prevents confusing crashes and provides actionable error messages for configuration issues
 * **GFQL Remote: Client-side validation now enforced before sending to server**
   * Fixed remote GFQL operations not validating `call()` parameters against safelist before execution
   * `ASTCall._validate_fields()` now calls `validate_call_params()` during deserialization
