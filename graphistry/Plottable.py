@@ -553,7 +553,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> 'Plottable':
@@ -571,7 +571,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> pd.DataFrame:
@@ -587,7 +587,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeAll] = 'all',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> 'Plottable':
@@ -600,7 +600,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeDf] = 'table',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> pd.DataFrame:
@@ -611,7 +611,7 @@ class Plottable(Protocol):
         code: str,
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> Any:

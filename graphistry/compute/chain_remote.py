@@ -9,6 +9,7 @@ import uuid
 import warnings
 import zipfile
 
+from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTObject
@@ -28,7 +29,7 @@ def chain_remote_generic(
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False
 ) -> Union[Plottable, pd.DataFrame]:
@@ -50,7 +51,13 @@ def chain_remote_generic(
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
-    assert (engine is None) or engine in ["pandas", "cudf"], f"engine should be None, 'pandas', or 'cudf', got: {engine}" 
+    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
+    engine_resolved = resolve_engine(engine, self)
+    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
+        raise ValueError(f"Remote GFQL only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
+                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
+                       f"Dask engines are not supported for remote execution.")
+    engine_str = engine_resolved.value 
 
     if format is None:
         if output_type == "shape":
@@ -85,8 +92,7 @@ def chain_remote_generic(
         request_body["edge_col_subset"] = edge_col_subset
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
-    if engine is not None:
-        request_body["engine"] = engine
+    request_body["engine"] = engine_str
     if persist:
         request_body["persist"] = persist
 
@@ -293,7 +299,7 @@ def chain_remote_shape(
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False
 ) -> pd.DataFrame:
@@ -351,7 +357,7 @@ def chain_remote(
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False
 ) -> Plottable:
@@ -383,8 +389,8 @@ def chain_remote(
     :param edge_col_subset: When server returns edges, what property subset to return. Defaults to all.
     :type edge_col_subset: Optional[List[str]]
 
-    :param engine: Override which run mode GFQL uses. By default, inspects graph size to decide.
-    :type engine: Optional[Literal["pandas", "cudf]]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
