@@ -29,7 +29,6 @@ class TestHypergraphValidation:
             'engine': 'pandas'
         }
 
-        # Should not raise
         validated = validate_call_params('hypergraph', params)
         assert validated == params
 
@@ -212,14 +211,12 @@ class TestEncodePointColorValidation:
         """Test that missing required column parameter is rejected."""
         params = {
             'palette': ['#FF0000', '#00FF00']
-            # Missing required 'column' parameter
         }
 
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params('encode_point_color', params)
 
         assert 'Missing required parameters' in exc_info.value.message
-        # Check that error mentions encode_point_color
         assert 'encode_point_color' in exc_info.value.message
 
     def test_invalid_encode_point_color_column_type(self):
@@ -253,14 +250,12 @@ class TestComputeIgraphValidation:
         """Test that missing required alg parameter is rejected."""
         params = {
             'out_col': 'score'
-            # Missing required 'alg' parameter
         }
 
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params('compute_igraph', params)
 
         assert 'Missing required parameters' in exc_info.value.message
-        # Check that error mentions compute_igraph
         assert 'compute_igraph' in exc_info.value.message
 
     def test_invalid_compute_igraph_directed_type(self):
@@ -333,7 +328,6 @@ class TestASTCallDeserialization:
 
     def test_astcall_from_json_validates_params(self):
         """Test that ASTCall.from_json() validates parameters."""
-        # Valid params should work
         call_json = {
             'type': 'Call',
             'function': 'get_degrees',
@@ -383,17 +377,14 @@ class TestCallObjectCreation:
 
     def test_call_helper_validates_params(self):
         """Test that call() creates valid ASTCall that validates on construction."""
-        # Valid call
         call_obj = call('get_degrees', {'col': 'degree'})
         assert call_obj.function == 'get_degrees'
         assert call_obj.params == {'col': 'degree'}
 
-        # Invalid params should raise during validation
         call_obj = call('umap', {'engine': 'invalid'})
         with pytest.raises(GFQLTypeError):
             call_obj.validate()
 
 
 if __name__ == '__main__':
-    # Run tests
     pytest.main([__file__, '-v', '--tb=short'])
