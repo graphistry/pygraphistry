@@ -501,6 +501,8 @@ class ArrowUploader:
                 file_opts['org_name'] = self.org_name
             upload_url_opts = 'erase=true' if erase_files_on_fail else 'erase=false'
 
+            if self.edges is None:
+                raise ValueError("edges table is None")
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
             self.edges_file_id = e_file_id
 
@@ -642,11 +644,15 @@ class ArrowUploader:
     def post_edges_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.edges
+        if arr is None:
+            raise ValueError("edges table is None")
         return self.post_arrow(arr, 'edges', opts) 
 
     def post_nodes_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.nodes
+        if arr is None:
+            raise ValueError("nodes table is None")
         return self.post_arrow(arr, 'nodes', opts) 
 
     def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):

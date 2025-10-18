@@ -8,6 +8,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.4 - 2025-10-18]
+
+### Added
+* **GFQL Remote: engine='auto' support for automatic DataFrame engine detection**
+  * Remote GFQL operations now default to `engine='auto'` instead of manual engine specification
+  * `chain_remote()`, `python_remote_g()`, `python_remote_table()`, `python_remote_json()` all support 'auto'
+  * Client-side resolution inspects graph's DataFrame type (pandas/cudf) and passes resolved engine to server
+  * **Example**: `g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))` - automatically uses the right engine
+  * **Migration**: Users who need explicit engine control can still pass `engine='pandas'` or `engine='cudf'`
+  * **Benefits**: Seamless GPU/CPU usage without manual configuration, consistent with local GFQL behavior
+  * Validates that dask engines aren't used remotely (server only supports pandas/cudf)
+  * Updated type signatures across 5 files: `chain_remote.py`, `python_remote.py`, `chain_let.py`, `ComputeMixin.py`, `Plottable.py`
+
+### Fixed
+* **GFQL: Fix get_degrees parameter validation in remote operations**
+  * Fixed `call('get_degrees', {'degree_in': '...', 'degree_out': '...'})` validation rejecting correct parameter names
+  * **Problem**: Safelist had incorrect parameter names (`col_in`, `col_out`) instead of actual method signature (`degree_in`, `degree_out`)
+  * **Solution**: Updated safelist to match `ComputeMixin.get_degrees()` signature (line 295-300)
+  * Example that now works: `g.gfql_remote(call('get_degrees', {'degree_in': 'in_deg', 'degree_out': 'out_deg'}))`
+  * Prevents confusing "Unknown parameters" errors for valid parameter names
+
 ## [0.45.3 - 2025-10-17]
 
 ### Breaking 🔥

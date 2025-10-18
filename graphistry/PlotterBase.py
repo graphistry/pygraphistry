@@ -2175,7 +2175,7 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True) -> pa.Table:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
 
@@ -2331,7 +2331,7 @@ class PlotterBase(Plottable):
         return dataset
 
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,
