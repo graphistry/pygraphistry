@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union
+from typing_extensions import Literal
 from enum import Enum
 
 
@@ -20,12 +21,16 @@ class EngineAbstract(Enum):
     AUTO = 'auto'
 
 
+# Type alias for engine parameter - accepts both enum values and string literals
+# Includes 'auto' for automatic detection
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]
+
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
 def resolve_engine(
-    engine: Union[EngineAbstract, str],
+    engine: EngineAbstractType,
     g_or_df: Optional[Any] = None,
 ) -> Engine:
 

@@ -14,7 +14,7 @@ from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr,
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.umap_types import UMAPEngine
 from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 
@@ -370,7 +370,7 @@ class Plottable(Protocol):
     ) -> 'Plottable':
         ...
 
-    def materialize_nodes(self, reuse: bool = True, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: EngineAbstractType = 'auto') -> 'Plottable':
         ...
 
     def get_topological_levels(
@@ -442,7 +442,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -461,7 +461,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -480,7 +480,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -498,7 +498,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -718,7 +718,7 @@ class Plottable(Protocol):
         circle_layout_params: Optional[Dict[str, Any]] = None,
         singleton_layout: Optional[Callable[['Plottable', Union[Tuple[float, float, float, float], Any]], 'Plottable']] = None,
         partition_key: Optional[str] = None,
-        engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+        engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
         ...
 

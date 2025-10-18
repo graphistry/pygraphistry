@@ -4,7 +4,7 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstractType
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -2713,7 +2713,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['graph'] = 'graph'
     ) -> 'Plottable':
@@ -2726,7 +2726,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['all']
     ) -> HypergraphResult:
@@ -2739,7 +2739,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['entities', 'events', 'edges', 'nodes'] = ...
     ) -> Any:
@@ -2751,7 +2751,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: Union[EngineAbstract, str] = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
     ) -> Union['Plottable', HypergraphResult, Any]:
