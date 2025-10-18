@@ -8,13 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Breaking 🔥
+* **Hypergraph: Engine parameter now defaults to 'auto'**
+  * Default changed from `engine='pandas'` to `engine='auto'`
+  * Auto-detects DataFrame engine from graph's current nodes/edges (pandas/cudf/dask/dask_cudf)
+  * **Migration**: Explicitly pass `engine='pandas'` to maintain old behavior
+  * **Example**: `g.hypergraph(entity_types=['user', 'product'], engine='pandas')`
+  * **Rationale**: Enables seamless GPU/CPU usage and proper engine propagation through GFQL operations
+  * **Impact**: Users who relied on pandas-only behavior may see different DataFrame types returned
+  * Most users benefit from automatic engine detection - only explicitly set if you need pandas-only
+
 ### Changed
-* **Hypergraph: Engine parameter now defaults to 'auto' for seamless GPU/CPU usage**
-  * `hypergraph()` now defaults to `engine='auto'` instead of `'pandas'`
-  * Auto-detects graph's current DataFrame engine (pandas/cudf/dask/dask_cudf)
+* **Hypergraph: Engine parameter propagation improvements**
   * Benefits outer engine parameter propagation: `g.gfql(call('hypergraph'), engine='cudf')` now works as expected
-  * Created `EngineType` type alias = `Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']`
-  * Updated all hypergraph signatures across codebase to use typed `EngineType` instead of `str`
+  * Updated all hypergraph signatures to use `Union[EngineAbstract, str]` pattern for flexible API
   * Example that now works: `g.gfql(call('hypergraph', {'entity_types': ['a', 'b']}), engine='cudf')` - hypergraph respects outer engine
   * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
 

@@ -2,7 +2,7 @@ from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from graphistry.hyper_dask import hypergraph as hypergraph_new
 from graphistry.plugins_types.hypergraph import HypergraphResult
-from graphistry.Engine import EngineType
+from graphistry.Engine import EngineAbstract
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -15,7 +15,7 @@ class Hypergraph(object):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: EngineType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: Union[EngineAbstract, str] = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
     ) -> Union[HypergraphResult, Any]:

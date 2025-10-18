@@ -2,9 +2,9 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from .Engine import Engine, EngineType, DataframeLike, DataframeLocalLike, resolve_engine
+from .Engine import Engine, EngineAbstract, DataframeLike, DataframeLocalLike, resolve_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -763,7 +763,7 @@ def hypergraph(
     drop_edge_attrs: bool = False,
     verbose: bool = True,
     direct: bool = False,
-    engine: EngineType = 'auto',
+    engine: Union[EngineAbstract, str] = 'auto',
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
     from_edges: bool = False,
