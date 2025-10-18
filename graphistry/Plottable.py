@@ -14,7 +14,7 @@ from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr,
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.umap_types import UMAPEngine
 from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 
@@ -370,7 +370,7 @@ class Plottable(Protocol):
     ) -> 'Plottable':
         ...
 
-    def materialize_nodes(self, reuse: bool = True, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: EngineAbstractType = 'auto') -> 'Plottable':
         ...
 
     def get_topological_levels(
@@ -442,7 +442,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -461,7 +461,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -480,7 +480,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -498,7 +498,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -553,7 +553,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> 'Plottable':
@@ -571,7 +571,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> pd.DataFrame:
@@ -587,7 +587,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeAll] = 'all',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> 'Plottable':
@@ -600,7 +600,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeDf] = 'table',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> pd.DataFrame:
@@ -611,7 +611,7 @@ class Plottable(Protocol):
         code: str,
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> Any:
@@ -718,7 +718,7 @@ class Plottable(Protocol):
         circle_layout_params: Optional[Dict[str, Any]] = None,
         singleton_layout: Optional[Callable[['Plottable', Union[Tuple[float, float, float, float], Any]], 'Plottable']] = None,
         partition_key: Optional[str] = None,
-        engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+        engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
         ...
 
@@ -999,7 +999,8 @@ class Plottable(Protocol):
         dbscan: bool = False,
         engine: UMAPEngine = "auto",
         feature_engine: str = "auto",
-        inplace: Literal[True] = ...,
+        *,
+        inplace: Literal[True],
         memoize: bool = True,
         umap_kwargs: Dict[str, Any] = {},
         umap_fit_kwargs: Dict[str, Any] = {},

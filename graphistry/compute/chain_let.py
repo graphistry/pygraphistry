@@ -303,20 +303,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         from .chain_remote import chain_remote as chain_remote_impl
 
         # Fetch the remote dataset with an empty chain (no filtering)
-        # Convert engine to the expected type for chain_remote
-        chain_engine: Optional[Literal["pandas", "cudf"]] = None
-        if engine.value == "pandas":
-            chain_engine = "pandas"
-        elif engine.value == "cudf":
-            chain_engine = "cudf"
-
         result = chain_remote_impl(
             result,
             [],  # Empty chain - just fetch the entire dataset
             api_token=ast_obj.token,
             dataset_id=ast_obj.dataset_id,
             output_type="all",  # Get full graph (nodes and edges)
-            engine=chain_engine
+            engine=engine.value  # Pass engine value directly ('pandas', 'cudf', etc.)
         )
 
         # Postload policy phase for remote data

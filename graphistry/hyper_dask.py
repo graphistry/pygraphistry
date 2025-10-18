@@ -2,9 +2,9 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from .Engine import Engine, DataframeLike, DataframeLocalLike
+from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -79,8 +79,8 @@ def make_reverse_lookup(categories):
 def coerce_col_safe(s, to_dtype):
     if s.dtype.name == to_dtype.name:
         return s
-    if to_dtype.name == 'int64':
-        return s.fillna(0).astype('int64')
+    if to_dtype.name in ['int64', 'int32']:
+        return s.fillna(0).astype(to_dtype.name)
     if to_dtype.name == 'timedelta64[ns]':
         return s.fillna(np.datetime64('NAT')).astype(str)
     logger.debug('CEORCING %s :: %s -> %s', s.name, s.dtype, to_dtype)
@@ -763,7 +763,7 @@ def hypergraph(
     drop_edge_attrs: bool = False,
     verbose: bool = True,
     direct: bool = False,
-    engine: str = 'pandas',  # see Engine for valid values
+    engine: EngineAbstractType = 'auto',
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
     from_edges: bool = False,
@@ -813,7 +813,7 @@ def hypergraph(
 
     engine_resolved : Engine
     if not isinstance(engine, Engine):
-        engine_resolved = getattr(Engine, str(engine).upper())  # type: ignore
+        engine_resolved = resolve_engine(engine, g)
     else:
         engine_resolved = engine
     defs = HyperBindings(**opts)

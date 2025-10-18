@@ -8,6 +8,92 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.4 - 2025-10-18]
+
+### Added
+* **GFQL Remote: engine='auto' support for automatic DataFrame engine detection**
+  * Remote GFQL operations now default to `engine='auto'` instead of manual engine specification
+  * `chain_remote()`, `python_remote_g()`, `python_remote_table()`, `python_remote_json()` all support 'auto'
+  * Client-side resolution inspects graph's DataFrame type (pandas/cudf) and passes resolved engine to server
+  * **Example**: `g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))` - automatically uses the right engine
+  * **Migration**: Users who need explicit engine control can still pass `engine='pandas'` or `engine='cudf'`
+  * **Benefits**: Seamless GPU/CPU usage without manual configuration, consistent with local GFQL behavior
+  * Validates that dask engines aren't used remotely (server only supports pandas/cudf)
+  * Updated type signatures across 5 files: `chain_remote.py`, `python_remote.py`, `chain_let.py`, `ComputeMixin.py`, `Plottable.py`
+
+### Fixed
+* **GFQL: Fix get_degrees parameter validation in remote operations**
+  * Fixed `call('get_degrees', {'degree_in': '...', 'degree_out': '...'})` validation rejecting correct parameter names
+  * **Problem**: Safelist had incorrect parameter names (`col_in`, `col_out`) instead of actual method signature (`degree_in`, `degree_out`)
+  * **Solution**: Updated safelist to match `ComputeMixin.get_degrees()` signature (line 295-300)
+  * Also fixed `GetDegreesParams` TypedDict in `graphistry/models/gfql/types/call.py` which had same incorrect names
+  * Example that now works: `g.gfql_remote(call('get_degrees', {'degree_in': 'in_deg', 'degree_out': 'out_deg'}))`
+  * Prevents confusing "Unknown parameters" errors for valid parameter names
+* **Type Safety: Resolved all mypy type errors in graphistry codebase**
+  * Fixed 6 mypy errors across 5 files (down from 10 total - remaining 4 are in external pyarrow-stubs package)
+  * **arrow_uploader.py**: Added None checks before passing Optional[pa.Table] to methods expecting pa.Table
+  * **PlotterBase.py**: Fixed `_table_to_arrow` return type to Optional[pa.Table] and updated `_make_arrow_dataset` signature
+  * **Plottable.py & umap_utils.py**: Fixed overload signature overlaps for `umap()` method by removing default from `inplace: Literal[True]` parameter
+  * **Impact**: Better IDE type checking and autocomplete, prevents type-related bugs at compile time
+* **Hypergraph: Fix int32 NaN handling in Arrow-optimized columns**
+  * Fixed `IntCastingNaNError: Cannot convert non-finite values (NA or inf) to integer` when hypergraph operations introduce NaN in int32 columns
+  * **Problem**: Arrow serialization optimizes int64 → int32, then pandas merge/reindex introduces NaN. `coerce_col_safe()` handled int64 with NaN but not int32
+  * **Solution**: Extended `coerce_col_safe()` in `hyper_dask.py` to handle both `int32` and `int64` dtypes with NaN values (fillna(0) before conversion)
+  * **Root cause**: When client uploads clean int64 data, Arrow optimizes to int32, then hypergraph merge operations introduce NaN, causing conversion failures
+  * **Impact**: Prevents cryptic server errors during GFQL remote hypergraph operations and local hypergraph with Arrow-optimized data
+
+## [0.45.3 - 2025-10-17]
+
+### Breaking 🔥
+* **Hypergraph: Engine parameter now defaults to 'auto'**
+  * Default changed from `engine='pandas'` to `engine='auto'`
+  * Auto-detects DataFrame engine from graph's current nodes/edges (pandas/cudf/dask/dask_cudf)
+  * **Migration**: Explicitly pass `engine='pandas'` to maintain old behavior
+  * **Example**: `g.hypergraph(entity_types=['user', 'product'], engine='pandas')`
+  * **Rationale**: Enables seamless GPU/CPU usage and proper engine propagation through GFQL operations
+  * **Impact**: Users who relied on pandas-only behavior may see different DataFrame types returned
+  * Most users benefit from automatic engine detection - only explicitly set if you need pandas-only
+
+### Added
+* **Type Safety: Introduced EngineAbstractType for engine parameters**
+  * New type alias: `EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]`
+  * Provides compile-time type checking for engine string values (prevents typos)
+  * IDE autocomplete now shows valid engine options
+  * Supports both enum values (`EngineAbstract.AUTO`) and string literals (`'auto'`)
+  * Updated 9 files with proper type annotations
+
+### Changed
+* **Hypergraph: Engine parameter propagation improvements**
+  * Benefits outer engine parameter propagation: `g.gfql(call('hypergraph'), engine='cudf')` now works as expected
+  * Updated all hypergraph signatures to use `EngineAbstractType` for type-safe API
+  * Example that now works: `g.gfql(call('hypergraph', {'entity_types': ['a', 'b']}), engine='cudf')` - hypergraph respects outer engine
+  * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
+
+### Fixed
+* **Plot: Fix UnboundLocalError and improve API version error handling**
+  * Fixed `UnboundLocalError` when calling `plot()` with `api_version=1` and certain render modes
+  * Added proper initialization of `uploader` variable before conditional branches
+  * Added clear error message for unsupported API versions (only 1 and 3 are supported)
+  * Prevents confusing crashes and provides actionable error messages for configuration issues
+* **GFQL Remote: Client-side validation now enforced before sending to server**
+  * Fixed remote GFQL operations not validating `call()` parameters against safelist before execution
+  * `ASTCall._validate_fields()` now calls `validate_call_params()` during deserialization
+  * Catches invalid parameters during `Chain.from_json()` before sending requests to server
+  * Prevents server-side errors from malformed client requests (e.g., invalid `engine`, `return_as` values, unknown parameters)
+  * Added comprehensive test suite in `test_gfql_call_validation.py` with 28 validation tests covering:
+    * Graph transformations: `hypergraph`, `umap`
+    * Graph algorithms: `compute_igraph`, `get_degrees`
+    * Graph traversals: `hop`
+    * Visual encodings: `encode_point_color`
+    * Metadata: `name`, `description`
+  * Example that now fails fast client-side: `g.gfql_remote(call('hypergraph', {'engine': 'invalid'}))` → `GFQLTypeError` instead of server error
+
+### Refactored
+* **Import organization**: Hoisted dynamic imports to module level following PEP 8 conventions
+  * Moved `validate_call_params` import to top-level in `ast.py`
+  * Moved `resolve_engine` import to top-level in `hyper_dask.py`
+* **Code cleanup**: Removed redundant comments per DECOMMENT protocol in test files
+
 ## [0.45.2 - 2025-10-17]
 
 ### Fixed

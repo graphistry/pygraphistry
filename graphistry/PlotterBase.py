@@ -4,6 +4,7 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
+from graphistry.Engine import EngineAbstractType
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -1731,6 +1732,7 @@ class PlotterBase(Plottable):
 
         logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
         dataset: Union[ArrowUploader, Dict[str, Any], None] = None
+        uploader = None  # Initialize to avoid UnboundLocalError when api_version != 3
         if self.session.api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
@@ -1753,6 +1755,12 @@ class PlotterBase(Plottable):
                 'type': 'arrow',
                 'viztoken': str(uuid.uuid4())
             }
+        else:
+            raise ValueError(
+                f"Unsupported API version: {self.session.api_version}. "
+                f"Supported versions are 1 and 3. "
+                f"Please check your graphistry configuration or contact support."
+            )
 
         viz_url = self._pygraphistry._viz_url(info, self._url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
@@ -2167,7 +2175,7 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True) -> pa.Table:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
 
@@ -2323,7 +2331,7 @@ class PlotterBase(Plottable):
         return dataset
 
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,
@@ -2705,7 +2713,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['graph'] = 'graph'
     ) -> 'Plottable':
@@ -2718,7 +2726,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['all']
     ) -> HypergraphResult:
@@ -2731,7 +2739,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['entities', 'events', 'edges', 'nodes'] = ...
     ) -> Any:
@@ -2743,7 +2751,7 @@ class PlotterBase(Plottable):
         *,
         entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
         from_edges: bool = False,
         return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
     ) -> Union['Plottable', HypergraphResult, Any]:

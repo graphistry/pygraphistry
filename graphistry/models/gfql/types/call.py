@@ -110,9 +110,9 @@ class HypergraphParams(TypedDict, total=False):
 
 class GetDegreesParams(TypedDict, total=False):
     """Parameters for get_degrees operation."""
-    col_in: str
-    col_out: str
     col: str
+    degree_in: str
+    degree_out: str
     engine: str
 
 

@@ -13,6 +13,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
@@ -1082,7 +1083,7 @@ class ASTCall(ASTObject):
                 field="function",
                 value=type(self.function).__name__
             )
-        
+
         if len(self.function) == 0:
             raise GFQLTypeError(
                 ErrorCode.E106,
@@ -1090,7 +1091,7 @@ class ASTCall(ASTObject):
                 field="function",
                 value=self.function
             )
-        
+
         if not isinstance(self.params, dict):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -1098,6 +1099,10 @@ class ASTCall(ASTObject):
                 field="params",
                 value=type(self.params).__name__
             )
+
+        # Validate parameters against safelist
+        # This ensures validation happens for both local AND remote execution
+        validate_call_params(self.function, self.params)
 
         # Validate filter_*_by_dict calls for internal column references
         if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
 from inspect import getmodule
 
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine, df_to_engine, df_concat
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -623,7 +623,7 @@ class ComputeMixin(Plottable):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> Plottable:
@@ -656,7 +656,7 @@ class ComputeMixin(Plottable):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> pd.DataFrame:

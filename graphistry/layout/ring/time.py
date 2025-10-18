@@ -3,7 +3,7 @@ from typing_extensions import Literal  # 3.7
 import numpy as np
 import pandas as pd
 from functools import lru_cache
-from graphistry.Engine import EngineAbstract, resolve_engine
+from graphistry.Engine import EngineAbstract, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from .util import polar_to_xy
 
@@ -231,7 +231,7 @@ def time_ring(
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
     play_ms: int = 2000,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
     """Radial graph layout where nodes are positioned based on a datetime64-typed column time_col
 
@@ -249,7 +249,7 @@ def time_ring(
     :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
     :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
     :play_ms: int initial layout time in milliseconds, default 2000
-    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter
