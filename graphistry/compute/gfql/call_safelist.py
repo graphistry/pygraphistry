@@ -165,12 +165,12 @@ def validate_hypergraph_opts(v: Any) -> bool:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'get_degrees': {
-        'allowed_params': {'col_in', 'col_out', 'col', 'engine'},
+        'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
         'required_params': set(),
         'param_validators': {
-            'col_in': is_string,
-            'col_out': is_string,
             'col': is_string,
+            'degree_in': is_string,
+            'degree_out': is_string,
             'engine': is_string
         },
         'description': 'Calculate node degrees'
