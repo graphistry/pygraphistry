@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.3 - 2025-10-17]
+
 ### Breaking 🔥
 * **Hypergraph: Engine parameter now defaults to 'auto'**
   * Default changed from `engine='pandas'` to `engine='auto'`
@@ -18,10 +20,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **Impact**: Users who relied on pandas-only behavior may see different DataFrame types returned
   * Most users benefit from automatic engine detection - only explicitly set if you need pandas-only
 
+### Added
+* **Type Safety: Introduced EngineAbstractType for engine parameters**
+  * New type alias: `EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]`
+  * Provides compile-time type checking for engine string values (prevents typos)
+  * IDE autocomplete now shows valid engine options
+  * Supports both enum values (`EngineAbstract.AUTO`) and string literals (`'auto'`)
+  * Updated 9 files with proper type annotations
+
 ### Changed
 * **Hypergraph: Engine parameter propagation improvements**
   * Benefits outer engine parameter propagation: `g.gfql(call('hypergraph'), engine='cudf')` now works as expected
-  * Updated all hypergraph signatures to use `Union[EngineAbstract, str]` pattern for flexible API
+  * Updated all hypergraph signatures to use `EngineAbstractType` for type-safe API
   * Example that now works: `g.gfql(call('hypergraph', {'entity_types': ['a', 'b']}), engine='cudf')` - hypergraph respects outer engine
   * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
 
@@ -43,6 +53,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     * Visual encodings: `encode_point_color`
     * Metadata: `name`, `description`
   * Example that now fails fast client-side: `g.gfql_remote(call('hypergraph', {'engine': 'invalid'}))` → `GFQLTypeError` instead of server error
+
+### Refactored
+* **Import organization**: Hoisted dynamic imports to module level following PEP 8 conventions
+  * Moved `validate_call_params` import to top-level in `ast.py`
+  * Moved `resolve_engine` import to top-level in `hyper_dask.py`
+* **Code cleanup**: Removed redundant comments per DECOMMENT protocol in test files
 
 ## [0.45.2 - 2025-10-17]
 
