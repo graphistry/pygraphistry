@@ -813,7 +813,8 @@ def hypergraph(
 
     engine_resolved : Engine
     if not isinstance(engine, Engine):
-        engine_resolved = getattr(Engine, str(engine).upper())  # type: ignore
+        from graphistry.Engine import resolve_engine
+        engine_resolved = resolve_engine(engine, g)
     else:
         engine_resolved = engine
     defs = HyperBindings(**opts)
