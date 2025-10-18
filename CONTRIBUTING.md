@@ -29,12 +29,31 @@ Docs can always be better:
 
 ## PRs welcome
 
-We are happy to accept PRs! 
+We are happy to accept PRs!
 
 * Check for `good first issue` and `help wanted` tags for ideas on where to start
 * If you have something specific you'd like to add, we are happy to provide guidance via GitHub on where to start and what to add to land it
 * Data integrations, convenience methods, fixes, and more are all welcome
 * When in doubt, ask on an Issue / PR / Slack!
+
+### Avoid optional dependencies in core code
+
+**Problem:** PyGraphistry has optional dependencies (Jinja2, pygraphviz, etc.) that aren't required for core functionality. If core code triggers these dependencies, tests fail in minimal environments.
+
+**Example:** Pandas' `DataFrame.style` property requires Jinja2. Accessing it (even accidentally) causes:
+```python
+ImportError: Missing optional dependency 'Jinja2'. DataFrame.style requires jinja2.
+```
+
+**Guidelines:**
+* ❌ **Avoid:** Accessing `.style` property on DataFrames: `df.style`, `result.style`
+* ✅ **OK:** Plottable methods: `g.style()`, attributes: `_style`, config: `cfg.style = "value"`
+* ✅ **Safe:** Always use `isinstance(result, Plottable)` before accessing attributes on return values
+* ✅ **Safe:** Document when methods can return non-Plottable types (e.g., `hypergraph(return_as='entities')`)
+
+**Detection:**
+* CI runs tests without optional dependencies
+* Manual review: Check `isinstance()` before attribute access on polymorphic returns
 
 ### Git conventions
 

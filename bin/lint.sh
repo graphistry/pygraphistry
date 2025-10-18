@@ -31,3 +31,8 @@ if grep -r "from \.\." graphistry --include="*.py" --exclude-dir="__pycache__"; 
     echo "ERROR: Found relative imports with '..'. Use absolute imports instead."
     exit 1
 fi
+
+# Note: DataFrame.style property access requires optional Jinja2 dependency
+# Documented in CONTRIBUTING.md - avoid `df.style` (property), use `g.style()` (method) instead
+# Automated check disabled due to false positives (cfg.style, Plottable.style references)
+# Manual review: Check isinstance() before accessing result attributes that might be DataFrames
