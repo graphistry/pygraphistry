@@ -13,6 +13,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
@@ -1101,7 +1102,6 @@ class ASTCall(ASTObject):
 
         # Validate parameters against safelist
         # This ensures validation happens for both local AND remote execution
-        from graphistry.compute.gfql.call_safelist import validate_call_params
         validate_call_params(self.function, self.params)
 
         # Validate filter_*_by_dict calls for internal column references

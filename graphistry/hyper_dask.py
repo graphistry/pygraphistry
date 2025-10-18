@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from typing_extensions import Literal
-from .Engine import Engine, EngineType, DataframeLike, DataframeLocalLike
+from .Engine import Engine, EngineType, DataframeLike, DataframeLocalLike, resolve_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -813,7 +813,6 @@ def hypergraph(
 
     engine_resolved : Engine
     if not isinstance(engine, Engine):
-        from graphistry.Engine import resolve_engine
         engine_resolved = resolve_engine(engine, g)
     else:
         engine_resolved = engine
