@@ -26,8 +26,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Fixed `call('get_degrees', {'degree_in': '...', 'degree_out': '...'})` validation rejecting correct parameter names
   * **Problem**: Safelist had incorrect parameter names (`col_in`, `col_out`) instead of actual method signature (`degree_in`, `degree_out`)
   * **Solution**: Updated safelist to match `ComputeMixin.get_degrees()` signature (line 295-300)
+  * Also fixed `GetDegreesParams` TypedDict in `graphistry/models/gfql/types/call.py` which had same incorrect names
   * Example that now works: `g.gfql_remote(call('get_degrees', {'degree_in': 'in_deg', 'degree_out': 'out_deg'}))`
   * Prevents confusing "Unknown parameters" errors for valid parameter names
+* **Type Safety: Resolved all mypy type errors in graphistry codebase**
+  * Fixed 6 mypy errors across 5 files (down from 10 total - remaining 4 are in external pyarrow-stubs package)
+  * **arrow_uploader.py**: Added None checks before passing Optional[pa.Table] to methods expecting pa.Table
+  * **PlotterBase.py**: Fixed `_table_to_arrow` return type to Optional[pa.Table] and updated `_make_arrow_dataset` signature
+  * **Plottable.py & umap_utils.py**: Fixed overload signature overlaps for `umap()` method by removing default from `inplace: Literal[True]` parameter
+  * **Impact**: Better IDE type checking and autocomplete, prevents type-related bugs at compile time
 
 ## [0.45.3 - 2025-10-17]
 
