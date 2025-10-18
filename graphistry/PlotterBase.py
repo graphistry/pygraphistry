@@ -1755,6 +1755,12 @@ class PlotterBase(Plottable):
                 'type': 'arrow',
                 'viztoken': str(uuid.uuid4())
             }
+        else:
+            raise ValueError(
+                f"Unsupported API version: {self.session.api_version}. "
+                f"Supported versions are 1 and 3. "
+                f"Please check your graphistry configuration or contact support."
+            )
 
         viz_url = self._pygraphistry._viz_url(info, self._url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
