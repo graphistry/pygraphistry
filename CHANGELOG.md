@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Changed
+* **Hypergraph: Engine parameter now defaults to 'auto' for seamless GPU/CPU usage**
+  * `hypergraph()` now defaults to `engine='auto'` instead of `'pandas'`
+  * Auto-detects graph's current DataFrame engine (pandas/cudf/dask/dask_cudf)
+  * Benefits outer engine parameter propagation: `g.gfql(call('hypergraph'), engine='cudf')` now works as expected
+  * Created `EngineType` type alias = `Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']`
+  * Updated all hypergraph signatures across codebase to use typed `EngineType` instead of `str`
+  * Example that now works: `g.gfql(call('hypergraph', {'entity_types': ['a', 'b']}), engine='cudf')` - hypergraph respects outer engine
+  * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
+
 ### Fixed
 * **GFQL Remote: Client-side validation now enforced before sending to server**
   * Fixed remote GFQL operations not validating `call()` parameters against safelist before execution
