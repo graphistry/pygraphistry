@@ -35,6 +35,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * **PlotterBase.py**: Fixed `_table_to_arrow` return type to Optional[pa.Table] and updated `_make_arrow_dataset` signature
   * **Plottable.py & umap_utils.py**: Fixed overload signature overlaps for `umap()` method by removing default from `inplace: Literal[True]` parameter
   * **Impact**: Better IDE type checking and autocomplete, prevents type-related bugs at compile time
+* **Hypergraph: Fix int32 NaN handling in Arrow-optimized columns**
+  * Fixed `IntCastingNaNError: Cannot convert non-finite values (NA or inf) to integer` when hypergraph operations introduce NaN in int32 columns
+  * **Problem**: Arrow serialization optimizes int64 → int32, then pandas merge/reindex introduces NaN. `coerce_col_safe()` handled int64 with NaN but not int32
+  * **Solution**: Extended `coerce_col_safe()` in `hyper_dask.py` to handle both `int32` and `int64` dtypes with NaN values (fillna(0) before conversion)
+  * **Root cause**: When client uploads clean int64 data, Arrow optimizes to int32, then hypergraph merge operations introduce NaN, causing conversion failures
+  * **Impact**: Prevents cryptic server errors during GFQL remote hypergraph operations and local hypergraph with Arrow-optimized data
 
 ## [0.45.3 - 2025-10-17]
 
