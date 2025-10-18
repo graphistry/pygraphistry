@@ -14,7 +14,7 @@ from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr,
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.umap_types import UMAPEngine
 from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstract, EngineType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 
@@ -442,7 +442,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -461,7 +461,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -480,7 +480,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,
@@ -498,7 +498,7 @@ class Plottable(Protocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineType = 'auto',
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
         from_edges: bool = False,

@@ -4,6 +4,7 @@ from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
+from graphistry.Engine import EngineType
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -845,7 +846,7 @@ class GraphistryClient(AuthManagerProtocol):
             'message': message
         }
 
-    def hypergraph(self, 
+    def hypergraph(self,
         raw_events,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
@@ -853,7 +854,7 @@ class GraphistryClient(AuthManagerProtocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = "pandas",
+        engine: EngineType = "auto",
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
     ) -> HypergraphResult:

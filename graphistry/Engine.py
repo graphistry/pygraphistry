@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union
+from typing_extensions import Literal
 from enum import Enum
 
 
@@ -19,6 +20,8 @@ class EngineAbstract(Enum):
     DASK_CUDF = Engine.DASK_CUDF.value
     AUTO = 'auto'
 
+# Type alias for engine parameter in method signatures
+EngineType = Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
