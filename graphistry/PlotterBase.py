@@ -1732,6 +1732,7 @@ class PlotterBase(Plottable):
 
         logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
         dataset: Union[ArrowUploader, Dict[str, Any], None] = None
+        uploader = None  # Initialize to avoid UnboundLocalError when api_version != 3
         if self.session.api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
