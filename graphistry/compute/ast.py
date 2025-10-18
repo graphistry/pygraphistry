@@ -1082,7 +1082,7 @@ class ASTCall(ASTObject):
                 field="function",
                 value=type(self.function).__name__
             )
-        
+
         if len(self.function) == 0:
             raise GFQLTypeError(
                 ErrorCode.E106,
@@ -1090,7 +1090,7 @@ class ASTCall(ASTObject):
                 field="function",
                 value=self.function
             )
-        
+
         if not isinstance(self.params, dict):
             raise GFQLTypeError(
                 ErrorCode.E201,
@@ -1098,6 +1098,11 @@ class ASTCall(ASTObject):
                 field="params",
                 value=type(self.params).__name__
             )
+
+        # Validate parameters against safelist
+        # This ensures validation happens for both local AND remote execution
+        from graphistry.compute.gfql.call_safelist import validate_call_params
+        validate_call_params(self.function, self.params)
 
         # Validate filter_*_by_dict calls for internal column references
         if self.function in ('filter_nodes_by_dict', 'filter_edges_by_dict'):

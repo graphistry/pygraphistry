@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+* **GFQL Remote: Client-side validation now enforced before sending to server**
+  * Fixed remote GFQL operations not validating `call()` parameters against safelist before execution
+  * `ASTCall._validate_fields()` now calls `validate_call_params()` during deserialization
+  * Catches invalid parameters during `Chain.from_json()` before sending requests to server
+  * Prevents server-side errors from malformed client requests (e.g., invalid `engine`, `return_as` values, unknown parameters)
+  * Added comprehensive test suite in `test_gfql_call_validation.py` with 28 validation tests covering:
+    * Graph transformations: `hypergraph`, `umap`
+    * Graph algorithms: `compute_igraph`, `get_degrees`
+    * Graph traversals: `hop`
+    * Visual encodings: `encode_point_color`
+    * Metadata: `name`, `description`
+  * Example that now fails fast client-side: `g.gfql_remote(call('hypergraph', {'engine': 'invalid'}))` → `GFQLTypeError` instead of server error
+
 ## [0.45.2 - 2025-10-17]
 
 ### Fixed
