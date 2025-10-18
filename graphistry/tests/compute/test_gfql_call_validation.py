@@ -121,8 +121,8 @@ class TestGetDegreesValidation:
         """Test that valid get_degrees call passes validation."""
         params = {
             'col': 'degree',
-            'col_in': 'degree_in',
-            'col_out': 'degree_out'
+            'degree_in': 'degree_in',
+            'degree_out': 'degree_out'
         }
 
         validated = validate_call_params('get_degrees', params)
