@@ -5,8 +5,10 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [0.45.5 - Development]
+## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
+
+## [0.45.5 - 2025-10-19]
 
 ### Added
 - **GFQL: Relax chain homogeneity to allow call() at boundaries** (#792)
