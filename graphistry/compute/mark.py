@@ -113,7 +113,7 @@ def _validate_mark_params(
 def mark(
     self: Plottable,
     gfql: Union[Chain, List[ASTObject]],
-    name: str,
+    name: Optional[str] = None,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
     """Mark nodes or edges matching GFQL pattern with boolean column.
@@ -123,7 +123,7 @@ def mark(
 
     Args:
         gfql: GFQL pattern to match (Chain or list of AST objects)
-        name: Name for the boolean marker column
+        name: Name for the boolean marker column (defaults to 'is_matched_node' or 'is_matched_edge')
         engine: Execution engine (pandas/cudf/dask)
 
     Returns:
@@ -191,6 +191,11 @@ def mark(
     # Determine target (nodes or edges) from final operation
     final_op = gfql_chain.chain[-1]
     is_node_mark = isinstance(final_op, ASTNode)
+
+    # Generate default name if not provided
+    if name is None:
+        name = 'is_matched_node' if is_node_mark else 'is_matched_edge'
+        logger.debug(f"Using default mark name: '{name}'")
 
     # Get target DataFrame
     id_col: Union[str, List[str]]

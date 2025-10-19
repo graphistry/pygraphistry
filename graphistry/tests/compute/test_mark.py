@@ -27,17 +27,16 @@ class TestMarkSafelist:
         assert params['name'] == 'is_matched'
 
     def test_mark_required_params(self):
-        """Test mark requires gfql and name parameters."""
+        """Test mark requires gfql parameter (name is optional)."""
         # Missing gfql
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params('mark', {'name': 'is_matched'})
         assert exc_info.value.code == ErrorCode.E105
         assert 'Missing required parameters' in str(exc_info.value)
 
-        # Missing name
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params('mark', {'gfql': [n()]})
-        assert exc_info.value.code == ErrorCode.E105
+        # Missing name is OK (will use default)
+        params = validate_call_params('mark', {'gfql': [n()]})
+        assert 'gfql' in params
 
     def test_mark_param_types(self):
         """Test mark parameter type validation."""
@@ -144,6 +143,37 @@ class TestMarkBasic:
 
         # All nodes marked False
         assert not any(result._nodes['is_nonexistent'])
+
+    def test_mark_default_name_nodes(self, sample_graph):
+        """Test marking nodes with default name."""
+        result = sample_graph.mark(
+            gfql=[n({'type': 'user'})]
+            # No name parameter - should use default
+        )
+
+        # Should have default column name
+        assert 'is_matched_node' in result._nodes.columns
+
+        # Should have correct marks
+        user_marks = result._nodes.set_index('node')['is_matched_node']
+        assert user_marks[0] == True  # noqa: E712
+        assert user_marks[1] == True  # noqa: E712
+        assert user_marks[2] == False  # noqa: E712
+
+    def test_mark_default_name_edges(self, sample_graph):
+        """Test marking edges with default name."""
+        result = sample_graph.mark(
+            gfql=[e_forward({'rel': 'friend'})]
+            # No name parameter - should use default
+        )
+
+        # Should have default column name
+        assert 'is_matched_edge' in result._edges.columns
+
+        # Should have correct marks
+        friend_marks = result._edges['is_matched_edge']
+        assert friend_marks.iloc[0] == True  # noqa: E712
+        assert friend_marks.iloc[1] == True  # noqa: E712
 
 
 class TestMarkValidation:

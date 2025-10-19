@@ -1066,8 +1066,8 @@ Mark nodes or edges matching a GFQL pattern with a boolean column without filter
      - GFQL pattern to match (list of AST objects or Chain instance)
    * - name
      - string
-     - Yes
-     - Name for the boolean marker column
+     - No
+     - Name for the boolean marker column (default: 'is_matched_node' or 'is_matched_edge')
    * - engine
      - string
      - No
