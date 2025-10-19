@@ -11,6 +11,7 @@ language
 python_embedding
 wire_protocol
 cypher_mapping
+llm_guide
 ```
 
 ## Overview
@@ -19,5 +20,6 @@ cypher_mapping
 - {ref}`gfql-spec-python-embedding` - Python-specific implementation with pandas/cuDF
 - {ref}`gfql-spec-wire-protocol` - JSON serialization format for client-server communication
 - {ref}`gfql-spec-cypher-mapping` - Cypher to GFQL translations with both Python and wire protocol
+- {ref}`gfql-spec-llm-guide` - LLM-optimized guide for generating valid GFQL JSON (Claude, GPT, etc.)
 
 These specifications are optimized for text-to-GFQL synthesis, Cypher-to-GFQL pipelines, query validation, and schema-aware code generation.

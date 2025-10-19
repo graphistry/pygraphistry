@@ -91,12 +91,15 @@ ai/
 │   ├── gpu/                # GPU/CUDA development notes
 │   └── connectors/         # Database connector patterns
 └── prompts/                # Reusable workflow templates
-    ├── PLAN.md                   # Task planning template with strict execution protocol
-    ├── LINT_TYPES_CHECK.md       # Code quality enforcement (with P0-P5)
-    ├── CONVENTIONAL_COMMITS.md   # Git commit workflow with PyGraphistry conventions
-    ├── PYRE_ANALYSIS.md          # Advanced code analysis with pyre-check
-    ├── IMPLEMENTATION_PLAN.md    # [TODO] Feature implementation tracking
-    └── USER_TESTING_PLAYBOOK.md  # [TODO] AI-driven testing workflows
+    ├── PLAN.md                        # Task planning template with strict execution protocol
+    ├── LINT_TYPES_CHECK.md            # Code quality enforcement (with P0-P5)
+    ├── CONVENTIONAL_COMMITS.md        # Git commit workflow with PyGraphistry conventions
+    ├── PYRE_ANALYSIS.md               # Advanced code analysis with pyre-check
+    ├── GFQL_LLM_GUIDE_MAINTENANCE.md  # Process for maintaining GFQL JSON generation guide
+    ├── HOISTIMPORTS.md                # Import hoisting and organization patterns
+    ├── DECOMMENT.md                   # Comment removal and cleanup guidance
+    ├── IMPLEMENTATION_PLAN.md         # [TODO] Feature implementation tracking
+    └── USER_TESTING_PLAYBOOK.md       # [TODO] AI-driven testing workflows
 ```
 
 ## 📖 Usage Guidelines
