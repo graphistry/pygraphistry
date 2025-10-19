@@ -470,7 +470,6 @@ class SugiyamaLayout(object):
         """
         source, target = e.v
         r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
-        # Check for None values before using in range()
         if r0 is None or r1 is None:
             return
         if r0 > r1:
@@ -757,7 +756,6 @@ class SugiyamaLayout(object):
                 if e in self.ctrls:
                     D = self.ctrls[e]
                     r0, r1 = self.layoutVertices[e.v[0]].layer, self.layoutVertices[e.v[1]].layer
-                    # Check for None values before using in range()
                     if r0 is not None and r1 is not None:
                         if r0 < r1:
                             ranks = range(r0 + 1, r1)
