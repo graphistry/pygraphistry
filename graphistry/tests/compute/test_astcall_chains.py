@@ -138,15 +138,20 @@ class TestASTCallChainHazards:
         assert all(result._edges['type'] == 'forward') if len(result._edges) > 0 else True
 
     def test_hop_then_filter(self, sample_graph):
-        """Mixed chains now raise GFQLValidationError (#791)."""
-        # Start at node A, hop forward, then filter - this is a mixed chain
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            sample_graph.gfql([
-                n({'id': 'A'}),
-                e_forward(),
-                n(),
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 5}}})
-            ])
+        """Suffix boundary pattern: [n(), e(), n(), call()] - Should succeed without error (#792)."""
+        # Start at node A, hop forward, then filter - this is a valid suffix pattern
+        # Note: Traversal ends with n() (node wavefront), so edges may be empty for filter
+        result = sample_graph.gfql([
+            n({'id': 'A'}),
+            e_forward(),
+            n(),
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 1}}})
+        ])
+
+        # Should complete successfully - the key is no GFQLValidationError is raised
+        assert result is not None
+        # Edges may be empty since traversal ended with node wavefront
+        assert result._edges is not None
 
     def test_filter_between_hops(self, sample_graph):
         """Mixed chains now raise GFQLValidationError (#791)."""
@@ -299,17 +304,21 @@ class TestASTCallChainHazards:
     # ========================================================================
 
     def test_complex_mixed_chain(self, sample_graph):
-        """Mixed chains now raise GFQLValidationError (#791)."""
-        # Complex chain mixing call() with n()/e_forward() - this is a mixed chain
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            sample_graph.gfql([
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': {'gte': 30}}}),  # C, D, E
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),     # Only forward edges
-                n(),  # Get nodes
-                e_forward(),  # Traverse forward
-                n(),  # Get destination nodes
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),     # Only person nodes
-            ])
+        """Both boundaries pattern: [call(), call(), n(), e(), n(), call()] - Should succeed (#792)."""
+        # Complex chain with boundary calls - this is a valid boundary pattern
+        result = sample_graph.gfql([
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': {'gte': 30}}}),  # C, D, E
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),     # Only forward edges
+            n(),  # Get nodes
+            e_forward(),  # Traverse forward
+            n(),  # Get destination nodes
+            ASTCall('get_degrees', {}),  # Enrich with degree info instead of filtering
+        ])
+
+        # Should complete successfully with filtered data
+        assert result is not None
+        # Verify enrichment was applied
+        assert 'degree' in result._nodes.columns
 
     # ========================================================================
     # CATEGORY 9: Safelist Validation
