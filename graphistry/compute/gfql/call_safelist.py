@@ -193,7 +193,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'Filter edges by attribute values'
     },
-    
+
+    'mark': {
+        'allowed_params': {'gfql', 'name', 'engine'},
+        'required_params': {'gfql', 'name'},
+        'param_validators': {
+            'gfql': lambda v: isinstance(v, (list, dict)),  # list of AST or Chain JSON
+            'name': is_string,
+            'engine': is_string
+        },
+        'description': 'Mark nodes/edges matching GFQL pattern with boolean column'
+    },
+
     'materialize_nodes': {
         'allowed_params': {'engine', 'reuse'},
         'required_params': set(),

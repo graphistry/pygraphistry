@@ -28,6 +28,7 @@ from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
     filter_nodes_by_dict as filter_nodes_by_dict_base
 )
+from .mark import mark as mark_base
 
 logger = setup_logger(__name__)
 
@@ -528,6 +529,10 @@ class ComputeMixin(Plottable):
     def filter_edges_by_dict(self, *args, **kwargs):
         return filter_edges_by_dict_base(self, *args, **kwargs)
     filter_edges_by_dict.__doc__ = filter_edges_by_dict_base.__doc__
+
+    def mark(self, *args, **kwargs):
+        return mark_base(self, *args, **kwargs)
+    mark.__doc__ = mark_base.__doc__
 
     def chain(self, *args, **kwargs):
         """
