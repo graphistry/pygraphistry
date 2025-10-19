@@ -229,33 +229,57 @@ def mark(
 
     # Create boolean mask
     if is_node_mark:
-        # Simple node ID matching
+        # Simple node ID matching using isin() (works with pandas/cudf/dask)
+        # Type narrowing: id_col is str in node case
+        assert isinstance(id_col, str), "id_col must be str for node marking"
         if len(matched_df) == 0:
             # No matches - all False
-            mask = pd.Series([False] * len(target_df), index=target_df.index)
+            # Use DataFrame's native type instead of pandas Series
+            mask = target_df[id_col].isin([])
         else:
-            # Type narrowing: id_col is str in node case
-            assert isinstance(id_col, str), "id_col must be str for node marking"
-            matched_ids = set(matched_df[id_col].values)
-            mask = target_df[id_col].isin(matched_ids)
+            # Convert to list for cross-engine compatibility (pandas target + cuDF matched)
+            # tolist() works for both pandas and cuDF
+            matched_values = matched_df[id_col].values
+            # Convert to Python list for compatibility across engines
+            if hasattr(matched_values, 'tolist'):
+                matched_list = matched_values.tolist()
+            else:
+                # Fallback for other array types
+                matched_list = list(matched_values)
+            mask = target_df[id_col].isin(matched_list)
     else:
-        # Edge matching on (source, destination) pairs
+        # Edge matching on (source, destination) pairs using merge (cuDF/pandas compatible)
+        # Type narrowing: id_col is List[str] in edge case
+        assert isinstance(id_col, list) and len(id_col) == 2, "id_col must be list of 2 strings for edge marking"
+        src_col, dst_col = id_col[0], id_col[1]
+
         if len(matched_df) == 0:
-            # No matches - all False
-            mask = pd.Series([False] * len(target_df), index=target_df.index)
+            # No matches - all False using isin with empty list (engine-agnostic)
+            mask = target_df[src_col].isin([])
         else:
-            # Type narrowing: id_col is List[str] in edge case
-            assert isinstance(id_col, list) and len(id_col) == 2, "id_col must be list of 2 strings for edge marking"
-            src_col, dst_col = id_col[0], id_col[1]
-            # Create set of (source, dest) tuples for efficient lookup
-            matched_pairs = set(
-                zip(matched_df[src_col].values, matched_df[dst_col].values)
+            # Use merge-based approach for engine compatibility (pandas/cuDF/dask)
+            # Add temporary index to preserve row order
+            target_with_idx = target_df[[src_col, dst_col]].copy()
+            target_with_idx['__row_idx__'] = range(len(target_with_idx))
+
+            # Add a temporary marker column to matched edges
+            matched_marked = matched_df[[src_col, dst_col]].copy()
+            matched_marked['__mark_temp__'] = True
+
+            # Merge target with matched on (src, dst) pairs
+            from graphistry.Engine import safe_merge
+            merged = safe_merge(
+                target_with_idx,
+                matched_marked,
+                on=[src_col, dst_col],
+                how='left'
             )
-            # Check if each edge is in matched set
-            mask = target_df.apply(
-                lambda row: (row[src_col], row[dst_col]) in matched_pairs,
-                axis=1
-            )
+
+            # Sort by original row index to restore order and reset index
+            merged = merged.sort_values('__row_idx__').reset_index(drop=True)
+
+            # Rows that matched will have __mark_temp__ = True, others NaN
+            mask = merged['__mark_temp__'].fillna(False).astype(bool).reset_index(drop=True)
 
     # Add boolean column to target DataFrame
     engine_concrete = resolve_engine(engine, target_df)
