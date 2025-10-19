@@ -312,6 +312,76 @@ def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[AST
     return (prefix, middle, suffix)
 
 
+def _handle_boundary_calls(
+    self: Plottable,
+    ops: List[ASTObject],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy,
+    context
+) -> Optional[Plottable]:
+    """
+    Handle boundary call() patterns by splitting and executing sequentially.
+
+    Detects patterns like [call(), n(), e(), call()] and executes as:
+    prefix → middle → suffix via recursive chain() calls.
+
+    Returns:
+        Plottable if boundary pattern detected and executed, None otherwise
+
+    Raises:
+        GFQLValidationError: If interior mixing detected
+    """
+    from graphistry.compute.ast import ASTCall
+
+    has_call = any(isinstance(op, ASTCall) for op in ops)
+    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
+
+    # Only handle mixed chains (both call and traversal)
+    if not (has_call and has_traversal):
+        return None
+
+    # Check if it's a boundary pattern or interior mixing
+    prefix, middle, suffix = _get_boundary_calls(ops)
+
+    # Validate middle segment doesn't have mixed operations
+    if middle:
+        has_call_in_middle = any(isinstance(op, ASTCall) for op in middle)
+        has_traversal_in_middle = any(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+
+        if has_call_in_middle and has_traversal_in_middle:
+            from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+            raise GFQLValidationError(
+                code=ErrorCode.E201,
+                message="Cannot mix call() operations with n()/e() traversals in interior of chain",
+                suggestion="call() operations are only allowed at chain boundaries (start/end). "
+                          "For complex patterns, use either: "
+                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
+                          "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
+                          "See issues #791, #792"
+            )
+
+    # Valid boundary pattern - execute segments sequentially
+    logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
+                len(prefix), len(middle), len(suffix))
+
+    g_temp = self
+
+    if prefix:
+        logger.debug('Executing boundary prefix calls: %s', prefix)
+        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    if middle:
+        logger.debug('Executing middle operations: %s', middle)
+        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    if suffix:
+        logger.debug('Executing boundary suffix calls: %s', suffix)
+        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    return g_temp
+
+
 def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
@@ -509,56 +579,11 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     engine_concrete = resolve_engine(engine, self)
     logger.debug('chain engine: %s => %s', engine, engine_concrete)
 
-    # Check for boundary call() patterns: [call(), ..., call()]
-    # Allow call() at start/end, but not in middle (interior mixing)
-    # This provides convenience for common patterns without requiring let()
-    has_call = any(isinstance(op, ASTCall) for op in ops)
-    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
-
-    if has_call and has_traversal:
-        # Potential mixed chain - check if it's boundary pattern or interior mixing
-        prefix, middle, suffix = _get_boundary_calls(ops)
-
-        # Check if middle has mixed operations (interior mixing - not allowed)
-        if middle:
-            has_call_in_middle = any(isinstance(op, ASTCall) for op in middle)
-            has_traversal_in_middle = any(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-
-            if has_call_in_middle and has_traversal_in_middle:
-                from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
-                raise GFQLValidationError(
-                    code=ErrorCode.E201,
-                    message="Cannot mix call() operations with n()/e() traversals in interior of chain",
-                    suggestion="call() operations are only allowed at chain boundaries (start/end). "
-                              "For complex patterns, use either: "
-                              "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
-                              "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
-                              "See issues #791, #792"
-                )
-
-        # Valid boundary pattern detected - execute segments sequentially
-        # Pattern: [call(...), n(), e(), call(...)] or similar
-        logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
-                    len(prefix), len(middle), len(suffix))
-
-        g_temp = self
-
-        # Execute prefix calls
-        if prefix:
-            logger.debug('Executing boundary prefix calls: %s', prefix)
-            g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-
-        # Execute middle (homogeneous traversals)
-        if middle:
-            logger.debug('Executing middle operations: %s', middle)
-            g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-
-        # Execute suffix calls
-        if suffix:
-            logger.debug('Executing boundary suffix calls: %s', suffix)
-            g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-
-        return g_temp
+    # Handle boundary call() patterns: [call(), ..., call()]
+    # Allows call() at start/end for convenience, rejects interior mixing
+    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context)
+    if boundary_result is not None:
+        return boundary_result
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
