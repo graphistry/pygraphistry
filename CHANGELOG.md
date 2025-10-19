@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infra
+- Refactored DataFrame type coercion into Engine module (#784)
+  - Moved `safe_concat()` and `safe_merge()` from `compute/primitives.py` to `Engine.py`
+  - Colocated with other polymorphic DataFrame methods (`df_concat`, `df_to_engine`, `resolve_engine`)
+  - Centralized pandas/cuDF type handling prevents future type mismatch bugs
+  - Fixed bug in `materialize_nodes()` using wrong concat method for Series
+  - Comprehensive CPU and GPU Docker test coverage (80 tests passing with cuDF)
+
 ### Fixed
 - Fixed potential None dereference crashes in DGL utilities and Sugiyama layout (#801)
   - Added None check for `_entity_to_index` in `dgl_utils.py:309` before calling `isin()` and `len()`
