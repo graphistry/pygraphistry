@@ -137,15 +137,19 @@ class TestTopologicalChains:
     def test_topology_call_at_chain_start(self, rich_graph):
         """Pattern: [call(f1), n(), e(), n()]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791).
+        Validates: Prefix boundary pattern - Should succeed (#792).
         """
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            rich_graph.gfql([
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
-                n(),
-                e(),
-                n()
-            ])
+        result = rich_graph.gfql([
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
+            n(),
+            e(),
+            n()
+        ])
+
+        # Should complete successfully with filtered edges
+        assert result is not None
+        assert len(result._edges) > 0
+        assert all(result._edges['type'] == 'forward')
 
     def test_topology_call_in_middle(self, rich_graph):
         """Pattern: [n(), call(f1), e(), n()]
@@ -163,15 +167,19 @@ class TestTopologicalChains:
     def test_topology_call_at_chain_end(self, rich_graph):
         """Pattern: [n(), e(), n(), call(f1)]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791).
+        Validates: Suffix boundary pattern - Should succeed (#792).
         """
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            rich_graph.gfql([
-                n({'type': 'person'}),
-                e(),
-                n(),
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': GE(30)}})
-            ])
+        result = rich_graph.gfql([
+            n({'type': 'person'}),
+            e(),
+            n(),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': GE(30)}})
+        ])
+
+        # Should complete successfully with filtered nodes
+        assert result is not None
+        assert len(result._nodes) > 0
+        assert all(result._nodes['score'] >= 30)
 
 
 class TestEnrichmentChains:
@@ -360,14 +368,18 @@ class TestTopologySensitivity:
             ])
 
     def test_topology_disconnected_components(self, disconnected_graph):
-        """Validates: Mixed chains now raise GFQLValidationError (#791)."""
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            disconnected_graph.gfql([
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'component': 1}}),
-                n(),
-                e(),
-                n()
-            ])
+        """Validates: Prefix boundary pattern - Should succeed (#792)."""
+        result = disconnected_graph.gfql([
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'component': 1}}),
+            n(),
+            e(),
+            n()
+        ])
+
+        # Should complete successfully with component 1 nodes only
+        assert result is not None
+        assert len(result._nodes) > 0
+        assert all(result._nodes['component'] == 1)
 
     def test_topology_empty_intermediate_result(self, dag_graph):
         """Validates: Mixed chains now raise GFQLValidationError (#791)."""
@@ -426,15 +438,20 @@ class TestComplexMixedChains:
     def test_complex_multiple_calls_in_sequence(self, complex_graph):
         """Pattern: [call(f1), call(f2), call(f3), n()]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791).
+        Validates: Prefix boundary pattern with multiple calls - Should succeed (#792).
         """
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            complex_graph.gfql([
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Between(2, 6)}}),
-                ASTCall('filter_edges_by_dict', {'filter_dict': {'category': 'med'}}),
-                n()
-            ])
+        result = complex_graph.gfql([
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Between(2, 6)}}),
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'category': 'med'}}),
+            n()
+        ])
+
+        # Should complete successfully - the key is no GFQLValidationError is raised
+        # Note: Final n() clears edges and returns node wavefront
+        assert result is not None
+        assert result._nodes is not None
+        assert len(result._nodes) > 0
 
     def test_complex_filter_hop_filter_hop(self, complex_graph):
         """Pattern: [n({filter1}), call(filter2), hop(), call(filter3), hop(), n()]
@@ -454,16 +471,21 @@ class TestComplexMixedChains:
             ])
 
     def test_complex_enrichment_dependency_chain(self, complex_graph):
-        """Pattern: [call(enrich1), call(filter_using_enrich1), call(enrich2), call(filter_using_enrich2)]
+        """Pattern: [call(enrich1), call(filter_using_enrich1), n()]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791).
+        Validates: Prefix boundary pattern with enrichment - Should succeed (#792).
         """
-        with pytest.raises(GFQLValidationError, match="Cannot mix call.*operations with n.*e.*traversals"):
-            complex_graph.gfql([
-                ASTCall('get_degrees', {'col': 'deg'}),
-                ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': GE(2)}}),
-                n()
-            ])
+        result = complex_graph.gfql([
+            ASTCall('get_degrees', {'col': 'deg'}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'deg': GE(2)}}),
+            n()
+        ])
+
+        # Should complete successfully with degree enrichment and filter
+        assert result is not None
+        assert 'deg' in result._nodes.columns
+        assert len(result._nodes) > 0
+        assert all(result._nodes['deg'] >= 2)
 
     def test_complex_backward_pass_with_calls(self, complex_graph):
         """Pattern: [n({f1}), call(f2), e(), n({f3}), e(), call(f4), n()]
