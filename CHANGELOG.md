@@ -18,6 +18,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - **Migration from v0.45.0**: Code that used `let()` for boundary patterns can now use simpler boundary syntax
   - Provides convenience for common filter/enrich patterns
 
+### Docs
+* **GFQL: Add LLM JSON generation guide to documentation site** (#807)
+  * Comprehensive guide for LLMs (Claude, GPT, etc.) to generate valid GFQL JSON queries
+  * Covers Core Types, Predicates, Common Patterns, Graph Algorithms, Visualization, Domain Examples
+  * Includes generation rules, common mistakes, and call functions reference
+  * Available at `docs/source/gfql/spec/llm_guide.md` with reference label `gfql-spec-llm-guide`
+
 ### Infra
 - Refactored DataFrame type coercion into Engine module (#784)
   - Moved `safe_concat()` and `safe_merge()` from `compute/primitives.py` to `Engine.py`
