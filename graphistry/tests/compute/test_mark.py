@@ -333,6 +333,19 @@ class TestMarkInCall:
         assert 'is_user' in result._nodes.columns
         assert len(result._nodes) == 3  # All nodes preserved
 
+        # Verify exact boolean values for specific nodes
+        nodes = result._nodes.set_index('node')
+        assert nodes.loc[0, 'is_user'] == True  # user
+        assert nodes.loc[1, 'is_user'] == False  # admin
+        assert nodes.loc[2, 'is_user'] == True  # user
+
+        # Verify other columns preserved
+        assert 'type' in result._nodes.columns
+
+        # Verify edges unchanged
+        assert len(result._edges) == len(sample_graph._edges)
+        pd.testing.assert_frame_equal(result._edges, sample_graph._edges)
+
     def test_call_mark_with_json_gfql(self, sample_graph):
         """Test mark with JSON-serialized GFQL."""
         # Simulate remote execution with JSON
@@ -352,6 +365,22 @@ class TestMarkInCall:
         assert 'is_user' in result._nodes.columns
         user_count = result._nodes['is_user'].sum()
         assert user_count == 2
+
+        # Verify exact values match list form
+        list_result = execute_call(
+            sample_graph,
+            'mark',
+            {
+                'gfql': [n({'type': 'user'})],
+                'name': 'is_user_list'
+            },
+            Engine.PANDAS
+        )
+
+        # Boolean columns should match
+        nodes_json = result._nodes.set_index('node')['is_user']
+        nodes_list = list_result._nodes.set_index('node')['is_user_list']
+        pd.testing.assert_series_equal(nodes_json, nodes_list, check_names=False)
 
 
 class TestMarkInLet:
