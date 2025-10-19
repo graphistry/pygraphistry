@@ -198,9 +198,14 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'gfql', 'name', 'engine'},
         'required_params': {'gfql', 'name'},
         'param_validators': {
-            'gfql': lambda v: isinstance(v, (list, dict)),  # list of AST or Chain JSON
+            'gfql': lambda v: (
+                # Accept list of AST objects (dicts with 'type' key)
+                (isinstance(v, list) and all(isinstance(item, dict) and 'type' in item for item in v))
+                # Or accept Chain JSON dict with 'chain' key
+                or (isinstance(v, dict) and 'chain' in v)
+            ),
             'name': is_string,
-            'engine': is_string
+            'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']
         },
         'description': 'Mark nodes/edges matching GFQL pattern with boolean column'
     },
