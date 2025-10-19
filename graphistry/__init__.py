@@ -1,3 +1,4 @@
+"""PyGraphistry: A visual graph analytics library for big graphs."""
 
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname,
