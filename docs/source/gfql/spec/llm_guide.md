@@ -543,14 +543,14 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 
 ## Common Mistakes
 
-❌ Missing type: `{"filter_dict": {...}}`
-✅ Correct: `{"type": "Node", "filter_dict": {...}}`
+**Wrong:** Missing type: `{"filter_dict": {...}}`
+**Correct:** `{"type": "Node", "filter_dict": {...}}`
 
-❌ Raw datetime: `{"timestamp": "2024-01-01"}`
-✅ Correct: `{"timestamp": {"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00"}}}`
+**Wrong:** Raw datetime: `{"timestamp": "2024-01-01"}`
+**Correct:** `{"timestamp": {"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00"}}}`
 
-❌ Forgot to_fixed_point: `{"hops": 999}` for "traverse all"
-✅ Correct: `{"to_fixed_point": true}`
+**Wrong:** Forgot to_fixed_point: `{"hops": 999}` for "traverse all"
+**Correct:** `{"to_fixed_point": true}`
 
-❌ Wrong direction: Using `"backward"` instead of `"reverse"`
-✅ Correct: `{"direction": "reverse"}`
+**Wrong:** Using `"backward"` instead of `"reverse"`
+**Correct:** `{"direction": "reverse"}`
