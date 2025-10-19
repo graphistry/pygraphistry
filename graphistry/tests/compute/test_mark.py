@@ -100,10 +100,10 @@ class TestMarkBasic:
 
         # Should have True for user nodes, False for others
         user_marks = result._nodes.set_index('node')['is_user']
-        assert user_marks[0] == True  # user
-        assert user_marks[1] == True  # user
-        assert user_marks[2] == False  # admin
-        assert user_marks[3] == True  # user
+        assert user_marks[0] == True  # noqa: E712
+        assert user_marks[1] == True  # noqa: E712
+        assert user_marks[2] == False  # noqa: E712
+        assert user_marks[3] == True  # noqa: E712
 
     def test_mark_edges_basic(self, sample_graph):
         """Test marking edges with simple pattern."""
@@ -120,10 +120,10 @@ class TestMarkBasic:
 
         # Should have True for friend edges, False for others
         friend_marks = result._edges['is_friend']
-        assert friend_marks.iloc[0] == True  # friend
-        assert friend_marks.iloc[1] == True  # friend
-        assert friend_marks.iloc[2] == False  # manages
-        assert friend_marks.iloc[3] == False  # manages
+        assert friend_marks.iloc[0] == True  # noqa: E712
+        assert friend_marks.iloc[1] == True  # noqa: E712
+        assert friend_marks.iloc[2] == False  # noqa: E712
+        assert friend_marks.iloc[3] == False  # noqa: E712
 
     def test_mark_all_match(self, sample_graph):
         """Test marking when all entities match."""
@@ -133,7 +133,7 @@ class TestMarkBasic:
         )
 
         # All nodes marked True
-        assert all(result._nodes['is_node'] == True)
+        assert all(result._nodes['is_node'])
 
     def test_mark_none_match(self, sample_graph):
         """Test marking when no entities match."""
@@ -143,7 +143,7 @@ class TestMarkBasic:
         )
 
         # All nodes marked False
-        assert all(result._nodes['is_nonexistent'] == False)
+        assert not any(result._nodes['is_nonexistent'])
 
 
 class TestMarkValidation:
@@ -275,12 +275,12 @@ class TestMarkAccumulation:
 
         # Check specific node values
         nodes = g3._nodes.set_index('node')
-        assert nodes.loc[0, 'is_user'] == True  # user in US
-        assert nodes.loc[0, 'is_us'] == True
-        assert nodes.loc[1, 'is_user'] == True  # user in EU
-        assert nodes.loc[1, 'is_us'] == False
-        assert nodes.loc[2, 'is_user'] == False  # admin in US
-        assert nodes.loc[2, 'is_us'] == True
+        assert nodes.loc[0, 'is_user'] == True  # noqa: E712
+        assert nodes.loc[0, 'is_us'] == True  # noqa: E712
+        assert nodes.loc[1, 'is_user'] == True  # noqa: E712
+        assert nodes.loc[1, 'is_us'] == False  # noqa: E712
+        assert nodes.loc[2, 'is_user'] == False  # noqa: E712
+        assert nodes.loc[2, 'is_us'] == True  # noqa: E712
 
     def test_mark_then_filter(self, sample_graph):
         """Test using mark column for subsequent filtering."""
@@ -294,7 +294,7 @@ class TestMarkAccumulation:
 
         # Should only have marked nodes
         assert len(g3._nodes) == 3
-        assert all(g3._nodes['is_user'] == True)
+        assert all(g3._nodes['is_user'])
 
 
 class TestMarkInCall:
@@ -335,9 +335,9 @@ class TestMarkInCall:
 
         # Verify exact boolean values for specific nodes
         nodes = result._nodes.set_index('node')
-        assert nodes.loc[0, 'is_user'] == True  # user
-        assert nodes.loc[1, 'is_user'] == False  # admin
-        assert nodes.loc[2, 'is_user'] == True  # user
+        assert nodes.loc[0, 'is_user'] == True  # noqa: E712
+        assert nodes.loc[1, 'is_user'] == False  # noqa: E712
+        assert nodes.loc[2, 'is_user'] == True  # noqa: E712
 
         # Verify other columns preserved
         assert 'type' in result._nodes.columns
