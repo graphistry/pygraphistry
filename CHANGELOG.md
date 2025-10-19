@@ -5,14 +5,16 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [Development]
+## [0.45.5 - Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-- GFQL: Allow call() operations at chain boundaries (#792)
-  - Enables patterns like `[call('filter'), n(), e(), call('enrich')]`
+- **GFQL: Relax chain homogeneity to allow call() at boundaries** (#792)
+  - **Enhancement**: Relaxes v0.45.0 restriction to allow call() at chain start/end
+  - Enables patterns like `[call('filter'), n(), e(), call('enrich')]` without requiring `let()`
   - Interior mixing still disallowed: `[n(), call(), e()]` raises GFQLValidationError
-  - Provides convenience for common filter/enrich patterns without requiring `let()`
+  - **Migration from v0.45.0**: Code that used `let()` for boundary patterns can now use simpler boundary syntax
+  - Provides convenience for common filter/enrich patterns
 
 ### Infra
 - Refactored DataFrame type coercion into Engine module (#784)
@@ -157,11 +159,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking 🔥
 * **GFQL: Chains must be homogeneous** (#786, #791)
-  * Chains must be homogeneous (all `call()` or all `n()`/`e()` operations), except `call()` at chain boundaries (see #792)
+  * Chains must be either all `call()` or all `n()`/`e()` operations, cannot mix
   * Previous behavior was likely buggy - mixed chains had unpredictable results
-  * Interior mixing raises `GFQLValidationError` with clear guidance
-  * Migration: Use `let()` to compose sequences or boundary patterns (prefix/suffix calls)
+  * Mixed chains now raise `GFQLValidationError` with clear guidance
+  * Migration: Use `let()` to compose sequences, e.g., `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})`
   * Affects both `.gfql()` and `.gfql_remote()`
+  * **Note**: Boundary call patterns re-enabled in v0.45.5 (#792)
 
 ### Added
 * **GFQL: Type-safe call() operations** - `from graphistry import call, CallMethodName` (#789)
