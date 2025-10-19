@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL: mark() operation for pattern annotation without filtering** (#755)
+  - New method `g.mark(gfql=..., name='is_matched')` to annotate nodes/edges with boolean columns
+  - Works as `call('mark')` in chains and `let()` for composable marking
+  - Enables multi-stage pattern detection and accumulating marks across bindings
+  - Example: `g.mark(gfql=[n({'type': 'person'})], name='is_person')` adds 'is_person' column
+  - Supports both node and edge marking (auto-detected from GFQL pattern)
+  - All entities preserved (no filtering) for visualization and downstream processing
+
 ## [0.45.5 - 2025-10-19]
 
 ### Added
