@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- Fixed potential None dereference crashes in DGL utilities and Sugiyama layout (#801)
+  - Added None check for `_entity_to_index` in `dgl_utils.py:309` before calling `isin()` and `len()`
+  - Added None checks for `layer` attributes in `sugiyamaLayout.py` before passing to `range()` (lines 474, 761)
+  - Fixed `cast()` usage in `call_executor.py` to use proper `isinstance()` checks for polymorphic returns
+  - Prevents TypeError crashes when optional attributes are None and when accessing DataFrame attributes
+  - Added regression tests in `test_dgl_utils.py` and `test_sugiyama_none_dereference.py`
+
 ## [0.45.4 - 2025-10-18]
 
 ### Added

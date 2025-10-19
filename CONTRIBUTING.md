@@ -29,7 +29,7 @@ Docs can always be better:
 
 ## PRs welcome
 
-We are happy to accept PRs! 
+We are happy to accept PRs!
 
 * Check for `good first issue` and `help wanted` tags for ideas on where to start
 * If you have something specific you'd like to add, we are happy to provide guidance via GitHub on where to start and what to add to land it

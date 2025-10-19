@@ -159,12 +159,19 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
             # Extract stats from result (if success) or input graph (if error)
-            # Cast: if success=True, result is guaranteed to be a Plottable
-            graph_for_stats = cast(Plottable, result) if success else g
-
-            # Only extract stats if result is a Plottable (hypergraph can return DataFrame)
-            # Avoids Jinja2 error when extract_graph_stats() accesses df.style on DataFrames
-            result_stats = extract_graph_stats(graph_for_stats) if isinstance(graph_for_stats, Plottable) else {}
+            # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
+            # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
+            if success and isinstance(result, Plottable):
+                graph_for_stats = result
+                result_stats = extract_graph_stats(graph_for_stats)
+            elif success:
+                # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
+                graph_for_stats = g
+                result_stats = {}  # Can't extract stats from DataFrame
+            else:
+                # Error case - use input graph
+                graph_for_stats = g
+                result_stats = extract_graph_stats(graph_for_stats)
 
             current_path = context.operation_path
             postcall_context: PolicyContext = {

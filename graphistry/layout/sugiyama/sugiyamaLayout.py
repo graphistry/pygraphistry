@@ -470,6 +470,8 @@ class SugiyamaLayout(object):
         """
         source, target = e.v
         r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
+        if r0 is None or r1 is None:
+            return
         if r0 > r1:
             # assert e in self.inverted_edges
             source, target = target, source
@@ -754,11 +756,12 @@ class SugiyamaLayout(object):
                 if e in self.ctrls:
                     D = self.ctrls[e]
                     r0, r1 = self.layoutVertices[e.v[0]].layer, self.layoutVertices[e.v[1]].layer
-                    if r0 < r1:
-                        ranks = range(r0 + 1, r1)
-                    else:
-                        ranks = range(r0 - 1, r1, -1)
-                    coll = [D[r].view.xy for r in ranks]
+                    if r0 is not None and r1 is not None:
+                        if r0 < r1:
+                            ranks = range(r0 + 1, r1)
+                        else:
+                            ranks = range(r0 - 1, r1, -1)
+                        coll = [D[r].view.xy for r in ranks]
                 coll.insert(0, e.v[0].view.xy)
                 coll.append(e.v[1].view.xy)
                 try:
