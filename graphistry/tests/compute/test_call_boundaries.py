@@ -147,6 +147,77 @@ class TestCallBoundaries(unittest.TestCase):
         # This error message should be updated to clarify it's interior mixing
         assert "call()" in str(exc_info.value).lower()
 
+    def test_call_n_call_boundary_pattern_allowed(self):
+        """
+        Pattern: [call(), n(), call()]
+        Should PASS - this is a valid boundary pattern (prefix + middle + suffix).
+
+        This is NOT alternating interior mixing - it's:
+        - Prefix: call()
+        - Middle: n()
+        - Suffix: call()
+        """
+        result = self.g.chain([
+            call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix
+            n(),  # Middle
+            call('get_degrees')  # Suffix
+        ])
+
+        # Verify it worked
+        assert result is not None
+        assert 'degree' in result._nodes.columns or 'in_degree' in result._nodes.columns
+
+    def test_alternating_call_n_call_n_rejected(self):
+        """
+        Pattern: [call(), n(), call(), n()]
+        Should fail - alternating pattern has call() in interior.
+        """
+        with pytest.raises(GFQLValidationError) as exc_info:
+            self.g.chain([
+                call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
+                n(),
+                call('get_degrees'),  # Interior - NOT ALLOWED
+                n()
+            ])
+
+        assert exc_info.value.code == ErrorCode.E201
+        assert "interior" in str(exc_info.value).lower()
+
+    def test_long_alternating_pattern_rejected(self):
+        """
+        Pattern: [call(), n(), call(), e(), call(), n()]
+        Should fail - multiple call() operations interspersed with traversals.
+        """
+        with pytest.raises(GFQLValidationError) as exc_info:
+            self.g.chain([
+                call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
+                n(),
+                call('get_degrees'),  # Interior - NOT ALLOWED
+                e(),
+                call('filter_edges_by_dict', {'filter_dict': {'weight': [1, 2]}}),  # Interior - NOT ALLOWED
+                n()
+            ])
+
+        assert exc_info.value.code == ErrorCode.E201
+        assert "interior" in str(exc_info.value).lower()
+
+    def test_call_in_middle_with_prefix_rejected(self):
+        """
+        Pattern: [call(), call(), n(), call(), n()]
+        Should fail - even with valid prefix, call() in middle is not allowed.
+        """
+        with pytest.raises(GFQLValidationError) as exc_info:
+            self.g.chain([
+                call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix 1
+                call('filter_edges_by_dict', {'filter_dict': {'weight': [1, 2]}}),  # Prefix 2
+                n(),
+                call('get_degrees'),  # Interior - NOT ALLOWED
+                n()
+            ])
+
+        assert exc_info.value.code == ErrorCode.E201
+        assert "interior" in str(exc_info.value).lower()
+
 
 class TestPureChains(unittest.TestCase):
     """Verify that pure chains (all call or all traversal) still work."""
