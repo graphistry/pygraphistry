@@ -1,753 +1,485 @@
 # LLM_GUIDE.md Maintenance Process
 
 **Purpose**: Update `LLM_GUIDE.md` when GFQL features change or user patterns emerge.
-
 **For**: Maintainers doing updates after code changes, LLM failures, or user requests.
 
----
-
-## Quick Start: I need to update the guide
+## Quick Start
 
 **Scenarios**:
-1. **New GFQL feature** → See [Change Types](#change-types)
-2. **Breaking change in release** → See [Breaking Changes](#breaking-changes)
-3. **Emergency: Need to rollback breaking change** → See [Breaking Change Rollback](#breaking-change-rollback-emergency)
-4. **Users asking "how do I...?"** → See [Common Patterns](#common-patterns)
-5. **LLMs generating invalid JSON** → See [LLM Failures](#llm-failures)
-6. **Multiple changes in one release** → See [Multi-Change Releases](#multi-change-releases)
-
----
+1. **New GFQL feature** → [Change Types](#change-types)
+2. **Breaking change** → [Breaking Changes](#breaking-changes)
+3. **Emergency rollback** → [Rollback](#breaking-change-rollback-emergency)
+4. **Users asking "how do I...?"** → [Common Patterns](#common-patterns)
+5. **LLMs generating invalid JSON** → [LLM Failures](#llm-failures)
+6. **Multiple changes** → [Multi-Change Releases](#multi-change-releases)
 
 ## Update Triggers
 
 | Trigger | Source | Action |
 |---------|--------|--------|
-| **New algorithm** | `call_safelist.py` changes | Add to Graph Algorithms |
-| **New predicate** | `predicates/*.py` added | Add to Predicates |
-| **Breaking change** | `ASTSerializable.py` modified | Update ALL examples + migration |
-| **Common user query** | 3+ GitHub issues/tickets same pattern | Add to Common Patterns |
-| **LLM failure pattern** | 3+ tickets with invalid JSON | Add to Common Mistakes |
-| **New domain demand** | 3+ requests from industry | Add domain section |
-
----
+| New algorithm | `call_safelist.py` changes | Add to Graph Algorithms |
+| New predicate | `predicates/*.py` added | Add to Predicates |
+| Breaking change | `ASTSerializable.py` modified | Update ALL examples + migration |
+| Common user query | 3+ issues same pattern | Add to Common Patterns |
+| LLM failure | 3+ tickets invalid JSON | Add to Common Mistakes |
+| New domain demand | 3+ requests from industry | Add domain section |
 
 ## Line Limit Policy
 
-**Target**: <500 lines (ideal for LLM context)
-**Acceptable**: 500-520 lines (if essential content like breaking changes, domain examples, error prevention)
-**Warning**: >520 lines (requires justification or condensation)
-**Hard limit**: 550 lines (MUST condense or split document)
+**Target**: <500 lines · **Acceptable**: 500-520 · **Warning**: >520 · **Hard**: 550
 
-### When approaching limit:
-- **<510 lines**: Prefer compact variations over full examples
-- **510-520 lines**: Acceptable for critical content (new domains, breaking changes, Common Mistakes)
-- **>520 lines**: MUST condense existing content OR deprecate old features OR escalate decision
+### Approaching limit:
+- **<510**: Prefer compact variations
+- **510-520**: OK for critical content
+- **>520**: MUST condense OR deprecate OR escalate
 
-### Condensation strategies (apply in order):
+### Condensation strategies:
 
-| Strategy | Savings | Readability Impact | When to Use |
-|----------|---------|-------------------|-------------|
-| Remove blank lines | ~10 lines | Low | First step |
-| Inline domain headings | ~8 lines | Low | Second step |
-| Convert full examples to compact variations | ~12 lines | Medium | Third step |
-| Remove lowest-priority domain | ~22 lines | High | Last resort |
+| Strategy | Savings | Impact | When |
+|----------|---------|--------|------|
+| Remove blank lines | ~10 | Low | First |
+| Inline headings | ~8 | Low | Second |
+| Compact variations | ~12 | Med | Third |
+| Remove domain | ~22 | High | Last |
 
-**Domain priority** (for space constraints):
-- **Tier 1**: Cyber Security, Healthcare, Finance (enterprise demand)
-- **Tier 2**: Supply Chain, Fraud (industry demand)
-- **Tier 3**: Social Media, E-commerce (consumer demand)
-
----
+**Domain priority**: Tier 1 (Cyber, Healthcare, Finance) > Tier 2 (Supply Chain, Fraud) > Tier 3 (Social, E-commerce)
 
 ## Deprecation Policy
 
-**When**: Approaching line limit (515-520 lines) OR features become obsolete
+**When**: 515-520 lines OR obsolete features
 
-### Deprecation Criteria
+### Criteria (any 2+):
+- [ ] Usage <2%
+- [ ] Superseded by newer algorithm
+- [ ] Redundant with existing
+- [ ] Domain-specific (move to domain section)
+- [ ] No requests 6+ months
 
-**Evaluate for deprecation if**:
-- [ ] Usage <2% (check analytics, GitHub issue mentions, or forum discussions)
-- [ ] Superseded by newer algorithm (e.g., old PageRank API → new PageRank API)
-- [ ] Redundant with existing examples (e.g., betweenness + closeness both centrality → keep 1)
-- [ ] Domain-specific (better suited for domain example, not core guide)
-- [ ] Rarely requested (no user questions in 6+ months)
+### Process:
+1. Create issue `[DOC-DEPRECATION]` with usage data
+2. Wait 2 weeks for feedback
+3. If no objections: Remove + CHANGELOG note
+4. If objections: Re-evaluate or compact
 
-### Deprecation Process
-
-1. **Identify candidate**: Use criteria above
-2. **Create GitHub issue**: "Deprecate [algorithm/predicate] from LLM_GUIDE.md"
-   - Tag: `[DOC-DEPRECATION]`
-   - Include: Usage data, rationale, alternative recommendations
-3. **Wait 2 weeks** for community feedback
-4. **If no objections**:
-   - Remove from LLM_GUIDE.md
-   - Add to CHANGELOG with deprecation note
-   - Update cross-references
-5. **If objections**:
-   - Re-evaluate criteria
-   - Consider compromise (compact variation vs full example)
-
-### Line Limit Trajectory Monitoring
-
-**Track growth rate**:
+### Trajectory Monitoring:
 ```
-Current: [X] lines (as of v[Y.Z])
-Average growth: ~4 lines/scenario
-Capacity remaining: [550 - X] lines
-Estimated scenarios until limit: ~[(550 - X) / 4] scenarios
+Current: [X] lines (v[Y.Z])
+Growth: ~4 lines/scenario
+Remaining: [550-X] → ~[(550-X)/4] scenarios
 ```
 
-**Action Thresholds**:
-- **515-520 lines**: Yellow flag - Document TODO, identify deprecation candidates
-- **520-540 lines**: Orange flag - MUST deprecate OR justify increase
-- **540-550 lines**: Red flag - Emergency - deprecation required before next release
-- **>550 lines**: Critical - Immediate action (deprecate OR split document)
+**Thresholds**:
+- **515-520**: Yellow - Identify candidates
+- **520-540**: Orange - MUST deprecate OR justify
+- **540-550**: Red - Required before release
+- **>550**: Critical - Immediate action
 
-### Long-Term Sustainability Options
+### Long-Term Options:
+**A. Deprecation + Compact** (2-3 releases): Remove 2-3 low-usage algs (~45) + compact 3-4 examples (~40) = 85 lines → 20+ scenarios
+**B. Increase limit 600-650** (medium-term): Modern LLMs support 128k tokens → 20-25 scenarios
+**C. Split document** (long-term): Core <400 + Extended <250 → modular but overhead
 
-**Option A: Deprecation + Compact Variations** (short-term, 2-3 releases)
-- Remove 2-3 low-usage algorithms (~45 lines)
-- Convert 3-4 full examples to compact variations (~40 lines)
-- **Savings**: ~85 lines → Buys 20+ scenarios (~5-6 releases)
-
-**Option B: Increase Hard Limit to 600-650** (medium-term)
-- **Rationale**: LLM context windows increased (GPT-4: 128k tokens vs original 8k)
-- **Impact**: Buys 20-25 scenarios (~6-8 releases)
-- **Trade-off**: Longer guide, but still fits modern LLM context
-
-**Option C: Split Document** (long-term, major refactor)
-- **Core guide**: <400 lines (essential patterns, common use cases)
-- **Extended guide**: <250 lines (advanced algorithms, edge cases)
-- **Impact**: Modular, scalable, but coordination overhead
-
-**Recommendation**: Start with A (deprecation), monitor growth, evaluate B (limit increase) if needed
-
----
+**Recommendation**: A → monitor → B if needed
 
 ## Change Types
 
 ### New Algorithm
 
-**Trigger**: New function in `call_safelist.py` (e.g., `betweenness_centrality`, `triangle_count`)
+**Trigger**: New in `call_safelist.py` (e.g., `betweenness`, `triangle_count`)
 
 **Research**:
 ```bash
-grep -n "new_function" graphistry/compute/gfql/call_safelist.py
-grep "new_function" graphistry/tests/compute/ -r --output_mode content -n
-grep "new_function" docs/source/gfql/builtin_calls.rst -A 20
+grep -n "new_fn" graphistry/compute/gfql/call_safelist.py
+grep "new_fn" graphistry/tests/compute/ -rn
 ```
 
-**Update sections**:
-- Primary: `## Graph Algorithms` (add example)
-- Secondary: `## Call Functions` (add to list)
-- Optional: Domain examples (if highly relevant)
+**Update**: `## Graph Algorithms` (add example) + `## Call Functions` (list)
 
 **Format**:
 ```markdown
-**[Algorithm Name] ([Use Case]):**
+**[Name] ([Use Case]):**
 ```python
-# Dense: call('function_name', {'param': value})
+# Dense: call('fn', {'param': val})
 ```
 ```json
-{
-  "type": "Call",
-  "function": "function_name",
-  "params": {"param": value}
-}
+{"type": "Call", "function": "fn", "params": {"param": val}}
 ```
 **Use case**: [One-line explanation]
 ```
 
-**Placement**: Add at END of `## Graph Algorithms` section (chronological order)
-
-**Lines**: ~15-18 lines per algorithm
-
-**Time estimate**: 25-30 min
-
----
+**Placement**: END of Graph Algorithms (chronological)
+**Lines**: ~15-18 · **Time**: 25-30 min
 
 ### New Predicate
 
-**Trigger**: New predicate class in `predicates/*.py` (e.g., `Matches`, `Between`, `JsonContains`)
+**Trigger**: New in `predicates/*.py` (e.g., `Matches`, `Between`)
 
 **Research**:
 ```bash
-read graphistry/compute/predicates/new_predicate.py
-grep "to_json" graphistry/compute/predicates/new_predicate.py -A 10
-grep "NewPredicate" graphistry/tests/compute/predicates/ -r --output_mode content
+read graphistry/compute/predicates/new_pred.py
+grep "to_json" graphistry/compute/predicates/new_pred.py -A10
 ```
 
-**Update sections**:
-- Primary: `## Predicates` (add to appropriate category)
-- Check: Similar predicates exist? Add clarifying note
+**Update**: `## Predicates` (by category)
 
 **Format**:
 ```markdown
 **[Category]:**
 ```json
-{"type": "PredicateName", "param1": value, "param2": value}
+{"type": "Name", "param": val}
 ```
-**Note**: [When to use vs similar predicates, if applicable]
+**Note**: [When to use vs similar, if applicable]
 ```
 
-**Placement**: Within `## Predicates`, grouped by category (Numeric, String, Pattern Matching, etc.)
-
-**Lines**: ~3-5 lines per predicate
-
-**Time estimate**: 20-25 min
-
----
+**Placement**: Within Predicates by category
+**Lines**: ~3-5 · **Time**: 20-25 min
 
 ### Common Patterns
 
-**Trigger**: Multiple users asking "how do I [pattern]?" (e.g., degree filtering, ego networks, temporal aggregation)
+**Trigger**: Users asking "how do I [pattern]?" (e.g., degree filtering, ego networks)
 
-**Research Workflow** (ALWAYS check for duplicates first):
-1. **Check for duplicates**:
-   ```bash
-   grep -i "pattern_keywords" LLM_GUIDE.md
-   ```
-2. **If exact pattern exists**: STOP - Don't duplicate
-3. **If similar pattern exists with terminology gap**:
-   - Enhance existing example with aliases/synonyms inline
-   - Example: "degree" exists but users search "neighbor count" → Add "(neighbor count/connections)"
-4. **If no pattern exists**: Proceed with decision tree below
+**Workflow** (check duplicates FIRST):
+1. `grep -i "keywords" LLM_GUIDE.md`
+2. Exact exists → STOP
+3. Similar with terminology gap → Enhance with aliases inline
+4. None exists → Decision tree
 
 **Decision tree**:
-1. **Used by 3+ domains?** → **Decision Point**:
-   - **Same semantics**: Add full common pattern example
-   - **Different semantics**: Add cross-reference pattern (generic + domain pointers)
-2. **Variation of existing pattern?** → Add as compact variation (~5 lines)
-3. **Domain-specific?** → Add to relevant `## Domain` section
-4. **Edge case?** → Add to `## Generation Rules` or `## Common Mistakes`
+1. **3+ domains?** → Same semantics: full example · Different semantics: cross-reference
+2. **Variation?** → Compact (~5 lines)
+3. **Domain-specific?** → Add to domain section
+4. **Edge case?** → Generation Rules or Common Mistakes
 
-**Process**:
-1. Identify pattern from GitHub issues/tickets
-2. Find implementation in tests: `grep "pattern" graphistry/tests/compute/ -r`
-3. Create minimal example
-4. Validate JSON
-5. Add to appropriate section
-
-**Compact variation format** (saves space):
+**Compact format** (saves space):
 ```markdown
-**Use case: [Pattern Name]**
-```python
-# Dense: [compact code]
-```
-Pattern: [One-line explanation]. [Key parameter notes].
+**[Pattern]:** `[dense]` Pattern: [explanation]. [params].
 ```
 
-**Full example format**:
+**Full format**:
 ```markdown
-**[Pattern Name]:**
+**[Pattern]:**
 ```python
 # Dense: [code]
 ```
 ```json
-{[full JSON]}
+{[JSON]}
 ```
 **Pattern**: [Explanation]
 ```
 
-**Lines**: ~5 lines (compact) or ~15-20 lines (full)
-
-**Time estimate**: 25-35 min
-
----
+**Lines**: ~5 (compact) or ~15-20 (full) · **Time**: 25-35 min
 
 ### Breaking Changes
 
-**Trigger**: Changes to `ASTSerializable.py`, field renames, new required fields, type name changes
-
-**Examples**:
-- Field rename: `filter_dict` → `filters`
-- New required field: Add `version` to all types
-- Type name change: `Node` → `NodeMatch`
+**Trigger**: `ASTSerializable.py` field renames, new required fields, type changes
 
 **Research**:
 ```bash
 git diff master graphistry/compute/ASTSerializable.py
-grep "class AST" graphistry/compute/ast.py
-grep '"old_field_name"' plans/gfql_json_wire_spec_generator/LLM_GUIDE.md | wc -l
+grep '"old_field"' LLM_GUIDE.md | wc -l
 ```
 
-**Update sections**:
-1. `## Core Types` (update schemas)
-2. **ALL examples** (find-replace for field renames)
-3. Add version note at top of guide
-4. Add migration guide to `## Common Mistakes`
+**Update**: Core Types + ALL examples + version note + migration guide
 
-**Automation strategy**:
+**Automation**:
 ```bash
-# Count instances
-grep -c '"old_field"' LLM_GUIDE.md
-
-# Dry run to see what changes
-grep -n '"old_field"' LLM_GUIDE.md
-
-# Use editor find-replace (safer than sed for complex JSON)
-# Replace: "old_field": → "new_field":
+grep -c '"old"' LLM_GUIDE.md  # Count
+grep -n '"old"' LLM_GUIDE.md  # Preview
+# Editor find-replace: "old": → "new":
 ```
 
-**Version note template** (add after title):
+**Version note** (after title):
 ```markdown
-**Version Note**: This guide reflects GFQL v[X.Y]+. Breaking change in v[X.Y]: [description]. See Common Mistakes for migration.
+**Version**: GFQL v[X.Y]+. Breaking v[X.Y]: [desc]. See Common Mistakes for migration.
 ```
 
-**Migration guide template** (add to Common Mistakes):
+**Migration** (in Common Mistakes):
 ```markdown
-❌ v[OLD] `old_syntax` → ✅ v[NEW] `new_syntax` (breaking change v[X.Y])
+❌ v[OLD] `old` → ✅ v[NEW] `new` (breaking v[X.Y])
 ```
 
-**Validation**:
+**Validate**:
 ```bash
-# Verify old field names gone
-grep '"old_field"' LLM_GUIDE.md  # Should return empty
-
-# Validate JSON examples still work
-python3 plans/gfql_json_wire_spec_generator/generate_examples.py
+grep '"old"' LLM_GUIDE.md  # Empty
+python3 plans/.../generate_examples.py
 ```
 
-**Lines**: +10-15 (version note + migration) but may update 30-50 existing lines
-
-**Time estimate**: 40-50 min
-
-**Critical**: Breaking changes affect EVERY example - use automation, validate thoroughly
-
----
+**Lines**: +10-15 (may update 30-50 existing) · **Time**: 40-50 min
+**Critical**: Use automation, validate thoroughly
 
 ### Breaking Change Rollback (Emergency)
 
-**Scenario**: Production issue caused by breaking change, need to revert docs immediately
+**Scenario**: Production issue from breaking change
 
-**Rollback Workflow**:
-1. **Identify commit**:
+**Workflow**:
+1. **Identify**: `git log --oneline LLM_GUIDE.md -5`
+2. **Check isolation**: `git show <hash> --stat`
+3. **Revert**: `git revert <hash> --no-edit`
+4. **Remove version note** (line ~3)
+5. **Validate**:
    ```bash
-   git log --oneline LLM_GUIDE.md -5
+   grep '"deprecated"' LLM_GUIDE.md  # Empty
+   grep '"correct"' LLM_GUIDE.md | wc -l  # Expected
    ```
-2. **Check isolation**: Ensure breaking change commit is separate from other features
-   ```bash
-   git show <commit-hash> --stat
-   ```
-3. **Revert commit**:
-   ```bash
-   git revert <commit-hash> --no-edit
-   ```
-4. **Remove version note**: Check line ~3 for breaking change warning, remove if present
-5. **Validate rollback**:
-   ```bash
-   # Verify old field names gone
-   grep '"deprecated_field"' LLM_GUIDE.md  # Should be empty
+6. **Check Common Mistakes** still accurate
+7. **Commit**: `git commit -m "docs: Rollback vX.Y (INC-XXX)"`
+8. **Deploy** (emergency bypass)
+9. **Monitor 30 min**
 
-   # Verify correct field names restored
-   grep '"correct_field"' LLM_GUIDE.md | wc -l  # Should match expected count
-   ```
-6. **Check Common Mistakes**: Ensure migration guide still accurate for current version
-7. **Commit with incident reference**:
-   ```bash
-   git commit -m "docs: Rollback vX.Y breaking change (INC-XXXX)"
-   ```
-8. **Deploy immediately** (emergency bypass of PR process)
-9. **Monitor for 30 min**: Check user reports, GitHub issues, support tickets
+**Checklist**:
+- [ ] Old removed (grep empty)
+- [ ] Correct restored (count matches)
+- [ ] Version note updated
+- [ ] Common Mistakes accurate
+- [ ] Other features NOT reverted
+- [ ] Line count OK
+- [ ] Incident referenced
 
-**Rollback Validation Checklist**:
-- [ ] Old field names removed (grep returns empty)
-- [ ] Correct field names restored (grep count matches expected)
-- [ ] Version note removed or updated to previous version
-- [ ] Common Mistakes section still accurate
-- [ ] Other features NOT reverted (check unrelated additions)
-- [ ] Line count reasonable (within 500-520)
-- [ ] Commit message references incident number
+**Emergency bypass** (when): P0/P1 outage, LLM breakage, security, data breach
+**Process**: Direct push, post-mortem PR
 
-**Emergency Bypass Criteria** (when to skip PR review):
-- Production outage (P0/P1 incident)
-- Breaking change affecting LLM JSON generation
-- Security vulnerability in examples
-- Data breach in sample code
+**Best practice - Commit isolation**:
+✅ commit 1: Add betweenness · commit 2: Breaking change
+❌ commit 1: Add betweenness + breaking change
+**Why**: Clean rollback without losing features
 
-**Process**: Direct push to master, create post-mortem PR with explanation
-
-**Time estimate**: 25-30 min (15 min active + 15 min monitoring)
-
-**Breaking Change Commit Isolation** (best practice):
-When making breaking changes, commit them SEPARATELY from other features:
-
-✅ **Good**:
-```
-commit 1: Add betweenness algorithm
-commit 2: Add Between predicate
-commit 3: Breaking change - filters rename
-```
-
-❌ **Bad**:
-```
-commit 1: Add betweenness + Between + filters rename
-```
-
-**Why**: Enables clean rollback of breaking change without losing other features
-
----
+**Time**: 25-30 min (15 active + 15 monitoring)
 
 ### LLM Failures
 
-**Trigger**: 3+ support tickets with same LLM-generated error pattern
+**Trigger**: 3+ tickets same error pattern
 
-**Examples**:
-- Using `"filter"` instead of `"filters"`
-- Using `"node_type"` instead of `"type"`
-- Putting filters outside Node object
-- Using deprecated field names
+**Examples**: `"filter"` vs `"filters"`, `"node_type"` vs `"type"`, filters outside Node, deprecated fields
 
-**Process**:
-1. Analyze tickets to identify pattern
-2. Categorize error (field name, structure, missing required, deprecated)
-3. Add to `## Common Mistakes` section
+**Process**: Analyze → Categorize → Add to Common Mistakes
 
-**Format** (ultra-compact to fit line budget):
+**Format** (ultra-compact):
 ```markdown
-❌ `"wrong_field"` → ✅ `"correct_field"` ([context])
-❌ Wrong structure → ✅ Correct: [inline example]
+❌ `"wrong"` → ✅ `"correct"` ([context])
+❌ Wrong structure → ✅ Correct: [inline]
 ```
 
-**Placement**: `## Common Mistakes` section (after domains, before end)
-
-**Coverage**: Top 5 most common errors (80/20 rule)
-
-**Lines**: ~7 lines total (strict budget)
-
-**Time estimate**: 40-50 min (includes compression iterations)
-
----
+**Placement**: Common Mistakes
+**Coverage**: Top 5 errors (80/20)
+**Lines**: ~7 total · **Time**: 40-50 min
 
 ### New Domain
 
-**Trigger**: 3+ requests from new industry vertical (healthcare, logistics, energy)
+**Trigger**: 3+ requests from industry (healthcare, logistics, energy)
 
 **Process**:
-1. Identify 3-5 key entity types (e.g., healthcare: patient, doctor, facility)
-2. Identify typical relationships (e.g., referral, admission, treatment)
-3. Identify common filters (age ranges, risk scores, dates)
-4. Map entities to Font Awesome 4 icons
-5. Create complete example: search + filter (optional: + algorithm + visualization)
+1. Identify 3-5 entity types
+2. Identify relationships
+3. Identify common filters
+4. Map to Font Awesome 4 icons
+5. Create example: search + filter (+ optional: algorithm + viz)
 
 **Format**:
 ```markdown
-### [Domain Name]
-
-**Use case**: [One-line description]
-
-**Dense**: `[compact Python form]`
-
+### [Domain]
+**Use case**: [Description]
+**Dense**: `[Python]`
 **JSON**:
 ```json
-{[compact JSON AST]}
+{[AST]}
 ```
 ```
 
-**Placement**: After existing domains (Cyber, Fraud, Supply Chain, Social Media)
-
-**Lines**: ~22-28 lines per domain
-
-**Time estimate**: 50-60 min
-
-**Blocker risk**: May exceed line limit - see [Escalation Process](#escalation-process)
-
----
+**Placement**: After existing domains
+**Lines**: ~22-28 · **Time**: 50-60 min
+**Risk**: May exceed limit - see [Escalation](#escalation-process)
 
 ## Multi-Change Releases
 
-**Scenario**: Release includes multiple GFQL changes (e.g., new algorithm + predicate + edge parameter)
+**Scenario**: Multiple GFQL changes (algorithm + predicate + param)
 
-**Coordination workflow**:
-1. **Research ALL changes first** - Don't start editing until scope is clear
-2. **Estimate total line impact** - Calculate (additions - removals)
-3. **If exceeds limit**: Proactively condense BEFORE adding new content
-4. **Update order**: Core Types → Predicates → Common Patterns → Algorithms → Domains (top-to-bottom to avoid line number confusion)
-5. **Validate together**: Test all changes as a set (catch interactions)
-6. **Cross-reference**: Ensure every release note item is documented
+**Workflow**:
+1. Research ALL changes first
+2. Estimate total lines (additions - removals)
+3. If exceeds: Condense BEFORE adding
+4. Update order: Core Types → Predicates → Patterns → Algorithms → Domains
+5. Validate together
+6. Cross-reference release notes
 
-**Example line budget**:
+**Example budget**:
 ```
-Starting: 500 lines
-Change 1 (edge param): +1 line (Core Types)
-Change 2 (predicate): +3 lines (Predicates)
-Change 3 (algorithm): +15 lines (Algorithms)
-Total additions: +19 lines
-Target: 519 lines → Need to remove 19 lines OR use 500-520 acceptable range
+Start: 500
++1 (edge param) +3 (predicate) +15 (algorithm) = +19
+Target: 519 → Remove 19 OR use 500-520 range
 ```
 
-**Condensation targets**: Remove blank lines (-10), inline domain headings (-8), compact variation format (-5)
-
-**Time estimate**: 50-60 min for 3 coordinated changes
-
----
+**Condensation**: Blank lines (-10), inline headings (-8), compact (-5)
+**Time**: 50-60 min for 3 changes
 
 ## Escalation Process
 
-**When to escalate**: Stuck after trying all options, line limit exceeded with essential content, conflicting priorities
+**When**: Stuck after all options, limit exceeded, conflicting priorities
 
 **Steps**:
-1. **Document**: What you tried, why it failed
-2. **Options table**: Pros/cons of alternatives
-3. **Recommendation**: Preferred option with rationale
-4. **Create issue**: GitHub issue tagged `[DOC-DECISION]`
-5. **Tag maintainer**: Request decision from core team
-6. **Await decision**: Don't proceed until resolved
+1. Document: Tried + failed
+2. Options table: Pros/cons
+3. Recommendation + rationale
+4. Create issue `[DOC-DECISION]`
+5. Tag maintainer
+6. Await decision
 
-**Example escalation scenarios**:
-- New domain would exceed 520 lines
-- Critical Common Mistakes section doesn't fit
-- Conflicting domain priorities (which to keep?)
-- Breaking change requires more space than available
+**Examples**: New domain > 520 lines, critical Common Mistakes won't fit, conflicting domain priority, breaking change needs more space
 
----
+## Update Workflow
 
-## Update Workflow (Standard)
+1. Identify trigger (1-2 min)
+2. Research: `read`, `grep`, tests/docs (3-6 min)
+3. Check line budget: `wc -l`, estimate (1-2 min)
+4. Create example: Python → `.to_json()` (5-10 min)
+5. Decide placement: Decision tree (2-3 min)
+6. Draft: Dense + JSON + annotations (6-10 min)
+7. Verify: `wc -l`, validate, cross-ref (3-5 min)
+8. Update this doc if new pattern (5 min)
 
-1. **Identify trigger** - What changed? (1-2 min)
-2. **Research** - `read [file]`, `grep "feature"`, find tests/docs (3-6 min)
-3. **Check line budget** - `wc -l LLM_GUIDE.md`, estimate impact (1-2 min)
-4. **Create example** - Test in Python → `.to_json()` (5-10 min)
-5. **Decide placement** - Use decision tree (2-3 min)
-6. **Draft update** - Dense + JSON + annotations (6-10 min)
-7. **Verify** - `wc -l`, validate JSON, cross-reference (3-5 min)
-8. **Update this doc** - If new pattern discovered (5 min)
-
-**Total time**: 25-50 min depending on complexity
-
----
+**Total**: 25-50 min
 
 ## Maintenance Checklist
 
-Before committing updates:
-
-- [ ] Line count <520 (ideally <500)
-- [ ] Dual format (Dense Python + JSON) for all examples
-- [ ] Inline annotations (`// required`, `// optional`, `// default: X`)
-- [ ] Qualified lists ("Examples:", "and more" to avoid sounding exhaustive)
-- [ ] Real values (not "foo", "bar" - use actual colors, icons, field names)
-- [ ] JSON validated (run `generate_examples.py` or manual validation)
-- [ ] Common Mistakes updated (if breaking change or LLM failure pattern)
-- [ ] Cross-referenced release notes (all features documented)
-
----
+- [ ] Line count <520 (<500 ideal)
+- [ ] Dual format (Dense + JSON)
+- [ ] Inline annotations (`// required`, `// default`)
+- [ ] Qualified lists ("Examples:", "and more")
+- [ ] Real values (not "foo"/"bar")
+- [ ] JSON validated (`generate_examples.py`)
+- [ ] Common Mistakes updated (breaking/LLM)
+- [ ] Cross-referenced release notes
 
 ## Validation
 
-### JSON Validation
+### JSON
 ```bash
-# Validate individual example
-python3 -c "import json; json.loads('{\"type\": \"Node\", \"filters\": {}}')"
-
-# Run full validation suite
-python3 plans/gfql_json_wire_spec_generator/generate_examples.py
+python3 -c "import json; json.loads('{\"type\": \"Node\"}')"
+python3 plans/.../generate_examples.py
 ```
 
-### Line Count Check
+### Line Count
 ```bash
-wc -l plans/gfql_json_wire_spec_generator/LLM_GUIDE.md
+wc -l plans/.../LLM_GUIDE.md
 ```
 
-### Completeness Check
+### Completeness
 ```bash
-# Verify all release features documented
 grep "new_feature" LLM_GUIDE.md
-
-# Verify old field names removed (breaking changes)
-grep '"deprecated_field"' LLM_GUIDE.md  # Should return empty
+grep '"deprecated"' LLM_GUIDE.md  # Empty
 ```
-
----
 
 ## Common Mistakes (Meta)
 
-### Mistake 1: Placement uncertainty
-**Problem**: Unsure where to add new content
-**Solution**:
-- Algorithms → END of `## Graph Algorithms` (chronological)
-- Predicates → Within `## Predicates` by category
-- Patterns → Decision tree (3+ domains → Common Patterns)
-- Domains → After existing domains
+**Placement uncertainty**: Algorithms → END (chrono), Predicates → by category, Patterns → decision tree, Domains → after existing
 
-### Mistake 2: Exceeding line limit
-**Problem**: Update would push over 500 lines
-**Solution**: Check if 500-520 acceptable (essential content), else condense using strategies table
+**Exceeding limit**: Check 500-520 acceptable (essential), else condense
 
-### Mistake 3: Breaking changes without migration guide
-**Problem**: Users confused by v[NEW] syntax
-**Solution**: ALWAYS add version note + migration guide to Common Mistakes
+**Breaking without migration**: ALWAYS add version note + migration
 
-### Mistake 4: Missing similar feature check
-**Problem**: New predicate overlaps with existing (e.g., Matches vs Contains with regex)
-**Solution**: Grep Predicates section for related features, add clarifying note
+**Missing similar check**: Grep for related, add note
 
-### Mistake 5: Placeholder values
-**Problem**: Examples use "foo", "bar", generic names
-**Solution**: Use real values from tests/docs - actual colors, icons, domain field names
-
----
+**Placeholder values**: Use real from tests/docs
 
 ## Template Patterns
 
-### Full Example Pattern
+### Full Example
 ```markdown
-**[Feature Name] ([Use Case]):**
+**[Name] ([Use Case]):**
 ```python
-# Dense: [compact Python code]
+# Dense: [code]
 ```
 ```json
-{
-  "type": "[Type]",
-  [... full JSON ...]
-}
+{[JSON]}
 ```
 **Pattern**: [Explanation]
 ```
-
 **Lines**: ~15-20
 
----
-
-### Compact Variation Pattern
+### Compact Variation
 ```markdown
-**Use case: [Variation Name]**
-```python
-# Dense: [compact code]
+**[Name]:** `[dense]` Pattern: [explanation]. [params].
 ```
-Pattern: [One-line explanation]. [Key parameters].
-```
-
 **Lines**: ~5
 
----
-
-### Common Mistake Pattern
+### Common Mistake
 ```markdown
 ❌ `"wrong"` → ✅ `"correct"` ([context])
 ```
-
 **Lines**: 1
 
----
+### Cross-Reference
 
-### Cross-Reference Pattern
+**Use**: Same structure, different semantics across domains
 
-**Use when**: Structural pattern identical across domains, but semantics differ
-
-**Example**: "Trace propagation" = money laundering (fraud) vs malware spread (cyber) vs contamination (supply chain)
+**Example**: "Trace propagation" = laundering (fraud), malware (cyber), contamination (supply)
 
 **Template**:
 ```markdown
-**[Pattern Name] ([Generic Description])**
-
+**[Pattern] ([Generic])**
 ```python
-# Dense: [generic GFQL code]
+# Dense: [generic]
 ```
-
-**Pattern**: [Generic structural explanation]
-
+**Pattern**: [Structure]
 **Domain examples**:
-- **[Domain 1]**: [Domain-specific name/use case] - See [Domain Section](#link)
-- **[Domain 2]**: [Domain-specific name/use case] - See [Domain Section](#link)
-- **[Domain 3]**: [Domain-specific name/use case] - See [Domain Section](#link)
-
-**Key parameters**: [Important configurable params]
+- **[Domain1]**: [Specific] - See [Link](#link)
+- **[Domain2]**: [Specific] - See [Link](#link)
+**Key params**: [Important]
 ```
 
-**Lines**: ~10-12 (compact)
+**Lines**: ~10-12 (vs 3×20=60)
+**Benefits**: No duplication, connects generic→specific, searchable
 
-**Benefits**:
-- Avoids duplication (vs 3× 20-line examples = 60 lines)
-- Connects generic concept to domain-specific implementations
-- Improves searchability (users search generic term, find domain examples)
-
-**Validation**:
-- [ ] Domain examples actually exist and show this pattern
-- [ ] Links work (section IDs correct)
-- [ ] Generic pattern is truly structural (not semantic)
-
----
+**Validate**:
+- [ ] Examples exist
+- [ ] Links work
+- [ ] Truly structural not semantic
 
 ## File Locations
 
-**Main guide**: `plans/gfql_json_wire_spec_generator/LLM_GUIDE.md`
-**This process doc**: `plans/gfql_json_wire_spec_generator/PROCESS_DISTILLATION.md`
-**Validation script**: `plans/gfql_json_wire_spec_generator/generate_examples.py`
+**Main**: `plans/gfql_json_wire_spec_generator/LLM_GUIDE.md`
+**Process**: `plans/gfql_json_wire_spec_generator/PROCESS_DISTILLATION.md`
+**Validation**: `plans/gfql_json_wire_spec_generator/generate_examples.py`
 
-**Monitor these files** for changes:
-- `graphistry/compute/gfql/call_safelist.py` - New algorithms
-- `graphistry/compute/predicates/*.py` - New predicates
-- `graphistry/compute/ASTSerializable.py` - Breaking changes
-- `graphistry/tests/compute/` - Usage patterns
-
----
+**Monitor**:
+- `graphistry/compute/gfql/call_safelist.py` - Algorithms
+- `graphistry/compute/predicates/*.py` - Predicates
+- `graphistry/compute/ASTSerializable.py` - Breaking
+- `graphistry/tests/compute/` - Patterns
 
 ## Success Signals
 
-**Green** (guide working well):
-- LLM success rate >80% (generates valid JSON first try)
-- Users reference guide in GitHub issues/PRs
-- No support tickets about LLM-generated errors
-- Examples run unchanged across releases
+**Green**: LLM >80% success, users reference guide, no support tickets, examples work across releases
 
-**Yellow** (needs attention):
-- Approaching 500 lines (condensation needed soon)
-- 2-3 new domain requests building up
-- Occasional LLM failures (not systematic yet)
+**Yellow**: Approaching 500, 2-3 new domains pending, occasional LLM failures
 
-**Red** (update immediately):
-- Multiple users asking same "how do I...?"
-- 3+ tickets with same LLM-generated invalid JSON
-- Release breaks examples (breaking change)
-- Test failures in `generate_examples.py`
+**Red**: Multiple "how do I" same query, 3+ tickets same invalid JSON, release breaks examples, test failures
 
----
+## Background
 
-## Background: Why This Guide Exists
+**Goal**: LLMs generate valid GFQL JSON for common use cases
+**Not**: Implementation details, wire protocol internals, exhaustive API
+**Audience**: LLMs (Claude, GPT)
 
-**Goal**: Enable LLMs to generate valid GFQL JSON for common use cases
+**Principles**:
+1. Purpose over types (organize by DO not IS)
+2. Examples over explanation
+3. Rich details (real palettes, icons, terms)
+4. Top-down (context → details)
+5. Dual format (Dense + JSON)
+6. Inline annotations (`// required`)
 
-**Not**: Document implementation details, wire protocol internals, or exhaustive API reference
+**Evolution**: 5 phases: "document wire" → "enable LLM codegen"
 
-**Target audience**: LLMs (Claude, GPT, etc.) generating code for users
+## When to Use
 
-**Key principles**:
-1. **Purpose over types** - Organize by what users want to DO (Search, Algorithms, Viz)
-2. **Examples over explanation** - Show complete workflows, not just type definitions
-3. **Rich details** - Actual palette values, icon names, domain terminology
-4. **Top-down structure** - Context before details, examples before schemas
-5. **Dual format** - Dense Python + JSON for every example
-6. **Inline annotations** - `// required`, `// optional` directly in schemas
+**Use**: LLM docs, code generation guides (JSON/DSL/config), teaching APIs to AI
 
-**Evolution**: 5 phases from "document wire protocol" (wrong) → "enable LLM code generation" (right)
-
----
-
-## When to Use This Process
-
-**Use for**:
-- LLM-focused documentation
-- Code generation guides (JSON, DSL, config)
-- Teaching APIs to AI assistants
-
-**Don't use for**:
-- Developer documentation (needs implementation details)
-- Reference manuals (needs exhaustive coverage)
-- Internal documentation (needs organizational context)
-
----
+**Don't**: Developer docs (need impl details), reference manuals (exhaustive), internal docs (org context)
 
 ## References
 
-**Created this guide from**:
-- `docs/source/gfql/spec/cypher_mapping.md` - Framing (analogies)
-- `docs/source/gfql/about.rst` - Multi-step examples
-- `docs/source/gfql/builtin_calls.rst` - Rich parameter values (palettes, icons)
+**Sources**: `gfql/spec/cypher_mapping.md` (analogies), `gfql/about.rst` (multi-step), `gfql/builtin_calls.rst` (rich params)
 
-**Research artifacts**:
-- `PLAN.md` - 6-phase evolution log with simulation framework
-- `PHASE4_RESEARCH_SUMMARY.md` - Gap analysis leading to Phase 5 audit
-- `simulations/` - 8+ persona scenarios validating this process
+**Artifacts**: `PLAN.md` (6 phases + simulations), `PHASE4_RESEARCH_SUMMARY.md` (gap analysis), `simulations/` (8+ personas)
 
-**Result**:
-- `LLM_GUIDE.md` - 484-520 lines (target), self-contained, LLM-optimized
+**Result**: `LLM_GUIDE.md` 484-520 lines, self-contained, LLM-optimized

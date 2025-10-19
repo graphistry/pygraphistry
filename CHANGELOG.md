@@ -24,6 +24,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Covers Core Types, Predicates, Common Patterns, Graph Algorithms, Visualization, Domain Examples
   * Includes generation rules, common mistakes, and call functions reference
   * Available at `docs/source/gfql/spec/llm_guide.md` with reference label `gfql-spec-llm-guide`
+  * Includes maintenance process guide at `ai/prompts/GFQL_LLM_GUIDE_MAINTENANCE.md` for keeping guide updated
 
 ### Infra
 - Refactored DataFrame type coercion into Engine module (#784)
