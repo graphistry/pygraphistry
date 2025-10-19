@@ -12,7 +12,7 @@ from graphistry.Engine import (
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
-from .primitives import safe_merge
+from graphistry.Engine import safe_merge
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 

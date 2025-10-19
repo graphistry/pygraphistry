@@ -4,9 +4,8 @@ from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
 from inspect import getmodule
 
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
-from graphistry.compute.primitives import safe_concat, safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject
@@ -224,7 +223,9 @@ class ComputeMixin(Plottable):
         else:
             engine_concrete = Engine(engine.value)
 
-        concat_df = safe_concat([g._edges[g._source], g._edges[g._destination]], engine=engine_concrete)
+        # Use engine-specific concat for Series (pd.concat/cudf.concat work with Series directly)
+        concat_fn = df_concat(engine_concrete)
+        concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 

@@ -65,7 +65,7 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
-from .primitives import safe_merge
+from graphistry.Engine import safe_merge
 from .typing import DataFrameT
 
 

@@ -63,7 +63,7 @@ class TestSafeConcatPandas(unittest.TestCase):
 
     def test_safe_concat_pandas_basic(self):
         """Basic concat of two pandas DataFrames."""
-        from graphistry.compute.primitives import safe_concat
+        from graphistry.Engine import safe_concat
         from graphistry.Engine import EngineAbstract
 
         df1 = pd.DataFrame({'a': [1, 2], 'b': [3, 4]})
@@ -77,7 +77,7 @@ class TestSafeConcatPandas(unittest.TestCase):
 
     def test_safe_concat_pandas_with_ignore_index(self):
         """Concat with ignore_index=True."""
-        from graphistry.compute.primitives import safe_concat
+        from graphistry.Engine import safe_concat
         from graphistry.Engine import EngineAbstract
 
         df1 = pd.DataFrame({'a': [1, 2]})
@@ -91,7 +91,7 @@ class TestSafeConcatPandas(unittest.TestCase):
 
     def test_safe_concat_empty_list(self):
         """Concat of empty list should return empty DataFrame."""
-        from graphistry.compute.primitives import safe_concat
+        from graphistry.Engine import safe_concat
         from graphistry.Engine import EngineAbstract
 
         result = safe_concat([], engine=EngineAbstract.PANDAS)
@@ -107,7 +107,7 @@ class TestSafeMergePandas(unittest.TestCase):
 
     def test_safe_merge_pandas_basic(self):
         """Basic merge of two pandas DataFrames."""
-        from graphistry.compute.primitives import safe_merge
+        from graphistry.Engine import safe_merge
         from graphistry.Engine import EngineAbstract
 
         left = pd.DataFrame({'id': [1, 2, 3], 'val': ['a', 'b', 'c']})
@@ -121,7 +121,7 @@ class TestSafeMergePandas(unittest.TestCase):
 
     def test_safe_merge_pandas_left_join(self):
         """Left merge of two pandas DataFrames."""
-        from graphistry.compute.primitives import safe_merge
+        from graphistry.Engine import safe_merge
         from graphistry.Engine import EngineAbstract
 
         left = pd.DataFrame({'id': [1, 2, 3], 'val': ['a', 'b', 'c']})
@@ -135,7 +135,7 @@ class TestSafeMergePandas(unittest.TestCase):
 
     def test_safe_merge_pandas_different_columns(self):
         """Merge using left_on and right_on."""
-        from graphistry.compute.primitives import safe_merge
+        from graphistry.Engine import safe_merge
         from graphistry.Engine import EngineAbstract
 
         left = pd.DataFrame({'left_id': [1, 2, 3], 'val': ['a', 'b', 'c']})
