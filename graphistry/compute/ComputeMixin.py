@@ -6,6 +6,7 @@ from inspect import getmodule
 
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat
 from graphistry.Plottable import Plottable
+from graphistry.compute.primitives import safe_concat, safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject
@@ -223,19 +224,7 @@ class ComputeMixin(Plottable):
         else:
             engine_concrete = Engine(engine.value)
 
-        if engine_concrete == Engine.PANDAS:
-            concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
-        elif engine_concrete == Engine.CUDF:
-            import cudf
-            if isinstance(g._edges, cudf.DataFrame):
-                edges_gdf = g._edges
-            elif isinstance(g._edges, pd.DataFrame):
-                edges_gdf = cudf.from_pandas(g._edges)
-            else:
-                raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
-            concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
-        else:
-            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine_concrete))
+        concat_df = safe_concat([g._edges[g._source], g._edges[g._destination]], engine=engine_concrete)
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
@@ -264,19 +253,11 @@ class ComputeMixin(Plottable):
             .rename(columns={g._source: col, g._destination: g_nodes._node})
         )
 
-        # Ensure both DataFrames have compatible types for merge
+        # Use safe_merge for engine type coercion
         nodes_subset = g_nodes._nodes[
             [c for c in g_nodes._nodes.columns if c != col]
         ]
-        nodes_engine = resolve_engine(EngineAbstract.AUTO, nodes_subset)
-        degree_engine = resolve_engine(EngineAbstract.AUTO, in_degree_df)
-
-        # Convert to matching engine if needed (cuDF/pandas compatibility)
-        if nodes_engine != degree_engine:
-            logger.debug('Engine mismatch in get_indegrees: nodes=%s, degrees=%s. Converting degrees to match nodes.', nodes_engine, degree_engine)
-            in_degree_df = df_to_engine(in_degree_df, nodes_engine)
-
-        nodes_df = nodes_subset.merge(in_degree_df, how="left", on=g._node)
+        nodes_df = safe_merge(nodes_subset, in_degree_df, on=g_nodes._node, how='left')
         nodes_df = nodes_df.assign(**{
             col: nodes_df[col].fillna(0).astype("int32")
         })
@@ -488,17 +469,9 @@ class ComputeMixin(Plottable):
             return self.nodes(nodes_df)
         else:
             # use orig cols, esp. in case collisions like degree
-            # Ensure both DataFrames have compatible types for merge
-            base_nodes_engine = resolve_engine(EngineAbstract.AUTO, g2_base._nodes)
+            # Use safe_merge for engine type coercion
             levels_df = nodes_df[[g2_base._node, level_col]]
-            levels_engine = resolve_engine(EngineAbstract.AUTO, levels_df)
-
-            # Convert to matching engine if needed (cuDF/pandas compatibility)
-            if base_nodes_engine != levels_engine:
-                logger.debug('Engine mismatch in get_topological_levels: base_nodes=%s, levels=%s. Converting levels to match base_nodes.', base_nodes_engine, levels_engine)
-                levels_df = df_to_engine(levels_df, base_nodes_engine)
-
-            out_df = g2_base._nodes.merge(levels_df, on=g2_base._node, how="left")
+            out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
 
     def prune_self_edges(self):

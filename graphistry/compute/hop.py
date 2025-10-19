@@ -12,6 +12,7 @@ from graphistry.Engine import (
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
+from .primitives import safe_merge
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 
@@ -171,7 +172,8 @@ def process_hop_direction(
     
     # Merge with wavefront to follow links
     hop_edges = (
-        wave_front_iter.merge(
+        safe_merge(
+            wave_front_iter,
             merge_df,
             how='inner',
             on=node_col)
@@ -184,7 +186,8 @@ def process_hop_direction(
     
     # Apply target wave front filtering if provided
     if intermediate_target_wave_front is not None:
-        hop_edges = hop_edges.merge(
+        hop_edges = safe_merge(
+            hop_edges,
             intermediate_target_wave_front.rename(columns={node_col: target_col}),
             how='inner',
             on=target_col
@@ -204,17 +207,18 @@ def process_hop_direction(
             logger.debug('node_match_dict: %s', node_match_dict)
             logger.debug('base_target_nodes:\n%s', base_target_nodes)
             logger.debug('new_node_ids:\n%s', new_node_ids)
-            logger.debug('enriched nodes for filtering:\n%s', 
-                        base_target_nodes.merge(new_node_ids, on=node_col, how='inner'))
-            
+            logger.debug('enriched nodes for filtering:\n%s',
+                        safe_merge(base_target_nodes, new_node_ids, on=node_col, how='inner'))
+
         new_node_ids = query_if_not_none(
             node_match_query,
             filter_by_dict(
-                base_target_nodes.merge(new_node_ids, on=node_col, how='inner'),
+                safe_merge(base_target_nodes, new_node_ids, on=node_col, how='inner'),
                 node_match_dict
         ))[[node_col]]
         
-        hop_edges = hop_edges.merge(
+        hop_edges = safe_merge(
+            hop_edges,
             new_node_ids.rename(columns={node_col: target_col}),
             how='inner',
             on=target_col
@@ -422,21 +426,21 @@ def hop(self: Plottable,
             logger.debug('wave_front_base:\n%s',
                 starting_nodes
                 if first_iter else
-                wave_front.merge(self._nodes, on=g2._node, how='left'),
+                safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
             )
 
         if not to_fixed_point and hops_remaining is not None:
             if hops_remaining < 1:
                 break
             hops_remaining = hops_remaining - 1
-        
+
         assert len(wave_front.columns) == 1, "just indexes"
         wave_front_iter : DataFrameT = query_if_not_none(
             source_node_query,
             filter_by_dict(
                 starting_nodes
                 if first_iter else
-                wave_front.merge(self._nodes, on=g2._node, how='left'),
+                safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
                 source_node_match
             )
         )[[ g2._node ]]
@@ -580,7 +584,7 @@ def hop(self: Plottable,
         logger.debug('target_wave_front:\n%s', target_wave_front)
 
     #hydrate edges
-    final_edges = edges_indexed.merge(matches_edges, on=EDGE_ID, how='inner')
+    final_edges = safe_merge(edges_indexed, matches_edges, on=EDGE_ID, how='inner')
     if EDGE_ID not in self._edges:
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
@@ -601,7 +605,8 @@ def hop(self: Plottable,
         logger.debug('matches_nodes:\n%s', matches_nodes)
         logger.debug('wave_front:\n%s', wave_front)
         logger.debug('self._nodes:\n%s', self._nodes)
-        final_nodes = rich_nodes.merge(
+        final_nodes = safe_merge(
+            rich_nodes,
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,
             how='inner')

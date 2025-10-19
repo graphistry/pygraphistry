@@ -4,6 +4,7 @@ from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, r
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
+from graphistry.compute.primitives import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
@@ -215,20 +216,14 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
             step_df = getattr(g_step, df_fld)[[id, op._name]]
-            # Ensure step DataFrame matches requested engine for merge compatibility
-            step_df_engine = resolve_engine(EngineAbstract.AUTO, step_df)
-            if step_df_engine != engine:
-                step_df = df_to_engine(step_df, engine)
-            out_df = out_df.merge(step_df, on=id, how='left')
+            # Use safe_merge to handle engine type coercion automatically
+            out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
             s = out_df[op._name]
             out_df[op._name] = s.where(s.notna(), False).astype('bool')
 
-    # Ensure original graph DataFrame matches requested engine for final merge
+    # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
-    g_df_engine = resolve_engine(EngineAbstract.AUTO, g_df)
-    if g_df_engine != engine:
-        g_df = df_to_engine(g_df, engine)
-    out_df = out_df.merge(g_df, on=id, how='left')
+    out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 

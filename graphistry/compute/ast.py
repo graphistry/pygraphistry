@@ -65,6 +65,7 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
+from .primitives import safe_merge
 from .typing import DataFrameT
 
 
@@ -234,7 +235,7 @@ class ASTNode(ASTObject):
         )
         if target_wave_front is not None:
             assert g._node is not None
-            reduced_nodes = cast(DataFrameT, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how='inner')
+            reduced_nodes = safe_merge(cast(DataFrameT, out_g._nodes), target_wave_front[[g._node]], on=g._node, how='inner')
             out_g = out_g.nodes(reduced_nodes)
 
         if self._name is not None:
