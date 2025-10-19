@@ -530,8 +530,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     code=ErrorCode.E201,
                     message="Cannot mix call() operations with n()/e() traversals in interior of chain",
                     suggestion="call() operations are only allowed at chain boundaries (start/end). "
-                              "For interior enrichment, use let() to compose independent chains. "
-                              "Example: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}). "
+                              "For complex patterns, use either: "
+                              "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
+                              "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
                               "See issues #791, #792"
                 )
 
