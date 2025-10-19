@@ -80,6 +80,30 @@ def is_dict_str_to_list_str(v: Any) -> bool:
     return True
 
 
+def is_engine_param(v: Any) -> bool:
+    """Validate engine parameter - accepts EngineAbstract enum or string literal.
+
+    Valid values:
+    - EngineAbstract enum values (PANDAS, CUDF, DASK, DASK_CUDF, AUTO)
+    - String literals: 'pandas', 'cudf', 'dask', 'dask_cudf', 'auto'
+    """
+    # Import here to avoid circular dependency
+    try:
+        from graphistry.Engine import EngineAbstract
+
+        # Accept EngineAbstract enum values
+        if isinstance(v, EngineAbstract):
+            return True
+    except ImportError:
+        pass  # If import fails, just check string values
+
+    # Accept string literals
+    if isinstance(v, str):
+        return v in ['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']
+
+    return False
+
+
 def validate_hypergraph_opts(v: Any) -> bool:
     """Validate hypergraph opts parameter structure.
 
@@ -171,7 +195,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'col': is_string,
             'degree_in': is_string,
             'degree_out': is_string,
-            'engine': is_string
+            'engine': is_engine_param
         },
         'description': 'Calculate node degrees'
     },
@@ -205,7 +229,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
                 or (isinstance(v, dict) and 'chain' in v)
             ),
             'name': is_string_or_none,
-            'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']
+            'engine': is_engine_param
         },
         'description': 'Mark nodes/edges matching GFQL pattern with boolean column'
     },
@@ -214,7 +238,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'engine', 'reuse'},
         'required_params': set(),
         'param_validators': {
-            'engine': is_string,
+            'engine': is_engine_param,
             'reuse': is_bool
         },
         'description': 'Generate node table from edges'
@@ -239,7 +263,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'edge_query': is_string,
             'destination_node_query': is_string,
             'return_as_wave_front': is_bool,
-            'engine': is_string
+            'engine': is_engine_param
         },
         'description': 'Traverse graph by following edges'
     },
@@ -372,7 +396,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'circle_layout_params': is_dict,
             'partition_key': is_string_or_none,
             'remove_self_edges': is_bool,
-            'engine': is_string,
+            'engine': is_engine_param,
             'featurize': is_dict
         },
         'description': 'ForceAtlas2 layout algorithm'
@@ -523,7 +547,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'encode_colors': is_bool,
             'colors': lambda v: v is None or is_list_of_strings(v),
             'partition_key': is_string_or_none,
-            'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
+            'engine': is_engine_param
         },
         'description': 'Group-in-a-box layout with community detection'
     },
@@ -543,7 +567,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'drop_edge_attrs': is_bool,
             'verbose': is_bool,
             'direct': is_bool,
-            'engine': lambda v: is_string(v) and v in ['pandas', 'cudf', 'dask', 'auto'],
+            'engine': is_engine_param,
             'npartitions': lambda v: v is None or is_int(v),
             'chunksize': lambda v: v is None or is_int(v),
             'from_edges': is_bool,
