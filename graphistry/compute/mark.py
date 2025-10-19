@@ -19,14 +19,14 @@ logger = setup_logger(__name__)
 
 
 def _validate_mark_params(
-    gfql: Union[Chain, List[ASTObject]],
+    gfql: Chain,
     name: str,
     target_df: pd.DataFrame
 ) -> None:
     """Validate mark() parameters.
 
     Args:
-        gfql: GFQL pattern (Chain or list of AST objects)
+        gfql: GFQL pattern as Chain (already converted from list/JSON)
         name: Name for the boolean marker column
         target_df: Target DataFrame (nodes or edges)
 
@@ -35,19 +35,17 @@ def _validate_mark_params(
         GFQLSyntaxError: If GFQL pattern is invalid
         GFQLSchemaError: If column name conflicts
     """
-    # Validate gfql type
-    if not isinstance(gfql, (Chain, list)):
+    # Validate gfql type (should already be Chain at this point)
+    if not isinstance(gfql, Chain):
         raise GFQLTypeError(
             ErrorCode.E201,
-            "gfql must be Chain or List[ASTObject]",
+            "gfql must be Chain (internal error)",
             field="gfql",
-            value=type(gfql).__name__,
-            suggestion="Use [n()] or chain([n()])"
+            value=type(gfql).__name__
         )
 
     # Validate gfql not empty
-    chain_list = gfql if isinstance(gfql, list) else gfql.chain
-    if len(chain_list) == 0:
+    if len(gfql.chain) == 0:
         raise GFQLSyntaxError(
             ErrorCode.E105,
             "gfql cannot be empty",
@@ -56,7 +54,7 @@ def _validate_mark_params(
         )
 
     # Validate final operation is node or edge matcher
-    final_op = chain_list[-1]
+    final_op = gfql.chain[-1]
     if not isinstance(final_op, (ASTNode, ASTEdge)):
         raise GFQLSyntaxError(
             ErrorCode.E104,
@@ -86,7 +84,17 @@ def _validate_mark_params(
 
     # Validate name doesn't conflict with internal columns
     from graphistry.compute.gfql.identifiers import validate_column_name
-    validate_column_name(name, "mark() name parameter")
+    try:
+        validate_column_name(name, "mark() name parameter")
+    except ValueError as e:
+        # Convert ValueError to GFQLSchemaError
+        raise GFQLSchemaError(
+            ErrorCode.E304,
+            str(e),
+            field="name",
+            value=name,
+            suggestion="Use user-facing column name without '__gfql_' prefix"
+        ) from e
 
     # Validate name doesn't already exist
     if name in target_df.columns:
@@ -166,6 +174,15 @@ def mark(
             field="gfql",
             value=type(gfql).__name__,
             suggestion="Use [n()] or chain([n()])"
+        )
+
+    # Validate gfql is not empty (do this before accessing chain[-1])
+    if len(gfql_chain.chain) == 0:
+        raise GFQLSyntaxError(
+            ErrorCode.E105,
+            "gfql cannot be empty",
+            field="gfql",
+            suggestion="Provide at least one node or edge matcher"
         )
 
     # Determine target (nodes or edges) from final operation
