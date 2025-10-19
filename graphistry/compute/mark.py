@@ -4,7 +4,7 @@ Mark mode: Annotate nodes/edges with boolean columns based on GFQL patterns.
 Unlike filtering operations, marking preserves ALL entities and adds a boolean
 column indicating which entities matched the pattern.
 """
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 import pandas as pd
 
 from graphistry.Engine import EngineAbstract, resolve_engine, df_to_engine
@@ -13,6 +13,9 @@ from graphistry.util import setup_logger
 from .ast import ASTObject, ASTNode, ASTEdge
 from .chain import Chain
 from .exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError, GFQLSchemaError
+
+if TYPE_CHECKING:
+    from typing import Tuple
 
 
 logger = setup_logger(__name__)
@@ -190,24 +193,28 @@ def mark(
     is_node_mark = isinstance(final_op, ASTNode)
 
     # Get target DataFrame
+    id_col: Union[str, List[str]]
     if is_node_mark:
         if g._nodes is None:
             g = g.materialize_nodes(engine=engine)
         target_df = g._nodes
-        id_col = g._node
+        id_col = g._node if g._node is not None else 'node'
     else:
         if g._edges is None:
             raise ValueError("Cannot mark edges when graph has no edges")
         target_df = g._edges
         # For edges, we need both source and destination
-        id_col = [g._source, g._destination]
+        src = g._source if g._source is not None else 'src'
+        dst = g._destination if g._destination is not None else 'dst'
+        id_col = [src, dst]
 
     # Validate parameters
     _validate_mark_params(gfql_chain, name, target_df)
 
     # Execute GFQL to get matches
     logger.debug(f"Executing GFQL for mark '{name}'")
-    matched_g = g.gfql(gfql_chain, engine=engine)
+    # gfql is added to Plottable via ComputeMixin at runtime
+    matched_g = g.gfql(gfql_chain, engine=engine)  # type: ignore[attr-defined]
 
     # Get matched DataFrame
     if is_node_mark:
@@ -222,6 +229,8 @@ def mark(
             # No matches - all False
             mask = pd.Series([False] * len(target_df), index=target_df.index)
         else:
+            # Type narrowing: id_col is str in node case
+            assert isinstance(id_col, str), "id_col must be str for node marking"
             matched_ids = set(matched_df[id_col].values)
             mask = target_df[id_col].isin(matched_ids)
     else:
@@ -230,13 +239,16 @@ def mark(
             # No matches - all False
             mask = pd.Series([False] * len(target_df), index=target_df.index)
         else:
+            # Type narrowing: id_col is List[str] in edge case
+            assert isinstance(id_col, list) and len(id_col) == 2, "id_col must be list of 2 strings for edge marking"
+            src_col, dst_col = id_col[0], id_col[1]
             # Create set of (source, dest) tuples for efficient lookup
             matched_pairs = set(
-                zip(matched_df[id_col[0]].values, matched_df[id_col[1]].values)
+                zip(matched_df[src_col].values, matched_df[dst_col].values)
             )
             # Check if each edge is in matched set
             mask = target_df.apply(
-                lambda row: (row[id_col[0]], row[id_col[1]]) in matched_pairs,
+                lambda row: (row[src_col], row[dst_col]) in matched_pairs,
                 axis=1
             )
 
