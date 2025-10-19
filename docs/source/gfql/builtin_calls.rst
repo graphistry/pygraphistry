@@ -1048,13 +1048,7 @@ Filter edges based on attribute values.
 mark
 ~~~~
 
-Mark nodes or edges matching a GFQL pattern with a boolean column, without filtering out non-matches. Unlike filtering operations that remove non-matching entities, ``mark`` preserves all entities and adds a boolean column indicating which ones matched the pattern.
-
-This is particularly useful for:
-
-- Multi-stage pattern detection where you want to accumulate multiple marks
-- Visualization where you want to color/size by match status
-- Conditional logic based on pattern membership
+Mark nodes or edges matching a GFQL pattern with a boolean column without filtering. Unlike ``n()``/``e()`` which remove non-matches, ``mark`` preserves all entities and adds a True/False column.
 
 **Parameters:**
 
@@ -1083,102 +1077,30 @@ This is particularly useful for:
 
 .. code-block:: python
 
-    from graphistry import n, e_forward, call, let, ref
+    from graphistry import n, call, let, ref
 
-    # Mark VIP users (all nodes preserved)
+    # Basic: Mark VIP users (all nodes preserved)
     g.gfql([
         call('mark', {
             'gfql': [n({'customer_type': 'VIP'})],
             'name': 'is_vip'
         })
     ])
-    # Result: All nodes present, 'is_vip' column with True/False values
+    # Returns: All nodes with 'is_vip' column (True/False)
 
-    # Mark multiple patterns - marks accumulate
-    g.gfql([
-        call('mark', {
-            'gfql': [n({'type': 'person'})],
-            'name': 'is_person'
-        }),
-        call('mark', {
-            'gfql': [n({'region': 'EMEA'})],
-            'name': 'is_emea'
-        })
-    ])
-    # Result: Both 'is_person' and 'is_emea' columns present
-
-    # Mark edges instead of nodes
-    g.gfql([
-        call('mark', {
-            'gfql': [e_forward({'type': 'friend'})],
-            'name': 'is_friend_edge'
-        })
-    ])
-    # Result: All edges present, 'is_friend_edge' column added
-
-    # Use marks in let() for complex workflows
+    # Advanced: Accumulate marks in let() then filter
     g.gfql(let({
-        'marked_vips': call('mark', {
-            'gfql': [n({'customer_type': 'VIP'})],
-            'name': 'is_vip'
-        }),
-        'marked_active': ref('marked_vips', [
-            call('mark', {
-                'gfql': [n({'status': 'active'})],
-                'name': 'is_active'
-            })
-        ]),
-        # Filter to VIPs who are active
-        'vip_and_active': ref('marked_active', [
-            n({'is_vip': True, 'is_active': True})
-        ])
+        'marked_vips': call('mark', {'gfql': [n({'customer_type': 'VIP'})], 'name': 'is_vip'}),
+        'marked_active': ref('marked_vips', [call('mark', {'gfql': [n({'status': 'active'})], 'name': 'is_active'})]),
+        'vip_and_active': ref('marked_active', [n({'is_vip': True, 'is_active': True})])
     }))
 
-    # Combine marking with visualization
-    g.gfql([
-        call('mark', {
-            'gfql': [n({'risk_score': gt(0.8)})],
-            'name': 'is_high_risk'
-        }),
-        call('encode_point_color', {
-            'column': 'is_high_risk',
-            'categorical_mapping': {True: 'red', False: 'green'}
-        })
-    ])
+**Use Cases:** Fraud detection, security analysis, multi-stage pattern detection, visualization coloring.
 
-**Use Cases:**
+**Schema Effects:** Adds one boolean column to nodes or edges.
 
-- **Fraud Detection**: Mark suspicious transactions/accounts while keeping full context
-- **Security Analysis**: Mark compromised systems without losing network topology
-- **Social Network Analysis**: Mark influential users for comparison with non-influential
-- **Supply Chain**: Mark delayed shipments while tracking full supply chain
-
-**Key Differences from Filtering:**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 30 30
-
-   * - Operation
-     - Entities Returned
-     - Use Case
-   * - ``n({'type': 'person'})``
-     - Only matching nodes
-     - Extract subset for analysis
-   * - ``call('mark', {'gfql': [n({'type': 'person'})], 'name': 'is_person'})``
-     - All nodes, with boolean column
-     - Compare matches vs non-matches
-
-**Schema Effects:** Adds one boolean column to nodes or edges (depending on GFQL pattern).
-
-**Notes:**
-
-- The GFQL pattern must end with a node matcher (``n()``) or edge matcher (``e_forward()``, etc.)
-- Target (nodes vs edges) is automatically inferred from the final operation in the GFQL pattern
-- Column name must not conflict with existing columns (raises error if it does)
-- Column name cannot use the reserved ``__gfql_*__`` prefix for internal columns
-- Boolean values are True for matches, False for non-matches (never None/NaN)
-- Marks accumulate when chaining multiple mark operations
+.. note::
+   Target (nodes vs edges) inferred from final GFQL operation. Column name must not conflict with existing columns or use ``__gfql_*__`` prefix.
 
 hop
 ~~~
