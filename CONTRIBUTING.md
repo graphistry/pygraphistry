@@ -46,10 +46,10 @@ ImportError: Missing optional dependency 'Jinja2'. DataFrame.style requires jinj
 ```
 
 **Guidelines:**
-* ❌ **Avoid:** Accessing `.style` property on DataFrames: `df.style`, `result.style`
-* ✅ **OK:** Plottable methods: `g.style()`, attributes: `_style`, config: `cfg.style = "value"`
-* ✅ **Safe:** Always use `isinstance(result, Plottable)` before accessing attributes on return values
-* ✅ **Safe:** Document when methods can return non-Plottable types (e.g., `hypergraph(return_as='entities')`)
+* **[AVOID]** Accessing `.style` property on DataFrames: `df.style`, `result.style`
+* **[OK]** Plottable methods: `g.style()`, attributes: `_style`, config: `cfg.style = "value"`
+* **[SAFE]** Always use `isinstance(result, Plottable)` before accessing attributes on return values
+* **[SAFE]** Document when methods can return non-Plottable types (e.g., `hypergraph(return_as='entities')`)
 
 **Detection:**
 * CI runs tests without optional dependencies
