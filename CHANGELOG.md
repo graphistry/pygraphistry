@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- GFQL: Allow call() operations at chain boundaries (#792)
+  - Prefix pattern: `[call(...), n(), e(), n()]` now supported
+  - Suffix pattern: `[n(), e(), n(), call(...)]` now supported
+  - Both ends: `[call(...), n(), e(), n(), call(...)]` now supported
+  - Multiple boundary calls: `[call(...), call(...), n(), e(), call(...), call(...)]` works as expected
+  - Interior mixing still disallowed: `[n(), call(...), e()]` raises GFQLValidationError
+  - Provides convenience without requiring `let()` for common patterns
+  - Implemented via boundary detection (`_get_boundary_calls()`) and sequential execution
+  - Example: `g.gfql([call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}), n(), e(), call('get_degrees')])`
+
 ### Infra
 - Refactored DataFrame type coercion into Engine module (#784)
   - Moved `safe_concat()` and `safe_merge()` from `compute/primitives.py` to `Engine.py`
