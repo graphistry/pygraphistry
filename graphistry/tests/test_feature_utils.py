@@ -4,8 +4,7 @@ import graphistry
 import logging
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import pytest
 import unittest
@@ -25,52 +24,10 @@ from graphistry.utils.lazy_import import (
     lazy_sentence_transformers_import
 )
 
-try:
-    from huggingface_hub import snapshot_download
-    from huggingface_hub.utils import LocalEntryNotFoundError
-except ModuleNotFoundError:  # pragma: no cover - optional dependency
-    snapshot_download = None  # type: ignore
-    LocalEntryNotFoundError = Exception  # type: ignore
-
 np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_sentence_transformers_import()
-
-
-def _model_available(model_name: str) -> bool:
-    """Check whether a sentence-transformers model is available locally.
-
-    Avoids network access by relying on HF hub's local lookup.
-    """
-    # Local filesystem path (e.g., /models/average_word_embeddings_komninos)
-    if model_name.startswith("/"):
-        return Path(model_name).exists()
-
-    # HuggingFace identifiers
-    if snapshot_download is None:
-        return False
-
-    try:
-        snapshot_download(repo_id=model_name, local_files_only=True)
-        return True
-    except LocalEntryNotFoundError:
-        return False
-    except Exception:
-        # Any other issue (e.g., corrupted cache) should cause the tests to skip
-        return False
-
-
-REQUIRED_SENTENCE_MODELS: Sequence[str] = (
-    "sentence-transformers/average_word_embeddings_komninos",
-    "sentence-transformers/paraphrase-MiniLM-L6-v2",
-    "sentence-transformers/paraphrase-albert-small-v2",
-)
-
-has_sentence_models = has_min_dependancy_text and all(
-    _model_available(model) for model in REQUIRED_SENTENCE_MODELS
-)
-skip_sentence_tests = not has_min_dependancy or not has_sentence_models
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -221,7 +178,7 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
 
 class TestFeaturizeGetMethods(unittest.TestCase):
     
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
         g = graphistry.nodes(ndf_reddit)
         g2 = g.featurize(y=double_target_reddit,  # ngrams
@@ -235,7 +192,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         self.g2 = g2
         self.g3 = g3
         
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_get_col_matrix(self):
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
@@ -260,7 +217,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
 class TestFastEncoderNode(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
         fenc.fit(feature_engine=resolve_feature_engine('auto'),
@@ -268,11 +225,11 @@ class TestFastEncoderNode(unittest.TestCase):
         self.X, self.Y = fenc.X, fenc.y
         self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
         
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data_nodes(self):
         check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert set(self.X.columns) == set(self.x.columns), 'Node Feature Columns do not match'
         assert set(self.Y.columns) == set(self.y.columns), 'Node Target Columns do not match'
@@ -280,7 +237,7 @@ class TestFastEncoderNode(unittest.TestCase):
 class TestFastEncoderEdge(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
@@ -293,11 +250,11 @@ class TestFastEncoderEdge(unittest.TestCase):
         self.Xe, self.Ye = fenc.X, fenc.y
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data_edges(self):
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert set(self.Xe.columns) == set(self.xe.columns), 'Edge Feature Columns do not match'
         assert set(self.Ye.columns) == set(self.ye.columns), 'Edge Target Columns do not match'
@@ -335,7 +292,7 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Data Target Encoder is not a skrub.TableVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         for min_words in [
@@ -439,7 +396,7 @@ class TestFeatureMethods(unittest.TestCase):
                         self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, meta_cols_reddit]
@@ -454,7 +411,7 @@ class TestFeatureMethods(unittest.TestCase):
         )
         
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge] + target_names_edge
@@ -468,7 +425,7 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
         
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
@@ -478,7 +435,7 @@ class TestFeatureMethods(unittest.TestCase):
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
 
-    @pytest.mark.skipif(skip_sentence_tests, reason="requires local sentence-transformer models")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
         g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
