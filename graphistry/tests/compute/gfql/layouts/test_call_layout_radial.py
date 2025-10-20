@@ -132,6 +132,22 @@ class TestGFQLRingLayoutsCPU:
 
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
 
+    def test_time_mode_invalid_strings_raise(self):
+        """Time mode should raise when time bounds are invalid strings."""
+        g = self._graph_with_time()
+
+        with pytest.raises(GFQLTypeError):
+            execute_call(
+                g,
+                'time_ring_layout',
+                {
+                    'time_col': 'ts',
+                    'time_start': 'not-a-date',
+                    'time_end': '2024-01-01T00:02:00'
+                },
+                Engine.PANDAS
+            )
+
     def test_categorical_requires_ring_col(self):
         """Categorical layout requires specifying ring_col."""
         g = self._graph_with_numeric()

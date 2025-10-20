@@ -325,6 +325,10 @@ def time_ring(
         raise ValueError("time_start must be a numpy.datetime64 or ISO-8601 string")
     if time_end is not None and not isinstance(time_end, np.datetime64):
         raise ValueError("time_end must be a numpy.datetime64 or ISO-8601 string")
+    if time_start is not None and np.isnat(time_start):
+        raise ValueError("time_start could not be parsed as a valid datetime")
+    if time_end is not None and np.isnat(time_end):
+        raise ValueError("time_end could not be parsed as a valid datetime")
 
     if g._nodes is None:
         raise ValueError('Expected nodes table')
