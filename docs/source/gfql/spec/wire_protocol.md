@@ -235,36 +235,6 @@ call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
 }
 ```
 
-**Python (radial layout)**:
-```python
-call('time_ring_layout', {
-    'time_col': 'timestamp',
-    'time_start': '2024-01-01T00:00:00',
-    'time_end': '2024-01-02T00:00:00',
-    'num_rings': 12
-})
-```
-
-**Wire Format**:
-```json
-{
-  "type": "Call",
-  "function": "time_ring_layout",
-  "params": {
-    "time_col": "timestamp",
-    "time_start": "2024-01-01T00:00:00",
-    "time_end": "2024-01-02T00:00:00",
-    "num_rings": 12
-  }
-}
-```
-
-```{note}
-Temporal bounds (`time_start` / `time_end`) are supplied as ISO-8601 strings in
-JSON. The Plotter and GFQL executors coerce them to `numpy.datetime64` before
-computing the layout so both GFQL and direct Python calls behave identically.
-```
-
 ## Predicate Serialization
 
 ### Comparison Predicates
