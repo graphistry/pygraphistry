@@ -1,0 +1,6 @@
+from typing import Any
+
+class SentenceTransformer:
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def encode(self, *args: Any, **kwargs: Any) -> Any: ...
+

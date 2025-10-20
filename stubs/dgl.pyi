@@ -1,0 +1,23 @@
+from typing import Any
+
+class DGLGraph:
+    ...
+
+class DGLHeteroGraph(DGLGraph):
+    ...
+
+class function:
+    ...
+
+class nn:
+    ...
+
+class dataloading:
+    ...
+
+class sampling:
+    ...
+
+class distributed:
+    ...
+
