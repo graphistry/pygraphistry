@@ -10,7 +10,7 @@
     ".*/compute/hop.py"
   ],
   "strict": false,
-  "python_version": "3.8",
+  "python_version": "3.12",
   "search_path": [
     "stubs"
   ]
