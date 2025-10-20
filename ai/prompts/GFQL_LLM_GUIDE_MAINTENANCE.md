@@ -13,6 +13,9 @@
 5. **LLMs generating invalid JSON** → [LLM Failures](#llm-failures)
 6. **Multiple changes** → [Multi-Change Releases](#multi-change-releases)
 
+**See also**: the end-to-end checklist in `ai/docs/gfql/calls_checklist.md`
+whenever a `call()` surface changes.
+
 ## Update Triggers
 
 | Trigger | Source | Action |
@@ -94,6 +97,7 @@ grep "new_fn" graphistry/tests/compute/ -rn
 ```
 
 **Update**: `## Graph Algorithms` (add example) + `## Call Functions` (list)
+- Cross-check `ai/docs/gfql/calls_checklist.md` for required code/tests/doc updates
 
 **Format**:
 ```markdown

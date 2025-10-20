@@ -4,6 +4,11 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 
 ## 🎯 Quick Reference
 
+### Process & Checklists
+- [`calls_checklist.md`](./calls_checklist.md) — Required steps for exposing or updating GFQL `call()` functions.
+- [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
+- [`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md) — Guidance for keeping AI assistants aligned with GFQL changes.
+
 ### Essential GFQL Operations
 ```python
 # Node matching
