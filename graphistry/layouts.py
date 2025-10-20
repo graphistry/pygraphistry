@@ -1,5 +1,6 @@
-from typing import cast, List, Optional, Union, TYPE_CHECKING
-import math, pandas as pd, numpy as np
+from typing import cast, List, Optional, Union
+import math
+import pandas as pd
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
@@ -36,19 +37,7 @@ class LayoutsMixin(Plottable):
     modularity_weighted_layout.__doc__ = modularity_weighted_layout_base.__doc__
 
     def time_ring_layout(self, *args, **kwargs):
-        params = dict(kwargs)
-
-        for key in ('time_start', 'time_end'):
-            value = params.get(key)
-            if isinstance(value, str):
-                params[key] = np.datetime64(value)
-
-        if 'format_labels' in params and 'format_label' not in params:
-            params['format_label'] = params.pop('format_labels')
-        elif 'format_labels' in params:
-            params.pop('format_labels')
-
-        return time_ring_base(self, *args, **params)
+        return time_ring_base(self, *args, **kwargs)
     time_ring_layout.__doc__ = time_ring_base.__doc__
 
     def ring_categorical_layout(self, *args, **kwargs):
@@ -224,7 +213,7 @@ class LayoutsMixin(Plottable):
             g2 = g.get_topological_levels(level_col, *args, **kwargs)
             g2._nodes[y_col] = g2._nodes[level_col]
         else:
-            if (g._nodes is None) or (not (level_col in g._nodes)):
+            if (g._nodes is None) or (level_col not in g._nodes):
                 raise ValueError('tree_layout() with explicit level_col requires ._nodes with that as a column; see .nodes()')
             g2 = g.nodes(g._nodes.assign(**{y_col: g._nodes[level_col]}))
         if descending:
@@ -255,7 +244,7 @@ class LayoutsMixin(Plottable):
                          .cumcount())
                 xs_gs = cudf.from_pandas(xs_ps)
                 g2 = g2.nodes(g2._nodes.assign(**{x_col: xs_gs}))
-            except:
+            except Exception:
                 raise ValueError('Requires RAPIDS 0.21+ or Pandas 0.22+')
 
         if level_align == 'left':
