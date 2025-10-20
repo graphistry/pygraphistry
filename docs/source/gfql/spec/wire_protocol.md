@@ -235,6 +235,11 @@ call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
 }
 ```
 
+```{note}
+For the complete list of safelisted layout calls—including the radial
+variants—refer to {doc}`/gfql/builtin_calls`.
+```
+
 ## Predicate Serialization
 
 ### Comparison Predicates
