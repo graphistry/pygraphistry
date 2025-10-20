@@ -64,7 +64,14 @@ CallMethodName = Literal[
 ]
 
 GFQLEngineLiteral = Literal['auto', 'pandas', 'cudf', 'dask', 'dask_cudf']
-AxisEntry = Mapping[str, object]
+
+
+class AxisEntry(TypedDict, total=False):
+    label: str
+    r: float
+    internal: bool
+
+
 AxisTransform = Callable[[Sequence[AxisEntry]], Sequence[AxisEntry]]
 ContinuousAxisSpec = Union[Mapping[float, str], Sequence[str]]
 ContinuousLabelFormatter = Callable[[float, int, float], str]

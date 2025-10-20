@@ -63,13 +63,11 @@ def partition(
     if engine == Engine.PANDAS:
         try:
             g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
-        except Exception:
-            logger.warning(
-                "igraph partitioning failed; assigning fallback partition labels", exc_info=True
-            )
-            g2 = g2.nodes(
-                g2._nodes.assign(**{partition_key: 0})
-            )
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "group_in_a_box_layout with the pandas engine requires python-igraph. "
+                "Install it via `pip install igraph` or supply partition_key manually."
+            ) from exc
     elif engine == Engine.CUDF:
         g2 = g2.compute_cugraph(partition_alg, **partition_params, out_col=partition_key)
 

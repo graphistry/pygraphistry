@@ -321,6 +321,11 @@ def time_ring(
     if format_label is None and format_labels is not None:
         format_label = format_labels
 
+    if time_start is not None and not isinstance(time_start, np.datetime64):
+        raise ValueError("time_start must be a numpy.datetime64 or ISO-8601 string")
+    if time_end is not None and not isinstance(time_end, np.datetime64):
+        raise ValueError("time_end must be a numpy.datetime64 or ISO-8601 string")
+
     if g._nodes is None:
         raise ValueError('Expected nodes table')
     

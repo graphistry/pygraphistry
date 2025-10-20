@@ -176,6 +176,7 @@ class TestGroupInABoxExecution:
         # Skip if method not available on test object
         if not hasattr(simple_graph, 'group_in_a_box_layout'):
             pytest.skip("group_in_a_box_layout not available on test object")
+        pytest.importorskip("igraph", reason="group_in_a_box_layout requires python-igraph")
             
         result = execute_call(
             simple_graph,
@@ -197,6 +198,7 @@ class TestGroupInABoxExecution:
         # Skip if method not available on test object
         if not hasattr(simple_graph, 'group_in_a_box_layout'):
             pytest.skip("group_in_a_box_layout not available on test object")
+        pytest.importorskip("igraph", reason="group_in_a_box_layout requires python-igraph")
             
         result = execute_call(
             simple_graph,
