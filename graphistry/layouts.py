@@ -1,5 +1,5 @@
 from typing import cast, List, Optional, Union, TYPE_CHECKING
-import math, pandas as pd
+import math, pandas as pd, numpy as np
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
@@ -36,7 +36,19 @@ class LayoutsMixin(Plottable):
     modularity_weighted_layout.__doc__ = modularity_weighted_layout_base.__doc__
 
     def time_ring_layout(self, *args, **kwargs):
-        return time_ring_base(self, *args, **kwargs)
+        params = dict(kwargs)
+
+        for key in ('time_start', 'time_end'):
+            value = params.get(key)
+            if isinstance(value, str):
+                params[key] = np.datetime64(value)
+
+        if 'format_labels' in params and 'format_label' not in params:
+            params['format_label'] = params.pop('format_labels')
+        elif 'format_labels' in params:
+            params.pop('format_labels')
+
+        return time_ring_base(self, *args, **params)
     time_ring_layout.__doc__ = time_ring_base.__doc__
 
     def ring_categorical_layout(self, *args, **kwargs):

@@ -68,6 +68,16 @@ def is_list_of_strings(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
 
+def is_list(v: Any) -> bool:
+    return isinstance(v, list)
+
+
+def is_list_or_dict(v: Any) -> bool:
+    return isinstance(v, (list, dict))
+
+
+
+
 def is_dict_str_to_list_str(v: Any) -> bool:
     """Validate dict mapping strings to lists of strings."""
     if not isinstance(v, dict):
@@ -346,6 +356,76 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'bind_position': is_bool
         },
         'description': 'Graphviz layouts (dot, neato, etc)'
+    },
+
+    'ring_continuous_layout': {
+        'allowed_params': {
+            'ring_col', 'min_r', 'max_r', 'normalize_ring_col', 'num_rings',
+            'ring_step', 'v_start', 'v_end', 'v_step', 'axis', 'format_axis',
+            'format_labels', 'reverse', 'play_ms', 'engine'
+        },
+        'required_params': set(),
+        'param_validators': {
+            'ring_col': is_string_or_none,
+            'min_r': lambda v: v is None or is_int_or_float(v),
+            'max_r': lambda v: v is None or is_int_or_float(v),
+            'num_rings': lambda v: v is None or is_int(v),
+            'ring_step': lambda v: v is None or is_int_or_float(v),
+            'v_start': lambda v: v is None or is_int_or_float(v),
+            'v_end': lambda v: v is None or is_int_or_float(v),
+            'v_step': lambda v: v is None or is_int_or_float(v),
+            'axis': lambda v: v is None or is_list_or_dict(v),
+            'normalize_ring_col': is_bool,
+            'reverse': is_bool,
+            'play_ms': lambda v: v is None or is_int(v),
+            'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
+        },
+        'description': 'Radial layout based on numeric columns'
+    },
+
+    'ring_categorical_layout': {
+        'allowed_params': {
+            'ring_col', 'order', 'drop_empty', 'combine_unhandled',
+            'append_unhandled', 'min_r', 'max_r', 'axis', 'format_axis',
+            'format_labels', 'reverse', 'play_ms', 'engine'
+        },
+        'required_params': {'ring_col'},
+        'param_validators': {
+            'ring_col': is_string,
+            'order': lambda v: v is None or is_list(v),
+            'drop_empty': is_bool,
+            'combine_unhandled': is_bool,
+            'append_unhandled': is_bool,
+            'min_r': lambda v: v is None or is_int_or_float(v),
+            'max_r': lambda v: v is None or is_int_or_float(v),
+            'axis': lambda v: v is None or is_list_or_dict(v),
+            'reverse': is_bool,
+            'play_ms': lambda v: v is None or is_int(v),
+            'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
+        },
+        'description': 'Radial layout grouping nodes by categories'
+    },
+
+    'time_ring_layout': {
+        'allowed_params': {
+            'time_col', 'time_start', 'time_end', 'time_unit', 'num_rings',
+            'min_r', 'max_r', 'format_axis', 'format_label',
+            'reverse', 'play_ms', 'engine'
+        },
+        'required_params': {'time_col'},
+        'param_validators': {
+            'time_col': is_string,
+            'time_start': lambda v: v is None or isinstance(v, str),
+            'time_end': lambda v: v is None or isinstance(v, str),
+            'time_unit': lambda v: v is None or v in ('s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C'),
+            'num_rings': lambda v: v is None or is_int(v),
+            'min_r': lambda v: v is None or is_int_or_float(v),
+            'max_r': lambda v: v is None or is_int_or_float(v),
+            'reverse': is_bool,
+            'play_ms': lambda v: v is None or is_int(v),
+            'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
+        },
+        'description': 'Radial layout for time-series rings'
     },
 
     'fa2_layout': {

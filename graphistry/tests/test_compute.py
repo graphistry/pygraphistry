@@ -6,6 +6,7 @@ from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.umap_utils import UMAPMixin
 from graphistry.feature_utils import FeatureMixin
+from graphistry.layouts import LayoutsMixin
 
 
 class CG(ComputeMixin):
@@ -14,13 +15,14 @@ class CG(ComputeMixin):
         ComputeMixin.__init__(self, *args, **kwargs)
 
 
-class CGFull(UMAPMixin, FeatureMixin, ComputeMixin, PlotterBase, object):
+class CGFull(UMAPMixin, FeatureMixin, LayoutsMixin, ComputeMixin, PlotterBase, object):
     def __init__(self, *args, **kwargs):
         print("CGFull init")
         super(CGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
         FeatureMixin.__init__(self, *args, **kwargs)
         UMAPMixin.__init__(self, *args, **kwargs)
+        LayoutsMixin.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
 
 

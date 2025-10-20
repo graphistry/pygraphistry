@@ -7,7 +7,7 @@ Note: Type system can't express all constraints (e.g., no __gfql_*__ columns).
 Additional validation happens at runtime in graphistry.compute.ast::ASTCall._validate_fields().
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, cast, overload
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, Callable, cast, overload
 
 if TYPE_CHECKING:
     from graphistry.compute.ast import ASTCall
@@ -38,6 +38,9 @@ CallMethodName = Literal[
     'layout_cugraph',
     'layout_graphviz',
     'layout_igraph',
+    'ring_continuous_layout',
+    'ring_categorical_layout',
+    'time_ring_layout',
     'materialize_nodes',
     'name',
     'prune_self_edges',
@@ -220,6 +223,57 @@ class LayoutGraphvizParams(TypedDict, total=False):
     bind_position: bool
 
 
+class RingLayoutCommonParams(TypedDict, total=False):
+    """Parameters shared across ring_* layout modes."""
+    mode: Literal['continuous', 'categorical', 'time']
+    engine: Literal['auto', 'pandas', 'cudf', 'dask', 'dask_cudf']
+    reverse: bool
+    play_ms: int
+
+
+class RingContinuousLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for ring_continuous_layout."""
+    ring_col: str
+    min_r: Union[int, float]
+    max_r: Union[int, float]
+    normalize_ring_col: bool
+    num_rings: int
+    ring_step: Union[int, float]
+    v_start: Union[int, float]
+    v_end: Union[int, float]
+    v_step: Union[int, float]
+    axis: Union[List[Any], Dict[Any, Any]]
+    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+    format_labels: Callable[..., str]
+
+
+class RingCategoricalLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for ring_categorical_layout."""
+    ring_col: str
+    order: List[Any]
+    drop_empty: bool
+    combine_unhandled: bool
+    append_unhandled: bool
+    min_r: Union[int, float]
+    max_r: Union[int, float]
+    axis: Dict[Any, str]
+    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+    format_labels: Callable[..., str]
+
+
+class TimeRingLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for time_ring_layout."""
+    time_col: str
+    time_start: str
+    time_end: str
+    time_unit: Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
+    num_rings: int
+    min_r: Union[int, float]
+    max_r: Union[int, float]
+    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+    format_label: Callable[..., str]
+
+
 class Fa2LayoutParams(TypedDict, total=False):
     """Parameters for fa2_layout (ForceAtlas2) operation."""
     fa2_params: Dict[str, Any]
@@ -322,6 +376,9 @@ CallParams = Union[
     LayoutIgraphParams,
     LayoutCugraphParams,
     LayoutGraphvizParams,
+    RingContinuousLayoutParams,
+    RingCategoricalLayoutParams,
+    TimeRingLayoutParams,
     Fa2LayoutParams,
     GroupInABoxLayoutParams,
     GetIndegreesParams,
@@ -396,6 +453,18 @@ def call(function: Literal['layout_cugraph'], params: LayoutCugraphParams = ...)
 
 @overload
 def call(function: Literal['layout_graphviz'], params: LayoutGraphvizParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['ring_continuous_layout'], params: RingContinuousLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['ring_categorical_layout'], params: RingCategoricalLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['time_ring_layout'], params: TimeRingLayoutParams = ...) -> 'ASTCall':
     ...
 
 @overload

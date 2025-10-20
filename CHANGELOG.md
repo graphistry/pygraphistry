@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Layouts:** Safelisted `ring_continuous_layout()`, `ring_categorical_layout()`, and `time_ring_layout()` for GFQL use, including stricter parameter validation, typing, and CPU/GPU coverage.
+
 ## [0.45.5 - 2025-10-19]
 
 ### Added
