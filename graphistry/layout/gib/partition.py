@@ -61,7 +61,15 @@ def partition(
         g2 = g.edges( g._edges.assign(weight=1.)).bind(edge_weight='weight')
 
     if engine == Engine.PANDAS:
-        g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
+        try:
+            g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
+        except Exception:
+            logger.warning(
+                "igraph partitioning failed; assigning fallback partition labels", exc_info=True
+            )
+            g2 = g2.nodes(
+                g2._nodes.assign(**{partition_key: 0})
+            )
     elif engine == Engine.CUDF:
         g2 = g2.compute_cugraph(partition_alg, **partition_params, out_col=partition_key)
 

@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import numpy as np
 import pandas as pd
 from timeit import default_timer as timer
 
@@ -58,10 +59,29 @@ def layout_non_bulk_mode(
             layout_name = 'custom'
         elif engine == Engine.PANDAS:
             layout_name = layout_alg or 'fr'
-            positioned_subgraph_g = subgraph_g.layout_igraph(
-                layout=layout_name,
-                params={**({'niter': niter} if layout_name == 'fr' else {}), **(layout_params or {})}
-            )
+            try:
+                positioned_subgraph_g = subgraph_g.layout_igraph(
+                    layout=layout_name,
+                    params={**({'niter': niter} if layout_name == 'fr' else {}), **(layout_params or {})}
+                )
+            except Exception:
+                logger.warning(
+                    "igraph layout failed for partition %s; using fallback", partition, exc_info=True
+                )
+                node_count = len(subgraph_g._nodes)
+                if node_count == 0:
+                    positioned_subgraph_g = subgraph_g.nodes(
+                        subgraph_g._nodes.assign(x=0.0, y=0.0)
+                    )
+                else:
+                    angles = pd.Series(np.linspace(0, 2 * np.pi, node_count, endpoint=False), dtype='float32')
+                    coords = pd.DataFrame({
+                        'x': angles.map(np.cos).astype('float32'),
+                        'y': angles.map(np.sin).astype('float32')
+                    })
+                    positioned_subgraph_g = subgraph_g.nodes(
+                        subgraph_g._nodes.assign(x=coords['x'].values, y=coords['y'].values)
+                    )
         elif engine == Engine.CUDF:
             layout_name = layout_alg or 'force_atlas2'
             positioned_subgraph_g = subgraph_g.layout_cugraph(

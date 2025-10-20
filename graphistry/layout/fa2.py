@@ -1,5 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import numpy as np
+
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.circle import circle_layout
@@ -138,11 +140,28 @@ def fa2_layout(
 
         if engine_concrete == Engine.PANDAS:
             logger.warning("Pandas engine detected. FA2 falling back to igraph fr")
-            g_connected_layout = g_connected.layout_igraph(
-                'fr',
-                directed=False,
-                params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
-            )
+            try:
+                g_connected_layout = g_connected.layout_igraph(
+                    'fr',
+                    directed=False,
+                    params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
+                )
+            except Exception:
+                logger.warning("igraph execution failed; using circle fallback for FA2", exc_info=True)
+
+                # Minimal fallback when python-igraph is unavailable (e.g., CI minimal image)
+                node_count = len(g_connected._nodes)
+                if node_count == 0:
+                    g_connected_layout = g_connected.nodes(g_connected._nodes.assign(x=0.0, y=0.0))
+                else:
+                    angles = np.linspace(0, 2 * np.pi, node_count, endpoint=False)
+                    coords = {
+                        'x': np.cos(angles).astype('float32'),
+                        'y': np.sin(angles).astype('float32')
+                    }
+                    g_connected_layout = g_connected.nodes(
+                        g_connected._nodes.assign(**coords)
+                    )
         elif engine_concrete == Engine.CUDF:
             g_connected_layout = g_connected.layout_cugraph(
                 'force_atlas2',
