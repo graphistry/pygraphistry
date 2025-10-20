@@ -529,6 +529,27 @@ Tips and Best Practices
 - **Leverage GPU acceleration:** Use `engine='cudf'` for large datasets.
 - **Avoid infinite loops:** Be cautious with `to_fixed_point=True` in cyclic graphs.
 
+Call Examples
+-------------
+
+- **Radial timeline layout:**
+
+  .. code-block:: python
+
+      g.gfql([
+          call('time_ring_layout', {
+              'time_col': 'timestamp',
+              'time_start': '2024-01-01T00:00:00',
+              'time_end': '2024-01-02T00:00:00',
+              'num_rings': 12
+          })
+      ])
+
+  .. note::
+     ``time_start``/``time_end`` accept ISO strings in GFQL requests. They are
+     converted to ``numpy.datetime64`` internally so both GFQL and direct
+     Plotter usage share the same semantics.
+
 Examples at a Glance
 --------------------
 
@@ -573,4 +594,3 @@ Examples at a Glance
           e_forward(edge_query="interaction == 'message'"),
           n(query="location == 'NYC'")
       ])
-

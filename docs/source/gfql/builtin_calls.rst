@@ -863,6 +863,231 @@ Apply ForceAtlas2 layout algorithm (CPU-based implementation).
 
 **Schema Effects:** Modifies node positions.
 
+ring_continuous_layout
+~~~~~~~~~~~~~~~~~~~~~~
+
+Arrange nodes on concentric rings based on a numeric attribute. Useful for score
+gradients, centrality rankings, or distance-from-origin visualizations.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 18 12 48
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - ring_col
+     - string or null
+     - No
+     - Numeric column to map to radii; defaults to first numeric column
+   * - min_r / max_r
+     - number
+     - No
+     - Minimum / maximum ring radius (defaults: 100 / 1000)
+   * - normalize_ring_col
+     - boolean
+     - No
+     - Stretch values linearly across ``[min_r, max_r]``
+   * - num_rings
+     - integer
+     - No
+     - Target number of rings (auto-chosen when omitted)
+   * - ring_step
+     - number
+     - No
+     - Override distance between successive rings
+   * - v_start / v_end / v_step
+     - number
+     - No
+     - Manual angular sweep overrides (degrees)
+   * - axis
+     - list | dict
+     - No
+     - Static axis definition (JSON-safe structure)
+   * - format_axis / format_labels
+     - callable
+     - No
+     - Python callbacks for custom labeling (omit in pure JSON usage)
+   * - reverse
+     - boolean
+     - No
+     - Flip radial ordering
+   * - play_ms
+     - integer
+     - No
+     - Animation duration in milliseconds
+   * - engine
+     - literal
+     - No
+     - ``'auto'``, ``'pandas'``, ``'cudf'``, ``'dask'``, or ``'dask_cudf'``
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('ring_continuous_layout', {
+            'ring_col': 'pagerank',
+            'normalize_ring_col': True,
+            'num_rings': 6
+        })
+    ])
+
+**Schema Effects:** Adds/updates ``x``, ``y``, and ``r`` columns.
+
+ring_categorical_layout
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Group nodes by categorical values and distribute each category onto its own
+ring. Handy for segment comparisons or organizational charts.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 18 12 48
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - ring_col
+     - string
+     - Yes
+     - Categorical column to group by
+   * - order
+     - list[Any]
+     - No
+     - Fixed ordering of category values
+   * - drop_empty
+     - boolean
+     - No
+     - Remove categories without members (default: False)
+   * - combine_unhandled
+     - boolean
+     - No
+     - Merge uncategorized values into a single ring
+   * - append_unhandled
+     - boolean
+     - No
+     - Place uncategorized values after ordered categories
+   * - min_r / max_r
+     - number
+     - No
+     - Radius range (defaults: 100 / 1000)
+   * - axis
+     - list | dict
+     - No
+     - Precomputed axis specification
+   * - format_axis / format_labels
+     - callable
+     - No
+     - Python-only formatting hooks
+   * - reverse
+     - boolean
+     - No
+     - Reverse category ordering
+   * - play_ms
+     - integer
+     - No
+     - Animation duration in milliseconds
+   * - engine
+     - literal
+     - No
+     - ``'auto'``, ``'pandas'``, ``'cudf'``, ``'dask'``, or ``'dask_cudf'``
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('ring_categorical_layout', {
+            'ring_col': 'department',
+            'order': ['Engineering', 'Support', 'Sales']
+        })
+    ])
+
+**Schema Effects:** Adds/updates ``x``, ``y``, and ``r`` columns.
+
+time_ring_layout
+~~~~~~~~~~~~~~~~
+
+Produce radial timelines where concentric rings represent chronological bands.
+Especially effective for periodicity analysis and temporal comparisons.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 18 12 48
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - time_col
+     - string
+     - Yes
+     - Timestamp column (``datetime64`` / ISO strings)
+   * - time_start / time_end
+     - ISO string
+     - No
+     - Bounds for the timeline (defaults to column min/max)
+   * - time_unit
+     - literal
+     - No
+     - ``'s'``, ``'m'``, ``'h'``, ``'D'``, ``'W'``, ``'M'``, ``'Y'``, or ``'C'``
+   * - num_rings
+     - integer
+     - No
+     - Number of rings (auto-chosen when omitted)
+   * - min_r / max_r
+     - number
+     - No
+     - Radius range (defaults: 100 / 1000)
+   * - format_axis
+     - callable
+     - No
+     - Custom axis formatting hook (Python usage only)
+   * - format_label
+     - callable
+     - No
+     - Label formatter (Python usage only)
+   * - reverse
+     - boolean
+     - No
+     - Reverse chronological order
+   * - play_ms
+     - integer
+     - No
+     - Animation duration in milliseconds
+   * - engine
+     - literal
+     - No
+     - ``'auto'``, ``'pandas'``, ``'cudf'``, ``'dask'``, or ``'dask_cudf'``
+
+.. note::
+   `time_start` and `time_end` are provided as ISO-8601 strings over the wire.
+   Both GFQL and the Plotter API coerce them to ``numpy.datetime64`` before
+   layout calculations so behavior stays consistent regardless of entrypoint.
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('time_ring_layout', {
+            'time_col': 'timestamp',
+            'time_unit': 'D',
+            'num_rings': 8
+        })
+    ])
+
+**Schema Effects:** Adds/updates ``x``, ``y``, ``r`` columns and axis metadata.
+
 group_in_a_box_layout
 ~~~~~~~~~~~~~~~~~~~~~
 

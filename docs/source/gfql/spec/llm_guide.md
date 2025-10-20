@@ -447,6 +447,10 @@ Graphistry uses ForceAtlas2 by default, which produces excellent force-directed 
  "params": {"time_col": "timestamp", "num_rings": 10}}
 ```
 
+> **Tip:** Supply `time_start` / `time_end` as ISO strings (e.g.,
+> `"2024-01-01T00:00:00"`) when needed. The executor converts them to
+> `numpy.datetime64`, matching the Python Plotter API.
+
 **Categorical Ring Layout:** `call('ring_categorical_layout', {'ring_col': 'category', 'num_rings': 5})`
 ```json
 {"type": "Call", "function": "ring_categorical_layout",
