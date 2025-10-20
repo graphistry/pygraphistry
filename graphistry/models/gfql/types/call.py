@@ -7,7 +7,23 @@ Note: Type system can't express all constraints (e.g., no __gfql_*__ columns).
 Additional validation happens at runtime in graphistry.compute.ast::ASTCall._validate_fields().
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, Callable, cast, overload
+import numpy as np
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    TYPE_CHECKING,
+    Callable,
+    Mapping,
+    Sequence,
+    Hashable,
+    cast,
+    overload
+)
 
 if TYPE_CHECKING:
     from graphistry.compute.ast import ASTCall
@@ -47,6 +63,14 @@ CallMethodName = Literal[
     'umap'
 ]
 
+GFQLEngineLiteral = Literal['auto', 'pandas', 'cudf', 'dask', 'dask_cudf']
+AxisEntry = Mapping[str, object]
+AxisTransform = Callable[[Sequence[AxisEntry]], Sequence[AxisEntry]]
+ContinuousAxisSpec = Union[Mapping[float, str], Sequence[str]]
+ContinuousLabelFormatter = Callable[[float, int, float], str]
+CategoricalAxisSpec = Mapping[Hashable, str]
+CategoricalLabelFormatter = Callable[[Hashable, int, float], str]
+TimeLabelFormatter = Callable[[np.datetime64, int, np.timedelta64], str]
 
 # TypedDict parameter classes for each method
 # Using total=False to make all fields optional (matching safelist behavior)
@@ -225,53 +249,52 @@ class LayoutGraphvizParams(TypedDict, total=False):
 
 class RingLayoutCommonParams(TypedDict, total=False):
     """Parameters shared across ring_* layout modes."""
-    mode: Literal['continuous', 'categorical', 'time']
-    engine: Literal['auto', 'pandas', 'cudf', 'dask', 'dask_cudf']
+    engine: GFQLEngineLiteral
     reverse: bool
     play_ms: int
 
 
 class RingContinuousLayoutParams(RingLayoutCommonParams, total=False):
     """Parameters for ring_continuous_layout."""
-    ring_col: str
-    min_r: Union[int, float]
-    max_r: Union[int, float]
+    ring_col: Optional[str]
+    min_r: Optional[float]
+    max_r: Optional[float]
     normalize_ring_col: bool
-    num_rings: int
-    ring_step: Union[int, float]
-    v_start: Union[int, float]
-    v_end: Union[int, float]
-    v_step: Union[int, float]
-    axis: Union[List[Any], Dict[Any, Any]]
-    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
-    format_labels: Callable[..., str]
+    num_rings: Optional[int]
+    ring_step: Optional[float]
+    v_start: Optional[float]
+    v_end: Optional[float]
+    v_step: Optional[float]
+    axis: Optional[ContinuousAxisSpec]
+    format_axis: AxisTransform
+    format_labels: ContinuousLabelFormatter
 
 
 class RingCategoricalLayoutParams(RingLayoutCommonParams, total=False):
     """Parameters for ring_categorical_layout."""
     ring_col: str
-    order: List[Any]
+    order: Optional[Sequence[Hashable]]
     drop_empty: bool
     combine_unhandled: bool
     append_unhandled: bool
-    min_r: Union[int, float]
-    max_r: Union[int, float]
-    axis: Dict[Any, str]
-    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
-    format_labels: Callable[..., str]
+    min_r: Optional[float]
+    max_r: Optional[float]
+    axis: Optional[CategoricalAxisSpec]
+    format_axis: AxisTransform
+    format_labels: CategoricalLabelFormatter
 
 
 class TimeRingLayoutParams(RingLayoutCommonParams, total=False):
     """Parameters for time_ring_layout."""
     time_col: str
-    time_start: str
-    time_end: str
+    time_start: Optional[str]
+    time_end: Optional[str]
     time_unit: Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
-    num_rings: int
-    min_r: Union[int, float]
-    max_r: Union[int, float]
-    format_axis: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
-    format_label: Callable[..., str]
+    num_rings: Optional[int]
+    min_r: Optional[float]
+    max_r: Optional[float]
+    format_axis: AxisTransform
+    format_label: TimeLabelFormatter
 
 
 class Fa2LayoutParams(TypedDict, total=False):
