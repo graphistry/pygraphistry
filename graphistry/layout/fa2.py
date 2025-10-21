@@ -3,25 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.circle import circle_layout
-from graphistry.util import setup_logger
-
-
-logger = setup_logger(__name__)
-
-
 # Approximate Graphistry server settings
 GRAPHISTRY_FA2_PARAMS: Dict[str, Any] = {
     'max_iter': 1000,
     'outbound_attraction_distribution': False,
     'scaling_ratio': 1
 }
-
-GRAPHISTRY_FR_PARAMS: Dict[str, Any] = {
-    #'max_iter': 1000,
-    #'outbound_attraction_distribution': False,
-    #'scaling_ratio': 1
-}
-
 
 def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) -> Any:
     """
@@ -137,18 +124,10 @@ def fa2_layout(
         #g_connected = g_connected.edges(g_connected._edges.reset_index(drop=True))
 
         if engine_concrete == Engine.PANDAS:
-            logger.warning("Pandas engine detected. FA2 falling back to igraph fr")
-            try:
-                g_connected_layout = g_connected.layout_igraph(
-                    'fr',
-                    directed=False,
-                    params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
-                )
-            except ModuleNotFoundError as exc:
-                raise ModuleNotFoundError(
-                    "CPU FA2 layout requires the optional dependency python-igraph. "
-                    "Install it via `pip install igraph` or switch to a GPU engine."
-                ) from exc
+            raise NotImplementedError(
+                "fa2_layout requires a GPU-enabled engine (cuGraph). "
+                "Switch to engine='cudf' or use layout_igraph('fr') for a CPU-friendly alternative."
+            )
         elif engine_concrete == Engine.CUDF:
             g_connected_layout = g_connected.layout_cugraph(
                 'force_atlas2',

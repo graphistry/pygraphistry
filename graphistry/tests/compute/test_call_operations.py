@@ -521,6 +521,18 @@ class TestGraphAlgorithmCalls:
             'fa2_params': {'iterations': 500}
         })
         assert params['fa2_params']['iterations'] == 500
+    
+    def test_fa2_layout_cpu_requires_gpu(self, sample_graph):
+        """fa2_layout should raise on CPU engines instead of silently falling back."""
+        with pytest.raises(GFQLTypeError) as exc_info:
+            execute_call(
+                sample_graph,
+                'fa2_layout',
+                {},
+                Engine.PANDAS
+            )
+        assert exc_info.value.code == ErrorCode.E303
+        assert 'requires a GPU-enabled engine' in str(exc_info.value)
 
     def test_ring_continuous_layout_params(self):
         """Test ring_continuous_layout parameter validation."""
