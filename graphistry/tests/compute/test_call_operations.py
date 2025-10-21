@@ -755,3 +755,81 @@ class TestNameConflicts:
         assert 'dup' in result._nodes.columns
 
 
+class TestMarkAPI:
+    """TDD coverage for mark() name-first behavior (Phase 1)."""
+
+    def _assert_nodes_bool(self, result, column):
+        nodes = result._nodes.set_index(result._node)
+        assert column in nodes.columns
+        assert nodes[column].dtype == bool
+        return nodes[column]
+
+    def test_mark_auto_returns_named_columns(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='seed'),
+            e_forward(),
+            n({'region': 'EU'})
+        ]
+
+        result = names_graph.mark(gfql=chain_ops, mode='auto')
+
+        col = self._assert_nodes_bool(result, 'seed')
+        assert col.loc[0]
+
+    def test_mark_auto_without_names_falls_back_to_mark_columns(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}),
+            e_forward(),
+            n({'region': 'EU'})
+        ]
+
+        result = names_graph.mark(gfql=chain_ops, mode='auto')
+        nodes = result._nodes.set_index(result._node)
+        edges = result._edges
+        assert 'mark_nodes' in nodes.columns
+        assert 'mark_edges' in edges.columns
+        assert nodes['mark_nodes'].dtype == bool
+        assert edges['mark_edges'].dtype == bool
+
+    def test_mark_project_filters_columns(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='seed'),
+            e_forward(),
+            n({'region': 'EU'})
+        ]
+
+        result = names_graph.mark(
+            gfql=chain_ops,
+            mode='auto',
+            project={'nodes': ['seed']}
+        )
+
+        nodes = result._nodes.set_index(result._node)
+        assert 'seed' in nodes.columns
+        assert nodes['seed'].dtype == bool
+        assert 'mark_nodes' not in nodes.columns
+
+    def test_mark_all_returns_mark_columns(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}),
+            e_forward(),
+            n({'region': 'EU'})
+        ]
+
+        result = names_graph.mark(gfql=chain_ops, mode='all')
+        nodes = result._nodes.set_index(result._node)
+        edges = result._edges
+        assert 'mark_nodes' in nodes.columns
+        assert 'mark_edges' in edges.columns
+        assert nodes['mark_nodes'].dtype == bool
+        assert edges['mark_edges'].dtype == bool
+
+    def test_mark_conflict_policy_error(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup')
+        ]
+
+        with pytest.raises(GFQLSchemaError):
+            names_graph.mark(gfql=chain_ops, name_conflicts='error')
