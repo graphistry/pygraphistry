@@ -3,25 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.circle import circle_layout
-from graphistry.util import setup_logger
-
-
-logger = setup_logger(__name__)
-
-
 # Approximate Graphistry server settings
 GRAPHISTRY_FA2_PARAMS: Dict[str, Any] = {
     'max_iter': 1000,
     'outbound_attraction_distribution': False,
     'scaling_ratio': 1
 }
-
-GRAPHISTRY_FR_PARAMS: Dict[str, Any] = {
-    #'max_iter': 1000,
-    #'outbound_attraction_distribution': False,
-    #'scaling_ratio': 1
-}
-
 
 def compute_bounding_boxes(self: Plottable, partition_key: str, engine: Engine) -> Any:
     """
@@ -71,7 +58,8 @@ def fa2_layout(
     circle_layout_params: Optional[Dict[str, Any]] = None,
     singleton_layout: Optional[Callable[[Plottable, Union[Tuple[float, float, float, float], Any]], Plottable]] = None,
     partition_key: Optional[str] = None,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    allow_cpu_fallback: bool = False
 ) -> Plottable:
     """
     Applies FA2 layout for connected nodes and circle layout for singleton (edgeless) nodes
@@ -94,6 +82,10 @@ def fa2_layout(
 
     :param partition_key: The key for partitioning nodes (used for picking bounding box type). Default is None.
     :type partition_key: Optional[str]
+
+    :param allow_cpu_fallback: When True, allow a CPU (igraph Fruchterman-Reingold) fallback instead of raising.
+        Only intended for internal callers that explicitly expect the approximation.
+    :type allow_cpu_fallback: bool
 
     :returns: A graph object with FA2 and circle layouts applied.
     :rtype: graphistry.Plottable.Plottable
@@ -137,12 +129,22 @@ def fa2_layout(
         #g_connected = g_connected.edges(g_connected._edges.reset_index(drop=True))
 
         if engine_concrete == Engine.PANDAS:
-            logger.warning("Pandas engine detected. FA2 falling back to igraph fr")
-            g_connected_layout = g_connected.layout_igraph(
-                'fr',
-                directed=False,
-                params=fa2_params if fa2_params is not None else GRAPHISTRY_FR_PARAMS
-            )
+            if not allow_cpu_fallback:
+                raise NotImplementedError(
+                    "fa2_layout requires a GPU-enabled engine (cuGraph). "
+                    "Switch to engine='cudf' or use layout_igraph('fr') for a CPU-friendly alternative."
+                )
+            try:
+                g_connected_layout = g_connected.layout_igraph(
+                    'fr',
+                    directed=False,
+                    params=fa2_params if fa2_params is not None else {}
+                )
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "CPU FA2 layout fallback requires the optional dependency python-igraph. "
+                    "Install it via `pip install igraph` or provide a custom singleton_layout."
+                ) from exc
         elif engine_concrete == Engine.CUDF:
             g_connected_layout = g_connected.layout_cugraph(
                 'force_atlas2',

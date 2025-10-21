@@ -1,5 +1,6 @@
-from typing import cast, List, Optional, Union, TYPE_CHECKING
-import math, pandas as pd
+from typing import cast, List, Optional, Union
+import math
+import pandas as pd
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
@@ -212,7 +213,7 @@ class LayoutsMixin(Plottable):
             g2 = g.get_topological_levels(level_col, *args, **kwargs)
             g2._nodes[y_col] = g2._nodes[level_col]
         else:
-            if (g._nodes is None) or (not (level_col in g._nodes)):
+            if (g._nodes is None) or (level_col not in g._nodes):
                 raise ValueError('tree_layout() with explicit level_col requires ._nodes with that as a column; see .nodes()')
             g2 = g.nodes(g._nodes.assign(**{y_col: g._nodes[level_col]}))
         if descending:
@@ -243,7 +244,7 @@ class LayoutsMixin(Plottable):
                          .cumcount())
                 xs_gs = cudf.from_pandas(xs_ps)
                 g2 = g2.nodes(g2._nodes.assign(**{x_col: xs_gs}))
-            except:
+            except Exception:
                 raise ValueError('Requires RAPIDS 0.21+ or Pandas 0.22+')
 
         if level_align == 'left':

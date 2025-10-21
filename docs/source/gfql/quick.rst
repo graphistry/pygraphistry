@@ -573,4 +573,3 @@ Examples at a Glance
           e_forward(edge_query="interaction == 'message'"),
           n(query="location == 'NYC'")
       ])
-

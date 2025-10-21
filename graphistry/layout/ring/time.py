@@ -222,14 +222,15 @@ def time_ring(
     g: Plottable,
     time_col: Optional[str] = None,
     num_rings: Optional[int] = None,
-    time_start: Optional[np.datetime64] = None,
-    time_end: Optional[np.datetime64] = None,
+    time_start: Optional[Union[str, np.datetime64]] = None,
+    time_end: Optional[Union[str, np.datetime64]] = None,
     time_unit: Optional[TimeUnit] = None,
     min_r: float = MIN_R_DEFAULT,
     max_r: float = MAX_R_DEFAULT,
     reverse: bool = False,
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
+    format_labels: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
     play_ms: int = 2000,
     engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
@@ -240,14 +241,15 @@ def time_ring(
     :g: Plottable
     :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
     :num_rings: Optional[int] Number of rings
-    :time_start: Optional[numpy.datetime64] First ring and axis label
-    :time_end: Optional[numpy.datetime64] Last ring and axis label
+    :time_start: Optional[Union[str, numpy.datetime64]] First ring and axis label
+    :time_end: Optional[Union[str, numpy.datetime64]] Last ring and axis label
     :time_unit: Optional[TimeUnit] Time unit for axis labels
     :min_r: float Minimum radius, default 100
     :max_r: float Maximum radius, default 1000
     :reverse: bool Reverse the direction of the rings in terms of time
     :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
     :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
+    :format_labels: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Deprecated alias for ``format_label``
     :play_ms: int initial layout time in milliseconds, default 2000
     :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
@@ -311,8 +313,22 @@ def time_ring(
 
     """
 
-    assert time_start is None or isinstance(time_start, np.datetime64)
-    assert time_end is None or isinstance(time_end, np.datetime64)
+    if time_start is not None and not isinstance(time_start, np.datetime64):
+        time_start = np.datetime64(time_start)
+    if time_end is not None and not isinstance(time_end, np.datetime64):
+        time_end = np.datetime64(time_end)
+
+    if format_label is None and format_labels is not None:
+        format_label = format_labels
+
+    if time_start is not None and not isinstance(time_start, np.datetime64):
+        raise ValueError("time_start must be a numpy.datetime64 or ISO-8601 string")
+    if time_end is not None and not isinstance(time_end, np.datetime64):
+        raise ValueError("time_end must be a numpy.datetime64 or ISO-8601 string")
+    if time_start is not None and np.isnat(time_start):
+        raise ValueError("time_start could not be parsed as a valid datetime")
+    if time_end is not None and np.isnat(time_end):
+        raise ValueError("time_end could not be parsed as a valid datetime")
 
     if g._nodes is None:
         raise ValueError('Expected nodes table')

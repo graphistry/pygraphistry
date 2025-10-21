@@ -7,7 +7,23 @@ Note: Type system can't express all constraints (e.g., no __gfql_*__ columns).
 Additional validation happens at runtime in graphistry.compute.ast::ASTCall._validate_fields().
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, TYPE_CHECKING, cast, overload
+import numpy as np
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    TYPE_CHECKING,
+    Callable,
+    Mapping,
+    Sequence,
+    Hashable,
+    cast,
+    overload
+)
 
 if TYPE_CHECKING:
     from graphistry.compute.ast import ASTCall
@@ -38,12 +54,30 @@ CallMethodName = Literal[
     'layout_cugraph',
     'layout_graphviz',
     'layout_igraph',
+    'ring_continuous_layout',
+    'ring_categorical_layout',
+    'time_ring_layout',
     'materialize_nodes',
     'name',
     'prune_self_edges',
     'umap'
 ]
 
+GFQLEngineLiteral = Literal['auto', 'pandas', 'cudf', 'dask', 'dask_cudf']
+
+
+class AxisEntry(TypedDict, total=False):
+    label: str
+    r: float
+    internal: bool
+
+
+AxisTransform = Callable[[Sequence[AxisEntry]], Sequence[AxisEntry]]
+ContinuousAxisSpec = Union[Mapping[float, str], Sequence[str]]
+ContinuousLabelFormatter = Callable[[float, int, float], str]
+CategoricalAxisSpec = Mapping[Hashable, str]
+CategoricalLabelFormatter = Callable[[Hashable, int, float], str]
+TimeLabelFormatter = Callable[[np.datetime64, int, np.timedelta64], str]
 
 # TypedDict parameter classes for each method
 # Using total=False to make all fields optional (matching safelist behavior)
@@ -220,6 +254,56 @@ class LayoutGraphvizParams(TypedDict, total=False):
     bind_position: bool
 
 
+class RingLayoutCommonParams(TypedDict, total=False):
+    """Parameters shared across ring_* layout modes."""
+    engine: GFQLEngineLiteral
+    reverse: bool
+    play_ms: int
+
+
+class RingContinuousLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for ring_continuous_layout."""
+    ring_col: Optional[str]
+    min_r: Optional[float]
+    max_r: Optional[float]
+    normalize_ring_col: bool
+    num_rings: Optional[int]
+    ring_step: Optional[float]
+    v_start: Optional[float]
+    v_end: Optional[float]
+    v_step: Optional[float]
+    axis: Optional[ContinuousAxisSpec]
+    format_axis: AxisTransform
+    format_labels: ContinuousLabelFormatter
+
+
+class RingCategoricalLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for ring_categorical_layout."""
+    ring_col: str
+    order: Optional[Sequence[Hashable]]
+    drop_empty: bool
+    combine_unhandled: bool
+    append_unhandled: bool
+    min_r: Optional[float]
+    max_r: Optional[float]
+    axis: Optional[CategoricalAxisSpec]
+    format_axis: AxisTransform
+    format_labels: CategoricalLabelFormatter
+
+
+class TimeRingLayoutParams(RingLayoutCommonParams, total=False):
+    """Parameters for time_ring_layout."""
+    time_col: str
+    time_start: Optional[str]
+    time_end: Optional[str]
+    time_unit: Literal['s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']
+    num_rings: Optional[int]
+    min_r: Optional[float]
+    max_r: Optional[float]
+    format_axis: AxisTransform
+    format_label: TimeLabelFormatter
+
+
 class Fa2LayoutParams(TypedDict, total=False):
     """Parameters for fa2_layout (ForceAtlas2) operation."""
     fa2_params: Dict[str, Any]
@@ -322,6 +406,9 @@ CallParams = Union[
     LayoutIgraphParams,
     LayoutCugraphParams,
     LayoutGraphvizParams,
+    RingContinuousLayoutParams,
+    RingCategoricalLayoutParams,
+    TimeRingLayoutParams,
     Fa2LayoutParams,
     GroupInABoxLayoutParams,
     GetIndegreesParams,
@@ -396,6 +483,18 @@ def call(function: Literal['layout_cugraph'], params: LayoutCugraphParams = ...)
 
 @overload
 def call(function: Literal['layout_graphviz'], params: LayoutGraphvizParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['ring_continuous_layout'], params: RingContinuousLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['ring_categorical_layout'], params: RingCategoricalLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['time_ring_layout'], params: TimeRingLayoutParams = ...) -> 'ASTCall':
     ...
 
 @overload

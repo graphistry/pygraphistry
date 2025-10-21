@@ -328,6 +328,15 @@ For security and stability, Call operations are restricted to a predefined safel
 - `layout_igraph`: CPU-based layouts
 - `layout_graphviz`: Graphviz layouts
 - `fa2_layout`: ForceAtlas2 layout
+- `ring_continuous_layout`: Radial layout driven by numeric attributes
+- `ring_categorical_layout`: Radial layout grouping by categories
+- `time_ring_layout`: Time-series radial layout (accepts ISO timestamp bounds)
+
+```{note}
+`time_ring_layout` accepts ISO-8601 strings for `time_start` / `time_end` when
+sent over the wire. GFQL converts them to `numpy.datetime64` before use so the
+behavior matches direct Plotter calls.
+```
 
 **Visual Encoding**
 - `encode_point_color`: Color nodes/edges

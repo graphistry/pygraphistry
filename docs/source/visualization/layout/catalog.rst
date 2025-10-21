@@ -35,6 +35,12 @@ Visit the :ref:`PyGraphistry visualization tutorial <10min-viz>`.
     
         g.time_ring_layout('time_col').plot()
 
+.. note::
+   When building layouts via GFQL or other JSON interfaces, provide
+   ``time_start``/``time_end`` as ISO-8601 strings. PyGraphistry converts them
+   to ``numpy.datetime64`` before computing the layout, so the experience matches
+   direct Python usage where you pass Timestamp objects.
+
 .. _cugraph-plugin:
 
 cuGraph Plugin

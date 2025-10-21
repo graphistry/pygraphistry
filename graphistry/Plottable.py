@@ -718,7 +718,8 @@ class Plottable(Protocol):
         circle_layout_params: Optional[Dict[str, Any]] = None,
         singleton_layout: Optional[Callable[['Plottable', Union[Tuple[float, float, float, float], Any]], 'Plottable']] = None,
         partition_key: Optional[str] = None,
-        engine: EngineAbstractType = 'auto'
+        engine: EngineAbstractType = 'auto',
+        allow_cpu_fallback: bool = False
     ) -> 'Plottable':
         ...
 
