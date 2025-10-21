@@ -39,6 +39,8 @@
 
 **REMEMBER**: External memory is unreliable. This plan is your ONLY memory.
 
+**TIP**: Keep this plan synchronized with any native TODO/task entries (e.g., IDE checklists). Update both whenever phases change.
+
 ## Execution Protocol
 
 **Before each action:**
@@ -149,6 +151,7 @@ source plans/[task]/.env
 - Only update the current 🔄 IN_PROGRESS phase
 - Each phase should be atomic and verifiable
 - Include ALL context in results (commands, output, errors)
+- Sync status with any external TODO/task tracker you use before/after updates
 - **RECORD ALL TOOL CALLS**: When documenting results, include the actual tool calls executed (redact secrets with *****)
 - When adding new phases: Stop, add the phase, save, then execute
 
@@ -157,7 +160,7 @@ If you need to do something not in the plan:
 1. STOP - Do not execute
 2. ADD THE PHASE - With clear description and success criteria
 3. Mark as 🔄 IN_PROGRESS
-4. SAVE THE PLAN
+4. SAVE THE PLAN (and align external TODO/task trackers)
 5. THEN EXECUTE
 
 ### PHASE COMPACTION
