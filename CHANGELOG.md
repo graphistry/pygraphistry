@@ -8,7 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-_No unreleased changes yet._
+- **GFQL:** Added explicit matcher name conflict policy (`name_conflicts`) with
+  default OR semantics and descriptive `GFQLSchemaError` on request (#817, #818).
 
 ## [0.45.6 - 2025-10-21]
 

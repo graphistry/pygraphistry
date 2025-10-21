@@ -60,6 +60,34 @@ Act on graph entities (nodes and edges):
 - Edge matchers: Traverse relationships
 - Operations work on the graph structure itself
 
+##### Matcher names and conflict policy
+
+Match operations may include a ``name=`` parameter. When the same name appears
+multiple times (or already exists on the graph), the ``name_conflicts`` policy
+controls how the executor behaves:
+
+``any`` (default)
+    All matchers with the same name are combined using logical OR. Existing
+    columns with that name are temporarily removed and replaced by the merged
+    boolean result.
+
+``error``
+    The query fails fast with :class:`graphistry.compute.exceptions.GFQLSchemaError`.
+
+The policy is accepted by :func:`graphistry.compute.gfql_unified.gfql`,
+:func:`graphistry.compute.chain.chain`, and nested DAG (``let``/``ASTRef``)
+execution. Example::
+
+    g.gfql([
+        n({'segment': 'VIP'}, name='seed'),
+        e_forward(name='seed'),
+    ], name_conflicts='error')
+
+    # Raises GFQLSchemaError: Duplicate node matcher name 'seed' detected.
+
+Chains without named matchers behave exactly as before the introduction of
+``name_conflicts``.
+
 #### Predicates
 
 Act on attributes of nodes and edges:
