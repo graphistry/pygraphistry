@@ -750,6 +750,7 @@ class GraphistryClient(AuthManagerProtocol):
             if store_token_creds_in_memory is None:
                 self.store_token_creds_in_memory(False)
 
+            # Track how the credentials entered the session for downstream diagnostics.
             self.session.login_type = "token"
             self.session._is_authenticated = True
         elif not (org_name is None) or is_sso_login:
