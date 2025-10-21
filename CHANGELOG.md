@@ -8,8 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+_No unreleased changes yet._
+
+## [0.45.6 - 2025-10-21]
+
 ### Added
 - **GFQL / Layouts:** Safelisted `ring_continuous_layout()`, `ring_categorical_layout()`, and `time_ring_layout()` for GFQL use, including stricter parameter validation, typing, and CPU/GPU coverage.
+
+### Fixed
+- **Layouts / FA2:** GFQL `fa2_layout()` now surfaces a clear GPU requirement instead of silently substituting a different CPU layout, while existing CPU workflows opt-in through an explicit fallback hook (PR #819).
 
 ## [0.45.5 - 2025-10-19]
 
