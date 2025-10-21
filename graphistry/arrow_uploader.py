@@ -428,7 +428,7 @@ class ArrowUploader:
             verify=self.certificate_validation,
             json={'token': token})
         log_requests_error(out)
-        return out.status_code == requests.codes.ok
+        return 200 <= out.status_code < 300
 
     def create_dataset(self, json, validate: bool = True):  # noqa: F811
         if validate:

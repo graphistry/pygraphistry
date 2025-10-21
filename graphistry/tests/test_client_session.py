@@ -32,7 +32,7 @@ class TestClientSession:
         """
         The session proxy still behaves like a mapping for read access.
         """
-        cfg = graphistry.register(api=3, token="tok123")._config
+        cfg = graphistry.register(api=3, token="tok123", verify_token=False)._config
 
         assert cfg["api_token"] == "tok123"
         assert "nonexistent" not in cfg
@@ -51,6 +51,7 @@ class TestClientSession:
         global_session = PyGraphistry.session
 
         client = graphistry.client()
+        # Use a dedicated client instance to avoid polluting global state.
         assert isinstance(client, GraphistryClient)
 
         # Set client session state directly  
@@ -77,6 +78,7 @@ class TestClientSession:
             protocol="https",
             server="test.graphistry.com",
             token="global_token",
+            verify_token=False,
         )
 
         # Inherit = True copies the *current* session
@@ -127,6 +129,7 @@ class TestClientSession:
             protocol="https",
             server="my.server.com",
             token="my_token",
+            verify_token=False,
             certificate_validation=False,
         )
 
@@ -174,3 +177,60 @@ class TestClientSession:
 
         assert PyGraphistry.session.api_key == "global2"
         assert client.session.api_key == "global1"
+
+    # ------------------------------------------------------------------ #
+    # Token-based registration                                          #
+    # ------------------------------------------------------------------ #
+
+    def test_register_token_marks_authenticated(self, monkeypatch):
+        """
+        register(token=...) should configure the session as authenticated so
+        downstream calls (plot, gfql, etc.) don't have to patch private fields.
+        """
+        client = graphistry.client()
+        calls = {}
+
+        def fake_verify(token, fail_silent=False):
+            calls["token"] = token
+            calls["fail_silent"] = fail_silent
+            return True
+
+        monkeypatch.setattr(client, "verify_token", fake_verify)
+
+        client.register(
+            api=3,
+            protocol="https",
+            server="example.graphistry.com",
+            token="tok123",
+        )
+
+        assert client.session.api_token == "tok123"
+        assert client.session._is_authenticated is True
+        assert client.session.store_token_creds_in_memory is False
+        assert calls["token"] == "tok123"
+        assert calls["fail_silent"] is False
+
+    def test_register_token_verify_opt_out(self, monkeypatch):
+        """
+        verify_token=False should skip server verification while still authenticating.
+        """
+        client = graphistry.client()
+        calls = {}
+
+        def fake_verify(token, fail_silent=False):
+            calls["token"] = token
+            calls["fail_silent"] = fail_silent
+            return True
+
+        monkeypatch.setattr(client, "verify_token", fake_verify)
+
+        client.register(
+            api=3,
+            protocol="https",
+            server="example.graphistry.com",
+            token=" tokABC ",
+            verify_token=False,
+        )
+
+        assert calls == {}
+        assert client.session._is_authenticated is True

@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 _No unreleased changes yet._
 
+## [0.45.7 - 2025-10-21]
+
+### Fixed
+- **Auth**: `register(token=...)` now marks sessions authenticated, disables unused credential caching, and verifies tokens by default (opt-out) to unblock GFQL persistence workflows (fixes #824).
+
 ## [0.45.6 - 2025-10-21]
 
 ### Added
