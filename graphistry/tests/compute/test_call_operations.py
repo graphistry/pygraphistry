@@ -6,12 +6,17 @@ from unittest.mock import Mock, patch, MagicMock
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine, EngineAbstract
-from graphistry.compute.ast import ASTCall, ASTLet, n
+from graphistry.compute.ast import ASTCall, ASTLet, ASTRef, n, e_forward
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.gfql.call_executor import execute_call
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLTypeError,
+    GFQLSyntaxError,
+    GFQLSchemaError,
+)
 
 
 class TestCallSafelist:
@@ -611,3 +616,142 @@ class TestGraphAlgorithmCalls:
                 'engine': 'invalid_engine'  # Should be in allowed list
             })
         assert exc_info.value.code == ErrorCode.E201
+
+
+@pytest.fixture
+def names_graph():
+    """Graph with rich schema for testing matcher naming & mark()."""
+    nodes_df = pd.DataFrame({
+        'id': [0, 1, 2, 3],
+        'region': ['NA', 'EU', 'NA', 'APAC'],
+        'tier': ['gold', 'silver', 'silver', 'bronze']
+    })
+    edges_df = pd.DataFrame({
+        'source': [0, 0, 1, 2],
+        'target': [1, 2, 3, 3],
+        'amount': [10, 7, 5, 3]
+    })
+    g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'source', 'target')
+    return g
+
+
+class TestNameConflicts:
+    """TDD coverage for matcher name conflict policy."""
+
+    def test_duplicate_node_names_default_any(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ]
+
+        result = names_graph.gfql(chain_ops)
+
+        nodes = result._nodes.set_index(names_graph._node)
+        assert 'dup' in nodes.columns
+        assert nodes['dup'].dtype == bool
+        assert set(nodes.index[nodes['dup']]) == {0, 1}
+
+    def test_duplicate_edge_names_default_any(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}),
+            e_forward({'amount': {'$gte': 7}}, name='dup', to_fixed_point=True),
+            n({'region': 'EU'}),
+            e_forward({'amount': {'$lte': 5}}, name='dup', to_fixed_point=True),
+            n({'region': 'APAC'}),
+        ]
+
+        result = names_graph.gfql(chain_ops)
+
+        edges = result._edges[['source', 'target', 'dup']]
+        assert edges['dup'].dtype == bool
+
+    def test_name_conflicts_error_on_duplicates(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ]
+
+        with pytest.raises(GFQLSchemaError):
+            names_graph.gfql(chain_ops, name_conflicts='error')
+
+    def test_name_conflicts_existing_column_error(self, names_graph):
+        graph_with_dup_col = names_graph.nodes(
+            names_graph._nodes.assign(dup=False),
+            names_graph._node
+        )
+
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ]
+
+        with pytest.raises(GFQLSchemaError):
+            graph_with_dup_col.gfql(chain_ops, name_conflicts='error')
+
+    def test_name_conflicts_existing_column_any_overwrites(self, names_graph):
+        graph_with_dup_col = names_graph.nodes(
+            names_graph._nodes.assign(dup=False),
+            names_graph._node
+        )
+
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ]
+
+        result = graph_with_dup_col.gfql(chain_ops, name_conflicts='any')
+        nodes = result._nodes.set_index(names_graph._node)
+        assert nodes['dup'].dtype == bool
+        assert set(nodes.index[nodes['dup']]) == {0, 1}
+
+    def test_name_conflicts_node_and_edge_same_name(self, names_graph):
+        chain_ops = [
+            n({'region': 'NA'}, name='shared'),
+            e_forward({'amount': {'$gte': 7}}, name='shared'),
+            n({'region': 'EU'})
+        ]
+
+        result = names_graph.gfql(chain_ops)
+
+        nodes = result._nodes.set_index(names_graph._node)
+        edges = result._edges[['source', 'target', 'shared']]
+        assert 'shared' in nodes.columns
+        assert 'shared' in edges.columns
+        assert nodes['shared'].dtype == bool
+        assert edges['shared'].dtype == bool
+
+    def test_name_conflicts_propagates_through_let(self, names_graph):
+        chain_ops = Chain([
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ])
+
+        dag = ASTLet({
+            'base': chain_ops,
+            'with_degrees': ASTCall('get_degrees', {'col': 'deg'})
+        })
+
+        result = names_graph.gfql(dag)
+        assert 'dup' in result._nodes.columns
+
+        with pytest.raises(GFQLSchemaError):
+            names_graph.gfql(dag, name_conflicts='error')
+
+    def test_name_conflicts_handles_astref_chains(self, names_graph):
+        dag = ASTLet({
+            'seed': Chain([n({'region': 'NA'})]),
+            'expanded': ASTRef('seed', Chain([
+                e_forward(name='dup'),
+                n({'region': 'EU'}, name='dup')
+            ]).chain)
+        })
+
+        result = names_graph.gfql(dag)
+        assert 'dup' in result._nodes.columns
+
+

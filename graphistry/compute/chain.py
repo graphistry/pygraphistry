@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING, Set
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -7,6 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
+from graphistry.compute.exceptions import GFQLSchemaError, GFQLTypeError, ErrorCode
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
@@ -16,6 +18,121 @@ if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
 
 logger = setup_logger(__name__)
+
+
+@dataclass
+class NameResolution:
+    node_aliases: Dict[ASTObject, str]
+    edge_aliases: Dict[ASTObject, str]
+    node_groups: Dict[str, List[str]]
+    edge_groups: Dict[str, List[str]]
+    drop_node_columns: Set[str]
+    drop_edge_columns: Set[str]
+
+
+def _generate_alias(base: str, used: Set[str]) -> str:
+    """Generate a unique alias for duplicate matcher names."""
+    if base not in used:
+        used.add(base)
+        return base
+    counter = 0
+    while True:
+        alias = f"__gfql_{base}_{counter}__"
+        if alias not in used:
+            used.add(alias)
+            return alias
+        counter += 1
+
+
+def _prepare_name_resolution(g: Plottable, ops: List[ASTObject], name_conflicts: str) -> NameResolution:
+    """Compute alias mappings and validation for matcher names."""
+
+    allowed_policies = {'any', 'error', 'suffix'}
+    if name_conflicts not in allowed_policies:
+        raise GFQLTypeError(ErrorCode.E201, f"Unknown name_conflicts policy '{name_conflicts}'", field='name_conflicts')
+    if name_conflicts == 'suffix':
+        raise GFQLSchemaError(
+            ErrorCode.E201,
+            "name_conflicts='suffix' is not yet supported (tracked in #823).",
+            field='name_conflicts'
+        )
+
+    node_aliases: Dict[ASTObject, str] = {}
+    edge_aliases: Dict[ASTObject, str] = {}
+    node_groups: Dict[str, List[str]] = {}
+    edge_groups: Dict[str, List[str]] = {}
+    drop_node_columns: Set[str] = set()
+    drop_edge_columns: Set[str] = set()
+
+    existing_node_cols = set()
+    if g._nodes is not None:
+        existing_node_cols = set(g._nodes.columns)
+    existing_edge_cols = set()
+    if g._edges is not None:
+        existing_edge_cols = set(g._edges.columns)
+
+    used_node_aliases: Set[str] = set()
+    used_edge_aliases: Set[str] = set()
+
+    for idx, op in enumerate(ops):
+        if isinstance(op, ASTNode) and op._name:
+            canonical = op._name
+            aliases = node_groups.setdefault(canonical, [])
+
+            if name_conflicts == 'error':
+                if canonical in existing_node_cols:
+                    raise GFQLSchemaError(
+                        ErrorCode.E201,
+                        f"Node matcher name '{canonical}' collides with existing node column.",
+                        field=canonical
+                    )
+                if aliases:
+                    raise GFQLSchemaError(
+                        ErrorCode.E201,
+                        f"Duplicate node matcher name '{canonical}' detected.",
+                        field=canonical
+                    )
+                alias = canonical
+            else:  # 'any'
+                if canonical in existing_node_cols:
+                    drop_node_columns.add(canonical)
+                alias = _generate_alias(canonical, used_node_aliases)
+            node_aliases[op] = alias
+            aliases.append(alias)
+
+        elif isinstance(op, ASTEdge) and op._name:
+            canonical = op._name
+            aliases = edge_groups.setdefault(canonical, [])
+
+            if name_conflicts == 'error':
+                if canonical in existing_edge_cols:
+                    raise GFQLSchemaError(
+                        ErrorCode.E201,
+                        f"Edge matcher name '{canonical}' collides with existing edge column.",
+                        field=canonical
+                    )
+                if aliases:
+                    raise GFQLSchemaError(
+                        ErrorCode.E201,
+                        f"Duplicate edge matcher name '{canonical}' detected.",
+                        field=canonical
+                    )
+                alias = canonical
+            else:
+                if canonical in existing_edge_cols:
+                    drop_edge_columns.add(canonical)
+                alias = _generate_alias(canonical, used_edge_aliases)
+            edge_aliases[op] = alias
+            aliases.append(alias)
+
+    return NameResolution(
+        node_aliases=node_aliases,
+        edge_aliases=edge_aliases,
+        node_groups=node_groups,
+        edge_groups=edge_groups,
+        drop_node_columns=drop_node_columns,
+        drop_edge_columns=drop_edge_columns,
+    )
 
 
 ###############################################################################
@@ -150,7 +267,15 @@ class Chain(ASTSerializable):
 ###############################################################################
 
 
-def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]], engine: Engine) -> DataFrameT:
+def combine_steps(
+    g: Plottable,
+    kind: str,
+    steps: List[Tuple[ASTObject,Plottable]],
+    engine: Engine,
+    name_aliases: Optional[Dict[ASTObject, str]] = None,
+    alias_groups: Optional[Dict[str, List[str]]] = None,
+    drop_columns: Optional[Set[str]] = None,
+) -> DataFrameT:
     """
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
@@ -184,6 +309,10 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
     # df[[id]] - with defensive checks for column existence
     dfs_to_concat = []
+    alias_groups = alias_groups or {}
+    name_aliases = name_aliases or {}
+    drop_columns = drop_columns or set()
+
     for (op, g_step) in steps:
         step_df = getattr(g_step, df_fld)
         if id not in step_df.columns:
@@ -215,14 +344,34 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
     for (op, g_step) in steps:
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
-            step_df = getattr(g_step, df_fld)[[id, op._name]]
+            alias = name_aliases.get(op, op._name)
+            step_df = getattr(g_step, df_fld)[[id, op._name]].rename(columns={op._name: alias})
+            step_df[alias] = step_df[alias].where(step_df[alias].notna(), False).astype('bool')
             # Use safe_merge to handle engine type coercion automatically
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
-            s = out_df[op._name]
-            out_df[op._name] = s.where(s.notna(), False).astype('bool')
+    # Collapse alias groups back into canonical names
+    for canonical, aliases in alias_groups.items():
+        combined = None
+        for alias in aliases:
+            if alias in out_df.columns:
+                alias_series = out_df[alias].where(out_df[alias].notna(), False).astype('bool')
+                combined = alias_series if combined is None else (combined | alias_series)
+        if combined is not None:
+            out_df[canonical] = combined
+        # Drop auxiliary alias columns (keep canonical)
+        for alias in aliases:
+            if alias != canonical and alias in out_df.columns:
+                out_df = out_df.drop(columns=[alias])
+        # Ensure canonical column exists even if all alias columns missing
+        if canonical not in out_df.columns:
+            out_df[canonical] = False
 
     # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
+    if g_df is not None and drop_columns:
+        existing = [col for col in drop_columns if col in g_df.columns]
+        if existing:
+            g_df = g_df.drop(columns=existing)
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
@@ -318,7 +467,8 @@ def _handle_boundary_calls(
     engine: Union[EngineAbstract, str],
     validate_schema: bool,
     policy,
-    context
+    context,
+    name_conflicts: str
 ) -> Optional[Plottable]:
     """
     Handle boundary call() patterns by splitting and executing sequentially.
@@ -369,20 +519,28 @@ def _handle_boundary_calls(
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
-        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts)  # type: ignore[call-arg]
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
-        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts)  # type: ignore[call-arg]
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts)  # type: ignore[call-arg]
 
     return g_temp
 
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
+def chain(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    validate_schema: bool = True,
+    policy=None,
+    context=None,
+    name_conflicts: str = 'any'
+) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -412,14 +570,22 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
-            return _chain_impl(self, ops, engine, validate_schema, policy, context)
+            return _chain_impl(self, ops, engine, validate_schema, policy, context, name_conflicts)
         finally:
             call_thread_local.policy = old_policy
     else:
-        return _chain_impl(self, ops, engine, validate_schema, policy, context)
+        return _chain_impl(self, ops, engine, validate_schema, policy, context, name_conflicts)
 
 
-def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy, context) -> Plottable:
+def _chain_impl(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy,
+    context,
+    name_conflicts: str,
+) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
 
@@ -556,9 +722,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             # Execute segments: before → schema_changer → rest
             # Recursion handles multiple schema-changers automatically
-            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if before else self  # type: ignore[call-arg]
-            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
+            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts) if before else self  # type: ignore[call-arg]
+            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts)  # type: ignore[call-arg]
+            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context, name_conflicts=name_conflicts) if rest else g_temp2  # type: ignore[call-arg]
 
     if validate_schema:
         # Validate AST structure (including identifier validation) BEFORE schema validation
@@ -574,6 +740,8 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     if len(ops) == 0:
         return self
 
+    name_resolution = _prepare_name_resolution(self, ops, name_conflicts)
+
     logger.debug('orig chain >> %s', ops)
 
     engine_concrete = resolve_engine(engine, self)
@@ -581,7 +749,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     # Handle boundary call() patterns: [call(), ..., call()]
     # Allows call() at start/end for convenience, rejects interior mixing
-    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context)
+    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context, name_conflicts)
     if boundary_result is not None:
         return boundary_result
 
@@ -750,10 +918,26 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     logger.debug('edges: %s', g_step._edges)
 
             logger.debug('============ COMBINE NODES ============')
-            final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+            final_nodes_df = combine_steps(
+                g,
+                'nodes',
+                list(zip(ops, reversed(g_stack_reverse))),
+                engine_concrete,
+                name_aliases=name_resolution.node_aliases,
+                alias_groups=name_resolution.node_groups,
+                drop_columns=name_resolution.drop_node_columns,
+            )
 
             logger.debug('============ COMBINE EDGES ============')
-            final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+            final_edges_df = combine_steps(
+                g,
+                'edges',
+                list(zip(ops, reversed(g_stack_reverse))),
+                engine_concrete,
+                name_aliases=name_resolution.edge_aliases,
+                alias_groups=name_resolution.edge_groups,
+                drop_columns=name_resolution.drop_edge_columns,
+            )
             if added_edge_index:
                 # Drop the internal edge index column (stored in g._edge after we added it)
                 final_edges_df = final_edges_df.drop(columns=[g._edge])

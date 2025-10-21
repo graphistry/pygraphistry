@@ -5,6 +5,7 @@ from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
+from graphistry.compute.exceptions import GFQLSchemaError
 from .execution_context import ExecutionContext
 from .engine_coercion import ensure_engine_match
 
@@ -208,7 +209,8 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
 
 
 def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
-                context: ExecutionContext, engine: Engine, policy=None, global_query=None) -> Plottable:
+                context: ExecutionContext, engine: Engine, policy=None, global_query=None,
+                name_conflicts: str = 'any') -> Plottable:
     """Execute a single node in the DAG
 
     Handles different GraphOperation types:
@@ -236,7 +238,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
-        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context)
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context, name_conflicts=name_conflicts)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -252,7 +254,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
+            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context, name_conflicts=name_conflicts)
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:
@@ -262,12 +264,12 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # ASTNode operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context, name_conflicts=name_conflicts)
     elif isinstance(ast_obj, ASTEdge):
         # ASTEdge operates on the original graph (unless accessed via ASTRef)
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
+        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context, name_conflicts=name_conflicts)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -351,7 +353,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
             original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
+            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context, name_conflicts=name_conflicts)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -369,7 +371,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
                   output: Optional[str] = None,
                   policy=None,
-                  context: Optional[ExecutionContext] = None) -> Plottable:
+                  context: Optional[ExecutionContext] = None,
+                  name_conflicts: str = 'any') -> Plottable:
     """Internal implementation of chain_let execution
 
     Validates DAG, determines execution order, and executes nodes
@@ -506,7 +509,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             try:
                 # Execute node - this adds the binding name as a column
-                binding_result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
+                binding_result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag, name_conflicts=name_conflicts)
                 binding_success = True
 
                 # Accumulate the new column(s) onto our result
@@ -574,7 +577,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 else:
                     raise policy_error
             elif binding_error is not None:
-                # Wrap in RuntimeError with context
+                if isinstance(binding_error, GFQLSchemaError):
+                    raise binding_error
                 raise RuntimeError(
                     f"Failed to execute node '{node_name}' in DAG. "
                     f"Error: {type(binding_error).__name__}: {str(binding_error)}"
@@ -717,7 +721,8 @@ def chain_let(self: Plottable, dag: ASTLet,
              engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
              output: Optional[str] = None,
              policy=None,
-             context: Optional[ExecutionContext] = None) -> Plottable:
+             context: Optional[ExecutionContext] = None,
+             name_conflicts: str = 'any') -> Plottable:
     """
     Execute a DAG of named graph operations with dependency resolution
     
@@ -769,4 +774,4 @@ def chain_let(self: Plottable, dag: ASTLet,
         # Or select specific output
         people_result = g.chain_let(dag, output='people')
     """
-    return chain_let_impl(self, dag, engine, output, policy, context)
+    return chain_let_impl(self, dag, engine, output, policy, context, name_conflicts)

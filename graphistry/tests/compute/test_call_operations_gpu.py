@@ -6,7 +6,7 @@ import pandas as pd
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine
-from graphistry.compute.ast import ASTCall, ASTLet, n
+from graphistry.compute.ast import ASTCall, ASTLet, n, e_forward
 from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.gfql.call_executor import execute_call
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -318,3 +318,31 @@ class TestCallOperationsGPU:
         
         # Should have size encoding set
         assert result2._point_size == 'score'
+
+    @skip_gpu
+    def test_name_conflicts_any_policy_gpu(self):
+        import cudf
+
+        nodes_df = pd.DataFrame({
+            'id': [0, 1, 2],
+            'region': ['NA', 'EU', 'APAC']
+        })
+        edges_df = pd.DataFrame({
+            'source': [0, 1],
+            'target': [1, 2]
+        })
+
+        g = CGFull().nodes(cudf.from_pandas(nodes_df), 'id').edges(
+            cudf.from_pandas(edges_df), 'source', 'target'
+        )
+
+        chain_ops = [
+            n({'region': 'NA'}, name='dup'),
+            e_forward(),
+            n({'region': 'EU'}, name='dup'),
+        ]
+
+        result = g.gfql(chain_ops, engine='cudf')
+        nodes = result._nodes.to_pandas()
+        assert 'dup' in nodes.columns
+        assert nodes['dup'].dtype == bool

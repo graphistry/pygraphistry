@@ -40,7 +40,8 @@ def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
-         policy: Optional[Dict[str, PolicyFunction]] = None) -> Plottable:
+         policy: Optional[Dict[str, PolicyFunction]] = None,
+         name_conflicts: str = 'any') -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -251,18 +252,18 @@ def gfql(self: Plottable,
             # Dispatch based on type - check specific types before generic
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
-                return chain_let_impl(self, query, engine, output, policy=expanded_policy, context=context)
+                return chain_let_impl(self, query, engine, output, policy=expanded_policy, context=context, name_conflicts=name_conflicts)
             elif isinstance(query, Chain):
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, query.chain, engine, policy=expanded_policy, context=context)
+                return chain_impl(self, query.chain, engine, policy=expanded_policy, context=context, name_conflicts=name_conflicts)
             elif isinstance(query, ASTObject):
                 # Single ASTObject -> execute as single-item chain
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, [query], engine, policy=expanded_policy, context=context)
+                return chain_impl(self, [query], engine, policy=expanded_policy, context=context, name_conflicts=name_conflicts)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -277,7 +278,7 @@ def gfql(self: Plottable,
                     else:
                         converted_query.append(item)
 
-                return chain_impl(self, converted_query, engine, policy=expanded_policy, context=context)
+                return chain_impl(self, converted_query, engine, policy=expanded_policy, context=context, name_conflicts=name_conflicts)
             else:
                 raise TypeError(
                     f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
