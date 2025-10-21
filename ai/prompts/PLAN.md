@@ -187,6 +187,7 @@ Every ~20 completed phases:
 ```bash
 # Specific commands to run
 ```
+- Update external TODO/task entry for this phase
 **Success Criteria:** [How to verify completion]
 **Result:** [To be filled when complete]
 
