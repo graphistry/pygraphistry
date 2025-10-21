@@ -112,7 +112,10 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 
 # Git operations
 git status
+git add -p              # build grouped, semantic hunks before committing
 git diff --cached
+# prefer conventional commit messages and normal pushes;
+# avoid force-push unless coordinated (keeps GH CI intact)
 git log --oneline -n 10
 ```
 
