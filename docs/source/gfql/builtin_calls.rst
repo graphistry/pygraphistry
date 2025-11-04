@@ -16,7 +16,7 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
 
 .. code-block:: python
 
-    from graphistry.compute import call, let, ref, n, e_forward, gt
+    from graphistry import call, let, ref, n, e_forward, gt
 
     # Pure call() chains work - filter then enrich
     result = g.gfql([
@@ -208,7 +208,7 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
     ))
 
     # In a DAG with other operations
-    from graphistry.compute import let, ref, n
+    from graphistry import let, ref, n
 
     result = g.gfql(let({
         'hg': hypergraph(entity_types=['user', 'product']),
@@ -500,7 +500,7 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
     ])
     
     # Filter by degree using let()
-    from graphistry.compute import let, ref, call, n, gt
+    from graphistry import let, ref, call, n, gt
 
     g.gfql(let({
         'with_degrees': call('get_degrees', {'col': 'degree'}),
@@ -1646,7 +1646,7 @@ Best Practices
    .. code-block:: python
 
        # After get_degrees, these columns exist - use let() for mixed operations:
-       from graphistry.compute import let, ref, call, n, gt
+       from graphistry import let, ref, call, n, gt
 
        g.gfql(let({
            'enriched': call('get_degrees', {
