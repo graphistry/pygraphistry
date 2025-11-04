@@ -63,6 +63,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
 
 from graphistry.compute import (
     n, e, e_forward, e_reverse, e_undirected,
+    let, ref,
     Chain,
     call, CallMethodName,
 
