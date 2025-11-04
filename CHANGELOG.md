@@ -8,7 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-## [0.45.8 - 2025-11-03]
+## [0.45.8 - 2025-11-04]
 
 ### Changed
 - **Docker**: Update `docker/test-cpu.Dockerfile` to default to Python 3.12 for parity with supported environments.
