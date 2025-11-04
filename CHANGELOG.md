@@ -8,9 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.8 - 2025-11-03]
+
 ### Changed
 - **Docker**: Update `docker/test-cpu.Dockerfile` to default to Python 3.12 for parity with supported environments.
-- **GFQL / Layouts**: `graphistry.compute.let` and `graphistry.compute.ref` are now accessible through the top-level `graphistry` module.
+
+### Fixed
+
+- **GFQL - let, ref**: `graphistry.compute.let` and `graphistry.compute.ref` are now accessible through the top-level `graphistry` module.
 
 ## [0.45.7 - 2025-10-21]
 
