@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
-from typing_extensions import Literal, TypedDict
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload
+from typing_extensions import Literal
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
@@ -9,20 +9,6 @@ from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
 from graphistry.client_session import ClientSession, AuthManagerProtocol
-
-if TYPE_CHECKING:
-    from graphistry.kepler import KeplerEncoding
-
-    class KeplerEncodingDict(TypedDict, total=False):
-        """Dictionary structure for Kepler encoding.
-
-        This matches the output of KeplerEncoding.to_dict() and can be used
-        directly with encode_kepler() as an alternative to KeplerEncoding objects.
-        """
-        datasets: List[Dict[str, Any]]  # List of KeplerDataset.to_dict() outputs
-        layers: List[Dict[str, Any]]    # List of KeplerLayer.to_dict() outputs
-        options: Dict[str, Any]
-        config: Dict[str, Any]
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
@@ -41,8 +27,8 @@ from .bolt_util import (
     end_node_id_key,
     to_bolt_driver)
 
-
 from .arrow_uploader import ArrowUploader
+from .kepler import KeplerDataset, KeplerLayer, KeplerEncoding
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
@@ -876,8 +862,6 @@ class PlotterBase(Plottable):
             >>> g = g.encode_kepler_dataset(id="my-dataset", type="nodes")
             >>> g = g.encode_kepler_dataset(id="countries", type="countries", resolution=50)
         """
-        from graphistry.kepler import KeplerDataset
-
         dataset = KeplerDataset(
             id=id,
             type=type,
@@ -929,8 +913,6 @@ class PlotterBase(Plottable):
             ...     columns={'lat': 'latitude', 'lng': 'longitude'}
             ... )
         """
-        from graphistry.kepler import KeplerLayer
-
         layer = KeplerLayer(
             id=id,
             type=type,
@@ -947,7 +929,7 @@ class PlotterBase(Plottable):
         # Use helper to add layer
         return self.__encode_kepler_item('layers', layer.to_dict())
 
-    def encode_kepler(self, kepler_encoding: Union['KeplerEncodingDict', 'KeplerEncoding']) -> Plottable:
+    def encode_kepler(self, kepler_encoding: Union[Dict[str, Any], KeplerEncoding]) -> Plottable:
         """Apply a complete Kepler encoding to the plotter.
 
         Args:
@@ -963,8 +945,6 @@ class PlotterBase(Plottable):
             A new Plotter instance with the Kepler encoding applied
 
         Example:
-            from graphistry.kepler import KeplerEncoding, KeplerDataset, KeplerLayer
-
             # Method 1: Using KeplerEncoding container
             kepler = (KeplerEncoding()
                      .with_dataset(KeplerDataset(id="points", type="nodes"))
@@ -980,8 +960,6 @@ class PlotterBase(Plottable):
             }
             g3 = g.encode_kepler(kepler_dict)
         """
-        from graphistry.kepler import KeplerEncoding
-
         # Handle both KeplerEncoding instances and dict-like objects
         if isinstance(kepler_encoding, KeplerEncoding):
             kepler_dict = kepler_encoding.to_dict()
