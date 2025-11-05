@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload
-from typing_extensions import Literal
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
+from typing_extensions import Literal, TypedDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
@@ -9,6 +9,20 @@ from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
 from graphistry.client_session import ClientSession, AuthManagerProtocol
+
+if TYPE_CHECKING:
+    from graphistry.kepler import KeplerEncoding
+
+    class KeplerEncodingDict(TypedDict, total=False):
+        """Dictionary structure for Kepler encoding.
+
+        This matches the output of KeplerEncoding.to_dict() and can be used
+        directly with encode_kepler() as an alternative to KeplerEncoding objects.
+        """
+        datasets: List[Dict[str, Any]]  # List of KeplerDataset.to_dict() outputs
+        layers: List[Dict[str, Any]]    # List of KeplerLayer.to_dict() outputs
+        options: Dict[str, Any]
+        config: Dict[str, Any]
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
@@ -797,6 +811,187 @@ class PlotterBase(Plottable):
             color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
+
+
+    def encode_kepler_dataset(
+        self,
+        id: Optional[str] = None,
+        type: Optional[str] = None,
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        **kwargs
+    ) -> Plottable:
+        """
+        Add a Kepler.gl dataset to the encoding.
+
+        Uses an immutable pattern - returns a new Plotter instance with the dataset appended.
+        If no ID is provided, one will be auto-generated.
+
+        Args:
+            id: Optional dataset identifier
+            type: Dataset type (nodes, edges, countries, states, etc.)
+            label: Optional display label (defaults to id)
+            include: Optional list of columns to include
+            exclude: Optional list of columns to exclude
+            **kwargs: Type-specific parameters (resolution, boundary_lakes, map_node_coords, etc.)
+
+        Returns:
+            New Plotter instance with the dataset added
+
+        Example:
+            >>> g = g.encode_kepler_dataset(id="my-dataset", type="nodes")
+            >>> g = g.encode_kepler_dataset(id="countries", type="countries", resolution=50)
+        """
+        from graphistry.kepler import KeplerDataset
+
+        dataset = KeplerDataset(
+            id=id,
+            type=type,
+            label=label,
+            include=include,
+            exclude=exclude,
+            **kwargs
+        )
+
+        # Auto-generate ID if not provided
+        if dataset.id is None:
+            dataset.id = f"dataset-{uuid.uuid4().hex[:8]}"
+
+        # Deep copy complex encodings and get/create pointKeplerEncoding
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+            'datasets': [],
+            'layers': [],
+            'options': {},
+            'config': {}
+        })
+
+        # Append new dataset
+        kepler_encoding['datasets'].append(dataset.to_dict())
+        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
+
+        res._dataset_id = None
+        return res
+
+
+    def encode_kepler_layer(
+        self,
+        id: Optional[str] = None,
+        type: Optional[str] = None,
+        dataId: Optional[str] = None,
+        label: Optional[str] = None,
+        columns: Optional[Dict[str, str]] = None,
+        **kwargs
+    ) -> Plottable:
+        """
+        Add a Kepler.gl layer to the encoding.
+
+        Uses an immutable pattern - returns a new Plotter instance with the layer appended.
+        If no ID is provided, one will be auto-generated.
+
+        Args:
+            id: Optional layer identifier
+            type: Layer type (point, arc, line, grid, hexagon, geojson, etc.)
+            dataId: Dataset ID this layer references
+            label: Optional display label
+            columns: Column mappings (lat, lng, lat0, lng0, geojson, etc.)
+            **kwargs: Additional layer configuration
+
+        Returns:
+            New Plotter instance with the layer added
+
+        Example:
+            >>> g = g.encode_kepler_layer(
+            ...     id="my-layer",
+            ...     type="point",
+            ...     dataId="my-dataset",
+            ...     columns={'lat': 'latitude', 'lng': 'longitude'}
+            ... )
+        """
+        from graphistry.kepler import KeplerLayer
+
+        layer = KeplerLayer(
+            id=id,
+            type=type,
+            dataId=dataId,
+            label=label,
+            columns=columns,
+            **kwargs
+        )
+
+        # Auto-generate ID if not provided
+        if layer.id is None:
+            layer.id = f"layer-{uuid.uuid4().hex[:8]}"
+
+        # Deep copy complex encodings and get/create pointKeplerEncoding
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+            'datasets': [],
+            'layers': [],
+            'options': {},
+            'config': {}
+        })
+
+        # Append new layer
+        kepler_encoding['layers'].append(layer.to_dict())
+        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
+
+        res._dataset_id = None
+        return res
+
+    def encode_kepler(self, kepler_encoding: Union['KeplerEncodingDict', 'KeplerEncoding']) -> Plottable:
+        """Apply a complete Kepler encoding to the plotter.
+
+        Args:
+            kepler_encoding: Either a KeplerEncoding object or a dict with the structure:
+                {
+                    'datasets': [...],  # List of dataset dictionaries
+                    'layers': [...],    # List of layer dictionaries
+                    'options': {...},   # Kepler options
+                    'config': {...}     # Kepler config
+                }
+
+        Returns:
+            A new Plotter instance with the Kepler encoding applied
+
+        Example:
+            from graphistry.kepler import KeplerEncoding, KeplerDataset, KeplerLayer
+
+            # Method 1: Using KeplerEncoding container
+            kepler = (KeplerEncoding()
+                     .with_dataset(KeplerDataset(id="points", type="nodes"))
+                     .with_layer(KeplerLayer(id="point-layer", type="point", dataId="points")))
+            g2 = g.encode_kepler(kepler)
+
+            # Method 2: Using plain dict
+            kepler_dict = {
+                'datasets': [{'info': {'id': 'points'}, 'type': 'nodes'}],
+                'layers': [{'id': 'point-layer', 'type': 'point', 'config': {'dataId': 'points'}}],
+                'options': {},
+                'config': {}
+            }
+            g3 = g.encode_kepler(kepler_dict)
+        """
+        from graphistry.kepler import KeplerEncoding
+
+        # Handle both KeplerEncoding instances and dict-like objects
+        if isinstance(kepler_encoding, KeplerEncoding):
+            kepler_dict = kepler_encoding.to_dict()
+        else:
+            kepler_dict = kepler_encoding
+
+        # Deep copy and apply the complete encoding
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_dict
+
+        res._dataset_id = None
+        return res
 
     def __encode_badge(
         self,
