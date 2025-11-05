@@ -813,6 +813,39 @@ class PlotterBase(Plottable):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
+    def __encode_kepler_item(self, item_type: Optional[str] = None, item_dict: Optional[dict] = None, replace_encoding: Optional[dict] = None) -> Plottable:
+        """
+        Internal helper to add or replace Kepler encoding.
+
+        Args:
+            item_type: 'datasets' or 'layers' (for appending items)
+            item_dict: The dictionary representation of the item to append
+            replace_encoding: Complete encoding dict to replace existing (for encode_kepler)
+
+        Returns:
+            New Plotter instance with the encoding updated
+        """
+        # Deep copy complex encodings
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        if replace_encoding is not None:
+            # Replace entire encoding (for encode_kepler)
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = replace_encoding
+        else:
+            # Append item (for encode_kepler_dataset/layer)
+            kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+                'datasets': [],
+                'layers': [],
+                'options': {},
+                'config': {}
+            })
+            kepler_encoding[item_type].append(item_dict)
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
+
+        res._dataset_id = None
+        return res
+
     def encode_kepler_dataset(
         self,
         id: Optional[str] = None,
@@ -858,23 +891,8 @@ class PlotterBase(Plottable):
         if dataset.id is None:
             dataset.id = f"dataset-{uuid.uuid4().hex[:8]}"
 
-        # Deep copy complex encodings and get/create pointKeplerEncoding
-        res = copy.copy(self)
-        res._complex_encodings = copy.deepcopy(self._complex_encodings)
-
-        kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
-            'datasets': [],
-            'layers': [],
-            'options': {},
-            'config': {}
-        })
-
-        # Append new dataset
-        kepler_encoding['datasets'].append(dataset.to_dict())
-        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
-
-        res._dataset_id = None
-        return res
+        # Use helper to add dataset
+        return self.__encode_kepler_item('datasets', dataset.to_dict())
 
 
     def encode_kepler_layer(
@@ -926,23 +944,8 @@ class PlotterBase(Plottable):
         if layer.id is None:
             layer.id = f"layer-{uuid.uuid4().hex[:8]}"
 
-        # Deep copy complex encodings and get/create pointKeplerEncoding
-        res = copy.copy(self)
-        res._complex_encodings = copy.deepcopy(self._complex_encodings)
-
-        kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
-            'datasets': [],
-            'layers': [],
-            'options': {},
-            'config': {}
-        })
-
-        # Append new layer
-        kepler_encoding['layers'].append(layer.to_dict())
-        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
-
-        res._dataset_id = None
-        return res
+        # Use helper to add layer
+        return self.__encode_kepler_item('layers', layer.to_dict())
 
     def encode_kepler(self, kepler_encoding: Union['KeplerEncodingDict', 'KeplerEncoding']) -> Plottable:
         """Apply a complete Kepler encoding to the plotter.
@@ -985,13 +988,8 @@ class PlotterBase(Plottable):
         else:
             kepler_dict = kepler_encoding
 
-        # Deep copy and apply the complete encoding
-        res = copy.copy(self)
-        res._complex_encodings = copy.deepcopy(self._complex_encodings)
-        res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_dict
-
-        res._dataset_id = None
-        return res
+        # Use helper to replace entire encoding
+        return self.__encode_kepler_item(replace_encoding=kepler_dict)
 
     def __encode_badge(
         self,
