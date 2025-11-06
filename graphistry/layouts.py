@@ -214,8 +214,6 @@ class LayoutsMixin(Plottable):
                 logger.warning("cuDF DataFrame detected but cupy is not available. Falling back to NumPy (CPU). Install cupy for GPU-accelerated computation.")
 
         if use_cupy:
-            import cupy as cp
-
             lat_deg = g._nodes[lat_col]
             lon_deg = g._nodes[lon_col]
 
@@ -224,7 +222,7 @@ class LayoutsMixin(Plottable):
 
             # Mercator projection formulas (vectorized)
             x_vals = R * lon_rad
-            y_vals = R * cp.log(cp.tan(cp.pi/4 + lat_rad/2))
+            y_vals = R * cp.log(cp.tan(cp.pi / 4 + lat_rad / 2))
 
         else:
             import numpy as np
@@ -237,7 +235,7 @@ class LayoutsMixin(Plottable):
 
             # Mercator projection formulas (vectorized)
             x_vals = R * lon_rad
-            y_vals = R * np.log(np.tan(np.pi/4 + lat_rad/2))
+            y_vals = R * np.log(np.tan(np.pi / 4 + lat_rad / 2))
 
         g2 = g.nodes(
             g._nodes.assign(**{
