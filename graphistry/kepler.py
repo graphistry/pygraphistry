@@ -49,9 +49,9 @@ class KeplerDataset:
         self.exclude = exclude
         self.kwargs = kwargs  # Store type-specific parameters
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
-        result = {
+        result: Dict[str, Any] = {
             'info': {
                 'id': self.id,
                 **(({'label': self.label} if self.label else {}))
@@ -140,9 +140,9 @@ class KeplerLayer:
         self.columns = columns
         self.kwargs = kwargs  # Store additional config
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
-        result = {
+        result: Dict[str, Any] = {
             'id': self.id,
             'type': self.type,
             'config': {
@@ -328,7 +328,7 @@ class KeplerEncoding:
         """
         return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """
         Serialize to dictionary format for Kepler.gl.
 
