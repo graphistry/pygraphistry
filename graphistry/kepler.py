@@ -91,12 +91,12 @@ class KeplerDataset:
         if not isinstance(other, KeplerDataset):
             return False
         return (
-            self.id == other.id and
-            self.type == other.type and
-            self.label == other.label and
-            self.include == other.include and
-            self.exclude == other.exclude and
-            self.kwargs == other.kwargs
+            self.id == other.id
+            and self.type == other.type
+            and self.label == other.label
+            and self.include == other.include
+            and self.exclude == other.exclude
+            and self.kwargs == other.kwargs
         )
 
 
@@ -177,12 +177,12 @@ class KeplerLayer:
         if not isinstance(other, KeplerLayer):
             return False
         return (
-            self.id == other.id and
-            self.type == other.type and
-            self.dataId == other.dataId and
-            self.label == other.label and
-            self.columns == other.columns and
-            self.kwargs == other.kwargs
+            self.id == other.id
+            and self.type == other.type
+            and self.dataId == other.dataId
+            and self.label == other.label
+            and self.columns == other.columns
+            and self.kwargs == other.kwargs
         )
 
 
@@ -337,7 +337,7 @@ class KeplerEncoding:
         """
         result = {
             'datasets': [d.to_dict() for d in self.datasets] if self.datasets else [],
-            'layers': [l.to_dict() for l in self.layers] if self.layers else [],
+            'layers': [layer.to_dict() for layer in self.layers] if self.layers else [],
             'options': self.options if self.options else {},
             'config': self.config if self.config else {}
         }
@@ -368,8 +368,8 @@ class KeplerEncoding:
         if not isinstance(other, KeplerEncoding):
             return False
         return (
-            self.datasets == other.datasets and
-            self.layers == other.layers and
-            self.options == other.options and
-            self.config == other.config
+            self.datasets == other.datasets
+            and self.layers == other.layers
+            and self.options == other.options
+            and self.config == other.config
         )

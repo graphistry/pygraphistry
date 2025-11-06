@@ -798,7 +798,6 @@ class PlotterBase(Plottable):
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
-
     def __encode_kepler_item(self, item_type: Optional[str] = None, item_dict: Optional[dict] = None, replace_encoding: Optional[dict] = None) -> Plottable:
         """
         Internal helper to add or replace Kepler encoding.
@@ -877,7 +876,6 @@ class PlotterBase(Plottable):
 
         # Use helper to add dataset
         return self.__encode_kepler_item('datasets', dataset.to_dict())
-
 
     def encode_kepler_layer(
         self,
