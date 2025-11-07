@@ -816,10 +816,15 @@ class PlotterBase(Plottable):
 
         if replace_encoding is not None:
             # Replace entire encoding (for encode_kepler)
+            # Ensure encodingType is set to "kepler"
+            replace_encoding['encodingType'] = 'kepler'
+            replace_encoding['graphType'] = 'point'
             res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = replace_encoding
         else:
             # Append item (for encode_kepler_dataset/layer)
             kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+                'encodingType': 'kepler',
+                'graphType': 'point',
                 'datasets': [],
                 'layers': [],
                 'options': {},
