@@ -79,7 +79,7 @@ class TestKeplerLayer(unittest.TestCase):
         )
         self.assertEqual(layer.type, "point")
         self.assertEqual(layer.dataId, "my-dataset")
-        self.assertEqual(layer.columns['lat'], 'latitude')
+        self.assertEqual(layer.kwargs['columns']['lat'], 'latitude')
 
     def test_init_arc_layer(self):
         """Test arc layer initialization"""
@@ -90,7 +90,7 @@ class TestKeplerLayer(unittest.TestCase):
             columns={'lat0': 'src_lat', 'lng0': 'src_lng', 'lat1': 'dst_lat', 'lng1': 'dst_lng'}
         )
         self.assertEqual(layer.type, "arc")
-        self.assertEqual(layer.columns['lat0'], 'src_lat')
+        self.assertEqual(layer.kwargs['columns']['lat0'], 'src_lat')
 
     def test_init_without_id(self):
         """Test layer initialization without ID (no validation)"""

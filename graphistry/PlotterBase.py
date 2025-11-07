@@ -888,7 +888,6 @@ class PlotterBase(Plottable):
         type: Optional[str] = None,
         dataId: Optional[str] = None,
         label: Optional[str] = None,
-        columns: Optional[Dict[str, str]] = None,
         **kwargs
     ) -> Plottable:
         """
@@ -902,8 +901,7 @@ class PlotterBase(Plottable):
             type: Layer type (point, arc, line, grid, hexagon, geojson, etc.)
             dataId: Dataset ID this layer references
             label: Optional display label
-            columns: Column mappings (lat, lng, lat0, lng0, geojson, etc.)
-            **kwargs: Additional layer configuration
+            **kwargs: Additional layer configuration (columns, visConfig, etc.)
 
         Returns:
             New Plotter instance with the layer added
@@ -921,7 +919,6 @@ class PlotterBase(Plottable):
             type=type,
             dataId=dataId,
             label=label,
-            columns=columns,
             **kwargs
         )
 

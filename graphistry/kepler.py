@@ -112,8 +112,7 @@ class KeplerLayer:
         type: Layer type (point, arc, line, etc.)
         dataId: Dataset ID this layer references
         label: Optional display label
-        columns: Column mappings (lat, lng, lat0, lng0, etc.)
-        **kwargs: Additional layer configuration
+        **kwargs: Additional layer configuration (columns, visConfig, etc.)
 
     Example:
         >>> layer = KeplerLayer(
@@ -130,15 +129,13 @@ class KeplerLayer:
         type: Optional[str] = None,
         dataId: Optional[str] = None,
         label: Optional[str] = None,
-        columns: Optional[Dict[str, str]] = None,
         **kwargs
     ):
         self.id = id
         self.type = type
         self.dataId = dataId
         self.label = label
-        self.columns = columns
-        self.kwargs = kwargs  # Store additional config
+        self.kwargs = kwargs  # Store all config params (columns, visConfig, etc.)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
@@ -147,12 +144,11 @@ class KeplerLayer:
             'type': self.type,
             'config': {
                 'dataId': self.dataId,
-                **(({'label': self.label} if self.label else {})),
-                **(({'columns': self.columns} if self.columns else {}))
+                **(({'label': self.label} if self.label else {}))
             }
         }
 
-        # Merge additional config into config object
+        # Merge all config params (columns, visConfig, etc.)
         if self.kwargs:
             result['config'].update(self.kwargs)
 
@@ -181,7 +177,6 @@ class KeplerLayer:
             and self.type == other.type
             and self.dataId == other.dataId
             and self.label == other.label
-            and self.columns == other.columns
             and self.kwargs == other.kwargs
         )
 
@@ -268,7 +263,6 @@ class KeplerEncoding:
                 type=layer.type,
                 dataId=layer.dataId,
                 label=layer.label,
-                columns=layer.columns,
                 **layer.kwargs
             )
 
