@@ -969,7 +969,7 @@ class PlotterBase(Plottable):
         if isinstance(kepler_encoding, KeplerEncoding):
             kepler_dict = kepler_encoding.to_dict()
         else:
-            kepler_dict = kepler_encoding
+            kepler_dict = kepler_encoding.copy()
 
         # Use helper to replace entire encoding
         return self.__encode_kepler_item(replace_encoding=kepler_dict)

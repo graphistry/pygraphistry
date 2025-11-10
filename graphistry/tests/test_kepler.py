@@ -417,7 +417,16 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
 
         # Check result
         result = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
-        self.assertEqual(result, kepler_dict)
+        self.assertEqual(result['datasets'], kepler_dict['datasets'])
+        self.assertEqual(result['layers'], kepler_dict['layers'])
+        self.assertEqual(result['options'], kepler_dict['options'])
+        self.assertEqual(result['config'], kepler_dict['config'])
+        self.assertEqual(result['encodingType'], 'kepler')
+        self.assertEqual(result['graphType'], 'point')
+
+        # Verify user's dict wasn't mutated
+        self.assertNotIn('encodingType', kepler_dict)
+        self.assertNotIn('graphType', kepler_dict)
 
     def test_encode_kepler_replaces_existing(self):
         """Test that encode_kepler replaces existing encoding completely"""
