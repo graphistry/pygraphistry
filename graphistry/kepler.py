@@ -150,7 +150,7 @@ class KeplerLayer:
 
         # Merge all config params (columns, visConfig, etc.)
         if self.kwargs:
-            result['config'].update(self.kwargs)
+            result.update(self.kwargs)
 
         return result
 
