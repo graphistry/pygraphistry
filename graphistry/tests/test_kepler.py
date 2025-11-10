@@ -74,27 +74,31 @@ class TestKeplerLayer(unittest.TestCase):
         layer = KeplerLayer(
             id="point-layer",
             type="point",
-            dataId="my-dataset",
-            columns={'lat': 'latitude', 'lng': 'longitude'}
+            config={
+                "dataId": "my-dataset",
+                "columns": {'lat': 'latitude', 'lng': 'longitude'}
+            }
         )
         self.assertEqual(layer.type, "point")
-        self.assertEqual(layer.dataId, "my-dataset")
-        self.assertEqual(layer.kwargs['columns']['lat'], 'latitude')
+        self.assertEqual(layer.kwargs['config']['dataId'], "my-dataset")
+        self.assertEqual(layer.kwargs['config']['columns']['lat'], 'latitude')
 
     def test_init_arc_layer(self):
         """Test arc layer initialization"""
         layer = KeplerLayer(
             id="arc-layer",
             type="arc",
-            dataId="edges-dataset",
-            columns={'lat0': 'src_lat', 'lng0': 'src_lng', 'lat1': 'dst_lat', 'lng1': 'dst_lng'}
+            config={
+                "dataId": "edges-dataset",
+                "columns": {'lat0': 'src_lat', 'lng0': 'src_lng', 'lat1': 'dst_lat', 'lng1': 'dst_lng'}
+            }
         )
         self.assertEqual(layer.type, "arc")
-        self.assertEqual(layer.kwargs['columns']['lat0'], 'src_lat')
+        self.assertEqual(layer.kwargs['config']['columns']['lat0'], 'src_lat')
 
     def test_init_without_id(self):
         """Test layer initialization without ID (no validation)"""
-        layer = KeplerLayer(type="point", dataId="dataset1")
+        layer = KeplerLayer(type="point", config={"dataId": "dataset1"})
         self.assertIsNone(layer.id)
 
     def test_to_dict(self):
@@ -102,9 +106,11 @@ class TestKeplerLayer(unittest.TestCase):
         layer = KeplerLayer(
             id="test-layer",
             type="point",
-            dataId="my-dataset",
-            label="Test Layer",
-            columns={'lat': 'latitude', 'lng': 'longitude'}
+            config={
+                "dataId": "my-dataset",
+                "label": "Test Layer",
+                "columns": {'lat': 'latitude', 'lng': 'longitude'}
+            }
         )
         result = layer.to_dict()
         self.assertEqual(result['id'], "test-layer")
@@ -115,9 +121,9 @@ class TestKeplerLayer(unittest.TestCase):
 
     def test_equality(self):
         """Test layer equality"""
-        layer1 = KeplerLayer(id="layer1", type="point", dataId="ds1")
-        layer2 = KeplerLayer(id="layer1", type="point", dataId="ds1")
-        layer3 = KeplerLayer(id="layer2", type="point", dataId="ds1")
+        layer1 = KeplerLayer(id="layer1", type="point", config={"dataId": "ds1"})
+        layer2 = KeplerLayer(id="layer1", type="point", config={"dataId": "ds1"})
+        layer3 = KeplerLayer(id="layer2", type="point", config={"dataId": "ds1"})
         self.assertEqual(layer1, layer2)
         self.assertNotEqual(layer1, layer3)
 
@@ -294,9 +300,11 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         g2 = self.g.encode_kepler_layer(
             id="point-layer",
             type="point",
-            dataId="nodes-ds",
-            label="Points",
-            columns={'lat': 'latitude', 'lng': 'longitude'}
+            config={
+                "dataId": "nodes-ds",
+                "label": "Points",
+                "columns": {'lat': 'latitude', 'lng': 'longitude'}
+            }
         )
 
         kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
@@ -312,7 +320,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         g2 = (self.g
               .encode_kepler_dataset(id="dataset1", type="nodes")
               .encode_kepler_dataset(id="dataset2", type="edges")
-              .encode_kepler_layer(id="layer1", type="point", dataId="dataset1"))
+              .encode_kepler_layer(id="layer1", type="point", config={"dataId": "dataset1"}))
 
         kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
         self.assertEqual(len(kepler['datasets']), 2)
@@ -347,8 +355,10 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
               .encode_kepler_layer(
                   id="points",
                   type="point",
-                  dataId="nodes",
-                  columns={'lat': 'lat', 'lng': 'lng'}
+                  config={
+                      "dataId": "nodes",
+                      "columns": {'lat': 'lat', 'lng': 'lng'}
+                  }
               ))
 
         kepler_dict = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
@@ -413,7 +423,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         """Test that encode_kepler replaces existing encoding completely"""
         # First add some encodings
         g2 = self.g.encode_kepler_dataset(id="old-dataset")
-        g2 = g2.encode_kepler_layer(id="old-layer", type="arc", dataId="old-dataset")
+        g2 = g2.encode_kepler_layer(id="old-layer", type="arc", config={"dataId": "old-dataset"})
 
         # Now replace with new encoding
         from graphistry.kepler import KeplerEncoding, KeplerDataset

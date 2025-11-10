@@ -886,8 +886,6 @@ class PlotterBase(Plottable):
         self,
         id: Optional[str] = None,
         type: Optional[str] = None,
-        dataId: Optional[str] = None,
-        label: Optional[str] = None,
         **kwargs
     ) -> Plottable:
         """
@@ -899,9 +897,16 @@ class PlotterBase(Plottable):
         Args:
             id: Optional layer identifier
             type: Layer type (point, arc, line, grid, hexagon, geojson, etc.)
-            dataId: Dataset ID this layer references
-            label: Optional display label
-            **kwargs: Additional layer configuration (columns, visConfig, etc.)
+            **kwargs: Layer parameters including:
+                - config: Layer configuration dict containing:
+                    - dataId: Dataset ID this layer references
+                    - label: Optional display label
+                    - columns: Column mappings (lat, lng, lat0, lng0, etc.)
+                    - isVisible: Whether layer is visible
+                    - color: Layer color
+                    - visConfig: Visual configuration dict
+                - visualChannels: Visual channel mappings (colorField, sizeField, etc.)
+                - Other top-level layer parameters
 
         Returns:
             New Plotter instance with the layer added
@@ -910,15 +915,15 @@ class PlotterBase(Plottable):
             >>> g = g.encode_kepler_layer(
             ...     id="my-layer",
             ...     type="point",
-            ...     dataId="my-dataset",
-            ...     columns={'lat': 'latitude', 'lng': 'longitude'}
+            ...     config={
+            ...         "dataId": "my-dataset",
+            ...         "columns": {'lat': 'latitude', 'lng': 'longitude'}
+            ...     }
             ... )
         """
         layer = KeplerLayer(
             id=id,
             type=type,
-            dataId=dataId,
-            label=label,
             **kwargs
         )
 

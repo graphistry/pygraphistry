@@ -127,28 +127,20 @@ class KeplerLayer:
         self,
         id: Optional[str] = None,
         type: Optional[str] = None,
-        dataId: Optional[str] = None,
-        label: Optional[str] = None,
         **kwargs
     ):
         self.id = id
         self.type = type
-        self.dataId = dataId
-        self.label = label
-        self.kwargs = kwargs  # Store all config params (columns, visConfig, etc.)
+        self.kwargs = kwargs  # Store all params (config dict, visualChannels, etc.)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
         result: Dict[str, Any] = {
             'id': self.id,
-            'type': self.type,
-            'config': {
-                'dataId': self.dataId,
-                **(({'label': self.label} if self.label else {}))
-            }
+            'type': self.type
         }
 
-        # Merge all config params (columns, visConfig, etc.)
+        # Merge all params (config dict, visualChannels, etc.) at top level
         if self.kwargs:
             result.update(self.kwargs)
 
@@ -159,8 +151,6 @@ class KeplerLayer:
         parts = [f"id={self.id!r}"]
         if self.type:
             parts.append(f"type={self.type!r}")
-        if self.dataId:
-            parts.append(f"dataId={self.dataId!r}")
         return f"KeplerLayer({', '.join(parts)})"
 
     def __str__(self) -> str:
@@ -175,8 +165,6 @@ class KeplerLayer:
         return (
             self.id == other.id
             and self.type == other.type
-            and self.dataId == other.dataId
-            and self.label == other.label
             and self.kwargs == other.kwargs
         )
 
@@ -261,8 +249,6 @@ class KeplerEncoding:
             layer = KeplerLayer(
                 id=self._generate_id('layer'),
                 type=layer.type,
-                dataId=layer.dataId,
-                label=layer.label,
                 **layer.kwargs
             )
 
