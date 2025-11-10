@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+* **Plot: Geographic visualization support with Kepler.gl integration** (#799)
+  * New bindings: `point_longitude` and `point_latitude` for specifying columns containing geographic coordinates
+  * Kepler.gl encoding API:
+    * `encode_kepler_dataset()` - Add datasets (nodes, edges, countries, states, etc.)
+    * `encode_kepler_layer()` - Add visualization layers (point, arc, line, grid, hexagon, etc.)
+    * `encode_kepler()` - Apply complete Kepler configuration
+  * `mercator_layout()` - Convert lat/lon to Mercator projection with GPU/CPU support
+  * New `KeplerDataset`, `KeplerLayer`, `KeplerEncoding` classes for type-safe configuration
+  * Added 34 tests in `test_kepler.py` and 6 tests in `test_layout.py`
+
 ### Fixed
 * **Plot: Fix dataset_id invalidation in encoding and style methods** (#797)
   * Fixed 7 methods not invalidating `dataset_id` after modifying encodings/metadata/styles: `__encode()`, `encode_axis()`, `name()`, `description()`, `bind()` (conditional), `style()`, `addStyle()`
