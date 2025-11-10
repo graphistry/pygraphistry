@@ -2,7 +2,8 @@ from inspect import getmodule
 import warnings
 import numpy as np
 import pandas as pd
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
+from typing_extensions import Literal
 from enum import Enum
 
 
@@ -20,12 +21,16 @@ class EngineAbstract(Enum):
     AUTO = 'auto'
 
 
+# Type alias for engine parameter - accepts both enum values and string literals
+# Includes 'auto' for automatic detection
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]
+
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
 def resolve_engine(
-    engine: Union[EngineAbstract, str],
+    engine: EngineAbstractType,
     g_or_df: Optional[Any] = None,
 ) -> Engine:
 
@@ -249,3 +254,190 @@ def s_maximum(engine: Engine):
         import cupy as cp
         return cp.maximum
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+
+# DataFrame type coercion primitives
+# See issue #784: https://github.com/graphistry/pygraphistry/issues/784
+
+def safe_concat(
+    dfs: List[DataframeLike],
+    engine: Union[Engine, EngineAbstract] = EngineAbstract.AUTO,
+    ignore_index: bool = False,
+    sort: bool = False
+) -> DataframeLike:
+    """
+    Engine-aware DataFrame concatenation with automatic type conversion.
+
+    Handles mixed pandas/cuDF DataFrames by converting all to the target engine
+    before concatenation. Prevents TypeErrors from direct pandas/cuDF mixing.
+
+    Args:
+        dfs: List of DataFrames to concatenate (pandas or cuDF)
+        engine: Target engine for result ('auto', 'pandas', or 'cudf')
+               If 'auto', uses first DataFrame's type
+        ignore_index: If True, do not use index values on concatenation axis
+        sort: Sort non-concatenation axis if not already aligned
+
+    Returns:
+        Concatenated DataFrame in target engine type
+
+    Raises:
+        ValueError: If dfs is empty and engine is AUTO
+
+    Examples:
+        >>> import pandas as pd
+        >>> from graphistry.Engine import EngineAbstract, safe_concat
+        >>>
+        >>> df1 = pd.DataFrame({'a': [1, 2]})
+        >>> df2 = pd.DataFrame({'a': [3, 4]})
+        >>> result = safe_concat([df1, df2], engine=EngineAbstract.PANDAS)
+        >>> len(result)
+        4
+
+        >>> # With cuDF (if available)
+        >>> import cudf
+        >>> pdf = pd.DataFrame({'a': [1, 2]})
+        >>> gdf = cudf.DataFrame({'a': [3, 4]})
+        >>> # safe_concat handles mixed types - converts to target engine
+        >>> result = safe_concat([pdf, gdf], engine=EngineAbstract.CUDF)
+        >>> isinstance(result, cudf.DataFrame)
+        True
+    """
+    # Handle empty list
+    if len(dfs) == 0:
+        if engine == EngineAbstract.AUTO:
+            raise ValueError("Cannot infer engine from empty list - specify engine explicitly")
+        # Return empty DataFrame of target type
+        if isinstance(engine, EngineAbstract):
+            engine_val = Engine(engine.value) if engine != EngineAbstract.AUTO else Engine.PANDAS
+        else:
+            engine_val = engine
+        if engine_val == Engine.PANDAS:
+            return pd.DataFrame()  # type: ignore
+        elif engine_val == Engine.CUDF:
+            import cudf
+            return cudf.DataFrame()  # type: ignore
+        else:
+            raise ValueError(f"Unknown engine: {engine_val}")
+
+    # Resolve target engine
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+
+    engine_concrete: Engine
+    if engine == EngineAbstract.AUTO:
+        # Use first DataFrame's engine
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, dfs[0])
+    else:
+        engine_concrete = Engine(engine.value)
+
+    # Convert all DataFrames to target engine
+    converted_dfs: List[DataframeLike] = []
+    for i, df in enumerate(dfs):
+        df_engine = resolve_engine(EngineAbstract.AUTO, df)
+        if df_engine != engine_concrete:
+            # Type mismatch - convert to target engine
+            converted_df = df_to_engine(df, engine_concrete)
+            converted_dfs.append(converted_df)
+        else:
+            converted_dfs.append(df)
+
+    # Use engine-specific concat
+    concat_fn = df_concat(engine_concrete)
+    result = concat_fn(converted_dfs, ignore_index=ignore_index, sort=sort)
+
+    return result
+
+
+def safe_merge(
+    left: DataframeLike,
+    right: DataframeLike,
+    on: Optional[Union[str, List[str]]] = None,
+    left_on: Optional[Union[str, List[str]]] = None,
+    right_on: Optional[Union[str, List[str]]] = None,
+    how: Literal['left', 'right', 'outer', 'inner'] = 'inner',
+    engine: Union[Engine, EngineAbstract] = EngineAbstract.AUTO
+) -> DataframeLike:
+    """
+    Engine-aware DataFrame merge with automatic type conversion.
+
+    Handles mixed pandas/cuDF DataFrames by converting right DataFrame to match
+    left DataFrame's engine before merging. Prevents TypeErrors from direct mixing.
+
+    Args:
+        left: Left DataFrame (pandas or cuDF)
+        right: Right DataFrame (pandas or cuDF)
+        on: Column(s) to join on (must exist in both DataFrames)
+        left_on: Column(s) to join on from left DataFrame
+        right_on: Column(s) to join on from right DataFrame
+        how: Type of merge ('inner', 'outer', 'left', 'right')
+        engine: Target engine for result ('auto', 'pandas', or 'cudf')
+               If 'auto', uses left DataFrame's type
+
+    Returns:
+        Merged DataFrame in target engine type
+
+    Raises:
+        ValueError: If both 'on' and 'left_on'/'right_on' are specified
+
+    Examples:
+        >>> import pandas as pd
+        >>> from graphistry.Engine import EngineAbstract, safe_merge
+        >>>
+        >>> left = pd.DataFrame({'id': [1, 2], 'val': ['a', 'b']})
+        >>> right = pd.DataFrame({'id': [2, 3], 'score': [10, 20]})
+        >>> result = safe_merge(left, right, on='id', engine=EngineAbstract.PANDAS)
+        >>> len(result)
+        1
+
+        >>> # Left join
+        >>> result = safe_merge(left, right, on='id', how='left')
+        >>> len(result)
+        2
+
+        >>> # With cuDF (if available)
+        >>> import cudf
+        >>> pdf = pd.DataFrame({'id': [1, 2], 'val': ['a', 'b']})
+        >>> gdf = cudf.DataFrame({'id': [2, 3], 'score': [10, 20]})
+        >>> # safe_merge handles mixed types - converts right to match left
+        >>> result = safe_merge(pdf, gdf, on='id')
+        >>> isinstance(result, pd.DataFrame)
+        True
+    """
+    # Validate parameters
+    if on is not None and (left_on is not None or right_on is not None):
+        raise ValueError("Cannot specify both 'on' and 'left_on'/'right_on'")
+
+    # Resolve target engine
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+
+    engine_concrete: Engine
+    if engine == EngineAbstract.AUTO:
+        # Use left DataFrame's engine
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, left)
+    else:
+        engine_concrete = Engine(engine.value)
+
+    # Ensure both DataFrames match target engine
+    left_engine = resolve_engine(EngineAbstract.AUTO, left)
+    right_engine = resolve_engine(EngineAbstract.AUTO, right)
+
+    if left_engine != engine_concrete:
+        # Type mismatch - convert left to target engine
+        left = df_to_engine(left, engine_concrete)
+
+    if right_engine != engine_concrete:
+        # Type mismatch - convert right to target engine
+        right = df_to_engine(right, engine_concrete)
+
+    # Perform merge using DataFrame's native merge method
+    # Both pandas and cuDF support the same merge API
+    if on is not None:
+        result = left.merge(right, on=on, how=how)
+    elif left_on is not None and right_on is not None:
+        result = left.merge(right, left_on=left_on, right_on=right_on, how=how)
+    else:
+        raise ValueError("Must specify either 'on' or both 'left_on' and 'right_on'")
+
+    return result

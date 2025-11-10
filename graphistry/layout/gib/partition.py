@@ -61,7 +61,13 @@ def partition(
         g2 = g.edges( g._edges.assign(weight=1.)).bind(edge_weight='weight')
 
     if engine == Engine.PANDAS:
-        g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
+        try:
+            g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "group_in_a_box_layout with the pandas engine requires python-igraph. "
+                "Install it via `pip install igraph` or supply partition_key manually."
+            ) from exc
     elif engine == Engine.CUDF:
         g2 = g2.compute_cugraph(partition_alg, **partition_params, out_col=partition_key)
 

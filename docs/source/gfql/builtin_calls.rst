@@ -208,7 +208,7 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
     ))
 
     # In a DAG with other operations
-    from graphistry.compute import let, ref, n
+    from graphistry import let, ref, n
 
     result = g.gfql(let({
         'hg': hypergraph(entity_types=['user', 'product']),

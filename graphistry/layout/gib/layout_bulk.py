@@ -44,7 +44,8 @@ def layout_bulk_mode(
             positioned_graph = self.fa2_layout(
                 fa2_params=layout_params,
                 circle_layout_params={'partition_by': partition_key},
-                partition_key=partition_key
+                partition_key=partition_key,
+                allow_cpu_fallback=True
             )
         else:
             layout_name = layout_alg or 'fr'

@@ -774,6 +774,11 @@ g.time_ring_layout(
 ).plot()
 ```
 
+> **Tip:** When building GFQL JSON payloads, send ``time_start`` / ``time_end`` as
+> ISO-8601 strings (for example, ``"2014-01-22T00:00:00"``). The runtime converts
+> them to ``numpy.datetime64`` before computing the layout, matching the behavior
+> shown here with native ``np.datetime64`` inputs.
+
 ##### Continuous
 
 Use when the value column defining the ring order is a continuous number, like distance or amount. See [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/layout_continuous_ring.ipynb)

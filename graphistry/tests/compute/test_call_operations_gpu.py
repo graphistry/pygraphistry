@@ -179,6 +179,38 @@ class TestCallOperationsGPU:
         assert len(result._nodes) == 3
         assert result._nodes['x'].notna().all()
         assert result._nodes['y'].notna().all()
+
+    @skip_gpu
+    def test_ring_continuous_layout_gpu(self):
+        """Test ring_continuous_layout with cudf."""
+        import cudf
+
+        edges_df = pd.DataFrame({
+            'source': [0, 1, 2],
+            'target': [1, 2, 0]
+        })
+        nodes_df = pd.DataFrame({
+            'node': [0, 1, 2],
+            'score': [0.25, 0.5, 0.75]
+        })
+
+        edges_gdf = cudf.from_pandas(edges_df)
+        nodes_gdf = cudf.from_pandas(nodes_df)
+
+        g = CGFull()\
+            .edges(edges_gdf)\
+            .nodes(nodes_gdf)\
+            .bind(source='source', destination='target', node='node')
+
+        result = execute_call(
+            g,
+            'ring_continuous_layout',
+            {'ring_col': 'score'},
+            Engine.CUDF
+        )
+
+        assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        assert len(result._nodes) == 3
     
     @skip_gpu
     def test_chain_let_with_gpu_calls(self):

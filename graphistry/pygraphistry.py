@@ -4,6 +4,7 @@ from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
+from graphistry.Engine import EngineAbstractType
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -578,7 +579,8 @@ class GraphistryClient(AuthManagerProtocol):
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
         sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS,
-        sso_opt_into_type: Optional[Literal["display", "browser"]] = None
+        sso_opt_into_type: Optional[Literal["display", "browser"]] = None,
+        verify_token: Optional[bool] = None,
     ) -> "GraphistryClient":
         """API key registration and server selection
 
@@ -624,6 +626,8 @@ class GraphistryClient(AuthManagerProtocol):
         :type sso_timeout: Optional[int]
         :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
         :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :param verify_token: Whether to validate the provided token with the server before accepting it (defaults to True).
+        :type verify_token: Optional[bool]
         :returns: None.
         :rtype: None
 
@@ -693,6 +697,12 @@ class GraphistryClient(AuthManagerProtocol):
             )
             _is_client_mode_warned = True
         
+        should_verify_token = (
+            bool(strtobool(verify_token))
+            if isinstance(verify_token, str)
+            else (True if verify_token is None else bool(verify_token))
+        )
+
         self.session = ClientSession()  # Reset Session
         self._config = self.session.as_proxy()  # Update config proxy to point to new session
         
@@ -725,7 +735,24 @@ class GraphistryClient(AuthManagerProtocol):
         elif not (personal_key_id is None) and personal_key_secret is None:
             raise Exception(MSG_REGISTER_MISSING_PKEY_SECRET)
         elif not (token is None):
-            self.api_token(token or self.session.api_token)
+            raw_token_value = token or self.session.api_token
+            token_value = str(raw_token_value).strip() if raw_token_value is not None else None
+            if not token_value:
+                raise ValueError("register(token=...) requires a non-empty token string")
+
+            self.api_token(token_value)
+
+            if should_verify_token:
+                is_valid = self.verify_token(token_value, fail_silent=False)
+                if not is_valid:
+                    raise ValueError("Provided token failed verification")
+
+            if store_token_creds_in_memory is None:
+                self.store_token_creds_in_memory(False)
+
+            # Track how the credentials entered the session for downstream diagnostics.
+            self.session.login_type = "token"
+            self.session._is_authenticated = True
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
             self.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
@@ -845,7 +872,7 @@ class GraphistryClient(AuthManagerProtocol):
             'message': message
         }
 
-    def hypergraph(self, 
+    def hypergraph(self,
         raw_events,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
@@ -853,7 +880,7 @@ class GraphistryClient(AuthManagerProtocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = "pandas",
+        engine: EngineAbstractType = "auto",
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
     ) -> HypergraphResult:

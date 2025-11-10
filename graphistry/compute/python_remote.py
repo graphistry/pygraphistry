@@ -8,6 +8,7 @@ import ast
 import pandas as pd
 import requests
 
+from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
 
@@ -38,7 +39,7 @@ def python_remote_generic(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'json',
     output_type: Optional[OutputTypeAll] = 'json',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Union[Plottable, pd.DataFrame, Any]:
@@ -61,8 +62,8 @@ def python_remote_generic(
     :param output_type: What shape of output to fetch. Defaults to 'json'. Options include 'nodes', 'edges', 'all' (both), 'table', 'shape', and 'json'.
     :type output_type: Optional[OutputTypeAll]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -123,7 +124,13 @@ def python_remote_generic(
     
     assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
-    assert engine in ["pandas", "cudf"], f"engine should be 'pandas' or 'cudf', got: {engine}"
+    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
+    engine_resolved = resolve_engine(engine, self)
+    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
+        raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
+                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
+                       f"Dask engines are not supported for remote execution.")
+    engine_str = engine_resolved.value
 
     # TODO remove auto-indent when server updated
     # workaround parsing bug by indenting each line by 4 spaces
@@ -131,7 +138,7 @@ def python_remote_generic(
 
     request_body = {
         "execute": code_indented,
-        "engine": engine,
+        "engine": engine_str,
         **({"run_label": run_label} if run_label else {}),
         **({'format': format} if format != 'json' else {}),
         **({'output_type': output_type} if output_type is not None and output_type != 'json' else {})
@@ -270,7 +277,7 @@ def python_remote_g(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'parquet',
     output_type: Optional[OutputTypeAll] = 'all',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Plottable:
@@ -293,8 +300,8 @@ def python_remote_g(
     :param output_type: What shape of output to fetch. Defaults to 'all'. Options include 'nodes', 'edges', 'all' (both). For other variants, see python_remote_shape and python_remote_json.
     :type output_type: Optional[OutputTypeGraph]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -351,7 +358,7 @@ def python_remote_table(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'parquet',
     output_type: Optional[OutputTypeDf] = 'table',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> pd.DataFrame:
@@ -374,8 +381,8 @@ def python_remote_table(
     :param output_type: What shape of output to fetch. Defaults to 'table'. Options include 'table', 'nodes', and 'edges'.
     :type output_type: Optional[OutputTypeGraph]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -429,7 +436,7 @@ def python_remote_json(
     code: Union[str, Callable[..., object]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Any:
@@ -446,8 +453,8 @@ def python_remote_json(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]

@@ -6,6 +6,12 @@ from graphistry.privacy import Mode, Privacy, ModeAction
 
 from .client_session import ClientSession
 from .ArrowFileUploader import ArrowFileUploader
+from .io.metadata import (
+    serialize_node_bindings,
+    serialize_edge_bindings,
+    serialize_node_encodings,
+    serialize_edge_encodings
+)
 
 from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
@@ -422,7 +428,7 @@ class ArrowUploader:
             verify=self.certificate_validation,
             json={'token': token})
         log_requests_error(out)
-        return out.status_code == requests.codes.ok
+        return 200 <= out.status_code < 300
 
     def create_dataset(self, json, validate: bool = True):  # noqa: F811
         if validate:
@@ -463,81 +469,17 @@ class ArrowUploader:
         return b.getvalue()
 
 
-    def maybe_bindings(self, g, bindings, base = {}):
-        out = { **base }
-        for old_field_name, new_field_name in bindings:
-            try:
-                val = getattr(g, old_field_name)
-                if val is None:
-                    continue
-                else:
-                    out[new_field_name] = val
-            except AttributeError:
-                continue
-        logger.debug('bindings: %s', out)
-        return out
-
     def g_to_node_bindings(self, g):
-        bindings = self.maybe_bindings(  # noqa: E126
-            g,  # noqa: E126
-            [
-                ['_node', 'node'],
-                ['_point_color', 'node_color'],
-                ['_point_label', 'node_label'],
-                ['_point_opacity', 'node_opacity'],
-                ['_point_size', 'node_size'],
-                ['_point_title', 'node_title'],
-                ['_point_weight', 'node_weight'],
-                ['_point_icon', 'node_icon'],
-                ['_point_x', 'node_x'],
-                ['_point_y', 'node_y'],
-                ['_point_longitude', 'node_longitude'],
-                ['_point_latitude', 'node_latitude']
-            ])
-
-        return bindings
+        return serialize_node_bindings(g)
 
     def g_to_node_encodings(self, g):
-        encodings = {
-            'bindings': self.g_to_node_bindings(g)
-        }
-        for mode in ['current', 'default']:
-            if len(g._complex_encodings['node_encodings'][mode].keys()) > 0:
-                if not ('complex' in encodings):
-                    encodings['complex'] = {}
-                encodings['complex'][mode] = g._complex_encodings['node_encodings'][mode]
-        return encodings
-
+        return serialize_node_encodings(g)
 
     def g_to_edge_bindings(self, g):
-        bindings = self.maybe_bindings(  # noqa: E126
-                g,  # noqa: E126
-                [
-                    ['_source', 'source'],
-                    ['_destination', 'destination'],
-                    ['_edge_color', 'edge_color'],
-                    ['_edge_source_color', 'edge_source_color'],
-                    ['_edge_destination_color', 'edge_destination_color'],
-                    ['_edge_label', 'edge_label'],
-                    ['_edge_opacity', 'edge_opacity'],
-                    ['_edge_size', 'edge_size'],
-                    ['_edge_title', 'edge_title'],
-                    ['_edge_weight', 'edge_weight'],
-                    ['_edge_icon', 'edge_icon']
-                ])
-        return bindings
-
+        return serialize_edge_bindings(g)
 
     def g_to_edge_encodings(self, g):
-        encodings = {
-            'bindings': self.g_to_edge_bindings(g)
-        }
-        for mode in ['current', 'default']:
-            if len(g._complex_encodings['edge_encodings'][mode].keys()) > 0:
-                if not ('complex' in encodings):
-                    encodings['complex'] = {}
-                encodings['complex'][mode] = g._complex_encodings['edge_encodings'][mode]
-        return encodings
+        return serialize_edge_encodings(g)
 
 
     def post(
@@ -559,6 +501,8 @@ class ArrowUploader:
                 file_opts['org_name'] = self.org_name
             upload_url_opts = 'erase=true' if erase_files_on_fail else 'erase=false'
 
+            if self.edges is None:
+                raise ValueError("edges table is None")
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
             self.edges_file_id = e_file_id
 
@@ -700,11 +644,15 @@ class ArrowUploader:
     def post_edges_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.edges
+        if arr is None:
+            raise ValueError("edges table is None")
         return self.post_arrow(arr, 'edges', opts) 
 
     def post_nodes_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.nodes
+        if arr is None:
+            raise ValueError("nodes table is None")
         return self.post_arrow(arr, 'nodes', opts) 
 
     def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):

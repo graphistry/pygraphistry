@@ -176,6 +176,7 @@ class TestGroupInABoxExecution:
         # Skip if method not available on test object
         if not hasattr(simple_graph, 'group_in_a_box_layout'):
             pytest.skip("group_in_a_box_layout not available on test object")
+        pytest.importorskip("igraph", reason="group_in_a_box_layout requires python-igraph")
             
         result = execute_call(
             simple_graph,
@@ -197,6 +198,7 @@ class TestGroupInABoxExecution:
         # Skip if method not available on test object
         if not hasattr(simple_graph, 'group_in_a_box_layout'):
             pytest.skip("group_in_a_box_layout not available on test object")
+        pytest.importorskip("igraph", reason="group_in_a_box_layout requires python-igraph")
             
         result = execute_call(
             simple_graph,
@@ -284,6 +286,70 @@ class TestCallExecution:
         # Should have nodes now
         assert result._nodes is not None
         assert len(result._nodes) == 3
+
+    def test_execute_ring_continuous_layout(self):
+        """Test executing ring_continuous_layout in continuous mode."""
+        edges_df = pd.DataFrame({
+            'source': [0, 1, 2],
+            'target': [1, 2, 0]
+        })
+        nodes_df = pd.DataFrame({
+            'node': [0, 1, 2],
+            'type': ['user', 'user', 'admin'],
+            'score': [0.1, 0.4, 0.8]
+        })
+
+        g = CGFull()\
+            .edges(edges_df)\
+            .nodes(nodes_df)\
+            .bind(source='source', destination='target', node='node')
+
+        result = execute_call(
+            g,
+            'ring_continuous_layout',
+            {'ring_col': 'score'},
+            Engine.PANDAS
+        )
+
+        assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        assert result._point_x == 'x'
+        assert result._point_y == 'y'
+
+    def test_execute_time_ring_layout(self):
+        """Test executing time_ring_layout in time mode with ISO strings."""
+        edges_df = pd.DataFrame({
+            'source': [0, 1, 2],
+            'target': [1, 2, 0]
+        })
+        nodes_df = pd.DataFrame({
+            'node': [0, 1, 2],
+            'ts': pd.to_datetime([
+                '2024-01-01T00:00:00',
+                '2024-01-01T00:01:00',
+                '2024-01-01T00:02:00'
+            ])
+        })
+
+        g = CGFull()\
+            .edges(edges_df)\
+            .nodes(nodes_df)\
+            .bind(source='source', destination='target', node='node')
+
+        result = execute_call(
+            g,
+            'time_ring_layout',
+            {
+                'time_col': 'ts',
+                'time_start': '2024-01-01T00:00:00',
+                'time_end': '2024-01-01T00:02:00',
+                'num_rings': 3
+            },
+            Engine.PANDAS
+        )
+
+        assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        assert result._point_x == 'x'
+        assert result._point_y == 'y'
     
     def test_execute_with_validation_error(self, sample_graph):
         """Test that validation errors are properly raised."""
@@ -455,6 +521,59 @@ class TestGraphAlgorithmCalls:
             'fa2_params': {'iterations': 500}
         })
         assert params['fa2_params']['iterations'] == 500
+    
+    def test_fa2_layout_cpu_requires_gpu(self, sample_graph):
+        """fa2_layout should raise on CPU engines instead of silently falling back."""
+        with pytest.raises(GFQLTypeError) as exc_info:
+            execute_call(
+                sample_graph,
+                'fa2_layout',
+                {},
+                Engine.PANDAS
+            )
+        assert exc_info.value.code == ErrorCode.E303
+        assert 'requires a GPU-enabled engine' in str(exc_info.value)
+
+    def test_ring_continuous_layout_params(self):
+        """Test ring_continuous_layout parameter validation."""
+        params = validate_call_params('ring_continuous_layout', {
+            'ring_col': 'score',
+            'min_r': 200.0
+        })
+        assert params['min_r'] == 200.0
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('ring_continuous_layout', {
+                'ring_col': ['not', 'valid']
+            })
+        assert exc_info.value.code == ErrorCode.E201
+
+    def test_ring_categorical_layout_params(self):
+        """Test ring_categorical_layout parameter validation."""
+        params = validate_call_params('ring_categorical_layout', {
+            'ring_col': 'segment',
+            'order': ['a', 'b']
+        })
+        assert params['ring_col'] == 'segment'
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('ring_categorical_layout', {})
+        assert exc_info.value.code == ErrorCode.E105
+
+    def test_time_ring_layout_params(self):
+        """Test time_ring_layout parameter validation."""
+        params = validate_call_params('time_ring_layout', {
+            'time_col': 'ts',
+            'time_start': '2024-01-01T00:00:00'
+        })
+        assert params['time_col'] == 'ts'
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('time_ring_layout', {
+                'time_col': 'ts',
+                'time_unit': 'invalid'
+            })
+        assert exc_info.value.code == ErrorCode.E201
     
     def test_group_in_a_box_layout_params(self):
         """Test group_in_a_box_layout parameter validation."""

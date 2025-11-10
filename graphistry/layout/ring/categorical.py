@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 import numpy as np
 import pandas as pd
 
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.ring.util import polar_to_xy
 
@@ -80,7 +80,7 @@ def ring_categorical(
     format_labels: Optional[Callable[[Any, int, float], str]] = None,
     reverse: bool = False,
     play_ms: int = 0,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
 
     """Radial graph layout where nodes are positioned based on a categorical column ring_col
@@ -103,7 +103,7 @@ def ring_categorical(
     :format_label: Optional[Callable[[Any, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring position
     :reverse: bool Reverse the direction of the rings
     :play_ms: int initial layout time in milliseconds, default 2000
-    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter

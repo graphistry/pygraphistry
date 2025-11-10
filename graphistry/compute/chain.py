@@ -4,6 +4,7 @@ from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, r
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
+from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
@@ -215,20 +216,14 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
             step_df = getattr(g_step, df_fld)[[id, op._name]]
-            # Ensure step DataFrame matches requested engine for merge compatibility
-            step_df_engine = resolve_engine(EngineAbstract.AUTO, step_df)
-            if step_df_engine != engine:
-                step_df = df_to_engine(step_df, engine)
-            out_df = out_df.merge(step_df, on=id, how='left')
+            # Use safe_merge to handle engine type coercion automatically
+            out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
             s = out_df[op._name]
             out_df[op._name] = s.where(s.notna(), False).astype('bool')
 
-    # Ensure original graph DataFrame matches requested engine for final merge
+    # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
-    g_df_engine = resolve_engine(EngineAbstract.AUTO, g_df)
-    if g_df_engine != engine:
-        g_df = df_to_engine(g_df, engine)
-    out_df = out_df.merge(g_df, on=id, how='left')
+    out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 
@@ -248,13 +243,13 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #     2. Reverse pruning pass  (fastish)
 #
 #     Some paths traversed during Step 1 are deadends that must be pruned
-#    
+#
 #     To only pick nodes on full paths, we then run in a reverse pass on a graph subsetted to nodes along full/partial paths.
 #
 #     - Every node encountered on the reverse pass is guaranteed to be on a full path
-#    
+#
 #     - Every 'good' node will be encountered
-#    
+#
 #     - No 'bad' deadend nodes will be included
 #
 #     3. Forward output pass
@@ -262,6 +257,130 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #     This pass is likely fusable into Step 2: collect and label outputs
 #
 ###############################################################################
+
+
+def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
+    """
+    Split operations into boundary calls and middle segment.
+
+    Detects call() operations at chain boundaries (start/end) vs interior positions.
+    This enables convenient patterns like [call(), n(), e(), call()] while still
+    rejecting interior mixing like [n(), call(), e()].
+
+    Args:
+        ops: List of chain operations (ASTCall, ASTNode, or ASTEdge)
+
+    Returns:
+        (prefix_calls, middle_ops, suffix_calls) where:
+        - prefix_calls: call() operations at the start (may be empty)
+        - middle_ops: n()/e() traversals or call()s in the middle (may be empty)
+        - suffix_calls: call() operations at the end (may be empty)
+
+    Examples:
+        >>> _get_boundary_calls([call(), n(), e()])
+        ([call()], [n(), e()], [])
+
+        >>> _get_boundary_calls([n(), e(), call()])
+        ([], [n(), e()], [call()])
+
+        >>> _get_boundary_calls([call(), n(), e(), call()])
+        ([call()], [n(), e()], [call()])
+
+        >>> _get_boundary_calls([call(), call(), n()])
+        ([call(), call()], [n()], [])
+
+        >>> _get_boundary_calls([call(), call()])
+        ([call(), call()], [], [])
+
+    See: https://github.com/graphistry/pygraphistry/issues/792
+    """
+    from graphistry.compute.ast import ASTCall
+
+    # Find first non-call operation
+    first_traversal = next((i for i, op in enumerate(ops)
+                           if not isinstance(op, ASTCall)), len(ops))
+
+    # Find last non-call operation (search backwards)
+    last_traversal = next((i for i, op in reversed(list(enumerate(ops)))
+                          if not isinstance(op, ASTCall)), -1)
+
+    # Extract segments
+    prefix = ops[:first_traversal]  # All leading call() operations
+    middle = ops[first_traversal:last_traversal + 1] if last_traversal >= 0 else []  # Middle segment
+    suffix = ops[last_traversal + 1:] if last_traversal >= 0 else []  # All trailing call() operations
+
+    return (prefix, middle, suffix)
+
+
+def _handle_boundary_calls(
+    self: Plottable,
+    ops: List[ASTObject],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy,
+    context
+) -> Optional[Plottable]:
+    """
+    Handle boundary call() patterns by splitting and executing sequentially.
+
+    Detects patterns like [call(), n(), e(), call()] and executes as:
+    prefix → middle → suffix via recursive chain() calls.
+
+    Returns:
+        Plottable if boundary pattern detected and executed, None otherwise
+
+    Raises:
+        GFQLValidationError: If interior mixing detected
+    """
+    from graphistry.compute.ast import ASTCall
+
+    has_call = any(isinstance(op, ASTCall) for op in ops)
+    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
+
+    # Only handle mixed chains (both call and traversal)
+    if not (has_call and has_traversal):
+        return None
+
+    # Check if it's a boundary pattern or interior mixing
+    prefix, middle, suffix = _get_boundary_calls(ops)
+
+    # Validate middle segment doesn't have mixed operations
+    if middle:
+        has_call_in_middle = any(isinstance(op, ASTCall) for op in middle)
+        has_traversal_in_middle = any(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+
+        if has_call_in_middle and has_traversal_in_middle:
+            from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+            raise GFQLValidationError(
+                code=ErrorCode.E201,
+                message="Cannot mix call() operations with n()/e() traversals in interior of chain",
+                suggestion="call() operations are only allowed at chain boundaries (start/end). "
+                          "For complex patterns, use either: "
+                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
+                          "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
+                          "See issues #791, #792"
+            )
+
+    # Valid boundary pattern - execute segments sequentially
+    logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
+                len(prefix), len(middle), len(suffix))
+
+    g_temp = self
+
+    if prefix:
+        logger.debug('Executing boundary prefix calls: %s', prefix)
+        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    if middle:
+        logger.debug('Executing middle operations: %s', middle)
+        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    if suffix:
+        logger.debug('Executing boundary suffix calls: %s', suffix)
+        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+
+    return g_temp
+
 
 def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
     """
@@ -460,6 +579,12 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     engine_concrete = resolve_engine(engine, self)
     logger.debug('chain engine: %s => %s', engine, engine_concrete)
 
+    # Handle boundary call() patterns: [call(), ..., call()]
+    # Allows call() at start/end for convenience, rejects interior mixing
+    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context)
+    if boundary_result is not None:
+        return boundary_result
+
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
         ops = cast(List[ASTObject], [ ASTNode() ]) + ops
@@ -469,24 +594,6 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         ops = ops + cast(List[ASTObject], [ ASTNode() ])
 
     logger.debug('final chain >> %s', ops)
-
-    # Enforce homogeneous chains: either all call() or all n()/e(), not mixed
-    # Mixing these operation types leads to unexpected behavior due to architectural differences:
-    # - n()/e() use wavefront semantics (filter active nodes, immutable graph)
-    # - call() use transformation semantics (modify graph structure)
-    # For complex patterns, use let() to compose independent chains
-    has_call = any(isinstance(op, ASTCall) for op in ops)
-    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
-
-    if has_call and has_traversal:
-        from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
-        raise GFQLValidationError(
-            code=ErrorCode.E201,
-            message="Cannot mix call() operations with n()/e() traversals in same chain",
-            suggestion="Use let() to compose complex patterns. "
-                      "Example: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}). "
-                      "See issue #791: https://github.com/graphistry/pygraphistry/issues/791"
-        )
 
     # Store original edge binding from self before any transformations
     # This will be restored at the end if we add a temporary index column
