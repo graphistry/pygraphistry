@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.9 - 2025-11-10]
+
+### Fixed
+- **Layouts**: Fixed `group_in_a_box_layout` with GPU engine failing on older cuDF versions where `groupby.transform('size')` is not supported. Replaced with cuDF-compatible `groupby.size()` + `map()` pattern that works across all pandas and cuDF versions (#829).
+
 ## [0.45.8 - 2025-11-04]
 
 ### Changed
