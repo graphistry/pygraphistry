@@ -46,7 +46,8 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
-    runs-on: gpu_public
+    runs-on:
+      group: GPU Runners - Public
 
     strategy:
       matrix:
