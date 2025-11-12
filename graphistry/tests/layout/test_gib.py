@@ -128,6 +128,42 @@ class Test_gib(NoAuthTestCase):
         assert not result._nodes.y.isna().any(), "circle_layout produced NaN y coordinates"
         assert len(result._nodes) == 5
 
+    def test_gib_pd_with_partitions(self):
+        """Test group_in_a_box_layout with multiple communities - tests full integration path"""
+        try:
+            import igraph
+        except:
+            return
+
+        lg = LGFull()
+
+        # Create a graph with distinct communities that will trigger partitioning
+        # Community 0: nodes a, b, c
+        # Community 1: nodes d, e, f
+        edges = pd.DataFrame({
+            's': ['a', 'b', 'c', 'a', 'b', 'd', 'e', 'f', 'd', 'e'],
+            'd': ['b', 'c', 'a', 'c', 'a', 'e', 'f', 'd', 'f', 'd']
+        })
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            # group_in_a_box_layout uses community detection and internally calls
+            # circle_layout with partition_by, triggering the fixed code path
+            g = (
+                lg
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout()
+            )
+
+        assert isinstance(g._nodes, pd.DataFrame)
+        assert isinstance(g._edges, pd.DataFrame)
+        assert 'x' in g._nodes
+        assert 'y' in g._nodes
+        assert not g._nodes.x.isna().any(), "group_in_a_box_layout produced NaN x coordinates"
+        assert not g._nodes.y.isna().any(), "group_in_a_box_layout produced NaN y coordinates"
+        # Should have 6 unique nodes
+        assert len(g._nodes) == 6
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1")
@@ -180,3 +216,43 @@ class Test_gib(NoAuthTestCase):
         assert not result._nodes.x.isna().any(), "circle_layout produced NaN x coordinates"
         assert not result._nodes.y.isna().any(), "circle_layout produced NaN y coordinates"
         assert len(result._nodes) == 5
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1")
+    def test_gib_cudf_with_partitions(self):
+        """Test group_in_a_box_layout on GPU with multiple communities - tests full integration path"""
+        import cudf
+        try:
+            import igraph
+        except:
+            pytest.skip("igraph not available")
+
+        lg = LGFull()
+
+        # Create a graph with distinct communities that will trigger partitioning
+        # Community 0: nodes a, b, c
+        # Community 1: nodes d, e, f
+        edges = cudf.DataFrame({
+            's': ['a', 'b', 'c', 'a', 'b', 'd', 'e', 'f', 'd', 'e'],
+            'd': ['b', 'c', 'a', 'c', 'a', 'e', 'f', 'd', 'f', 'd']
+        })
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            # group_in_a_box_layout uses community detection and internally calls
+            # circle_layout with partition_by, triggering the fixed code path
+            g = (
+                lg
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout()
+            )
+
+        assert isinstance(g._nodes, cudf.DataFrame)
+        assert isinstance(g._edges, cudf.DataFrame)
+        assert 'x' in g._nodes
+        assert 'y' in g._nodes
+        assert not g._nodes.x.isna().any(), "group_in_a_box_layout produced NaN x coordinates"
+        assert not g._nodes.y.isna().any(), "group_in_a_box_layout produced NaN y coordinates"
+        # Should have 6 unique nodes
+        assert len(g._nodes) == 6
