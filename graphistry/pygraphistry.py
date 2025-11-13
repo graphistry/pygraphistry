@@ -775,7 +775,7 @@ class GraphistryClient(AuthManagerProtocol):
         if not org_name:
             return
         token = self.api_token()
-        last = getattr(self.session, "_last_switched_org_token", None)
+        last = self.session._last_switched_org_token
         if token and last == (org_name, token):
             return
         try:

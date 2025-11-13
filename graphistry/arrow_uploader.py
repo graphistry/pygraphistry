@@ -233,7 +233,7 @@ class ArrowUploader:
     def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
         if not org_name or not token:
             return
-        last = getattr(self._client_session, "_last_switched_org_token", None)
+        last = self._client_session._last_switched_org_token
         if last == (org_name, token):
             return
         try:
