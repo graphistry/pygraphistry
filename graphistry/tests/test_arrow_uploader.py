@@ -224,9 +224,10 @@ class TestArrowUploader_Comms(unittest.TestCase):
                 'active_organization': {
                     "slug": "mock-org",
                     'is_found': True,
-                    'is_member': True
-                }
-        })
+                    'is_member': True,
+                },
+            }
+        )
         mock_post.return_value = mock_resp
 
         au = ArrowUploader()
@@ -258,14 +259,16 @@ class TestArrowUploader_Comms(unittest.TestCase):
     @mock.patch('requests.post')
     def test_login_with_org_updates_client_session(self, mock_post):
 
-        mock_resp = self._mock_response(json_data={
+        mock_resp = self._mock_response(
+            json_data={
                 'token': '123',
                 'active_organization': {
                     "slug": "mock-org",
                     'is_found': True,
-                    'is_member': True
-                }
-        })
+                    'is_member': True,
+                },
+            }
+        )
         mock_post.return_value = mock_resp
 
         client = graphistry.client()
