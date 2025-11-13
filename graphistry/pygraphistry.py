@@ -170,8 +170,6 @@ class GraphistryClient(AuthManagerProtocol):
         self.api_token(token)
         self.session._is_authenticated = True
 
-        self._maybe_switch_org(org_name)
-
         return token
 
     def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
@@ -199,8 +197,6 @@ class GraphistryClient(AuthManagerProtocol):
         )
         self.api_token(token)
         self.session._is_authenticated = True
-
-        self._maybe_switch_org(org_name)
 
         return token
 

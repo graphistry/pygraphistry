@@ -230,6 +230,21 @@ class ArrowUploader:
     ########################################################################3
 
 
+    def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
+        if not org_name or not token:
+            return
+        try:
+            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
+            response = requests.post(
+                switch_url,
+                data={'slug': org_name},
+                headers={'Authorization': f'Bearer {token}'},
+                verify=self.certificate_validation,
+            )
+            log_requests_error(response)
+        except Exception as exc:
+            logger.warning("Failed to switch organization %s: %s", org_name, exc)
+
 
     def login(self, username, password, org_name=None):
         # base_path = self.server_base_path
@@ -268,7 +283,8 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
-            if not ('token' in json_response):
+            token_value = json_response.get('token')
+            if not token_value:
                 raise Exception(out.text)
 
             org = json_response.get('active_organization',{})
@@ -302,12 +318,14 @@ class ArrowUploader:
                 self._client_session.org_name = logged_in_org_name
                 PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
+
+            if logged_in_org_name:
+                self._switch_org(logged_in_org_name, token_value)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise
             
-        self.token = out.json()['token']
-
+        self.token = token_value
         return self
 
     def sso_login(self, org_name: Optional[str] = None, idp_name: Optional[str] = None) -> 'ArrowUploader':

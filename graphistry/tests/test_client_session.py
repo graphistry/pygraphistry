@@ -119,8 +119,9 @@ class TestClientSession:
         assert g._destination == "dst"
         assert g._pygraphistry.session.api_key == "client_key"
 
+    @mock.patch('graphistry.pygraphistry.ArrowUploader._switch_org')
     @mock.patch('requests.post')
-    def test_client_register_with_org_sets_session(self, mock_post):
+    def test_client_register_with_org_sets_session(self, mock_post, mock_switch_org):
         mock_resp = mock.Mock()
         mock_resp.json.return_value = {
             'token': 'tok123',
@@ -140,13 +141,11 @@ class TestClientSession:
         client = graphistry.client()
         assert client.session.org_name is None
 
-        with mock.patch.object(GraphistryClient, "switch_org") as mock_switch:
-            client.register(api=3, username='u', password='p', org_name='mock-org')
+        client.register(api=3, username='u', password='p', org_name='mock-org')
 
         assert client.session.org_name == 'mock-org'
         assert client.org_name() == 'mock-org'
-        assert mock_switch.call_count >= 1
-        mock_switch.assert_called_with('mock-org')
+        mock_switch_org.assert_called_with('mock-org', 'tok123')
 
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #
