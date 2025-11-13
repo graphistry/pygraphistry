@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
-import graphistry, mock, pandas as pd, pytest, unittest
+import graphistry, pandas as pd, pytest, unittest
+try:
+    import mock  # type: ignore
+except ImportError:  # pragma: no cover - fallback for stdlib-only envs
+    from unittest import mock
 
 from graphistry import ArrowUploader
 from graphistry.pygraphistry import PyGraphistry
@@ -229,6 +233,29 @@ class TestArrowUploader_Comms(unittest.TestCase):
         response = au.login(username="u", password="p", org_name="mock-org")
         tok = response.token
         assert tok == "123"
+        assert PyGraphistry.org_name() == "mock-org"
+
+    @mock.patch('requests.post')
+    def test_login_with_org_updates_client_session(self, mock_post):
+
+        mock_resp = self._mock_response(json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': True
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        client = graphistry.client()
+        client.session.org_name = None
+        PyGraphistry.session.org_name = None
+
+        au = ArrowUploader(client_session=client.session)
+        au.login(username="u", password="p", org_name="mock-org")
+
+        assert client.session.org_name == "mock-org"
         assert PyGraphistry.org_name() == "mock-org"
 
 

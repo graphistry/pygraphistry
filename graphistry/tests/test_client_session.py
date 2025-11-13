@@ -3,6 +3,7 @@ import graphistry
 from graphistry.pygraphistry import GraphistryClient, PyGraphistry
 
 import pandas as pd
+from unittest import mock
 
 
 class TestClientSession:
@@ -117,6 +118,32 @@ class TestClientSession:
         assert g._source == "src"
         assert g._destination == "dst"
         assert g._pygraphistry.session.api_key == "client_key"
+
+    @mock.patch('requests.post')
+    def test_client_register_with_org_sets_session(self, mock_post):
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = {
+            'token': 'tok123',
+            'active_organization': {
+                'slug': 'mock-org',
+                'is_found': True,
+                'is_member': True
+            }
+        }
+        mock_resp.status_code = 200
+        mock_resp.content = b''
+        mock_resp.text = ''
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = mock.Mock()
+        mock_post.return_value = mock_resp
+
+        client = graphistry.client()
+        assert client.session.org_name is None
+
+        client.register(api=3, username='u', password='p', org_name='mock-org')
+
+        assert client.session.org_name == 'mock-org'
+        assert client.org_name() == 'mock-org'
 
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #

@@ -291,12 +291,16 @@ class ArrowUploader:
                 if not is_member: 
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
+            target_session = self._client_session
             if logged_in_org_name is None and org_name is None:
+                if target_session.org_name is not None:
+                    target_session.org_name = None
                 if PyGraphistry.session.org_name is not None:
                     PyGraphistry.session.org_name = None
             else:
                 if PyGraphistry.session.org_name is not None:
                     logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry.session.org_name)
+                target_session.org_name = logged_in_org_name
                 PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
