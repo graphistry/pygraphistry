@@ -140,10 +140,12 @@ class TestClientSession:
         client = graphistry.client()
         assert client.session.org_name is None
 
-        client.register(api=3, username='u', password='p', org_name='mock-org')
+        with mock.patch.object(GraphistryClient, "switch_org") as mock_switch:
+            client.register(api=3, username='u', password='p', org_name='mock-org')
 
         assert client.session.org_name == 'mock-org'
         assert client.org_name() == 'mock-org'
+        mock_switch.assert_called_once_with('mock-org')
 
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #
