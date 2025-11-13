@@ -141,7 +141,11 @@ class GraphistryClient(AuthManagerProtocol):
 
     def login(self, username: str, password: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
-        By default, must be reinvoked within 24hr."""
+        By default, must be reinvoked within 24hr.
+
+        Note: Hub keeps a separate “active organization” slot (defaulting to the personal org) that powers
+        `/api-token-verify()` and entitlement lookup. After the JWT login succeeds, ArrowUploader.login() still
+        needs to POST `/api/v2/o/<slug>/switch/` or the server continues enforcing the default org’s limits."""
         logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, self.org_name()))
 
         if not org_name:
