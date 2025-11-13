@@ -402,17 +402,29 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
-            # print("get_jwt : {}".format(json_response))
             self.token = None
-            if not ('status' in json_response):
+            if 'status' not in json_response:
                 raise Exception(out.text)
-            else:
-                if json_response['status'] == 'OK':
-                    if 'token' in json_response['data']:
-                        self.token = json_response['data']['token']
-                    if 'active_organization' in json_response['data']:
-                        logger.debug("@ArrowUploader.sso_get_token, org_name: %s", json_response['data']['active_organization']['slug'])
-                        self.org_name = json_response['data']['active_organization']['slug']
+
+            if json_response['status'] != 'OK':
+                raise Exception(json_response.get('message', out.text))
+
+            data = json_response.get('data', {})
+            token_value = data.get('token')
+            if not token_value:
+                raise Exception("SSO response missing JWT token; cannot complete login")
+            self.token = token_value
+
+            active_org = data.get('active_organization')
+            if not active_org or not active_org.get('slug'):
+                raise Exception(
+                    "SSO response missing active organization; see graphistry/graphistry#2933"
+                )
+
+            slug = active_org['slug']
+            logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
+            self.org_name = slug
+            self._switch_org(slug, token_value or self.token)
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)

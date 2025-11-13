@@ -281,6 +281,26 @@ class TestArrowUploader_Comms(unittest.TestCase):
         assert client.session.org_name == "mock-org"
         assert PyGraphistry.org_name() == "mock-org"
 
+    @mock.patch('graphistry.arrow_uploader.ArrowUploader._switch_org')
+    @mock.patch('requests.get')
+    def test_pkey_login_invokes_switch_org(self, mock_get, mock_switch):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': True,
+                },
+            }
+        )
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader()
+        au.pkey_login('id', 'secret', org_name="mock-org")
+
+        mock_switch.assert_called_once_with("mock-org", "123")
 
     @mock.patch('requests.post')
     def test_login_with_org_old_server(self, mock_post):
@@ -404,5 +424,27 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         au = ArrowUploader()
 
-        au.sso_get_token(state='ignored-valid')
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
         assert au.token == '123'
+        assert au.org_name == 'mock-org'
+        mock_switch.assert_called_once_with('mock-org', '123')
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_missing_org_raises(self, mock_get):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.sso_get_token(state='ignored-valid')
