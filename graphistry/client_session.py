@@ -88,6 +88,7 @@ class ClientSession:
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self._bolt_driver: Optional[Any] = None
+        # Tracks the last (org_slug, jwt_token) we successfully switched to on the Hub server
         self._last_switched_org_token: Optional[Tuple[str, str]] = None
 
     def copy(self) -> "ClientSession":
