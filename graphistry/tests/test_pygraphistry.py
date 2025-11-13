@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import unittest, pytest
-from mock import patch
+try:
+    from mock import patch  # type: ignore
+except ImportError:  # pragma: no cover - stdlib fallback
+    from unittest.mock import patch
+import graphistry
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.messages import (
@@ -55,6 +59,19 @@ def test_register_with_only_personal_key_secret(capfd):
         PyGraphistry.register(personal_key_secret='only_personal_key_secret')
 
     assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_ID
+
+
+@patch("graphistry.pygraphistry.ArrowUploader.login")
+def test_login_switches_org(mock_login):
+    mock_arrow = unittest.mock.MagicMock()
+    mock_arrow.token = "tok123"
+    mock_login.return_value = mock_arrow
+
+    client = graphistry.client()
+    with patch.object(client, "switch_org") as mock_switch:
+        client.login("user", "pass", org_name="mock-org")
+
+    mock_switch.assert_called_once_with("mock-org")
 
 
 class FakeRequestResponse(object):
