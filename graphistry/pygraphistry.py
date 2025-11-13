@@ -774,6 +774,10 @@ class GraphistryClient(AuthManagerProtocol):
         """Ensure Hub session switches to requested org for entitlement checks."""
         if not org_name:
             return
+        token = self.api_token()
+        last = getattr(self.session, "_last_switched_org_token", None)
+        if token and last == (org_name, token):
+            return
         try:
             self.switch_org(org_name)
         except Exception as exc:  # pragma: no cover - best-effort switch should not fail register()

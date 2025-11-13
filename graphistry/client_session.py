@@ -1,6 +1,6 @@
 import os
 from dataclasses import is_dataclass, replace
-from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator
+from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator, Tuple
 from functools import lru_cache
 import json
 import warnings
@@ -88,6 +88,7 @@ class ClientSession:
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self._bolt_driver: Optional[Any] = None
+        self._last_switched_org_token: Optional[Tuple[str, str]] = None
 
     def copy(self) -> "ClientSession":
         """
