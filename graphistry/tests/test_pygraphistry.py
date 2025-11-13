@@ -74,6 +74,21 @@ def test_login_switches_org(mock_login):
     mock_switch.assert_called_once_with("mock-org")
 
 
+@patch("graphistry.pygraphistry.ArrowUploader.refresh")
+def test_refresh_switches_org(mock_refresh):
+    mock_arrow = unittest.mock.MagicMock()
+    mock_arrow.token = "tok123"
+    mock_refresh.return_value = mock_arrow
+
+    client = graphistry.client()
+    client.session.org_name = "mock-org"
+
+    with patch.object(client, "switch_org") as mock_switch:
+        client.refresh()
+
+    mock_switch.assert_called_once_with("mock-org")
+
+
 class FakeRequestResponse(object):
     def __init__(self, response, status_code: int):
         self.response = response
