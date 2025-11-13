@@ -777,7 +777,7 @@ class GraphistryClient(AuthManagerProtocol):
         try:
             self.switch_org(org_name)
         except Exception as exc:  # pragma: no cover - best-effort switch should not fail register()
-            logger.warning("Failed to switch organization %s: %s", org_name, exc)
+            logger.warning("Failed to switch organization: %s", exc)
 
     def __check_login_type_to_reset_token_creds(self, 
             origin_login_type: str,
