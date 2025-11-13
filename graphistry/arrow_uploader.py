@@ -259,7 +259,7 @@ class ArrowUploader:
             json=json_data)
         log_requests_error(out)
 
-        return self._handle_login_response(out, org_name)
+        return self._finalize_login(out, org_name)
 
     def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None) -> 'ArrowUploader':
         # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
@@ -276,9 +276,9 @@ class ArrowUploader:
             verify=self.certificate_validation,
             json=json_data, headers=headers)
         log_requests_error(out)
-        return self._handle_login_response(out, org_name)
+        return self._finalize_login(out, org_name)
 
-    def _handle_login_response(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
+    def _finalize_login(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
         from .pygraphistry import PyGraphistry
         json_response = None
         try:
@@ -320,6 +320,7 @@ class ArrowUploader:
                 # PyGraphistry.org_name(logged_in_org_name)
 
             if logged_in_org_name:
+                # Hashlink: graphistry/graphistry#2933 — Hub only honors org_name once /switch/ runs
                 self._switch_org(logged_in_org_name, token_value)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
