@@ -233,6 +233,9 @@ class ArrowUploader:
     def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
         if not org_name or not token:
             return
+        last = getattr(self._client_session, "_last_switched_org_token", None)
+        if last == (org_name, token):
+            return
         try:
             switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
             response = requests.post(
@@ -242,6 +245,10 @@ class ArrowUploader:
                 verify=self.certificate_validation,
             )
             log_requests_error(response)
+            self._client_session._last_switched_org_token = (org_name, token)
+            from .pygraphistry import PyGraphistry
+            if PyGraphistry.session is self._client_session:
+                PyGraphistry.session._last_switched_org_token = (org_name, token)
         except Exception as exc:
             logger.warning("Failed to switch organization %s: %s", org_name, exc)
 
