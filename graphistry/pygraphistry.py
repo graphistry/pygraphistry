@@ -409,6 +409,7 @@ class GraphistryClient(AuthManagerProtocol):
             )
             self.api_token(token)
             self.session._is_authenticated = True
+            self._maybe_switch_org(self.session.org_name)
             return self.api_token()
         except Exception as e:
 
