@@ -145,7 +145,8 @@ class TestClientSession:
 
         assert client.session.org_name == 'mock-org'
         assert client.org_name() == 'mock-org'
-        mock_switch.assert_called_once_with('mock-org')
+        assert mock_switch.call_count >= 1
+        mock_switch.assert_called_with('mock-org')
 
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #

@@ -729,6 +729,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.login(username, password, org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif (username is None and not (password is None)):
             raise Exception(MSG_REGISTER_MISSING_USERNAME)
         elif not (username is None) and password is None:
@@ -737,6 +738,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif personal_key_id is None and not (personal_key_secret is None):
             raise Exception(MSG_REGISTER_MISSING_PKEY_ID)
         elif not (personal_key_id is None) and personal_key_secret is None:
