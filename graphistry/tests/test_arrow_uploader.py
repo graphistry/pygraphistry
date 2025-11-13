@@ -235,6 +235,26 @@ class TestArrowUploader_Comms(unittest.TestCase):
         assert tok == "123"
         assert PyGraphistry.org_name() == "mock-org"
 
+    @mock.patch('graphistry.arrow_uploader.ArrowUploader._switch_org')
+    @mock.patch('requests.post')
+    def test_login_invokes_switch_org(self, mock_post, mock_switch):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': True
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+        au.login(username="u", password="p", org_name="mock-org")
+
+        mock_switch.assert_called_once_with("mock-org", "123")
+
     @mock.patch('requests.post')
     def test_login_with_org_updates_client_session(self, mock_post):
 

@@ -61,19 +61,6 @@ def test_register_with_only_personal_key_secret(capfd):
     assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_ID
 
 
-@patch("graphistry.pygraphistry.ArrowUploader.login")
-def test_login_switches_org(mock_login):
-    mock_arrow = unittest.mock.MagicMock()
-    mock_arrow.token = "tok123"
-    mock_login.return_value = mock_arrow
-
-    client = graphistry.client()
-    with patch.object(client, "switch_org") as mock_switch:
-        client.login("user", "pass", org_name="mock-org")
-
-    mock_switch.assert_called_once_with("mock-org")
-
-
 @patch("graphistry.pygraphistry.ArrowUploader.refresh")
 def test_refresh_switches_org(mock_refresh):
     mock_arrow = unittest.mock.MagicMock()
