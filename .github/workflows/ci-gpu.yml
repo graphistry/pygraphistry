@@ -44,10 +44,9 @@ jobs:
   test-full-ai:
     needs: [ gpu-permission ]
     if: |
-      github.event_name == 'workflow_dispatch' || 
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
-    runs-on:
-      group: GPU Runners - Public
+    runs-on: gpu_public
 
     strategy:
       matrix:
