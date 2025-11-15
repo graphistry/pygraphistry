@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Auth:** Work around server issue [graphistry/graphistry#2933](https://github.com/graphistry/graphistry/issues/2933) by automatically calling `/api/v2/o/<slug>/switch/` in ArrowUploader logins, SSO, and token refresh paths so `org_name` is honored for entitlements. Track the last `(org, token)` we switched to in the session to avoid redundant calls. (PR [#832](https://github.com/graphistry/pygraphistry/pull/832))
+- **GFQL / Hypergraph:** Prevent `return_as=*` calls from importing pandas Styler/Jinja by skipping Protocol `isinstance()` checks whenever hypergraph legitimately returns DataFrames, fixing CI/test failures on setups without Jinja2.
+
 ### Tests
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
