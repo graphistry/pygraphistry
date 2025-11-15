@@ -94,6 +94,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     execution_time = 0.0
     start_time = time.perf_counter()
     validated_params = None
+    hypergraph_returns_dataframe = False
 
     # Push execution depth and operation path for call execution
     # This moves from current depth to depth+1 (e.g., binding -> call, or let -> call)
@@ -103,6 +104,9 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     try:
         # Validate parameters against safelist (inside try block so postcall fires on validation errors)
         validated_params = validate_call_params(function, final_params)
+        params_for_return = validated_params if validated_params is not None else final_params
+        if function == 'hypergraph':
+            hypergraph_returns_dataframe = params_for_return.get('return_as', 'graph') != 'graph'
 
         # Check if method exists on Plottable
         if not hasattr(g, function):
@@ -122,7 +126,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
 
         # Ensure result is a Plottable (most methods return self or new Plottable)
         # Exception: hypergraph can return DataFrame when return_as != 'graph'
-        if not isinstance(result, Plottable) and function != 'hypergraph':
+        if not hypergraph_returns_dataframe and not isinstance(result, Plottable):
             raise GFQLTypeError(
                 ErrorCode.E201,
                 f"Method '{function}' returned non-Plottable result",
