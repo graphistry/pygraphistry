@@ -5,7 +5,7 @@ Comprehensive tests for Kepler.gl encoding classes.
 import unittest
 import pandas as pd
 import graphistry
-from graphistry.kepler import KeplerDataset, KeplerLayer, KeplerEncoding
+from graphistry.kepler import KeplerDataset, KeplerLayer, KeplerEncoding, KeplerOptions, KeplerConfig
 
 
 class TestKeplerDataset(unittest.TestCase):
@@ -167,6 +167,125 @@ class TestKeplerLayer(unittest.TestCase):
         self.assertNotEqual(layer1, layer3)  # Different content
 
 
+class TestKeplerOptions(unittest.TestCase):
+    """Tests for KeplerOptions class"""
+
+    def test_init_empty(self):
+        """Test empty initialization"""
+        options = KeplerOptions()
+        self.assertEqual(options.to_dict(), {})
+
+    def test_init_with_structured_params(self):
+        """Test initialization with structured parameters"""
+        options = KeplerOptions(center_map=True, read_only=False)
+        result = options.to_dict()
+        self.assertEqual(result['centerMap'], True)
+        self.assertEqual(result['readOnly'], False)
+
+    def test_init_with_raw_dict(self):
+        """Test initialization with raw dict"""
+        raw = {'centerMap': False, 'readOnly': True, 'customOption': 'test'}
+        options = KeplerOptions(raw)
+        self.assertEqual(options.to_dict(), raw)
+        self.assertIs(options.to_dict(), raw)  # Should be same object
+
+    def test_raw_dict_type_validation(self):
+        """Test that raw_dict must be a dict"""
+        with self.assertRaises(TypeError):
+            KeplerOptions("not a dict")
+
+    def test_equality(self):
+        """Test equality comparison"""
+        options1 = KeplerOptions(center_map=True, read_only=False)
+        options2 = KeplerOptions(center_map=True, read_only=False)
+        options3 = KeplerOptions(center_map=False, read_only=True)
+
+        self.assertEqual(options1, options2)
+        self.assertNotEqual(options1, options3)
+
+    def test_raw_dict_equality(self):
+        """Test equality with raw_dict mode"""
+        raw1 = {'centerMap': True, 'readOnly': False}
+        raw2 = {'centerMap': True, 'readOnly': False}
+        raw3 = {'centerMap': False, 'readOnly': True}
+
+        options1 = KeplerOptions(raw1)
+        options2 = KeplerOptions(raw2)
+        options3 = KeplerOptions(raw3)
+
+        self.assertEqual(options1, options2)
+        self.assertNotEqual(options1, options3)
+
+    def test_repr(self):
+        """Test __repr__ method"""
+        options = KeplerOptions(center_map=True)
+        repr_str = repr(options)
+        self.assertIn("KeplerOptions", repr_str)
+
+
+class TestKeplerConfig(unittest.TestCase):
+    """Tests for KeplerConfig class"""
+
+    def test_init_empty(self):
+        """Test empty initialization"""
+        config = KeplerConfig()
+        self.assertEqual(config.to_dict(), {})
+
+    def test_init_with_structured_params(self):
+        """Test initialization with structured parameters"""
+        config = KeplerConfig(cull_unused_columns=True, overlay_blending='additive')
+        result = config.to_dict()
+        self.assertEqual(result['cullUnusedColumns'], True)
+        self.assertEqual(result['overlayBlending'], 'additive')
+
+    def test_init_with_raw_dict(self):
+        """Test initialization with raw dict"""
+        raw = {'cullUnusedColumns': False, 'overlayBlending': 'subtractive', 'tileStyle': {'id': 'dark'}}
+        config = KeplerConfig(raw)
+        self.assertEqual(config.to_dict(), raw)
+        self.assertIs(config.to_dict(), raw)  # Should be same object
+
+    def test_raw_dict_type_validation(self):
+        """Test that raw_dict must be a dict"""
+        with self.assertRaises(TypeError):
+            KeplerConfig(123)
+
+    def test_equality(self):
+        """Test equality comparison"""
+        config1 = KeplerConfig(cull_unused_columns=True, overlay_blending='normal')
+        config2 = KeplerConfig(cull_unused_columns=True, overlay_blending='normal')
+        config3 = KeplerConfig(cull_unused_columns=False, overlay_blending='additive')
+
+        self.assertEqual(config1, config2)
+        self.assertNotEqual(config1, config3)
+
+    def test_raw_dict_equality(self):
+        """Test equality with raw_dict mode"""
+        raw1 = {'cullUnusedColumns': True, 'overlayBlending': 'normal'}
+        raw2 = {'cullUnusedColumns': True, 'overlayBlending': 'normal'}
+        raw3 = {'cullUnusedColumns': False, 'overlayBlending': 'additive'}
+
+        config1 = KeplerConfig(raw1)
+        config2 = KeplerConfig(raw2)
+        config3 = KeplerConfig(raw3)
+
+        self.assertEqual(config1, config2)
+        self.assertNotEqual(config1, config3)
+
+    def test_repr(self):
+        """Test __repr__ method"""
+        config = KeplerConfig(cull_unused_columns=False)
+        repr_str = repr(config)
+        self.assertIn("KeplerConfig", repr_str)
+
+    def test_tile_style(self):
+        """Test tile_style parameter"""
+        tile_style = {'id': 'dark', 'mapStyles': {}}
+        config = KeplerConfig(tile_style=tile_style)
+        result = config.to_dict()
+        self.assertEqual(result['tileStyle'], tile_style)
+
+
 class TestKeplerEncoding(unittest.TestCase):
     """Tests for KeplerEncoding container class"""
 
@@ -175,8 +294,8 @@ class TestKeplerEncoding(unittest.TestCase):
         encoding = KeplerEncoding()
         self.assertEqual(len(encoding.datasets), 0)
         self.assertEqual(len(encoding.layers), 0)
-        self.assertEqual(encoding.options, {})
-        self.assertEqual(encoding.config, {})
+        self.assertEqual(encoding.options.to_dict(), {})
+        self.assertEqual(encoding.config.to_dict(), {})
 
     def test_with_dataset_immutability(self):
         """Test that with_dataset returns new instance"""
@@ -206,16 +325,16 @@ class TestKeplerEncoding(unittest.TestCase):
         encoding1 = KeplerEncoding()
         encoding2 = encoding1.with_options(centerMap=False, readOnly=True)
 
-        self.assertEqual(encoding1.options, {})
-        self.assertEqual(encoding2.options, {'centerMap': False, 'readOnly': True})
+        self.assertEqual(encoding1.options.to_dict(), {})
+        self.assertEqual(encoding2.options.to_dict(), {'centerMap': False, 'readOnly': True})
 
     def test_with_config(self):
         """Test with_config method"""
         encoding1 = KeplerEncoding()
         encoding2 = encoding1.with_config(cullUnusedColumns=True, overlayBlending='additive')
 
-        self.assertEqual(encoding1.config, {})
-        self.assertEqual(encoding2.config, {'cullUnusedColumns': True, 'overlayBlending': 'additive'})
+        self.assertEqual(encoding1.config.to_dict(), {})
+        self.assertEqual(encoding2.config.to_dict(), {'cullUnusedColumns': True, 'overlayBlending': 'additive'})
 
     def test_auto_generated_ids(self):
         """Test that IDs are auto-generated when not provided"""
@@ -483,6 +602,32 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         self.assertEqual(len(result['datasets']), 1)
         self.assertEqual(result['datasets'][0]['info']['id'], 'new-dataset')
         self.assertEqual(len(result['layers']), 0)  # No layers in new encoding
+
+    def test_encode_kepler_options(self):
+        """Test encode_kepler_options method"""
+        g2 = self.g.encode_kepler_options(center_map=True, read_only=False)
+
+        kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
+        self.assertEqual(kepler['options']['centerMap'], True)
+        self.assertEqual(kepler['options']['readOnly'], False)
+
+    def test_encode_kepler_config(self):
+        """Test encode_kepler_config method"""
+        g2 = self.g.encode_kepler_config(cull_unused_columns=True, overlay_blending='additive')
+
+        kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
+        self.assertEqual(kepler['config']['cullUnusedColumns'], True)
+        self.assertEqual(kepler['config']['overlayBlending'], 'additive')
+
+    def test_encode_kepler_options_replaces(self):
+        """Test that encode_kepler_options replaces existing options"""
+        g2 = self.g.encode_kepler_options(center_map=True, read_only=False)
+        g3 = g2.encode_kepler_options(center_map=False)  # Only set center_map
+
+        kepler = g3._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
+        self.assertEqual(kepler['options']['centerMap'], False)
+        # Old read_only should be gone (replaced, not merged)
+        self.assertNotIn('readOnly', kepler['options'])
 
 
 if __name__ == '__main__':

@@ -30,7 +30,7 @@ from .bolt_util import (
     to_bolt_driver)
 
 from .arrow_uploader import ArrowUploader
-from .kepler import KeplerDataset, KeplerLayer, KeplerEncoding
+from .kepler import KeplerDataset, KeplerLayer, KeplerOptions, KeplerConfig, KeplerEncoding
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
@@ -810,8 +810,8 @@ class PlotterBase(Plottable):
         Internal helper to add or replace Kepler encoding.
 
         Args:
-            item_type: 'datasets' or 'layers' (for appending items)
-            item_dict: The dictionary representation of the item to append
+            item_type: 'datasets', 'layers', 'options', or 'config'
+            item_dict: The dictionary representation of the item to append or replace
             replace_encoding: Complete encoding dict to replace existing (for encode_kepler)
 
         Returns:
@@ -828,7 +828,7 @@ class PlotterBase(Plottable):
             replace_encoding['graphType'] = 'point'
             res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = replace_encoding
         else:
-            # Append item (for encode_kepler_dataset/layer)
+            # Append or replace item
             kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
                 'encodingType': 'kepler',
                 'graphType': 'point',
@@ -837,7 +837,14 @@ class PlotterBase(Plottable):
                 'options': {},
                 'config': {}
             })
-            kepler_encoding[item_type].append(item_dict)
+
+            # For datasets and layers, append to array
+            # For options and config, replace the dict
+            if item_type in ('datasets', 'layers'):
+                kepler_encoding[item_type].append(item_dict)
+            elif item_type in ('options', 'config'):
+                kepler_encoding[item_type] = item_dict
+
             res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
 
         res._dataset_id = None
@@ -908,6 +915,48 @@ class PlotterBase(Plottable):
 
         # Use helper to add layer
         return self.__encode_kepler_item('layers', layer.to_dict())
+
+    def encode_kepler_options(self, **kwargs: Any) -> Plottable:
+        """Apply Kepler options to the plotter.
+
+        Args:
+            **kwargs: Kepler options (raw_dict, center_map, read_only, etc.)
+
+        Returns:
+            A new Plotter instance with the options applied
+
+        Example:
+            # Using structured params
+            g2 = g.encode_kepler_options(center_map=True, read_only=False)
+
+            # Using camelCase kwargs
+            g3 = g.encode_kepler_options(centerMap=True, readOnly=False)
+        """
+        options = KeplerOptions(**kwargs)
+
+        # Use helper to set options
+        return self.__encode_kepler_item('options', options.to_dict())
+
+    def encode_kepler_config(self, **kwargs: Any) -> Plottable:
+        """Apply Kepler config to the plotter.
+
+        Args:
+            **kwargs: Kepler config (raw_dict, cull_unused_columns, overlay_blending, etc.)
+
+        Returns:
+            A new Plotter instance with the config applied
+
+        Example:
+            # Using structured params
+            g2 = g.encode_kepler_config(cull_unused_columns=True, overlay_blending='additive')
+
+            # Using camelCase kwargs
+            g3 = g.encode_kepler_config(cullUnusedColumns=True)
+        """
+        config = KeplerConfig(**kwargs)
+
+        # Use helper to set config
+        return self.__encode_kepler_item('config', config.to_dict())
 
     def encode_kepler(self, kepler_encoding: Union[Dict[str, Any], KeplerEncoding]) -> Plottable:
         """Apply a complete Kepler encoding to the plotter.

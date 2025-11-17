@@ -7,6 +7,13 @@ Type specifications are documented in kepler_types.py (specification only, not u
 
 from typing import Optional, List, Dict, Any, overload, Literal
 import uuid
+import re
+
+
+def snake_to_camel(snake_str: str) -> str:
+    """Convert snake_case to camelCase."""
+    components = snake_str.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
 
 
 class KeplerDataset:
@@ -299,6 +306,166 @@ class KeplerLayer:
         return self._raw_dict == other._raw_dict
 
 
+class KeplerOptions:
+    """
+    Kepler.gl visualization options.
+
+    Args:
+        raw_dict: Optional raw dictionary containing native Kepler.gl options.
+                  If provided, the dict is passed through unmodified.
+        **kwargs: Options including:
+            - center_map (bool): Whether to center map on data (default: True)
+            - read_only (bool): Whether visualization is read-only (default: False)
+
+    Example:
+        >>> options = KeplerOptions(center_map=True, read_only=False)
+        >>> options = KeplerOptions({"centerMap": True, "readOnly": False})
+    """
+
+    _raw_dict: Optional[Dict[str, Any]]
+    _kwargs: Dict[str, Any]
+
+    # Overload for raw_dict mode
+    @overload
+    def __init__(
+        self,
+        raw_dict: Dict[str, Any],
+        **kwargs: Any
+    ) -> None:
+        ...
+
+    # Overload for structured mode
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        *,
+        center_map: Optional[bool] = None,
+        read_only: Optional[bool] = None,
+        **kwargs: Any
+    ) -> None:
+        ...
+
+    # Actual implementation
+    def __init__(
+        self,
+        raw_dict: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
+    ):
+        if raw_dict is not None:
+            if not isinstance(raw_dict, dict):
+                raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
+            self._raw_dict = raw_dict
+            self._kwargs = {}
+        else:
+            self._raw_dict = None
+            self._kwargs = kwargs
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary format for Kepler.gl."""
+        if self._raw_dict is not None:
+            return self._raw_dict
+        # Convert snake_case keys to camelCase
+        return {snake_to_camel(k): v for k, v in self._kwargs.items()}
+
+    def __repr__(self) -> str:
+        """Detailed string representation for debugging."""
+        if self._raw_dict is not None:
+            return f"KeplerOptions(raw_dict={self._raw_dict!r})"
+        return f"KeplerOptions({self._kwargs!r})"
+
+    def __eq__(self, other) -> bool:
+        """Check equality."""
+        if not isinstance(other, KeplerOptions):
+            return False
+        if self._raw_dict is not None and other._raw_dict is not None:
+            return self._raw_dict == other._raw_dict
+        if self._raw_dict is not None or other._raw_dict is not None:
+            return False
+        return self._kwargs == other._kwargs
+
+
+class KeplerConfig:
+    """
+    Kepler.gl configuration settings.
+
+    Args:
+        raw_dict: Optional raw dictionary containing native Kepler.gl config.
+                  If provided, the dict is passed through unmodified.
+        **kwargs: Config options including:
+            - cull_unused_columns (bool): Drop unused columns (default: True)
+            - overlay_blending (Literal['normal', 'additive', 'subtractive']): Blending mode (default: 'normal')
+            - tile_style (Dict[str, Any]): Map tile style configuration
+
+    Example:
+        >>> config = KeplerConfig(cull_unused_columns=True)
+        >>> config = KeplerConfig({"cullUnusedColumns": True})
+    """
+
+    _raw_dict: Optional[Dict[str, Any]]
+    _kwargs: Dict[str, Any]
+
+    # Overload for raw_dict mode
+    @overload
+    def __init__(
+        self,
+        raw_dict: Dict[str, Any],
+        **kwargs: Any
+    ) -> None:
+        ...
+
+    # Overload for structured mode
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        *,
+        cull_unused_columns: Optional[bool] = None,
+        overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
+        tile_style: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
+    ) -> None:
+        ...
+
+    # Actual implementation
+    def __init__(
+        self,
+        raw_dict: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
+    ):
+        if raw_dict is not None:
+            if not isinstance(raw_dict, dict):
+                raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
+            self._raw_dict = raw_dict
+            self._kwargs = {}
+        else:
+            self._raw_dict = None
+            self._kwargs = kwargs
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary format for Kepler.gl."""
+        if self._raw_dict is not None:
+            return self._raw_dict
+        # Convert snake_case keys to camelCase
+        return {snake_to_camel(k): v for k, v in self._kwargs.items()}
+
+    def __repr__(self) -> str:
+        """Detailed string representation for debugging."""
+        if self._raw_dict is not None:
+            return f"KeplerConfig(raw_dict={self._raw_dict!r})"
+        return f"KeplerConfig({self._kwargs!r})"
+
+    def __eq__(self, other) -> bool:
+        """Check equality."""
+        if not isinstance(other, KeplerConfig):
+            return False
+        if self._raw_dict is not None and other._raw_dict is not None:
+            return self._raw_dict == other._raw_dict
+        if self._raw_dict is not None or other._raw_dict is not None:
+            return False
+        return self._kwargs == other._kwargs
+
+
 class KeplerEncoding:
     """
     Immutable container for Kepler.gl encoding configuration.
@@ -323,13 +490,13 @@ class KeplerEncoding:
         self,
         datasets: Optional[List[KeplerDataset]] = None,
         layers: Optional[List[KeplerLayer]] = None,
-        options: Optional[Dict[str, Any]] = None,
-        config: Optional[Dict[str, Any]] = None
+        options: Optional[KeplerOptions] = None,
+        config: Optional[KeplerConfig] = None
     ):
         self.datasets: List[KeplerDataset] = datasets or []
         self.layers: List[KeplerLayer] = layers or []
-        self.options: Dict[str, Any] = options or {}
-        self.config: Dict[str, Any] = config or {}
+        self.options: KeplerOptions = options if options is not None else KeplerOptions()
+        self.config: KeplerConfig = config if config is not None else KeplerConfig()
 
     def with_dataset(self, dataset: KeplerDataset) -> 'KeplerEncoding':
         """
@@ -367,17 +534,25 @@ class KeplerEncoding:
             config=self.config
         )
 
-    def with_options(self, **options) -> 'KeplerEncoding':
+    def with_options(self, options: Optional[KeplerOptions] = None, **kwargs) -> 'KeplerEncoding':
         """
         Return a new KeplerEncoding with updated options.
 
         Args:
-            **options: Options to set (centerMap, readOnly, keepExistingConfig)
+            options: KeplerOptions object to replace current options
+            **kwargs: Individual option values to update (center_map, read_only, etc.)
 
         Returns:
             New KeplerEncoding instance with updated options
         """
-        new_options = {**self.options, **options}
+        if options is not None:
+            new_options = options
+        else:
+            # Merge kwargs with existing options
+            existing_dict = self.options.to_dict()
+            new_dict = {**existing_dict, **kwargs}
+            new_options = KeplerOptions(raw_dict=new_dict)
+
         return KeplerEncoding(
             datasets=self.datasets,
             layers=self.layers,
@@ -385,17 +560,25 @@ class KeplerEncoding:
             config=self.config
         )
 
-    def with_config(self, **config) -> 'KeplerEncoding':
+    def with_config(self, config: Optional[KeplerConfig] = None, **kwargs) -> 'KeplerEncoding':
         """
         Return a new KeplerEncoding with updated config.
 
         Args:
-            **config: Config to set (cullUnusedColumns, overlayBlending, tileStyle)
+            config: KeplerConfig object to replace current config
+            **kwargs: Individual config values to update (cull_unused_columns, overlay_blending, etc.)
 
         Returns:
             New KeplerEncoding instance with updated config
         """
-        new_config = {**self.config, **config}
+        if config is not None:
+            new_config = config
+        else:
+            # Merge kwargs with existing config
+            existing_dict = self.config.to_dict()
+            new_dict = {**existing_dict, **kwargs}
+            new_config = KeplerConfig(raw_dict=new_dict)
+
         return KeplerEncoding(
             datasets=self.datasets,
             layers=self.layers,
@@ -413,8 +596,8 @@ class KeplerEncoding:
         result = {
             'datasets': [d.to_dict() for d in self.datasets] if self.datasets else [],
             'layers': [layer.to_dict() for layer in self.layers] if self.layers else [],
-            'options': self.options if self.options else {},
-            'config': self.config if self.config else {}
+            'options': self.options.to_dict(),
+            'config': self.config.to_dict()
         }
 
         return result
