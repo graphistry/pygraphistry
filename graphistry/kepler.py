@@ -21,6 +21,9 @@ class KeplerDataset:
     - None: Native Kepler dataset
 
     Args:
+        raw_dict: Optional raw dictionary containing a native Kepler.gl dataset configuration.
+                  If provided, the dict is passed through unmodified to Kepler.gl, allowing
+                  direct use of native Kepler dataset formats. All other parameters are ignored.
         id: Dataset identifier (required for serialization)
         type: Dataset type (nodes, edges, countries, etc.)
         label: Optional display label (defaults to id)
@@ -31,10 +34,14 @@ class KeplerDataset:
     Example:
         >>> dataset = KeplerDataset(id="my-dataset", type="nodes")
         >>> dataset = KeplerDataset(id="countries", type="countries", resolution=50)
+        >>> # Pass through native Kepler dataset dict
+        >>> native_kepler = {"info": {"id": "my-dataset"}, "data": {...}}
+        >>> dataset = KeplerDataset(native_kepler)
     """
 
     def __init__(
         self,
+        raw_dict: Optional[Dict[str, Any]] = None,
         id: Optional[str] = None,
         type: Optional[str] = None,
         label: Optional[str] = None,
@@ -42,15 +49,32 @@ class KeplerDataset:
         exclude: Optional[List[str]] = None,
         **kwargs
     ):
-        self.id = id
-        self.type = type
-        self.label = label
-        self.include = include
-        self.exclude = exclude
-        self.kwargs = kwargs  # Store type-specific parameters
+        # If raw_dict is provided, store it and bypass normal processing
+        if raw_dict is not None:
+            if not isinstance(raw_dict, dict):
+                raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
+            self._raw_dict = raw_dict
+            self.id = None
+            self.type = None
+            self.label = None
+            self.include = None
+            self.exclude = None
+            self.kwargs = {}
+        else:
+            self._raw_dict = None
+            self.id = id
+            self.type = type
+            self.label = label
+            self.include = include
+            self.exclude = exclude
+            self.kwargs = kwargs  # Store type-specific parameters
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
+        # If raw_dict was provided, return it directly without modification
+        if self._raw_dict is not None:
+            return self._raw_dict
+
         result: Dict[str, Any] = {
             'info': {
                 'id': self.id,
@@ -90,6 +114,13 @@ class KeplerDataset:
         """Check equality based on all properties."""
         if not isinstance(other, KeplerDataset):
             return False
+        # If both have raw_dict, compare them
+        if self._raw_dict is not None and other._raw_dict is not None:
+            return self._raw_dict == other._raw_dict
+        # If only one has raw_dict, not equal
+        if self._raw_dict is not None or other._raw_dict is not None:
+            return False
+        # Normal comparison
         return (
             self.id == other.id
             and self.type == other.type
@@ -102,49 +133,44 @@ class KeplerDataset:
 
 class KeplerLayer:
     """
-    Represents a Kepler.gl layer with type-specific configuration.
+    Represents a Kepler.gl layer with native Kepler configuration.
+
+    Currently only supports raw dictionary pass-through mode.
 
     Supports layer types: point, arc, line, grid, hexagon, geojson, cluster,
     icon, heatmap, hexagonId, trip, s2
 
     Args:
-        id: Layer identifier (required for serialization)
-        type: Layer type (point, arc, line, etc.)
-        dataId: Dataset ID this layer references
-        label: Optional display label
-        **kwargs: Additional layer configuration (columns, visConfig, etc.)
+        raw_dict: Raw dictionary containing a native Kepler.gl layer configuration.
+                  The dict is passed through unmodified to Kepler.gl.
 
     Example:
-        >>> layer = KeplerLayer(
-        ...     id="my-layer",
-        ...     type="point",
-        ...     dataId="my-dataset",
-        ...     columns={'lat': 'latitude', 'lng': 'longitude'}
-        ... )
+        >>> # Pass through native Kepler layer dict
+        >>> native_layer = {
+        ...     "id": "layer-1",
+        ...     "type": "point",
+        ...     "config": {
+        ...         "dataId": "my-dataset",
+        ...         "columns": {"lat": "latitude", "lng": "longitude"}
+        ...     }
+        ... }
+        >>> layer = KeplerLayer(native_layer)
     """
 
     def __init__(
         self,
-        id: Optional[str] = None,
-        type: Optional[str] = None,
-        **kwargs
+        raw_dict: Dict[str, Any]
     ):
-        self.id = id
-        self.type = type
-        self.kwargs = kwargs  # Store all params (config dict, visualChannels, etc.)
+        if not isinstance(raw_dict, dict):
+            raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
+        self._raw_dict = raw_dict
+        # Extract id and type for repr/str if available
+        self.id = raw_dict.get('id')
+        self.type = raw_dict.get('type')
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
-        result: Dict[str, Any] = {
-            'id': self.id,
-            'type': self.type
-        }
-
-        # Merge all params (config dict, visualChannels, etc.) at top level
-        if self.kwargs:
-            result.update(self.kwargs)
-
-        return result
+        return self._raw_dict
 
     def __repr__(self) -> str:
         """Detailed string representation for debugging."""
@@ -159,14 +185,10 @@ class KeplerLayer:
         return f"KeplerLayer(id={self.id}{type_str})"
 
     def __eq__(self, other) -> bool:
-        """Check equality based on all properties."""
+        """Check equality based on raw_dict."""
         if not isinstance(other, KeplerLayer):
             return False
-        return (
-            self.id == other.id
-            and self.type == other.type
-            and self.kwargs == other.kwargs
-        )
+        return self._raw_dict == other._raw_dict
 
 
 class KeplerEncoding:

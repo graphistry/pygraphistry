@@ -65,67 +65,106 @@ class TestKeplerDataset(unittest.TestCase):
         self.assertEqual(dataset1, dataset2)
         self.assertNotEqual(dataset1, dataset3)
 
+    def test_raw_dict_passthrough(self):
+        """Test raw_dict passes through without modification"""
+        raw = {
+            "info": {"id": "custom-dataset"},
+            "type": "nodes",
+            "customField": "customValue",
+            "nested": {"data": [1, 2, 3]}
+        }
+        dataset = KeplerDataset(raw)
+        result = dataset.to_dict()
+        self.assertEqual(result, raw)
+        self.assertIs(result, raw)  # Should be the same object
+
+    def test_raw_dict_ignores_other_params(self):
+        """Test that raw_dict ignores other parameters"""
+        raw = {"info": {"id": "raw-id"}, "type": "edges"}
+        # These params should be ignored
+        dataset = KeplerDataset(raw, id="ignored", type="nodes", label="ignored")
+        result = dataset.to_dict()
+        self.assertEqual(result, raw)
+        self.assertIsNone(dataset.id)
+        self.assertIsNone(dataset.type)
+        self.assertIsNone(dataset.label)
+
+    def test_raw_dict_type_validation(self):
+        """Test that raw_dict must be a dict"""
+        with self.assertRaises(TypeError):
+            KeplerDataset("not a dict")
+        with self.assertRaises(TypeError):
+            KeplerDataset(123)
+        with self.assertRaises(TypeError):
+            KeplerDataset(["a", "list"])
+
+    def test_raw_dict_equality(self):
+        """Test equality with raw_dict"""
+        raw1 = {"info": {"id": "test"}, "type": "nodes"}
+        raw2 = {"info": {"id": "test"}, "type": "nodes"}
+        raw3 = {"info": {"id": "other"}, "type": "nodes"}
+
+        dataset1 = KeplerDataset(raw1)
+        dataset2 = KeplerDataset(raw2)
+        dataset3 = KeplerDataset(raw3)
+        normal_dataset = KeplerDataset(id="test", type="nodes")
+
+        self.assertEqual(dataset1, dataset2)  # Same content
+        self.assertNotEqual(dataset1, dataset3)  # Different content
+        self.assertNotEqual(dataset1, normal_dataset)  # raw_dict vs normal
+
 
 class TestKeplerLayer(unittest.TestCase):
-    """Tests for KeplerLayer class"""
+    """Tests for KeplerLayer class (raw_dict only mode)"""
 
-    def test_init_point_layer(self):
-        """Test point layer initialization"""
-        layer = KeplerLayer(
-            id="point-layer",
-            type="point",
-            config={
+    def test_raw_dict_passthrough(self):
+        """Test raw_dict passes through without modification"""
+        raw = {
+            "id": "custom-layer",
+            "type": "hexagon",
+            "config": {
                 "dataId": "my-dataset",
-                "columns": {'lat': 'latitude', 'lng': 'longitude'}
-            }
-        )
-        self.assertEqual(layer.type, "point")
-        self.assertEqual(layer.kwargs['config']['dataId'], "my-dataset")
-        self.assertEqual(layer.kwargs['config']['columns']['lat'], 'latitude')
-
-    def test_init_arc_layer(self):
-        """Test arc layer initialization"""
-        layer = KeplerLayer(
-            id="arc-layer",
-            type="arc",
-            config={
-                "dataId": "edges-dataset",
-                "columns": {'lat0': 'src_lat', 'lng0': 'src_lng', 'lat1': 'dst_lat', 'lng1': 'dst_lng'}
-            }
-        )
-        self.assertEqual(layer.type, "arc")
-        self.assertEqual(layer.kwargs['config']['columns']['lat0'], 'src_lat')
-
-    def test_init_without_id(self):
-        """Test layer initialization without ID (no validation)"""
-        layer = KeplerLayer(type="point", config={"dataId": "dataset1"})
-        self.assertIsNone(layer.id)
-
-    def test_to_dict(self):
-        """Test layer serialization"""
-        layer = KeplerLayer(
-            id="test-layer",
-            type="point",
-            config={
-                "dataId": "my-dataset",
-                "label": "Test Layer",
-                "columns": {'lat': 'latitude', 'lng': 'longitude'}
-            }
-        )
+                "columns": {"lat": "latitude", "lng": "longitude"}
+            },
+            "customField": "customValue"
+        }
+        layer = KeplerLayer(raw)
         result = layer.to_dict()
-        self.assertEqual(result['id'], "test-layer")
-        self.assertEqual(result['type'], "point")
-        self.assertEqual(result['config']['dataId'], "my-dataset")
-        self.assertEqual(result['config']['label'], "Test Layer")
-        self.assertEqual(result['config']['columns']['lat'], 'latitude')
+        self.assertEqual(result, raw)
+        self.assertIs(result, raw)  # Should be the same object
 
-    def test_equality(self):
-        """Test layer equality"""
-        layer1 = KeplerLayer(id="layer1", type="point", config={"dataId": "ds1"})
-        layer2 = KeplerLayer(id="layer1", type="point", config={"dataId": "ds1"})
-        layer3 = KeplerLayer(id="layer2", type="point", config={"dataId": "ds1"})
-        self.assertEqual(layer1, layer2)
-        self.assertNotEqual(layer1, layer3)
+    def test_extracts_id_and_type(self):
+        """Test that id and type are extracted from raw_dict for repr"""
+        raw = {"id": "my-layer", "type": "point", "config": {}}
+        layer = KeplerLayer(raw)
+        self.assertEqual(layer.id, "my-layer")
+        self.assertEqual(layer.type, "point")
+        # Ensure repr works
+        repr_str = repr(layer)
+        self.assertIn("my-layer", repr_str)
+        self.assertIn("point", repr_str)
+
+    def test_raw_dict_type_validation(self):
+        """Test that raw_dict must be a dict"""
+        with self.assertRaises(TypeError):
+            KeplerLayer("not a dict")
+        with self.assertRaises(TypeError):
+            KeplerLayer(123)
+        with self.assertRaises(TypeError):
+            KeplerLayer(["a", "list"])
+
+    def test_raw_dict_equality(self):
+        """Test equality with raw_dict"""
+        raw1 = {"id": "layer1", "type": "point", "config": {}}
+        raw2 = {"id": "layer1", "type": "point", "config": {}}
+        raw3 = {"id": "layer2", "type": "point", "config": {}}
+
+        layer1 = KeplerLayer(raw1)
+        layer2 = KeplerLayer(raw2)
+        layer3 = KeplerLayer(raw3)
+
+        self.assertEqual(layer1, layer2)  # Same content
+        self.assertNotEqual(layer1, layer3)  # Different content
 
 
 class TestKeplerEncoding(unittest.TestCase):
@@ -154,7 +193,7 @@ class TestKeplerEncoding(unittest.TestCase):
     def test_with_layer_immutability(self):
         """Test that with_layer returns new instance"""
         encoding1 = KeplerEncoding()
-        layer = KeplerLayer(id="test-layer", type="point", dataId="ds1")
+        layer = KeplerLayer({"id": "test-layer", "type": "point", "config": {"dataId": "ds1"}})
         encoding2 = encoding1.with_layer(layer)
 
         # Original should be unchanged
@@ -192,7 +231,7 @@ class TestKeplerEncoding(unittest.TestCase):
         """Test serialization with all fields"""
         encoding = (KeplerEncoding()
                    .with_dataset(KeplerDataset(id="d1", type="nodes"))
-                   .with_layer(KeplerLayer(id="l1", type="point", dataId="d1"))
+                   .with_layer(KeplerLayer({"id": "l1", "type": "point", "config": {"dataId": "d1"}}))
                    .with_options(centerMap=True)
                    .with_config(cullUnusedColumns=False))
 
@@ -220,7 +259,7 @@ class TestKeplerEncoding(unittest.TestCase):
         """Test str representation"""
         encoding = (KeplerEncoding()
                    .with_dataset(KeplerDataset(id="d1", type="nodes"))
-                   .with_layer(KeplerLayer(id="l1", type="point", dataId="d1")))
+                   .with_layer(KeplerLayer({"id": "l1", "type": "point", "config": {"dataId": "d1"}})))
 
         result = str(encoding)
         self.assertIn("1 datasets", result)
@@ -286,7 +325,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
 
     def test_encode_kepler_layer_simple(self):
         """Test encode_kepler_layer with just ID"""
-        g2 = self.g.encode_kepler_layer(id="test-layer")
+        g2 = self.g.encode_kepler_layer({"id": "test-layer", "type": "point"})
 
         # Check immutability
         self.assertNotIn('pointKeplerEncoding', self.g._complex_encodings['node_encodings']['default'])
@@ -297,15 +336,15 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
 
     def test_encode_kepler_layer_full(self):
         """Test encode_kepler_layer with all parameters"""
-        g2 = self.g.encode_kepler_layer(
-            id="point-layer",
-            type="point",
-            config={
+        g2 = self.g.encode_kepler_layer({
+            "id": "point-layer",
+            "type": "point",
+            "config": {
                 "dataId": "nodes-ds",
                 "label": "Points",
                 "columns": {'lat': 'latitude', 'lng': 'longitude'}
             }
-        )
+        })
 
         kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
         layer = kepler['layers'][0]
@@ -320,7 +359,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         g2 = (self.g
               .encode_kepler_dataset(id="dataset1", type="nodes")
               .encode_kepler_dataset(id="dataset2", type="edges")
-              .encode_kepler_layer(id="layer1", type="point", config={"dataId": "dataset1"}))
+              .encode_kepler_layer({"id": "layer1", "type": "point", "config": {"dataId": "dataset1"}}))
 
         kepler = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
         self.assertEqual(len(kepler['datasets']), 2)
@@ -352,14 +391,14 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         """Test full serialization pipeline"""
         g2 = (self.g
               .encode_kepler_dataset(id="nodes", type="nodes", label="My Nodes")
-              .encode_kepler_layer(
-                  id="points",
-                  type="point",
-                  config={
+              .encode_kepler_layer({
+                  "id": "points",
+                  "type": "point",
+                  "config": {
                       "dataId": "nodes",
                       "columns": {'lat': 'lat', 'lng': 'lng'}
                   }
-              ))
+              }))
 
         kepler_dict = g2._complex_encodings['node_encodings']['default']['pointKeplerEncoding']
 
@@ -385,7 +424,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         # Build encoding using container
         kepler = (KeplerEncoding()
                  .with_dataset(KeplerDataset(id="test-data", type="nodes"))
-                 .with_layer(KeplerLayer(id="test-layer", type="point", dataId="test-data"))
+                 .with_layer(KeplerLayer({"id": "test-layer", "type": "point", "config": {"dataId": "test-data"}}))
                  .with_options(centerMap=True)
                  .with_config(mapStyle='dark'))
 
@@ -432,7 +471,7 @@ class TestPlotterKeplerIntegration(unittest.TestCase):
         """Test that encode_kepler replaces existing encoding completely"""
         # First add some encodings
         g2 = self.g.encode_kepler_dataset(id="old-dataset")
-        g2 = g2.encode_kepler_layer(id="old-layer", type="arc", config={"dataId": "old-dataset"})
+        g2 = g2.encode_kepler_layer({"id": "old-layer", "type": "arc", "config": {"dataId": "old-dataset"}})
 
         # Now replace with new encoding
         from graphistry.kepler import KeplerEncoding, KeplerDataset

@@ -845,42 +845,34 @@ class PlotterBase(Plottable):
 
     def encode_kepler_dataset(
         self,
-        id: Optional[str] = None,
-        type: Optional[str] = None,
-        label: Optional[str] = None,
-        include: Optional[List[str]] = None,
-        exclude: Optional[List[str]] = None,
+        *args,
         **kwargs
     ) -> Plottable:
         """
-        Add a Kepler.gl dataset to the encoding.
+        Add a Kepler.gl dataset to the encoding using a native Kepler dataset configuration.
 
         Uses an immutable pattern - returns a new Plotter instance with the dataset appended.
-        If no ID is provided, one will be auto-generated.
 
         Args:
-            id: Optional dataset identifier
-            type: Dataset type (nodes, edges, countries, states, etc.)
-            label: Optional display label (defaults to id)
-            include: Optional list of columns to include
-            exclude: Optional list of columns to exclude
-            **kwargs: Type-specific parameters (resolution, boundary_lakes, map_node_coords, etc.)
+            *args: Passed directly to KeplerDataset
+            **kwargs: Passed directly to KeplerDataset
 
         Returns:
             New Plotter instance with the dataset added
 
         Example:
+            >>> # Using raw_dict (native Kepler config)
+            >>> g = g.encode_kepler_dataset({
+            ...     "id": "my-dataset",
+            ...     "data": {...},
+            ...     "fields": [...]
+            ... })
+            >>>
+            >>> # Using structured params
             >>> g = g.encode_kepler_dataset(id="my-dataset", type="nodes")
             >>> g = g.encode_kepler_dataset(id="countries", type="countries", resolution=50)
         """
-        dataset = KeplerDataset(
-            id=id,
-            type=type,
-            label=label,
-            include=include,
-            exclude=exclude,
-            **kwargs
-        )
+        dataset = KeplerDataset(*args, **kwargs)
 
         # Auto-generate ID if not provided
         if dataset.id is None:
@@ -891,52 +883,32 @@ class PlotterBase(Plottable):
 
     def encode_kepler_layer(
         self,
-        id: Optional[str] = None,
-        type: Optional[str] = None,
+        *args,
         **kwargs
     ) -> Plottable:
         """
-        Add a Kepler.gl layer to the encoding.
+        Add a Kepler.gl layer to the encoding using a native Kepler layer configuration.
 
         Uses an immutable pattern - returns a new Plotter instance with the layer appended.
-        If no ID is provided, one will be auto-generated.
 
         Args:
-            id: Optional layer identifier
-            type: Layer type (point, arc, line, grid, hexagon, geojson, etc.)
-            **kwargs: Layer parameters including:
-                - config: Layer configuration dict containing:
-                    - dataId: Dataset ID this layer references
-                    - label: Optional display label
-                    - columns: Column mappings (lat, lng, lat0, lng0, etc.)
-                    - isVisible: Whether layer is visible
-                    - color: Layer color
-                    - visConfig: Visual configuration dict
-                - visualChannels: Visual channel mappings (colorField, sizeField, etc.)
-                - Other top-level layer parameters
+            *args: Passed directly to KeplerLayer
+            **kwargs: Passed directly to KeplerLayer
 
         Returns:
             New Plotter instance with the layer added
 
         Example:
-            >>> g = g.encode_kepler_layer(
-            ...     id="my-layer",
-            ...     type="point",
-            ...     config={
+            >>> g = g.encode_kepler_layer({
+            ...     "id": "my-layer",
+            ...     "type": "point",
+            ...     "config": {
             ...         "dataId": "my-dataset",
-            ...         "columns": {'lat': 'latitude', 'lng': 'longitude'}
+            ...         "columns": {"lat": "latitude", "lng": "longitude"}
             ...     }
-            ... )
+            ... })
         """
-        layer = KeplerLayer(
-            id=id,
-            type=type,
-            **kwargs
-        )
-
-        # Auto-generate ID if not provided
-        if layer.id is None:
-            layer.id = f"layer-{uuid.uuid4().hex[:8]}"
+        layer = KeplerLayer(*args, **kwargs)
 
         # Use helper to add layer
         return self.__encode_kepler_item('layers', layer.to_dict())
