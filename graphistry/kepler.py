@@ -43,9 +43,7 @@ class KeplerDataset:
     id: Optional[str]
     type: Optional[str]
     label: Optional[str]
-    include: Optional[List[str]]
-    exclude: Optional[List[str]]
-    kwargs: Dict[str, Any]
+    _kwargs: Dict[str, Any]
 
     def __init__(
         self,
@@ -53,8 +51,6 @@ class KeplerDataset:
         id: Optional[str] = None,
         type: Optional[str] = None,
         label: Optional[str] = None,
-        include: Optional[List[str]] = None,
-        exclude: Optional[List[str]] = None,
         **kwargs
     ):
         # If raw_dict is provided, store it and bypass normal processing
@@ -65,17 +61,14 @@ class KeplerDataset:
             self.id = None
             self.type = None
             self.label = None
-            self.include = None
-            self.exclude = None
-            self.kwargs = {}
+            self._kwargs = {}
         else:
             self._raw_dict = None
-            self.id = id
+            # Auto-generate ID if not provided
+            self.id = id if id is not None else f"dataset-{uuid.uuid4().hex[:8]}"
             self.type = type
-            self.label = label
-            self.include = include
-            self.exclude = exclude
-            self.kwargs = kwargs  # Store type-specific parameters
+            self.label = label if label is not None else self.id
+            self._kwargs = kwargs
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
@@ -83,40 +76,51 @@ class KeplerDataset:
         if self._raw_dict is not None:
             return self._raw_dict
 
+        # Build from structured parameters
         result: Dict[str, Any] = {
             'info': {
                 'id': self.id,
-                **(({'label': self.label} if self.label else {}))
+                'label': self.label
             }
         }
 
-        if self.type:
+        if self.type is not None:
             result['type'] = self.type
 
-        if self.include is not None:
-            result['include'] = self.include
-
-        if self.exclude is not None:
-            result['exclude'] = self.exclude
-
-        # Add type-specific parameters
-        result.update(self.kwargs)
+        # Spread remaining kwargs (include, exclude, and type-specific params)
+        result.update(self._kwargs)
 
         return result
 
     def __repr__(self) -> str:
         """Detailed string representation for debugging."""
-        parts = [f"id={self.id!r}"]
-        if self.type:
-            parts.append(f"type={self.type!r}")
-        if self.label:
-            parts.append(f"label={self.label!r}")
+        if self._raw_dict is not None:
+            id_val = self._raw_dict.get('info', {}).get('id')
+            type_val = self._raw_dict.get('type')
+            label_val = self._raw_dict.get('info', {}).get('label')
+        else:
+            id_val = self.id
+            type_val = self.type
+            label_val = self.label
+
+        parts = [f"id={id_val!r}"]
+        type_display = type_val if type_val else "raw"
+        parts.append(f"type={type_display!r}")
+        if label_val:
+            parts.append(f"label={label_val!r}")
         return f"KeplerDataset({', '.join(parts)})"
 
     def __str__(self) -> str:
         """Human-readable string representation."""
-        type_str = f":{self.type}" if self.type else ""
-        return f"KeplerDataset(id={self.id}{type_str})"
+        if self._raw_dict is not None:
+            id_val = self._raw_dict.get('info', {}).get('id')
+            type_val = self._raw_dict.get('type')
+        else:
+            id_val = self.id
+            type_val = self.type
+
+        type_display = type_val if type_val else "raw"
+        return f"KeplerDataset(id={id_val}:{type_display})"
 
     def __eq__(self, other) -> bool:
         """Check equality based on all properties."""
@@ -133,9 +137,7 @@ class KeplerDataset:
             self.id == other.id
             and self.type == other.type
             and self.label == other.label
-            and self.include == other.include
-            and self.exclude == other.exclude
-            and self.kwargs == other.kwargs
+            and self._kwargs == other._kwargs
         )
 
 
@@ -166,8 +168,10 @@ class KeplerLayer:
     """
 
     _raw_dict: Dict[str, Any]
-    id: Optional[str]
-    type: Optional[str]
+    # id: Optional[str]
+    # type: Optional[str]
+    # label: Optional[str]
+    # _kwargs: Dict[str, Any]
 
     def __init__(
         self,
@@ -176,9 +180,11 @@ class KeplerLayer:
         if not isinstance(raw_dict, dict):
             raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
         self._raw_dict = raw_dict
-        # Extract id and type for repr/str if available
-        self.id = raw_dict.get('id')
-        self.type = raw_dict.get('type')
+        # Extract and store as public properties
+        # self.id = None
+        # self.type = None
+        # self.label = None
+        # self._kwargs = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
@@ -186,15 +192,23 @@ class KeplerLayer:
 
     def __repr__(self) -> str:
         """Detailed string representation for debugging."""
-        parts = [f"id={self.id!r}"]
-        if self.type:
-            parts.append(f"type={self.type!r}")
+        id_val = self._raw_dict.get('id')
+        type_val = self._raw_dict.get('type')
+        label_val = self._raw_dict.get('config', {}).get('label')
+
+        parts = [f"id={id_val!r}"]
+        type_display = type_val if type_val else "raw"
+        parts.append(f"type={type_display!r}")
+        if label_val:
+            parts.append(f"label={label_val!r}")
         return f"KeplerLayer({', '.join(parts)})"
 
     def __str__(self) -> str:
         """Human-readable string representation."""
-        type_str = f":{self.type}" if self.type else ""
-        return f"KeplerLayer(id={self.id}{type_str})"
+        id_val = self._raw_dict.get('id')
+        type_val = self._raw_dict.get('type')
+        type_display = type_val if type_val else "raw"
+        return f"KeplerLayer(id={id_val}:{type_display})"
 
     def __eq__(self, other) -> bool:
         """Check equality based on raw_dict."""
@@ -239,25 +253,12 @@ class KeplerEncoding:
         """
         Return a new KeplerEncoding with the dataset appended.
 
-        Auto-generates an ID if the dataset doesn't have one.
-
         Args:
             dataset: KeplerDataset to append
 
         Returns:
             New KeplerEncoding instance with the dataset added
         """
-        # Auto-generate ID if not provided
-        if dataset.id is None:
-            dataset = KeplerDataset(
-                id=self._generate_id('dataset'),
-                type=dataset.type,
-                label=dataset.label,
-                include=dataset.include,
-                exclude=dataset.exclude,
-                **dataset.kwargs
-            )
-
         # Create new instance with appended dataset
         return KeplerEncoding(
             datasets=self.datasets + [dataset],
@@ -270,21 +271,12 @@ class KeplerEncoding:
         """
         Return a new KeplerEncoding with the layer appended.
 
-        Auto-generates an ID if the layer doesn't have one.
-
         Args:
             layer: KeplerLayer to append
 
         Returns:
             New KeplerEncoding instance with the layer added
         """
-        # Auto-generate ID if not provided in raw_dict
-        if layer.id is None:
-            # Create a copy of the raw_dict with generated ID
-            raw_dict = layer._raw_dict.copy()
-            raw_dict['id'] = self._generate_id('layer')
-            layer = KeplerLayer(raw_dict)
-
         # Create new instance with appended layer
         return KeplerEncoding(
             datasets=self.datasets,
@@ -328,18 +320,6 @@ class KeplerEncoding:
             options=self.options,
             config=new_config
         )
-
-    def _generate_id(self, prefix: str) -> str:
-        """
-        Generate a unique ID for datasets or layers.
-
-        Args:
-            prefix: Prefix for the ID (e.g., 'dataset' or 'layer')
-
-        Returns:
-            Unique ID string
-        """
-        return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
     def to_dict(self) -> Dict[str, Any]:
         """

@@ -21,7 +21,7 @@ class TestKeplerDataset(unittest.TestCase):
         """Test edges dataset initialization"""
         dataset = KeplerDataset(id="edges-ds", type="edges", map_node_coords=True)
         self.assertEqual(dataset.type, "edges")
-        self.assertEqual(dataset.kwargs['map_node_coords'], True)
+        self.assertEqual(dataset._kwargs['map_node_coords'], True)
 
     def test_init_countries_dataset(self):
         """Test countries dataset initialization"""
@@ -32,12 +32,14 @@ class TestKeplerDataset(unittest.TestCase):
             include_countries=["USA", "Canada"]
         )
         self.assertEqual(dataset.type, "countries")
-        self.assertEqual(dataset.kwargs['resolution'], 50)
+        self.assertEqual(dataset._kwargs['resolution'], 50)
 
     def test_init_without_id(self):
-        """Test dataset initialization without ID (no validation)"""
+        """Test dataset initialization without ID auto-generates one"""
         dataset = KeplerDataset(type="nodes")
-        self.assertIsNone(dataset.id)
+        self.assertIsNotNone(dataset.id)
+        self.assertTrue(dataset.id.startswith("dataset-"))
+        self.assertEqual(len(dataset.id), 16)  # "dataset-" + 8 hex chars
 
     def test_to_dict_nodes(self):
         """Test nodes dataset serialization"""
@@ -137,9 +139,7 @@ class TestKeplerLayer(unittest.TestCase):
         """Test that id and type are extracted from raw_dict for repr"""
         raw = {"id": "my-layer", "type": "point", "config": {}}
         layer = KeplerLayer(raw)
-        self.assertEqual(layer.id, "my-layer")
-        self.assertEqual(layer.type, "point")
-        # Ensure repr works
+        # Ensure repr works and shows id/type
         repr_str = repr(layer)
         self.assertIn("my-layer", repr_str)
         self.assertIn("point", repr_str)

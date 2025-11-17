@@ -874,10 +874,6 @@ class PlotterBase(Plottable):
         """
         dataset = KeplerDataset(*args, **kwargs)
 
-        # Auto-generate ID if not provided
-        if dataset.id is None:
-            dataset.id = f"dataset-{uuid.uuid4().hex[:8]}"
-
         # Use helper to add dataset
         return self.__encode_kepler_item('datasets', dataset.to_dict())
 
