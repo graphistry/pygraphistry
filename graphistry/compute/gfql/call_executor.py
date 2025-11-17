@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
     from graphistry.compute.gfql.policy import PolicyContext, PolicyException
     from graphistry.compute.gfql.policy.stats import GraphStats
-    from graphistry.compute.gfql.policy import PolicyContext
 
 # Thread-local storage for policy context
 _thread_local = threading.local()
