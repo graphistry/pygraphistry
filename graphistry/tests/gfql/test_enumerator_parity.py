@@ -1,6 +1,6 @@
 import pandas as pd
 
-from graphistry.compute import e_forward, e_reverse, n
+from graphistry.compute import e_forward, e_reverse, e_undirected, n
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
@@ -83,5 +83,61 @@ def test_enumerator_matches_gfql_reverse_edges():
         n({"type": "user"}, name="u"),
         e_reverse({"type": "owns"}, name="owns_rev"),
         n({"type": "account"}, name="acct"),
+    ]
+    _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_matches_gfql_two_hop_chain():
+    nodes = [
+        {"id": "acct1", "type": "account"},
+        {"id": "acct2", "type": "account"},
+        {"id": "user1", "type": "user"},
+        {"id": "user2", "type": "user"},
+    ]
+    edges = [
+        {"edge_id": "txn1", "src": "acct1", "dst": "acct2", "type": "txn"},
+        {"edge_id": "owns1", "src": "acct2", "dst": "user1", "type": "owns"},
+        {"edge_id": "owns2", "src": "acct2", "dst": "user2", "type": "owns"},
+    ]
+    ops = [
+        n({"type": "account"}, name="acct_start"),
+        e_forward({"type": "txn"}, name="txn"),
+        n({"type": "account"}, name="acct_mid"),
+        e_forward({"type": "owns"}, name="owns"),
+        n({"type": "user"}, name="user_end"),
+    ]
+    _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_matches_gfql_undirected_edges():
+    nodes = [
+        {"id": "n1", "type": "node"},
+        {"id": "n2", "type": "node"},
+        {"id": "n3", "type": "node"},
+    ]
+    edges = [
+        {"edge_id": "e12", "src": "n1", "dst": "n2", "type": "path"},
+        {"edge_id": "e23", "src": "n2", "dst": "n3", "type": "path"},
+    ]
+    ops = [
+        n({"type": "node"}, name="start"),
+        e_undirected({"type": "path"}, name="hop"),
+        n({"type": "node"}, name="end"),
+    ]
+    _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_matches_gfql_empty_result():
+    nodes = [
+        {"id": "acct1", "type": "account"},
+        {"id": "acct2", "type": "account"},
+    ]
+    edges = [
+        {"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"},
+    ]
+    ops = [
+        n({"type": "user"}, name="start"),
+        e_forward({"type": "txn"}, name="hop"),
+        n({"type": "user"}, name="end"),
     ]
     _run_parity_case(nodes, edges, ops)
