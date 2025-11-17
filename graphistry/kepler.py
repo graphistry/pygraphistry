@@ -266,13 +266,12 @@ class KeplerEncoding:
         Returns:
             New KeplerEncoding instance with the layer added
         """
-        # Auto-generate ID if not provided
+        # Auto-generate ID if not provided in raw_dict
         if layer.id is None:
-            layer = KeplerLayer(
-                id=self._generate_id('layer'),
-                type=layer.type,
-                **layer.kwargs
-            )
+            # Create a copy of the raw_dict with generated ID
+            raw_dict = layer._raw_dict.copy()
+            raw_dict['id'] = self._generate_id('layer')
+            layer = KeplerLayer(raw_dict)
 
         # Create new instance with appended layer
         return KeplerEncoding(
