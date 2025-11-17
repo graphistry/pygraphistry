@@ -259,10 +259,6 @@ class KeplerLayer:
     """
 
     _raw_dict: Dict[str, Any]
-    # id: Optional[str]
-    # type: Optional[str]
-    # label: Optional[str]
-    # _kwargs: Dict[str, Any]
 
     def __init__(
         self,
@@ -271,11 +267,6 @@ class KeplerLayer:
         if not isinstance(raw_dict, dict):
             raise TypeError(f"raw_dict must be a dict, got {type(raw_dict)}")
         self._raw_dict = raw_dict
-        # Extract and store as public properties
-        # self.id = None
-        # self.type = None
-        # self.label = None
-        # self._kwargs = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary format for Kepler.gl."""
