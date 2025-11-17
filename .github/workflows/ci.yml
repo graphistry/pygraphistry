@@ -257,7 +257,8 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+        # RAPIDS (umap-learn/numba) lacks Python 3.14 wheels as of 2025-11, so keep <=3.13 here
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13']
 
     steps:
 
@@ -300,7 +301,8 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+        # RAPIDS stack not available on Python 3.14 yet
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13']
         #include:
         #  - python-version: 3.12
         #    continue-on-error: true
