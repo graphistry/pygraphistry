@@ -8,7 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
+
 ### Tests
+- **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
 ## [0.45.9 - 2025-11-10]
