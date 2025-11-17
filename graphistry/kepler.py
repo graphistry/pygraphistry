@@ -39,6 +39,14 @@ class KeplerDataset:
         >>> dataset = KeplerDataset(native_kepler)
     """
 
+    _raw_dict: Optional[Dict[str, Any]]
+    id: Optional[str]
+    type: Optional[str]
+    label: Optional[str]
+    include: Optional[List[str]]
+    exclude: Optional[List[str]]
+    kwargs: Dict[str, Any]
+
     def __init__(
         self,
         raw_dict: Optional[Dict[str, Any]] = None,
@@ -156,6 +164,10 @@ class KeplerLayer:
         ... }
         >>> layer = KeplerLayer(native_layer)
     """
+
+    _raw_dict: Dict[str, Any]
+    id: Optional[str]
+    type: Optional[str]
 
     def __init__(
         self,
