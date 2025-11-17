@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING, Callable, Any
+from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING, Callable, Any, Type
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -14,12 +14,13 @@ from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
-    from .gfql.policy import PolicyContext
+    from .gfql.policy import PolicyContext, PolicyException
+    from .gfql.policy.stats import GraphStats
 
 logger = setup_logger(__name__)
 
 
-def _load_policy_runtime_deps() -> Tuple[type, Callable[[Plottable], Dict[str, Any]]]:
+def _load_policy_runtime_deps() -> Tuple[Type['PolicyException'], Callable[[Plottable], 'GraphStats']]:
     from .gfql.policy import PolicyException
     from .gfql.policy.stats import extract_graph_stats
 
@@ -612,8 +613,8 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     error = None
     success = False
 
-    policy_exception_cls: Optional[type] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    policy_exception_cls: Optional[Type['PolicyException']] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('prechain', 'postchain', 'postload')):
         policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 

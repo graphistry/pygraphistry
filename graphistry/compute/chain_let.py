@@ -1,4 +1,4 @@
-from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any
+from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any, Type
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
@@ -10,12 +10,13 @@ from .engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
-    from .gfql.policy import PolicyContext
+    from .gfql.policy import PolicyContext, PolicyException
+    from .gfql.policy.stats import GraphStats
 
 logger = setup_logger(__name__)
 
 
-def _load_policy_runtime_deps() -> Tuple[type, Callable[[Plottable], Dict[str, Any]]]:
+def _load_policy_runtime_deps() -> Tuple[Type['PolicyException'], Callable[[Plottable], 'GraphStats']]:
     from .gfql.policy import PolicyException
     from .gfql.policy.stats import extract_graph_stats
 
@@ -241,8 +242,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
 
-    policy_exception_cls: Optional[type] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    policy_exception_cls: Optional[Type['PolicyException']] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('preload', 'postload')):
         policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 
@@ -440,8 +441,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     success = False
     last_result = None
 
-    policy_exception_cls: Optional[type] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    policy_exception_cls: Optional[Type['PolicyException']] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('prelet', 'preletbinding', 'postletbinding', 'postlet', 'postload')):
         policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 

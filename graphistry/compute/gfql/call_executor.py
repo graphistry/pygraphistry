@@ -5,7 +5,7 @@ after parameter validation.
 """
 
 import threading
-from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
+from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple, Type
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
@@ -14,13 +14,15 @@ from graphistry.compute.engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
+    from graphistry.compute.gfql.policy import PolicyContext, PolicyException
+    from graphistry.compute.gfql.policy.stats import GraphStats
     from graphistry.compute.gfql.policy import PolicyContext
 
 # Thread-local storage for policy context
 _thread_local = threading.local()
 
 
-def _load_policy_runtime_deps() -> Tuple[type, Callable[[Plottable], Dict[str, Any]]]:
+def _load_policy_runtime_deps() -> Tuple[Type['PolicyException'], Callable[[Plottable], 'GraphStats']]:
     from graphistry.compute.gfql.policy import PolicyException
     from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
@@ -57,8 +59,8 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     # Precall policy phase - before executing call operation
     final_params = params
 
-    policy_exception_cls: Optional[type] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    policy_exception_cls: Optional[Type['PolicyException']] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('precall', 'postcall')):
         policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 
@@ -178,7 +180,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
                 graph_for_stats = g
-                result_stats = {}  # Can't extract stats from DataFrame
+                result_stats = cast('GraphStats', {})  # Can't extract stats from DataFrame
             else:
                 # Error case - use input graph
                 graph_for_stats = g
