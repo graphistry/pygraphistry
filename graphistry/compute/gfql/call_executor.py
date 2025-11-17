@@ -5,7 +5,7 @@ after parameter validation.
 """
 
 import threading
-from typing import Dict, Any, cast, Optional, TYPE_CHECKING
+from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
@@ -14,9 +14,17 @@ from graphistry.compute.engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
+    from graphistry.compute.gfql.policy import PolicyContext
 
 # Thread-local storage for policy context
 _thread_local = threading.local()
+
+
+def _load_policy_runtime_deps() -> Tuple[type, Callable[[Plottable], Dict[str, Any]]]:
+    from graphistry.compute.gfql.policy import PolicyException
+    from graphistry.compute.gfql.policy.stats import extract_graph_stats
+
+    return PolicyException, extract_graph_stats
 
 
 def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: Engine, policy=None, context: Optional['ExecutionContext'] = None) -> Plottable:
@@ -49,18 +57,22 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     # Precall policy phase - before executing call operation
     final_params = params
 
+    policy_exception_cls: Optional[type] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    if policy and any(hook in policy for hook in ('precall', 'postcall')):
+        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
+
     import time
 
     if policy and 'precall' in policy:
-        from graphistry.compute.gfql.policy import PolicyContext, PolicyException
-        from graphistry.compute.gfql.policy.stats import extract_graph_stats
+        assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
-        stats = extract_graph_stats(g)
+        stats = extract_graph_stats_fn(g)
         current_path = context.operation_path
         # Build path that includes this call (even though we haven't pushed yet)
         call_path = f"{current_path}.call:{function}"
 
-        policy_context: PolicyContext = {
+        policy_context: 'PolicyContext' = {
             'phase': 'precall',
             'hook': 'precall',
             'query': None,  # Not available in call context
@@ -79,7 +91,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             # Policy can only accept (None) or deny (exception)
             policy['precall'](policy_context)
 
-        except PolicyException as e:
+        except policy_exception_cls as e:
             # Enrich exception with context if not already set
             if e.query_type is None:
                 e.query_type = 'call'
@@ -155,15 +167,14 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Postcall policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postcall' in policy:
-            from graphistry.compute.gfql.policy import PolicyContext, PolicyException
-            from graphistry.compute.gfql.policy.stats import extract_graph_stats
+            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
             # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
             if success and isinstance(result, Plottable):
                 graph_for_stats = result
-                result_stats = extract_graph_stats(graph_for_stats)
+                result_stats = extract_graph_stats_fn(graph_for_stats)
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
                 graph_for_stats = g
@@ -171,10 +182,10 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             else:
                 # Error case - use input graph
                 graph_for_stats = g
-                result_stats = extract_graph_stats(graph_for_stats)
+                result_stats = extract_graph_stats_fn(graph_for_stats)
 
             current_path = context.operation_path
-            postcall_context: PolicyContext = {
+            postcall_context: 'PolicyContext' = {
                 'phase': 'postcall',
                 'hook': 'postcall',
                 'query': None,  # Not available in call context
@@ -200,7 +211,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 # Policy can only accept (None) or deny (exception)
                 policy['postcall'](postcall_context)
 
-            except PolicyException as e:
+            except policy_exception_cls as e:
                 # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = 'call'

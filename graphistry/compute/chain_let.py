@@ -1,4 +1,4 @@
-from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING
+from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
@@ -10,8 +10,16 @@ from .engine_coercion import ensure_engine_match
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
+    from .gfql.policy import PolicyContext
 
 logger = setup_logger(__name__)
+
+
+def _load_policy_runtime_deps() -> Tuple[type, Callable[[Plottable], Dict[str, Any]]]:
+    from .gfql.policy import PolicyException
+    from .gfql.policy.stats import extract_graph_stats
+
+    return PolicyException, extract_graph_stats
 
 
 def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set[str]:
@@ -233,6 +241,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
 
+    policy_exception_cls: Optional[type] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    if policy and any(hook in policy for hook in ('preload', 'postload')):
+        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
+
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
@@ -277,9 +290,9 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Preload policy phase for remote data loading
         if policy and 'preload' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
+            assert policy_exception_cls is not None
 
-            preload_context: PolicyContext = {
+            preload_context: 'PolicyContext' = {
                 'phase': 'preload',
                 'hook': 'preload',
                 'query': global_query if global_query else ast_obj,  # Global query if available
@@ -294,7 +307,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             try:
                 # Policy can only accept (None) or deny (exception)
                 policy['preload'](preload_context)
-            except PolicyException:
+            except policy_exception_cls:
                 # Re-raise without modification
                 raise
 
@@ -314,12 +327,11 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Postload policy phase for remote data
         if policy and 'postload' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
+            assert policy_exception_cls is not None and extract_graph_stats_fn is not None
 
-            stats = extract_graph_stats(result)
+            stats = extract_graph_stats_fn(result)
 
-            postload_context: PolicyContext = {
+            postload_context: 'PolicyContext' = {
                 'phase': 'postload',
                 'hook': 'postload',
                 'query': global_query if global_query else ast_obj,
@@ -335,7 +347,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             try:
                 # Policy can only accept (None) or deny (exception)
                 policy['postload'](postload_context)
-            except PolicyException:
+            except policy_exception_cls:
                 # Re-raise without modification
                 raise
     elif isinstance(ast_obj, ASTCall):
@@ -428,16 +440,20 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     success = False
     last_result = None
 
+    policy_exception_cls: Optional[type] = None
+    extract_graph_stats_fn: Optional[Callable[[Plottable], Dict[str, Any]]] = None
+    if policy and any(hook in policy for hook in ('prelet', 'preletbinding', 'postletbinding', 'postlet', 'postload')):
+        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
+
     try:
         # Prelet hook - fires BEFORE any bindings execute
         if policy and 'prelet' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
+            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
-            stats = extract_graph_stats(g)
+            stats = extract_graph_stats_fn(g)
             current_path = context.operation_path
 
-            prelet_context: PolicyContext = {
+            prelet_context: 'PolicyContext' = {
                 'phase': 'prelet',
                 'hook': 'prelet',
                 'query': dag,
@@ -453,7 +469,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             try:
                 policy['prelet'](prelet_context)
-            except PolicyException:
+            except policy_exception_cls:
                 raise
 
         # Execute nodes in topological order
@@ -466,13 +482,13 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Preletbinding hook - fires BEFORE binding execution
             if policy and 'preletbinding' in policy:
-                from .gfql.policy import PolicyContext, PolicyException
+                assert policy_exception_cls is not None
 
                 current_path = context.operation_path
                 # Build path that includes this binding (even though we haven't pushed yet)
                 binding_path = f"{current_path}.binding:{node_name}"
 
-                preletbinding_context: PolicyContext = {
+                preletbinding_context: 'PolicyContext' = {
                     'phase': 'preletbinding',
                     'hook': 'preletbinding',
                     'query': dag,
@@ -491,7 +507,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
                 try:
                     policy['preletbinding'](preletbinding_context)
-                except PolicyException:
+                except policy_exception_cls:
                     raise
 
             # Execute the node with postletbinding in finally block
@@ -526,16 +542,15 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 # Postletbinding hook - fires AFTER binding execution (even on error)
                 policy_error = None
                 if policy and 'postletbinding' in policy:
-                    from .gfql.policy import PolicyContext, PolicyException
-                    from .gfql.policy.stats import extract_graph_stats
+                    assert policy_exception_cls is not None and extract_graph_stats_fn is not None
 
                     # Extract stats from binding result (if success) or current graph (if error)
                     # Cast: if binding_success=True, binding_result is guaranteed to be a Plottable
                     graph_for_stats = cast(Plottable, binding_result) if binding_success else accumulated_result
-                    stats = extract_graph_stats(graph_for_stats)
+                    stats = extract_graph_stats_fn(graph_for_stats)
 
                     current_path = context.operation_path
-                    postletbinding_context: PolicyContext = {
+                    postletbinding_context: 'PolicyContext' = {
                         'phase': 'postletbinding',
                         'hook': 'postletbinding',
                         'query': dag,
@@ -562,7 +577,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
                     try:
                         policy['postletbinding'](postletbinding_context)
-                    except PolicyException as e:
+                    except policy_exception_cls as e:
                         # Capture policy error
                         policy_error = e
 
@@ -610,16 +625,15 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Postlet hook - fires AFTER all bindings complete (even on error)
         postlet_policy_error = None
         if policy and 'postlet' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
+            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, result) if success else g
-            stats = extract_graph_stats(graph_for_stats)
+            stats = extract_graph_stats_fn(graph_for_stats)
             current_path = context.operation_path
 
-            postlet_context: PolicyContext = {
+            postlet_context: 'PolicyContext' = {
                 'phase': 'postlet',
                 'hook': 'postlet',
                 'query': dag,
@@ -641,22 +655,21 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             try:
                 policy['postlet'](postlet_context)
-            except PolicyException as e:
+            except policy_exception_cls as e:
                 # Capture policy error instead of raising immediately
                 postlet_policy_error = e
 
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
+            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, result) if success else g
-            stats = extract_graph_stats(graph_for_stats)
+            stats = extract_graph_stats_fn(graph_for_stats)
 
-            context_dict: PolicyContext = {
+            context_dict: 'PolicyContext' = {
                 'phase': 'postload',
                 'hook': 'postload',
                 'query': dag,
@@ -678,7 +691,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 # Policy can only accept (None) or deny (exception)
                 policy['postload'](context_dict)
 
-            except PolicyException as e:
+            except policy_exception_cls as e:
                 # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = 'dag'
