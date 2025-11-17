@@ -163,7 +163,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
                 graph_for_stats = g
-                result_stats = cast('GraphStats', {})  # Can't extract stats from DataFrame
+                result_stats = {}  # Can't extract stats from DataFrame
             else:
                 # Error case - use input graph
                 graph_for_stats = g
