@@ -1,4 +1,4 @@
-from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any, Type
+from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
@@ -7,20 +7,13 @@ from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
 from .execution_context import ExecutionContext
 from .engine_coercion import ensure_engine_match
+from .gfql.policy import PolicyContext, PolicyException
+from .gfql.policy.stats import extract_graph_stats
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
-    from .gfql.policy import PolicyContext, PolicyException
-    from .gfql.policy.stats import GraphStats
 
 logger = setup_logger(__name__)
-
-
-def _load_policy_runtime_deps() -> Tuple[Type['PolicyException'], Callable[[Plottable], 'GraphStats']]:
-    from .gfql.policy import PolicyException
-    from .gfql.policy.stats import extract_graph_stats
-
-    return PolicyException, extract_graph_stats
 
 
 def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set[str]:
@@ -242,10 +235,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
 
-    policy_exception_cls: Optional[Type['PolicyException']] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('preload', 'postload')):
-        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
@@ -291,7 +281,6 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Preload policy phase for remote data loading
         if policy and 'preload' in policy:
-            assert policy_exception_cls is not None
 
             preload_context: 'PolicyContext' = {
                 'phase': 'preload',
@@ -308,7 +297,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             try:
                 # Policy can only accept (None) or deny (exception)
                 policy['preload'](preload_context)
-            except policy_exception_cls:
+            except PolicyException:
                 # Re-raise without modification
                 raise
 
@@ -328,9 +317,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Postload policy phase for remote data
         if policy and 'postload' in policy:
-            assert policy_exception_cls is not None and extract_graph_stats_fn is not None
 
-            stats = extract_graph_stats_fn(result)
+            stats = extract_graph_stats(result)
 
             postload_context: 'PolicyContext' = {
                 'phase': 'postload',
@@ -348,7 +336,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             try:
                 # Policy can only accept (None) or deny (exception)
                 policy['postload'](postload_context)
-            except policy_exception_cls:
+            except PolicyException:
                 # Re-raise without modification
                 raise
     elif isinstance(ast_obj, ASTCall):
@@ -441,17 +429,13 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     success = False
     last_result = None
 
-    policy_exception_cls: Optional[Type['PolicyException']] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
     if policy and any(hook in policy for hook in ('prelet', 'preletbinding', 'postletbinding', 'postlet', 'postload')):
-        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
 
     try:
         # Prelet hook - fires BEFORE any bindings execute
         if policy and 'prelet' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
-            stats = extract_graph_stats_fn(g)
+            stats = extract_graph_stats(g)
             current_path = context.operation_path
 
             prelet_context: 'PolicyContext' = {
@@ -470,7 +454,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             try:
                 policy['prelet'](prelet_context)
-            except policy_exception_cls:
+            except PolicyException:
                 raise
 
         # Execute nodes in topological order
@@ -483,7 +467,6 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Preletbinding hook - fires BEFORE binding execution
             if policy and 'preletbinding' in policy:
-                assert policy_exception_cls is not None
 
                 current_path = context.operation_path
                 # Build path that includes this binding (even though we haven't pushed yet)
@@ -508,7 +491,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
                 try:
                     policy['preletbinding'](preletbinding_context)
-                except policy_exception_cls:
+                except PolicyException:
                     raise
 
             # Execute the node with postletbinding in finally block
@@ -543,12 +526,11 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 # Postletbinding hook - fires AFTER binding execution (even on error)
                 policy_error = None
                 if policy and 'postletbinding' in policy:
-                    assert policy_exception_cls is not None and extract_graph_stats_fn is not None
 
                     # Extract stats from binding result (if success) or current graph (if error)
                     # Cast: if binding_success=True, binding_result is guaranteed to be a Plottable
                     graph_for_stats = cast(Plottable, binding_result) if binding_success else accumulated_result
-                    stats = extract_graph_stats_fn(graph_for_stats)
+                    stats = extract_graph_stats(graph_for_stats)
 
                     current_path = context.operation_path
                     postletbinding_context: 'PolicyContext' = {
@@ -578,7 +560,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
                     try:
                         policy['postletbinding'](postletbinding_context)
-                    except policy_exception_cls as e:
+                    except PolicyException as e:
                         # Capture policy error
                         policy_error = e
 
@@ -626,12 +608,11 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Postlet hook - fires AFTER all bindings complete (even on error)
         postlet_policy_error = None
         if policy and 'postlet' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, result) if success else g
-            stats = extract_graph_stats_fn(graph_for_stats)
+            stats = extract_graph_stats(graph_for_stats)
             current_path = context.operation_path
 
             postlet_context: 'PolicyContext' = {
@@ -656,19 +637,18 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             try:
                 policy['postlet'](postlet_context)
-            except policy_exception_cls as e:
+            except PolicyException as e:
                 # Capture policy error instead of raising immediately
                 postlet_policy_error = e
 
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, result is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, result) if success else g
-            stats = extract_graph_stats_fn(graph_for_stats)
+            stats = extract_graph_stats(graph_for_stats)
 
             context_dict: 'PolicyContext' = {
                 'phase': 'postload',
@@ -692,7 +672,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 # Policy can only accept (None) or deny (exception)
                 policy['postload'](context_dict)
 
-            except policy_exception_cls as e:
+            except PolicyException as e:
                 # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = 'dag'

@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING, Callable, Any, Type
+from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING, Callable, Any
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -11,20 +11,13 @@ from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from .gfql.policy import PolicyContext, PolicyException
+from .gfql.policy.stats import extract_graph_stats
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
-    from .gfql.policy import PolicyContext, PolicyException
-    from .gfql.policy.stats import GraphStats
 
 logger = setup_logger(__name__)
-
-
-def _load_policy_runtime_deps() -> Tuple[Type['PolicyException'], Callable[[Plottable], 'GraphStats']]:
-    from .gfql.policy import PolicyException
-    from .gfql.policy.stats import extract_graph_stats
-
-    return PolicyException, extract_graph_stats
 
 
 ###############################################################################
@@ -613,11 +606,6 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     error = None
     success = False
 
-    policy_exception_cls: Optional[Type['PolicyException']] = None
-    extract_graph_stats_fn: Optional[Callable[[Plottable], 'GraphStats']] = None
-    if policy and any(hook in policy for hook in ('prechain', 'postchain', 'postload')):
-        policy_exception_cls, extract_graph_stats_fn = _load_policy_runtime_deps()
-
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
@@ -641,9 +629,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
         # Prechain hook - fires BEFORE chain operations execute
         if policy and 'prechain' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
-
-            stats = extract_graph_stats_fn(g)
+            stats = extract_graph_stats(g)
             current_path = context.operation_path
 
             prechain_context: 'PolicyContext' = {
@@ -662,7 +648,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             try:
                 policy['prechain'](prechain_context)
-            except policy_exception_cls:
+            except PolicyException:
                 raise
 
         logger.debug('======================== FORWARDS ========================')
@@ -787,12 +773,11 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         # Postchain hook - fires AFTER chain operations complete (even on error)
         postchain_policy_error = None
         if policy and 'postchain' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
-            stats = extract_graph_stats_fn(graph_for_stats)
+            stats = extract_graph_stats(graph_for_stats)
             current_path = context.operation_path
 
             postchain_context: 'PolicyContext' = {
@@ -817,19 +802,18 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             try:
                 policy['postchain'](postchain_context)
-            except policy_exception_cls as e:
+            except PolicyException as e:
                 # Capture policy error instead of raising immediately
                 postchain_policy_error = e
 
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
-            assert extract_graph_stats_fn is not None and policy_exception_cls is not None
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
-            stats = extract_graph_stats_fn(graph_for_stats)
+            stats = extract_graph_stats(graph_for_stats)
 
             policy_context: 'PolicyContext' = {
                 'phase': 'postload',
@@ -853,7 +837,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 # Policy can only accept (None) or deny (exception)
                 policy['postload'](policy_context)
 
-            except policy_exception_cls as e:
+            except PolicyException as e:
                 # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = 'chain'
