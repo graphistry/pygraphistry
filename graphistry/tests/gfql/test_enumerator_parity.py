@@ -141,3 +141,42 @@ def test_enumerator_matches_gfql_empty_result():
         n({"type": "user"}, name="end"),
     ]
     _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_matches_gfql_cycle_with_repeat_nodes():
+    nodes = [
+        {"id": "acct1", "type": "account"},
+        {"id": "acct2", "type": "account"},
+    ]
+    edges = [
+        {"edge_id": "e12", "src": "acct1", "dst": "acct2", "type": "txn"},
+        {"edge_id": "e21", "src": "acct2", "dst": "acct1", "type": "txn"},
+    ]
+    ops = [
+        n({"type": "account"}, name="start"),
+        e_forward({"type": "txn"}, name="hop1"),
+        n({"type": "account"}, name="mid"),
+        e_forward({"type": "txn"}, name="hop2"),
+        n({"type": "account"}, name="end"),
+    ]
+    _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_matches_gfql_branching_paths():
+    nodes = [
+        {"id": "acct1", "type": "account"},
+        {"id": "acct2", "type": "account"},
+        {"id": "acct3", "type": "account"},
+        {"id": "acct4", "type": "account"},
+    ]
+    edges = [
+        {"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"},
+        {"edge_id": "e2", "src": "acct1", "dst": "acct3", "type": "txn"},
+        {"edge_id": "e3", "src": "acct3", "dst": "acct4", "type": "txn"},
+    ]
+    ops = [
+        n({"type": "account"}, name="root"),
+        e_forward({"type": "txn"}, name="first_hop"),
+        n({"type": "account"}, name="child"),
+    ]
+    _run_parity_case(nodes, edges, ops)
