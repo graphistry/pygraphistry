@@ -5,7 +5,7 @@ This module provides classes for building Kepler.gl visualizations using an immu
 Type specifications are documented in kepler_types.py (specification only, not used at runtime).
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, overload, Literal
 import uuid
 
 
@@ -45,13 +45,99 @@ class KeplerDataset:
     label: Optional[str]
     _kwargs: Dict[str, Any]
 
+    # Overload for raw_dict mode (native Kepler dataset)
+    @overload
+    def __init__(
+        self,
+        raw_dict: Dict[str, Any],
+        id: None = None,
+        type: None = None,
+        label: None = None,
+        **kwargs: Any
+    ) -> None: ...
+
+    # Overload for nodes dataset
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        id: Optional[str] = None,
+        type: Literal["nodes"] = None,
+        label: Optional[str] = None,
+        *,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
+    ) -> None: ...
+
+    # Overload for edges dataset
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        id: Optional[str] = None,
+        type: Literal["edges"] = None,
+        label: Optional[str] = None,
+        *,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None,
+        map_node_coords: Optional[bool] = None,
+        map_node_coords_mapping: Optional[Dict[str, str]] = None,
+        **kwargs: Any
+    ) -> None: ...
+
+    # Overload for countries dataset
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        id: Optional[str] = None,
+        type: Literal["countries", "zeroOrderAdminRegions"] = None,
+        label: Optional[str] = None,
+        *,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None,
+        resolution: Optional[Literal[10, 50, 110]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_countries_by_col: Optional[str] = None,
+        include_countries: Optional[List[str]] = None,
+        exclude_countries: Optional[List[str]] = None,
+        **kwargs: Any
+    ) -> None: ...
+
+    # Overload for states/provinces/firstOrderAdminRegions dataset
+    @overload
+    def __init__(
+        self,
+        raw_dict: None = None,
+        id: Optional[str] = None,
+        type: Literal["states", "provinces", "firstOrderAdminRegions"] = None,
+        label: Optional[str] = None,
+        *,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_countries_by_col: Optional[str] = None,
+        include_countries: Optional[List[str]] = None,
+        exclude_countries: Optional[List[str]] = None,
+        filter_1st_order_regions_by_col: Optional[str] = None,
+        include_1st_order_regions: Optional[List[str]] = None,
+        exclude_1st_order_regions: Optional[List[str]] = None,
+        **kwargs: Any
+    ) -> None: ...
+
+    # Actual implementation
     def __init__(
         self,
         raw_dict: Optional[Dict[str, Any]] = None,
         id: Optional[str] = None,
         type: Optional[str] = None,
         label: Optional[str] = None,
-        **kwargs
+        **kwargs: Any
     ):
         # If raw_dict is provided, store it and bypass normal processing
         if raw_dict is not None:
