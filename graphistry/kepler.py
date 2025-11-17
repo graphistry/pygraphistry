@@ -54,7 +54,8 @@ class KeplerDataset:
         type: None = None,
         label: None = None,
         **kwargs: Any
-    ) -> None: ...
+    ) -> None:
+        ...
 
     # Overload for nodes dataset
     @overload
@@ -69,7 +70,8 @@ class KeplerDataset:
         exclude: Optional[List[str]] = None,
         computed_columns: Optional[Dict[str, Any]] = None,
         **kwargs: Any
-    ) -> None: ...
+    ) -> None:
+        ...
 
     # Overload for edges dataset
     @overload
@@ -86,7 +88,8 @@ class KeplerDataset:
         map_node_coords: Optional[bool] = None,
         map_node_coords_mapping: Optional[Dict[str, str]] = None,
         **kwargs: Any
-    ) -> None: ...
+    ) -> None:
+        ...
 
     # Overload for countries dataset
     @overload
@@ -106,7 +109,8 @@ class KeplerDataset:
         include_countries: Optional[List[str]] = None,
         exclude_countries: Optional[List[str]] = None,
         **kwargs: Any
-    ) -> None: ...
+    ) -> None:
+        ...
 
     # Overload for states/provinces/firstOrderAdminRegions dataset
     @overload
@@ -128,7 +132,8 @@ class KeplerDataset:
         include_1st_order_regions: Optional[List[str]] = None,
         exclude_1st_order_regions: Optional[List[str]] = None,
         **kwargs: Any
-    ) -> None: ...
+    ) -> None:
+        ...
 
     # Actual implementation
     def __init__(
