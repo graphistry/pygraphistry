@@ -4,7 +4,7 @@ from hypothesis import given, settings, strategies as st
 from typing import Set
 from types import SimpleNamespace
 
-from graphistry.compute import n, e_forward
+from graphistry.compute import n, e_forward, e_undirected
 from graphistry.gfql.ref.enumerator import OracleCaps, col, compare, enumerate_chain
 
 
@@ -157,6 +157,52 @@ def test_enumerator_supports_to_pandas_frames():
     assert _col_set(result.nodes, "id") == {"n1"}
 
 
+def test_where_type_mismatch_inequality_is_false():
+    nodes = pd.DataFrame([{"id": "a", "x": "foo"}, {"id": "c", "x": 10}])
+    edges = pd.DataFrame([{"edge_id": "e", "src": "a", "dst": "c"}])
+    g = _plottable(nodes, edges)
+    result = enumerate_chain(
+        g,
+        [n(name="a"), e_forward(name="r"), n(name="c")],
+        where=[compare(col("a", "x"), "<", col("c", "x"))],
+        caps=OracleCaps(max_nodes=10, max_edges=10),
+    )
+    assert result.nodes.empty and result.edges.empty
+
+
+def test_undirected_self_loop_no_double():
+    nodes = pd.DataFrame([{"id": "u"}])
+    edges = pd.DataFrame([{"edge_id": "loop", "src": "u", "dst": "u"}])
+    g = _plottable(nodes, edges)
+    result = enumerate_chain(
+        g,
+        [n(name="a"), e_undirected(name="r"), n(name="c")],
+        include_paths=True,
+        caps=OracleCaps(max_nodes=10, max_edges=10),
+    )
+    assert not result.paths or len(result.paths) == 1
+
+
+def test_paths_are_deterministically_sorted():
+    nodes = pd.DataFrame([{"id": "n1"}, {"id": "n2"}, {"id": "n3"}])
+    edges = pd.DataFrame(
+        [
+            {"edge_id": "e1", "src": "n1", "dst": "n2"},
+            {"edge_id": "e2", "src": "n1", "dst": "n3"},
+        ]
+    )
+    g = _plottable(nodes, edges)
+    result = enumerate_chain(
+        g,
+        [n(name="a"), e_forward(name="r"), n(name="c")],
+        include_paths=True,
+        caps=OracleCaps(max_nodes=10, max_edges=10),
+    )
+    bindings = result.paths or []
+    tuples = [tuple(binding.get(k) for k in sorted(binding)) for binding in bindings]
+    assert tuples == sorted(tuples)
+
+
 NODE_POOL = [f"n{i}" for i in range(6)]
 EDGE_POOL = [f"e{i}" for i in range(8)]
 
@@ -172,7 +218,13 @@ def small_graph_cases(draw):
     ]
     where = []
     if draw(st.booleans()):
-        where = [compare(col("a", "value"), draw(st.sampled_from(["==", "!="])), col("c", "value"))]
+        where = [
+            compare(
+                col("a", "value"),
+                draw(st.sampled_from(["==", "!=", "<", "<=", ">", ">="])),
+                col("c", "value"),
+            )
+        ]
     return {
         "nodes": pd.DataFrame(node_rows),
         "edges": pd.DataFrame(edge_rows),

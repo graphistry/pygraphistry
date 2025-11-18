@@ -88,7 +88,7 @@ def enumerate_chain(
         edges_df[edge_id] = edges_df.reset_index().index
 
     node_steps, edge_steps = _prepare_steps(chain_ops, caps)
-    _validate_where(where, node_steps, edge_steps)
+    _validate_where(where, node_steps, edge_steps, set(nodes_df.columns), set(edges_df.columns))
     alias_requirements = _collect_alias_requirements(where, node_steps, edge_steps)
 
     paths = _build_node_frame(nodes_df, node_id, node_steps[0], alias_requirements)
@@ -99,21 +99,45 @@ def enumerate_chain(
             edges_df, edge_id, edge_src, edge_dst, edge_step, alias_requirements
         )
         paths = paths.merge(
-            edge_frame, left_on=current, right_on=edge_step["src_col"], how="inner"
+            edge_frame,
+            left_on=current,
+            right_on=edge_step["src_col"],
+            how="inner",
+            validate="m:m",
         ).drop(columns=[edge_step["src_col"]])
         current = edge_step["dst_col"]
 
         node_frame = _build_node_frame(nodes_df, node_id, node_step, alias_requirements)
-        paths = paths.merge(node_frame, left_on=current, right_on=node_step["id_col"], how="inner")
+        paths = paths.merge(
+            node_frame,
+            left_on=current,
+            right_on=node_step["id_col"],
+            how="inner",
+            validate="m:1",
+        )
         paths = paths.drop(columns=[current])
         current = node_step["id_col"]
+
+        if where:
+            ready = _ready_where_clauses(paths, where)
+            if ready:
+                paths = paths[_apply_where(paths, ready)]
 
         if len(paths) > caps.max_partial_rows:
             raise ValueError("Path enumeration exceeded partial row cap")
 
     if where:
         paths = paths[_apply_where(paths, where)]
-    paths = paths.reset_index(drop=True)
+    seq_cols: List[str] = []
+    for i, node_step in enumerate(node_steps):
+        seq_cols.append(node_step["id_col"])
+        if i < len(edge_steps):
+            seq_cols.append(edge_steps[i]["id_col"])
+    seq_cols = [col for col in seq_cols if col in paths.columns]
+    if seq_cols:
+        paths = paths.sort_values(by=seq_cols, kind="mergesort").reset_index(drop=True)
+    else:
+        paths = paths.reset_index(drop=True)
 
     node_ids: Set[Any] = set()
     for node_step in node_steps:
@@ -128,6 +152,7 @@ def enumerate_chain(
     edges_out = edges_df[edges_df[edge_id].isin(edge_ids)].reset_index(drop=True)
 
     tags = _build_tags(paths, node_steps, edge_steps)
+    tags = {alias: set(values) for alias, values in tags.items()}
     path_bindings = _extract_paths(paths, node_steps, edge_steps) if include_paths else None
     return OracleResult(nodes_out, edges_out, tags, path_bindings)
 
@@ -204,14 +229,29 @@ def _validate_where(
     where: Sequence[WhereComparison],
     node_steps: Sequence[Dict[str, Any]],
     edge_steps: Sequence[Dict[str, Any]],
+    node_columns: Set[str],
+    edge_columns: Set[str],
 ) -> None:
     if not where:
         return
-    aliases = {step["alias"] for step in [*node_steps, *edge_steps] if step["alias"]}
+    alias_types: Dict[str, str] = {}
+    for step in node_steps:
+        if step["alias"]:
+            alias_types[step["alias"]] = "node"
+    for step in edge_steps:
+        if step["alias"]:
+            alias_types[step["alias"]] = "edge"
     for clause in where:
         for ref in (clause.left, clause.right):
-            if ref.alias not in aliases:
+            alias_kind = alias_types.get(ref.alias)
+            if alias_kind is None:
                 raise ValueError(f"WHERE reference alias '{ref.alias}' is undefined")
+            if ref.column != "id":
+                source_cols = node_columns if alias_kind == "node" else edge_columns
+                if ref.column not in source_cols:
+                    raise KeyError(
+                        f"Column '{ref.column}' referenced by alias '{ref.alias}' not found in {alias_kind} dataframe"
+                    )
         if clause.op not in {"==", "!=", "<", "<=", ">", ">="}:
             raise ValueError(f"Unsupported comparison operator '{clause.op}'")
 
@@ -288,6 +328,7 @@ def _build_edge_frame(
         swapped = df.rename(columns={edge_src: "__tmp_src__", edge_dst: "__tmp_dst__"})
         swapped = swapped.rename(columns={"__tmp_src__": edge_dst, "__tmp_dst__": edge_src})
         df = pd.concat([df, swapped], ignore_index=True)
+        df = df.drop_duplicates(subset=[edge_id, edge_src, edge_dst], keep="first")
         src_col, dst_col = edge_src, edge_dst
     else:
         src_col, dst_col = edge_src, edge_dst
@@ -327,7 +368,10 @@ def _apply_where(paths: pd.DataFrame, where: Sequence[WhereComparison]) -> pd.Se
         left = paths[left_key]
         right = paths[right_key]
         valid = left.notna() & right.notna()
-        result = _compare(left, right, clause.op)
+        try:
+            result = _compare(left, right, clause.op)
+        except Exception:
+            result = pd.Series(False, index=paths.index)
         mask &= valid & result.fillna(False)
     return mask
 
@@ -383,3 +427,16 @@ def _extract_paths(
 def _alias_key(alias: str, column: str) -> str:
     normalized = "id" if column in {"id", "__id__"} else column
     return f"{alias}::{normalized}"
+
+
+def _ready_where_clauses(
+    paths: pd.DataFrame, clauses: Sequence[WhereComparison]
+) -> List[WhereComparison]:
+    cols = set(paths.columns)
+    ready: List[WhereComparison] = []
+    for clause in clauses:
+        left_key = _alias_key(clause.left.alias, clause.left.column)
+        right_key = _alias_key(clause.right.alias, clause.right.column)
+        if left_key in cols and right_key in cols:
+            ready.append(clause)
+    return ready
