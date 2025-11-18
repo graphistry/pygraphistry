@@ -235,8 +235,6 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
 
-    if policy and any(hook in policy for hook in ('preload', 'postload')):
-
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
