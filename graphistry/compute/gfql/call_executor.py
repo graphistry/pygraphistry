@@ -17,6 +17,7 @@ from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
+    from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Thread-local storage for policy context
 _thread_local = threading.local()
@@ -154,19 +155,22 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Postcall policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postcall' in policy:
+            result_stats: Optional['GraphStats'] = None
 
             # Extract stats from result (if success) or input graph (if error)
             # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
             # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
             if success and isinstance(result, Plottable):
                 graph_for_stats = result
+                result_stats = extract_graph_stats(graph_for_stats)
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
                 graph_for_stats = g
-                result_stats = {}  # Can't extract stats from DataFrame
+                result_stats = None  # Can't extract stats from DataFrame
             else:
                 # Error case - use input graph
                 graph_for_stats = g
+                result_stats = extract_graph_stats(graph_for_stats)
 
             current_path = context.operation_path
             postcall_context: 'PolicyContext' = {
