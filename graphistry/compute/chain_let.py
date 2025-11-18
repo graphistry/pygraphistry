@@ -427,8 +427,6 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     success = False
     last_result = None
 
-    if policy and any(hook in policy for hook in ('prelet', 'preletbinding', 'postletbinding', 'postlet', 'postload')):
-
     try:
         # Prelet hook - fires BEFORE any bindings execute
         if policy and 'prelet' in policy:
