@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
+from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING, Callable, Any
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -11,6 +11,8 @@ from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from .gfql.policy import PolicyContext, PolicyException
+from .gfql.policy.stats import extract_graph_stats
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
@@ -627,13 +629,10 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
         # Prechain hook - fires BEFORE chain operations execute
         if policy and 'prechain' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
-
             stats = extract_graph_stats(g)
             current_path = context.operation_path
 
-            prechain_context: PolicyContext = {
+            prechain_context: 'PolicyContext' = {
                 'phase': 'prechain',
                 'hook': 'prechain',
                 'query': ops,
@@ -774,8 +773,6 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         # Postchain hook - fires AFTER chain operations complete (even on error)
         postchain_policy_error = None
         if policy and 'postchain' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
@@ -783,7 +780,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             stats = extract_graph_stats(graph_for_stats)
             current_path = context.operation_path
 
-            postchain_context: PolicyContext = {
+            postchain_context: 'PolicyContext' = {
                 'phase': 'postchain',
                 'hook': 'postchain',
                 'query': ops,
@@ -812,15 +809,13 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
         # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
-            from .gfql.policy import PolicyContext, PolicyException
-            from .gfql.policy.stats import extract_graph_stats
 
             # Extract stats from result (if success) or input graph (if error)
             # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
 
-            policy_context: PolicyContext = {
+            policy_context: 'PolicyContext' = {
                 'phase': 'postload',
                 'hook': 'postload',
                 'query': ops,

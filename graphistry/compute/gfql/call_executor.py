@@ -5,15 +5,19 @@ after parameter validation.
 """
 
 import threading
-from typing import Dict, Any, cast, Optional, TYPE_CHECKING
+import time
+from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.engine_coercion import ensure_engine_match
+from graphistry.compute.gfql.policy import PolicyContext, PolicyException
+from graphistry.compute.gfql.policy.stats import extract_graph_stats
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
+    from graphistry.compute.gfql.policy.stats import GraphStats
 
 # Thread-local storage for policy context
 _thread_local = threading.local()
@@ -49,18 +53,14 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     # Precall policy phase - before executing call operation
     final_params = params
 
-    import time
-
     if policy and 'precall' in policy:
-        from graphistry.compute.gfql.policy import PolicyContext, PolicyException
-        from graphistry.compute.gfql.policy.stats import extract_graph_stats
-
         stats = extract_graph_stats(g)
+
         current_path = context.operation_path
         # Build path that includes this call (even though we haven't pushed yet)
         call_path = f"{current_path}.call:{function}"
 
-        policy_context: PolicyContext = {
+        policy_context: 'PolicyContext' = {
             'phase': 'precall',
             'hook': 'precall',
             'query': None,  # Not available in call context
@@ -155,8 +155,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Postcall policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postcall' in policy:
-            from graphistry.compute.gfql.policy import PolicyContext, PolicyException
-            from graphistry.compute.gfql.policy.stats import extract_graph_stats
+            result_stats: Optional['GraphStats'] = None
 
             # Extract stats from result (if success) or input graph (if error)
             # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
@@ -167,14 +166,14 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
                 graph_for_stats = g
-                result_stats = {}  # Can't extract stats from DataFrame
+                result_stats = None  # Can't extract stats from DataFrame
             else:
                 # Error case - use input graph
                 graph_for_stats = g
                 result_stats = extract_graph_stats(graph_for_stats)
 
             current_path = context.operation_path
-            postcall_context: PolicyContext = {
+            postcall_context: 'PolicyContext' = {
                 'phase': 'postcall',
                 'hook': 'postcall',
                 'query': None,  # Not available in call context
