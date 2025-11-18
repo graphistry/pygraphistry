@@ -9,15 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-* **Plot: Geographic visualization support with Kepler.gl integration** (#799)
-  * New bindings: `point_longitude` and `point_latitude` for specifying columns containing geographic coordinates
-  * Kepler.gl encoding API:
-    * `encode_kepler_dataset()` - Add datasets (nodes, edges, countries, states, etc.)
-    * `encode_kepler_layer()` - Add visualization layers (point, arc, line, grid, hexagon, etc.)
-    * `encode_kepler()` - Apply complete Kepler configuration
+- **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
+- **Plot: Geographic visualization support with Kepler.gl integration** (#799)
+  * New bindings: `point_longitude` and `point_latitude` for specifying geographic coordinates
+  * Kepler.gl encoding methods: `encode_kepler()`, `encode_kepler_dataset()`, `encode_kepler_layer()`, `encode_kepler_options()`, `encode_kepler_config()`
+  * Configuration classes: `KeplerEncoding`, `KeplerDataset`, `KeplerLayer`, `KeplerOptions`, `KeplerConfig`
   * `mercator_layout()` - Convert lat/lon to Mercator projection with GPU/CPU support
-  * New `KeplerDataset`, `KeplerLayer`, `KeplerEncoding` classes for type-safe configuration
-  * Added 34 tests in `test_kepler.py` and 6 tests in `test_layout.py`
+  * Comprehensive user guide and API documentation
+  * Added 55 tests in `test_kepler.py` and 6 tests in `test_layout.py`
+
+### Tests
+- **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
+- **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
+- **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
 ## [0.45.9 - 2025-11-10]
 

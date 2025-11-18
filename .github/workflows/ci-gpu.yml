@@ -44,14 +44,14 @@ jobs:
   test-full-ai:
     needs: [ gpu-permission ]
     if: |
-      github.event_name == 'workflow_dispatch' || 
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
-    runs-on:
-      group: GPU Runners - Public
+    runs-on: gpu_public
 
     strategy:
       matrix:
-        python-version: ['3.10', 3.11, 3.12]
+        # RAPIDS GPU images currently support <= 3.13
+        python-version: ['3.10', 3.11, 3.12, '3.13']
 
     steps:
 
