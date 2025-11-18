@@ -17,33 +17,119 @@ def snake_to_camel(snake_str: str) -> str:
 
 
 class KeplerDataset:
-    """
-    Represents a Kepler.gl dataset with type-specific configuration.
+    """Configure a Kepler.gl dataset for visualization.
 
-    Supports multiple dataset types:
-    - 'nodes': Node data from graph
-    - 'edges': Edge data from graph
-    - 'countries': Country/region polygons
-    - 'states'/'provinces'/'firstOrderAdminRegions': State/province polygons
-    - None: Native Kepler dataset
+    Creates a dataset configuration that makes Graphistry data (nodes/edges) or geographic
+    data (countries/states) available to Kepler.gl for visualization.
 
-    Args:
-        raw_dict: Optional raw dictionary containing a native Kepler.gl dataset configuration.
-                  If provided, the dict is passed through unmodified to Kepler.gl, allowing
-                  direct use of native Kepler dataset formats. All other parameters are ignored.
-        id: Dataset identifier (required for serialization)
-        type: Dataset type (nodes, edges, countries, etc.)
-        label: Optional display label (defaults to id)
-        include: Optional list of columns to include
-        exclude: Optional list of columns to exclude
-        **kwargs: Type-specific parameters
+    **Common parameters (all dataset types):**
 
-    Example:
-        >>> dataset = KeplerDataset(id="my-dataset", type="nodes")
-        >>> dataset = KeplerDataset(id="countries", type="countries", resolution=50)
-        >>> # Pass through native Kepler dataset dict
-        >>> native_kepler = {"info": {"id": "my-dataset"}, "data": {...}}
-        >>> dataset = KeplerDataset(native_kepler)
+    :param raw_dict: Native Kepler.gl dataset dictionary (if provided, all other params ignored)
+    :type raw_dict: Optional[Dict[str, Any]]
+    :param id: Dataset identifier (auto-generated if None)
+    :type id: Optional[str]
+    :param type: Dataset type - 'nodes', 'edges', 'countries', 'states', etc.
+    :type type: Optional[str]
+    :param label: Display label (defaults to id)
+    :type label: Optional[str]
+    :param include: Columns to include (whitelist)
+    :type include: Optional[List[str]]
+    :param exclude: Columns to exclude (blacklist)
+    :type exclude: Optional[List[str]]
+    :param computed_columns: Computed/aggregated columns for data enrichment
+    :type computed_columns: Optional[Dict[str, Any]]
+
+    **For nodes type:**
+
+    No additional parameters beyond common ones.
+
+    **For edges type:**
+
+    :param map_node_coords: Auto-map source/target node coordinates to edges (adds columns: edgeSourceLatitude, edgeSourceLongitude, edgeTargetLatitude, edgeTargetLongitude)
+    :type map_node_coords: Optional[bool]
+    :param map_node_coords_mapping: Custom column names for mapped coordinates. Dict mapping default names to custom names, e.g., {"edgeSourceLongitude": "src_lng", "edgeSourceLatitude": "src_lat", "edgeTargetLongitude": "dst_lng", "edgeTargetLatitude": "dst_lat"}
+    :type map_node_coords_mapping: Optional[Dict[str, str]]
+
+    **For countries/zeroOrderAdminRegions type:**
+
+    :param resolution: Map resolution (10=high, 50=medium, 110=low)
+    :type resolution: Optional[Literal[10, 50, 110]]
+    :param boundary_lakes: Include lake boundaries (default: True)
+    :type boundary_lakes: Optional[bool]
+    :param filter_countries_by_col: Column to filter countries
+    :type filter_countries_by_col: Optional[str]
+    :param include_countries: Countries to include
+    :type include_countries: Optional[List[str]]
+    :param exclude_countries: Countries to exclude
+    :type exclude_countries: Optional[List[str]]
+
+    **For states/provinces/firstOrderAdminRegions type:**
+
+    :param boundary_lakes: Include lake boundaries (default: True)
+    :type boundary_lakes: Optional[bool]
+    :param filter_countries_by_col: Column to filter countries
+    :type filter_countries_by_col: Optional[str]
+    :param include_countries: Countries to include
+    :type include_countries: Optional[List[str]]
+    :param exclude_countries: Countries to exclude
+    :type exclude_countries: Optional[List[str]]
+    :param filter_1st_order_regions_by_col: Column to filter regions
+    :type filter_1st_order_regions_by_col: Optional[str]
+    :param include_1st_order_regions: Regions to include
+    :type include_1st_order_regions: Optional[List[str]]
+    :param exclude_1st_order_regions: Regions to exclude
+    :type exclude_1st_order_regions: Optional[List[str]]
+
+    **Example: Node dataset**
+        ::
+
+            from graphistry import KeplerDataset
+
+            # Basic node dataset
+            ds = KeplerDataset(id="companies", type="nodes", label="Companies")
+
+            # With column filtering
+            ds = KeplerDataset(
+                type="nodes",
+                include=["name", "latitude", "longitude", "revenue"]
+            )
+
+    **Example: Edge dataset with coordinate mapping**
+        ::
+
+            # Auto-map source/target node coordinates to edges
+            ds = KeplerDataset(
+                type="edges",
+                map_node_coords=True
+            )
+
+    **Example: Countries with computed columns**
+        ::
+
+            # High-resolution countries with aggregated metrics
+            ds = KeplerDataset(
+                type="countries",
+                resolution=10,
+                computed_columns={
+                    "avg_revenue": {
+                        "type": "aggregate",
+                        "computeFromDataset": "companies",
+                        "sourceKey": "country",
+                        "targetKey": "name",
+                        "aggregate": "mean",
+                        "aggregateCol": "revenue"
+                    }
+                }
+            )
+
+    **Example: Using raw_dict**
+        ::
+
+            # Pass through native Kepler.gl dataset dict
+            ds = KeplerDataset({
+                "info": {"id": "my-dataset", "label": "My Data"},
+                "data": {...}
+            })
     """
 
     _raw_dict: Optional[Dict[str, Any]]
@@ -56,11 +142,7 @@ class KeplerDataset:
     @overload
     def __init__(
         self,
-        raw_dict: Dict[str, Any],
-        id: None = None,
-        type: None = None,
-        label: None = None,
-        **kwargs: Any
+        raw_dict: Dict[str, Any]
     ) -> None:
         ...
 
@@ -75,8 +157,7 @@ class KeplerDataset:
         label: Optional[str] = None,
         include: Optional[List[str]] = None,
         exclude: Optional[List[str]] = None,
-        computed_columns: Optional[Dict[str, Any]] = None,
-        **kwargs: Any
+        computed_columns: Optional[Dict[str, Any]] = None
     ) -> None:
         ...
 
@@ -93,8 +174,7 @@ class KeplerDataset:
         exclude: Optional[List[str]] = None,
         computed_columns: Optional[Dict[str, Any]] = None,
         map_node_coords: Optional[bool] = None,
-        map_node_coords_mapping: Optional[Dict[str, str]] = None,
-        **kwargs: Any
+        map_node_coords_mapping: Optional[Dict[str, str]] = None
     ) -> None:
         ...
 
@@ -114,8 +194,7 @@ class KeplerDataset:
         boundary_lakes: Optional[bool] = None,
         filter_countries_by_col: Optional[str] = None,
         include_countries: Optional[List[str]] = None,
-        exclude_countries: Optional[List[str]] = None,
-        **kwargs: Any
+        exclude_countries: Optional[List[str]] = None
     ) -> None:
         ...
 
@@ -137,8 +216,7 @@ class KeplerDataset:
         exclude_countries: Optional[List[str]] = None,
         filter_1st_order_regions_by_col: Optional[str] = None,
         include_1st_order_regions: Optional[List[str]] = None,
-        exclude_1st_order_regions: Optional[List[str]] = None,
-        **kwargs: Any
+        exclude_1st_order_regions: Optional[List[str]] = None
     ) -> None:
         ...
 
@@ -240,29 +318,67 @@ class KeplerDataset:
 
 
 class KeplerLayer:
-    """
-    Represents a Kepler.gl layer with native Kepler configuration.
+    """Configure a Kepler.gl visualization layer.
 
-    Currently only supports raw dictionary pass-through mode.
+    Creates a layer configuration using native Kepler.gl format. Layers define how datasets
+    are visualized on the map (points, arcs, hexbins, etc.). This class accepts only raw
+    dictionary format for now.
 
-    Supports layer types: point, arc, line, grid, hexagon, geojson, cluster,
-    icon, heatmap, hexagonId, trip, s2
+    :param raw_dict: Native Kepler.gl layer configuration dictionary
+    :type raw_dict: Dict[str, Any]
 
-    Args:
-        raw_dict: Raw dictionary containing a native Kepler.gl layer configuration.
-                  The dict is passed through unmodified to Kepler.gl.
+    **Example: Point layer**
+        ::
 
-    Example:
-        >>> # Pass through native Kepler layer dict
-        >>> native_layer = {
-        ...     "id": "layer-1",
-        ...     "type": "point",
-        ...     "config": {
-        ...         "dataId": "my-dataset",
-        ...         "columns": {"lat": "latitude", "lng": "longitude"}
-        ...     }
-        ... }
-        >>> layer = KeplerLayer(native_layer)
+            from graphistry import KeplerLayer
+
+            layer = KeplerLayer({
+                "id": "cities",
+                "type": "point",
+                "config": {
+                    "dataId": "companies",
+                    "label": "Company Locations",
+                    "columns": {"lat": "latitude", "lng": "longitude"},
+                    "color": [255, 140, 0],
+                    "visConfig": {"radius": 10, "opacity": 0.8}
+                }
+            })
+
+    **Example: Arc layer for connections**
+        ::
+
+            layer = KeplerLayer({
+                "id": "connections",
+                "type": "arc",
+                "config": {
+                    "dataId": "relationships",
+                    "columns": {
+                        "lat0": "edgeSourceLatitude",
+                        "lng0": "edgeSourceLongitude",
+                        "lat1": "edgeTargetLatitude",
+                        "lng1": "edgeTargetLongitude"
+                    },
+                    "color": [0, 200, 255],
+                    "visConfig": {"opacity": 0.3, "thickness": 2}
+                }
+            })
+
+    **Example: Hexagon aggregation**
+        ::
+
+            layer = KeplerLayer({
+                "id": "density",
+                "type": "hexagon",
+                "config": {
+                    "dataId": "events",
+                    "columns": {"lat": "latitude", "lng": "longitude"},
+                    "visConfig": {
+                        "worldUnitSize": 1,
+                        "elevationScale": 5,
+                        "enable3d": True
+                    }
+                }
+            })
     """
 
     _raw_dict: Dict[str, Any]
@@ -307,19 +423,33 @@ class KeplerLayer:
 
 
 class KeplerOptions:
-    """
-    Kepler.gl visualization options.
+    """Configure Kepler.gl visualization options.
 
-    Args:
-        raw_dict: Optional raw dictionary containing native Kepler.gl options.
-                  If provided, the dict is passed through unmodified.
-        **kwargs: Options including:
-            - center_map (bool): Whether to center map on data (default: True)
-            - read_only (bool): Whether visualization is read-only (default: False)
+    Controls map behavior and interaction settings such as auto-centering and read-only mode.
 
-    Example:
-        >>> options = KeplerOptions(center_map=True, read_only=False)
-        >>> options = KeplerOptions({"centerMap": True, "readOnly": False})
+    :param raw_dict: Native Kepler.gl options dictionary (if provided, kwargs ignored)
+    :type raw_dict: Optional[Dict[str, Any]]
+    :param center_map: Auto-center map on data (default: True)
+    :type center_map: Optional[bool]
+    :param read_only: Disable map interactions (default: False)
+    :type read_only: Optional[bool]
+
+    **Example: Structured parameters**
+        ::
+
+            from graphistry import KeplerOptions
+
+            # Auto-center with interactions enabled
+            opts = KeplerOptions(center_map=True, read_only=False)
+
+            # Read-only mode for presentations
+            opts = KeplerOptions(read_only=True)
+
+    **Example: Using raw_dict**
+        ::
+
+            # Pass native format
+            opts = KeplerOptions({"centerMap": True, "readOnly": False})
     """
 
     _raw_dict: Optional[Dict[str, Any]]
@@ -329,8 +459,7 @@ class KeplerOptions:
     @overload
     def __init__(
         self,
-        raw_dict: Dict[str, Any],
-        **kwargs: Any
+        raw_dict: Dict[str, Any]
     ) -> None:
         ...
 
@@ -342,7 +471,6 @@ class KeplerOptions:
         *,
         center_map: Optional[bool] = None,
         read_only: Optional[bool] = None,
-        **kwargs: Any
     ) -> None:
         ...
 
@@ -386,20 +514,47 @@ class KeplerOptions:
 
 
 class KeplerConfig:
-    """
-    Kepler.gl configuration settings.
+    """Configure Kepler.gl map and rendering settings.
 
-    Args:
-        raw_dict: Optional raw dictionary containing native Kepler.gl config.
-                  If provided, the dict is passed through unmodified.
-        **kwargs: Config options including:
-            - cull_unused_columns (bool): Drop unused columns (default: True)
-            - overlay_blending (Literal['normal', 'additive', 'subtractive']): Blending mode (default: 'normal')
-            - tile_style (Dict[str, Any]): Map tile style configuration
+    Controls map appearance, data optimization, and layer blending behavior.
 
-    Example:
-        >>> config = KeplerConfig(cull_unused_columns=True)
-        >>> config = KeplerConfig({"cullUnusedColumns": True})
+    :param raw_dict: Native Kepler.gl config dictionary (if provided, kwargs ignored)
+    :type raw_dict: Optional[Dict[str, Any]]
+    :param cull_unused_columns: Remove unused columns from datasets (default: True)
+    :type cull_unused_columns: Optional[bool]
+    :param overlay_blending: Blend mode - 'normal', 'additive', 'subtractive' (default: 'normal')
+    :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
+    :param tile_style: Base map tile style configuration
+    :type tile_style: Optional[Dict[str, Any]]
+
+    **Example: Structured parameters**
+        ::
+
+            from graphistry import KeplerConfig
+
+            # Optimize data transfer
+            cfg = KeplerConfig(cull_unused_columns=True)
+
+            # Additive blending for heatmaps
+            cfg = KeplerConfig(overlay_blending='additive')
+
+            # Custom dark base map
+            cfg = KeplerConfig(
+                tile_style={
+                    "id": "dark",
+                    "label": "Dark Mode",
+                    "url": "mapbox://styles/mapbox/dark-v10"
+                }
+            )
+
+    **Example: Using raw_dict**
+        ::
+
+            # Pass native format
+            cfg = KeplerConfig({
+                "cullUnusedColumns": True,
+                "overlayBlending": "additive"
+            })
     """
 
     _raw_dict: Optional[Dict[str, Any]]
@@ -409,8 +564,7 @@ class KeplerConfig:
     @overload
     def __init__(
         self,
-        raw_dict: Dict[str, Any],
-        **kwargs: Any
+        raw_dict: Dict[str, Any]
     ) -> None:
         ...
 
@@ -422,8 +576,7 @@ class KeplerConfig:
         *,
         cull_unused_columns: Optional[bool] = None,
         overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
-        tile_style: Optional[Dict[str, Any]] = None,
-        **kwargs: Any
+        tile_style: Optional[Dict[str, Any]] = None
     ) -> None:
         ...
 
@@ -467,23 +620,50 @@ class KeplerConfig:
 
 
 class KeplerEncoding:
-    """
-    Immutable container for Kepler.gl encoding configuration.
+    """Immutable container for complete Kepler.gl configuration.
 
-    Follows the immutable pattern used in GFQL Chain. Operations return new instances
+    Combines datasets, layers, options, and config into a complete Kepler visualization
+    configuration. Follows an immutable builder pattern where methods return new instances
     rather than modifying in place.
 
-    Args:
-        datasets: List of KeplerDataset objects
-        layers: List of KeplerLayer objects
-        options: Kepler options (centerMap, readOnly, etc.)
-        config: Kepler config (cullUnusedColumns, overlayBlending, etc.)
+    :param datasets: List of dataset configurations
+    :type datasets: Optional[List[KeplerDataset]]
+    :param layers: List of layer configurations
+    :type layers: Optional[List[KeplerLayer]]
+    :param options: Visualization options
+    :type options: Optional[KeplerOptions]
+    :param config: Map configuration settings
+    :type config: Optional[KeplerConfig]
 
-    Example:
-        >>> encoding = KeplerEncoding()
-        >>> encoding = encoding.with_dataset(KeplerDataset(id="data1", type="nodes"))
-        >>> encoding = encoding.with_layer(KeplerLayer(id="layer1", type="point", dataId="data1"))
-        >>> encoding.to_dict()
+    **Example: Building configuration with method chaining**
+        ::
+
+            from graphistry import KeplerEncoding, KeplerDataset, KeplerLayer
+
+            encoding = (
+                KeplerEncoding()
+                .with_dataset(KeplerDataset(id="companies", type="nodes"))
+                .with_dataset(KeplerDataset(id="relationships", type="edges"))
+                .with_layer(KeplerLayer({
+                    "id": "points",
+                    "type": "point",
+                    "config": {
+                        "dataId": "companies",
+                        "columns": {"lat": "latitude", "lng": "longitude"}
+                    }
+                }))
+                .with_options(center_map=True, read_only=False)
+                .with_config(cull_unused_columns=True)
+            )
+
+    **Example: Using with Plotter**
+        ::
+
+            import graphistry
+
+            g = graphistry.nodes(df, 'id')
+            g = g.encode_kepler(encoding)
+            g.plot()
     """
 
     def __init__(
@@ -499,14 +679,12 @@ class KeplerEncoding:
         self.config: KeplerConfig = config if config is not None else KeplerConfig()
 
     def with_dataset(self, dataset: KeplerDataset) -> 'KeplerEncoding':
-        """
-        Return a new KeplerEncoding with the dataset appended.
+        """Return a new KeplerEncoding with the dataset appended.
 
-        Args:
-            dataset: KeplerDataset to append
-
-        Returns:
-            New KeplerEncoding instance with the dataset added
+        :param dataset: KeplerDataset to append
+        :type dataset: KeplerDataset
+        :return: New KeplerEncoding instance with the dataset added
+        :rtype: KeplerEncoding
         """
         # Create new instance with appended dataset
         return KeplerEncoding(
@@ -517,14 +695,12 @@ class KeplerEncoding:
         )
 
     def with_layer(self, layer: KeplerLayer) -> 'KeplerEncoding':
-        """
-        Return a new KeplerEncoding with the layer appended.
+        """Return a new KeplerEncoding with the layer appended.
 
-        Args:
-            layer: KeplerLayer to append
-
-        Returns:
-            New KeplerEncoding instance with the layer added
+        :param layer: KeplerLayer to append
+        :type layer: KeplerLayer
+        :return: New KeplerEncoding instance with the layer added
+        :rtype: KeplerEncoding
         """
         # Create new instance with appended layer
         return KeplerEncoding(
@@ -534,16 +710,31 @@ class KeplerEncoding:
             config=self.config
         )
 
+    @overload
+    def with_options(self, options: KeplerOptions) -> 'KeplerEncoding':
+        ...
+
+    @overload
+    def with_options(
+        self,
+        options: None = None,
+        *,
+        center_map: Optional[bool] = None,
+        read_only: Optional[bool] = None
+    ) -> 'KeplerEncoding':
+        ...
+
     def with_options(self, options: Optional[KeplerOptions] = None, **kwargs) -> 'KeplerEncoding':
-        """
-        Return a new KeplerEncoding with updated options.
+        """Return a new KeplerEncoding with updated options.
 
-        Args:
-            options: KeplerOptions object to replace current options
-            **kwargs: Individual option values to update (center_map, read_only, etc.)
-
-        Returns:
-            New KeplerEncoding instance with updated options
+        :param options: KeplerOptions object to replace current options
+        :type options: Optional[KeplerOptions]
+        :param center_map: Auto-center map on data
+        :type center_map: Optional[bool]
+        :param read_only: Disable map interactions
+        :type read_only: Optional[bool]
+        :return: New KeplerEncoding instance with updated options
+        :rtype: KeplerEncoding
         """
         if options is not None:
             new_options = options
@@ -560,16 +751,34 @@ class KeplerEncoding:
             config=self.config
         )
 
+    @overload
+    def with_config(self, config: KeplerConfig) -> 'KeplerEncoding':
+        ...
+
+    @overload
+    def with_config(
+        self,
+        config: None = None,
+        *,
+        cull_unused_columns: Optional[bool] = None,
+        overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
+        tile_style: Optional[Dict[str, Any]] = None
+    ) -> 'KeplerEncoding':
+        ...
+
     def with_config(self, config: Optional[KeplerConfig] = None, **kwargs) -> 'KeplerEncoding':
-        """
-        Return a new KeplerEncoding with updated config.
+        """Return a new KeplerEncoding with updated config.
 
-        Args:
-            config: KeplerConfig object to replace current config
-            **kwargs: Individual config values to update (cull_unused_columns, overlay_blending, etc.)
-
-        Returns:
-            New KeplerEncoding instance with updated config
+        :param config: KeplerConfig object to replace current config
+        :type config: Optional[KeplerConfig]
+        :param cull_unused_columns: Remove columns not used by layers
+        :type cull_unused_columns: Optional[bool]
+        :param overlay_blending: Blend mode - 'normal', 'additive', 'subtractive'
+        :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
+        :param tile_style: Base map tile style configuration
+        :type tile_style: Optional[Dict[str, Any]]
+        :return: New KeplerEncoding instance with updated config
+        :rtype: KeplerEncoding
         """
         if config is not None:
             new_config = config
@@ -587,11 +796,10 @@ class KeplerEncoding:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Serialize to dictionary format for Kepler.gl.
+        """Serialize to dictionary format for Kepler.gl.
 
-        Returns:
-            Dictionary with datasets, layers, options, and config
+        :return: Dictionary with datasets, layers, options, and config
+        :rtype: Dict[str, Any]
         """
         result = {
             'datasets': [d.to_dict() for d in self.datasets] if self.datasets else [],
