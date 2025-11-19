@@ -289,8 +289,12 @@ class ArrowUploader:
         from .pygraphistry import PyGraphistry
         json_response = None
         try:
+            # Check HTTP status before parsing
+            if not (200 <= out.status_code < 300):
+                raise Exception(f"Login failed with HTTP {out.status_code}: {out.text}")
+            
             json_response = out.json()
-            token_value = json_response.get('token')
+            token_value = json_response.get('token', None)
             if not token_value:
                 raise Exception(out.text)
 
