@@ -1,9 +1,10 @@
 """Minimal GFQL reference enumerator used as the correctness oracle."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
@@ -16,21 +17,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.filter_by_dict import filter_by_dict
-ComparisonOp = Literal["==", "!=", "<", "<=", ">", ">="]
-
-
-
-@dataclass(frozen=True)
-class StepColumnRef:
-    alias: str
-    column: str
-
-
-@dataclass(frozen=True)
-class WhereComparison:
-    left: StepColumnRef
-    op: ComparisonOp
-    right: StepColumnRef
+from graphistry.gfql.same_path_types import ComparisonOp, WhereComparison
 
 
 @dataclass(frozen=True)
@@ -50,14 +37,6 @@ class OracleResult:
     # Hop labels: node_id -> hop_distance, edge_id -> hop_distance
     node_hop_labels: Optional[Dict[Any, int]] = None
     edge_hop_labels: Optional[Dict[Any, int]] = None
-
-
-def col(alias: str, column: str) -> StepColumnRef:
-    return StepColumnRef(alias, column)
-
-
-def compare(left: StepColumnRef, op: ComparisonOp, right: StepColumnRef) -> WhereComparison:
-    return WhereComparison(left, op, right)
 
 
 def enumerate_chain(
