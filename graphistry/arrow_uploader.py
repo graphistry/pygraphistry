@@ -296,7 +296,10 @@ class ArrowUploader:
             json_response = out.json()
             token_value = json_response.get('token', None)
             if not token_value:
-                raise Exception(out.text)
+                raise Exception(
+                    f"Server login response successful (HTTP {out.status_code}) but unexpected return format: "
+                    f"missing 'token' key in response. Response content: {out.text}"
+                )
 
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
