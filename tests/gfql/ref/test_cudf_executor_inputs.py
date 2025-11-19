@@ -8,16 +8,17 @@ from graphistry.compute.gfql.cudf_executor import (
     CuDFSamePathExecutor,
 )
 from graphistry.gfql.same_path_types import col, compare
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
 
 def _make_graph():
     nodes = pd.DataFrame(
         [
-            {"id": "acct1", "type": "account", "owner_id": "user1"},
-            {"id": "acct2", "type": "account", "owner_id": "user2"},
-            {"id": "user1", "type": "user"},
-            {"id": "user2", "type": "user"},
+            {"id": "acct1", "type": "account", "owner_id": "user1", "score": 5},
+            {"id": "acct2", "type": "account", "owner_id": "user2", "score": 9},
+            {"id": "user1", "type": "user", "score": 7},
+            {"id": "user2", "type": "user", "score": 3},
         ]
     )
     edges = pd.DataFrame(
@@ -71,3 +72,50 @@ def test_forward_captures_alias_frames_and_prunes():
     a_nodes = executor.alias_frames["a"]
     assert set(a_nodes.columns) == {"id", "owner_id"}
     assert list(a_nodes["id"]) == ["acct1"]
+
+
+def test_forward_matches_oracle_tags_on_equality():
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    executor = CuDFSamePathExecutor(inputs)
+    executor._forward()
+
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert oracle.tags is not None
+    assert set(executor.alias_frames["a"]["id"]) == oracle.tags["a"]
+    assert set(executor.alias_frames["c"]["id"]) == oracle.tags["c"]
+
+
+def test_forward_minmax_prune_matches_oracle():
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "score"), "<", col("c", "score"))]
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    executor = CuDFSamePathExecutor(inputs)
+    executor._forward()
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert oracle.tags is not None
+    assert set(executor.alias_frames["a"]["id"]) == oracle.tags["a"]
+    assert set(executor.alias_frames["c"]["id"]) == oracle.tags["c"]
