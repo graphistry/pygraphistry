@@ -44,9 +44,13 @@ def _run_parity_case(nodes, edges, ops):
         if not alias:
             continue
         if isinstance(op, ASTNode):
-            assert oracle.tags.get(alias, set()) == _alias_bindings(gfql_nodes, g._node, alias)
+            assert oracle.tags.get(alias, set()) == _alias_bindings(
+                gfql_nodes, g._node, alias
+            )
         elif isinstance(op, ASTEdge):
-            assert oracle.tags.get(alias, set()) == _alias_bindings(gfql_edges, g._edge, alias)
+            assert oracle.tags.get(alias, set()) == _alias_bindings(
+                gfql_edges, g._edge, alias
+            )
 
 
 CASES = [
@@ -62,7 +66,8 @@ CASES = [
             {"edge_id": "e2", "src": "acct2", "dst": "acct3", "type": "txn"},
             {"edge_id": "e3", "src": "acct3", "dst": "acct1", "type": "txn"},
         ],
-        [n({"type": "account"}, name="start"), e_forward({"type": "txn"}, name="hop"), n({"type": "account"}, name="end")],
+        [n({"type": "account"}, name="start"), e_forward({"type": "txn"}, name="hop"),
+n({"type": "account"}, name="end")],
     ),
     (
         "reverse",
@@ -75,7 +80,8 @@ CASES = [
             {"edge_id": "owns1", "src": "acct1", "dst": "user1", "type": "owns"},
             {"edge_id": "owns2", "src": "acct2", "dst": "user1", "type": "owns"},
         ],
-        [n({"type": "user"}, name="u"), e_reverse({"type": "owns"}, name="owns_rev"), n({"type": "account"}, name="acct")],
+        [n({"type": "user"}, name="u"), e_reverse({"type": "owns"}, name="owns_rev"),
+n({"type": "account"}, name="acct")],
     ),
     (
         "two_hop",
@@ -109,7 +115,11 @@ CASES = [
             {"edge_id": "e12", "src": "n1", "dst": "n2", "type": "path"},
             {"edge_id": "e23", "src": "n2", "dst": "n3", "type": "path"},
         ],
-        [n({"type": "node"}, name="start"), e_undirected({"type": "path"}, name="hop"), n({"type": "node"}, name="end")],
+        [
+            n({"type": "node"}, name="start"),
+            e_undirected({"type": "path"}, name="hop"),
+            n({"type": "node"}, name="end"),
+        ],
     ),
     (
         "empty",
@@ -118,7 +128,8 @@ CASES = [
             {"id": "acct2", "type": "account"},
         ],
         [{"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"}],
-        [n({"type": "user"}, name="start"), e_forward({"type": "txn"}, name="hop"), n({"type": "user"}, name="end")],
+        [n({"type": "user"}, name="start"), e_forward({"type": "txn"}, name="hop"),
+n({"type": "user"}, name="end")],
     ),
     (
         "cycle",
@@ -151,7 +162,8 @@ CASES = [
             {"edge_id": "e2", "src": "acct1", "dst": "acct3", "type": "txn"},
             {"edge_id": "e3", "src": "acct3", "dst": "acct4", "type": "txn"},
         ],
-        [n({"type": "account"}, name="root"), e_forward({"type": "txn"}, name="first_hop"), n({"type": "account"}, name="child")],
+        [n({"type": "account"}, name="root"), e_forward({"type": "txn"},
+name="first_hop"), n({"type": "account"}, name="child")],
     ),
 ]
 

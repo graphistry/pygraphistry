@@ -1,4 +1,5 @@
 """GFQL unified entrypoint for chains and DAGs"""
+# ruff: noqa: E501
 
 from typing import List, Union, Optional, Dict, Any
 from graphistry.Plottable import Plottable
@@ -16,6 +17,7 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
+from graphistry.gfql.same_path_types import parse_where_json
 
 logger = setup_logger(__name__)
 
@@ -227,8 +229,20 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
-        # Handle dict convenience first (convert to ASTLet)
-        if isinstance(query, dict):
+        # Handle dict convenience first
+        if isinstance(query, dict) and "chain" in query:
+            chain_items = []
+            for item in query["chain"]:
+                if isinstance(item, dict):
+                    from .ast import from_json
+                    chain_items.append(from_json(item))
+                elif isinstance(item, ASTObject):
+                    chain_items.append(item)
+                else:
+                    raise TypeError(f"Unsupported chain entry type: {type(item)}")
+            where_meta = parse_where_json(query.get("where"))
+            query = Chain(chain_items, where=where_meta)
+        elif isinstance(query, dict):
             # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
             wrapped_dict = {}
             for key, value in query.items():
