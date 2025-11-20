@@ -72,6 +72,8 @@ class CuDFSamePathExecutor:
         self._edge_column = inputs.graph._edge
         self._source_column = inputs.graph._source
         self._destination_column = inputs.graph._destination
+        self._minmax_summaries: Dict[str, Dict[str, DataFrameT]] = defaultdict(dict)
+        self._equality_values: Dict[str, Dict[str, Set[Any]]] = defaultdict(dict)
 
     def run(self) -> Plottable:
         """Execute full cuDF traversal.
@@ -144,6 +146,8 @@ class CuDFSamePathExecutor:
         subset_cols = [col for col in required]
         alias_frame = frame[subset_cols].copy()
         self.alias_frames[alias] = alias_frame
+        self._capture_minmax(alias, alias_frame, id_col)
+        self._capture_equality_values(alias, alias_frame)
         self._apply_ready_clauses()
 
     # --- Execution selection helpers -------------------------------------------------
@@ -269,6 +273,35 @@ class CuDFSamePathExecutor:
                 continue
             out[alias] = self._series_values(frame[id_col])
         return out
+
+    def _capture_minmax(
+        self, alias: str, frame: DataFrameT, id_col: Optional[str]
+    ) -> None:
+        if not id_col:
+            return
+        cols = self.inputs.column_requirements.get(alias, set())
+        target_cols = [
+            col for col in cols if self.inputs.plan.requires_minmax(alias) and col in frame.columns
+        ]
+        if not target_cols:
+            return
+        grouped = frame.groupby(id_col)
+        for col in target_cols:
+            summary = grouped[col].agg(["min", "max"]).reset_index()
+            self._minmax_summaries[alias][col] = summary
+
+    def _capture_equality_values(
+        self, alias: str, frame: DataFrameT
+    ) -> None:
+        cols = self.inputs.column_requirements.get(alias, set())
+        participates = any(
+            alias in bitset.aliases for bitset in self.inputs.plan.bitsets.values()
+        )
+        if not participates:
+            return
+        for col in cols:
+            if col in frame.columns:
+                self._equality_values[alias][col] = self._series_values(frame[col])
 
     @dataclass
     class _PathState:
@@ -412,20 +445,95 @@ class CuDFSamePathExecutor:
         for clause in relevant:
             left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
             right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
-            col_left_name = (
-                left_col
-                if clause.left.alias == left_alias
-                else f"{left_col}__r" if f"{left_col}__r" in out_df.columns else left_col
-            )
-            col_right_name = (
-                f"{right_col}__r" if clause.right.alias == right_alias and f"{right_col}__r" in out_df.columns else right_col
-            )
-            if col_left_name not in out_df.columns or col_right_name not in out_df.columns:
-                continue
-            mask = self._evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
-            out_df = out_df[mask]
+            if clause.op in {">", ">=", "<", "<="}:
+                out_df = self._apply_inequality_clause(
+                    out_df, clause, left_alias, right_alias, left_col, right_col
+                )
+            else:
+                col_left_name = f"__val_left_{left_col}"
+                col_right_name = f"__val_right_{right_col}"
+                out_df = out_df.rename(columns={
+                    left_col: col_left_name,
+                    f"{left_col}__r": col_left_name if f"{left_col}__r" in out_df.columns else col_left_name,
+                })
+                placeholder = {}
+                if right_col in out_df.columns:
+                    placeholder[right_col] = col_right_name
+                if f"{right_col}__r" in out_df.columns:
+                    placeholder[f"{right_col}__r"] = col_right_name
+                if placeholder:
+                    out_df = out_df.rename(columns=placeholder)
+                if col_left_name in out_df.columns and col_right_name in out_df.columns:
+                    mask = self._evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
+                    out_df = out_df[mask]
 
         return out_df
+
+    def _apply_inequality_clause(
+        self,
+        out_df: DataFrameT,
+        clause: WhereComparison,
+        left_alias: str,
+        right_alias: str,
+        left_col: str,
+        right_col: str,
+    ) -> DataFrameT:
+        left_summary = self._minmax_summaries.get(left_alias, {}).get(left_col)
+        right_summary = self._minmax_summaries.get(right_alias, {}).get(right_col)
+
+        # Fall back to raw values if summaries are missing
+        lsum = None
+        rsum = None
+        if left_summary is not None:
+            lsum = left_summary.rename(
+                columns={
+                    left_summary.columns[0]: "__left_id__",
+                    "min": f"{left_col}__min",
+                    "max": f"{left_col}__max",
+                }
+            )
+        if right_summary is not None:
+            rsum = right_summary.rename(
+                columns={
+                    right_summary.columns[0]: "__right_id__",
+                    "min": f"{right_col}__min_r",
+                    "max": f"{right_col}__max_r",
+                }
+            )
+        merged = out_df
+        if lsum is not None:
+            merged = merged.merge(lsum, on="__left_id__", how="inner")
+        if rsum is not None:
+            merged = merged.merge(rsum, on="__right_id__", how="inner")
+
+        if lsum is None or rsum is None:
+            col_left = left_col if left_col in merged.columns else left_col
+            col_right = (
+                f"{right_col}__r" if f"{right_col}__r" in merged.columns else right_col
+            )
+            if col_left in merged.columns and col_right in merged.columns:
+                mask = self._evaluate_clause(merged[col_left], clause.op, merged[col_right])
+                return merged[mask]
+            return merged
+
+        l_min = merged.get(f"{left_col}__min")
+        l_max = merged.get(f"{left_col}__max")
+        r_min = merged.get(f"{right_col}__min_r")
+        r_max = merged.get(f"{right_col}__max_r")
+
+        if l_min is None or l_max is None or r_min is None or r_max is None:
+            return merged
+
+        if clause.op == ">":
+            mask = l_min > r_max
+        elif clause.op == ">=":
+            mask = l_min >= r_max
+        elif clause.op == "<":
+            mask = l_max < r_min
+        else:  # <=
+            mask = l_max <= r_min
+
+        return merged[mask]
 
     @staticmethod
     def _evaluate_clause(series_left: Any, op: str, series_right: Any) -> Any:
