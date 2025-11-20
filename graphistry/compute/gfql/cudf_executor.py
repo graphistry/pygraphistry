@@ -18,6 +18,7 @@ import pandas as pd
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.gfql.same_path_types import WhereComparison
 from graphistry.compute.typing import DataFrameT
@@ -68,11 +69,25 @@ class CuDFSamePathExecutor:
         self._edge_column = inputs.graph._edge
 
     def run(self) -> Plottable:
-        """Execute full cuDF traversal once kernels are available."""
+        """Execute full cuDF traversal once kernels are available.
+
+        Today this uses the reference enumerator to materialize the
+        filtered node/edge sets (GPU kernels to replace this path in
+        follow-ups). Alias frames are updated from the oracle tags so
+        downstream consumers can inspect per-alias bindings.
+        """
         self._forward()
-        raise NotImplementedError(
-            "cuDF executor backward pass not wired yet"
+        oracle = enumerate_chain(
+            self.inputs.graph,
+            self.inputs.chain,
+            where=self.inputs.where,
+            include_paths=self.inputs.include_paths,
+            caps=OracleCaps(
+                max_nodes=1000, max_edges=5000, max_length=20, max_partial_rows=1_000_000
+            ),
         )
+        self._update_alias_frames_from_oracle(oracle.tags)
+        return self._materialize_from_oracle(oracle.nodes, oracle.edges)
 
     def _forward(self) -> None:
         graph = self.inputs.graph
@@ -134,6 +149,63 @@ class CuDFSamePathExecutor:
         alias_frame = frame[subset_cols].copy()
         self.alias_frames[alias] = alias_frame
         self._apply_ready_clauses()
+
+    def _update_alias_frames_from_oracle(
+        self, tags: Dict[str, Set[Any]]
+    ) -> None:
+        """Filter captured frames using oracle tags to ensure path coherence."""
+
+        for alias, binding in self.inputs.alias_bindings.items():
+            if alias not in tags:
+                # if oracle didn't emit the alias, leave any existing capture intact
+                continue
+            ids = tags.get(alias, set())
+            frame = self._lookup_binding_frame(binding)
+            if frame is None:
+                continue
+            id_col = self._node_column if binding.kind == "node" else self._edge_column
+            if id_col is None:
+                continue
+            filtered = frame[frame[id_col].isin(ids)].copy()
+            self.alias_frames[alias] = filtered
+
+    def _lookup_binding_frame(self, binding: AliasBinding) -> Optional[DataFrameT]:
+        if binding.step_index >= len(self.forward_steps):
+            return None
+        step_result = self.forward_steps[binding.step_index]
+        return (
+            step_result._nodes
+            if binding.kind == "node"
+            else step_result._edges
+        )
+
+    def _materialize_from_oracle(
+        self, nodes_df: DataFrameT, edges_df: DataFrameT
+    ) -> Plottable:
+        """Build a Plottable from oracle node/edge outputs, preserving bindings."""
+
+        g = self.inputs.graph
+        edge_id = g._edge
+        src = g._source
+        dst = g._destination
+        node_id = g._node
+
+        if node_id and node_id not in nodes_df.columns:
+            raise ValueError(f"Oracle nodes missing id column '{node_id}'")
+        if dst and dst not in edges_df.columns:
+            raise ValueError(f"Oracle edges missing destination column '{dst}'")
+        if src and src not in edges_df.columns:
+            raise ValueError(f"Oracle edges missing source column '{src}'")
+        if edge_id and edge_id not in edges_df.columns:
+            # Enumerators may synthesize an edge id column when original graph lacked one
+            if "__enumerator_edge_id__" in edges_df.columns:
+                edges_df = edges_df.rename(columns={"__enumerator_edge_id__": edge_id})
+            else:
+                raise ValueError(f"Oracle edges missing id column '{edge_id}'")
+
+        g_out = g.nodes(nodes_df, node=node_id)
+        g_out = g_out.edges(edges_df, source=src, destination=dst, edge=edge_id)
+        return g_out
 
     def _apply_ready_clauses(self) -> None:
         if not self.inputs.where:
