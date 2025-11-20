@@ -11,6 +11,7 @@ from graphistry.compute.gfql.cudf_executor import (
 from graphistry.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
+from graphistry.compute.gfql.cudf_executor import _CUDF_MODE_ENV
 
 
 def _make_graph():
@@ -145,3 +146,30 @@ def test_forward_minmax_prune_matches_oracle():
     assert oracle.tags is not None
     assert set(executor.alias_frames["a"]["id"]) == oracle.tags["a"]
     assert set(executor.alias_frames["c"]["id"]) == oracle.tags["c"]
+
+
+def test_strict_mode_without_cudf_raises(monkeypatch):
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    monkeypatch.setenv(_CUDF_MODE_ENV, "strict")
+    inputs = build_same_path_inputs(graph, chain, where, Engine.CUDF)
+    executor = CuDFSamePathExecutor(inputs)
+
+    cudf_available = True
+    try:
+        import cudf  # type: ignore  # noqa: F401
+    except Exception:
+        cudf_available = False
+
+    if cudf_available:
+        # If cudf exists, strict mode should proceed to GPU path (currently NotImplemented)
+        with pytest.raises(NotImplementedError):
+            executor.run()
+    else:
+        with pytest.raises(RuntimeError):
+            executor.run()
