@@ -18,6 +18,10 @@ from .gfql.policy import (
     expand_policy
 )
 from graphistry.gfql.same_path_types import parse_where_json
+from graphistry.compute.gfql.cudf_executor import (
+    build_same_path_inputs,
+    execute_same_path_chain,
+)
 
 logger = setup_logger(__name__)
 
@@ -270,13 +274,13 @@ def gfql(self: Plottable,
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, query.chain, engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 # Single ASTObject -> execute as single-item chain
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, [query], engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, Chain([query]), engine, expanded_policy, context)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -291,7 +295,7 @@ def gfql(self: Plottable,
                     else:
                         converted_query.append(item)
 
-                return chain_impl(self, converted_query, engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, Chain(converted_query), engine, expanded_policy, context)
             else:
                 raise TypeError(
                     f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
@@ -305,3 +309,30 @@ def gfql(self: Plottable,
         # Reset policy depth
         if policy:
             context.policy_depth = policy_depth
+
+
+def _chain_dispatch(
+    g: Plottable,
+    chain_obj: Chain,
+    engine: EngineAbstract,
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Dispatch chain execution, including cuDF same-path executor when applicable."""
+
+    if engine == EngineAbstract.CUDF and chain_obj.where:
+        inputs = build_same_path_inputs(
+            g,
+            chain_obj.chain,
+            chain_obj.where,
+            engine=EngineAbstract.CUDF,
+            include_paths=False,
+        )
+        return execute_same_path_chain(
+            inputs.graph,
+            inputs.chain,
+            inputs.where,
+            inputs.engine,
+            inputs.include_paths,
+        )
+    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context)
