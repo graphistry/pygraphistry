@@ -248,13 +248,20 @@ def ring_continuous(
 
     #print('axis', axis)
 
+    if play_ms != 0:
+        play_value = play_ms
+    elif 'play' in g._url_params:
+        play_value = g._url_params['play']
+    else:
+        play_value = 0
+
     g2 = (
         g
           .nodes(lambda g: g._nodes.assign(x=x, y=y, r=r))
           .encode_axis(axis_out)
           .bind(point_x='x', point_y='y')
           .settings(url_params={
-              'play': play_ms,
+              'play': play_value,
               'lockedR': True,
               'bg': '%23E2E2E2'  # Light grey due to labels being fixed to dark
           })
