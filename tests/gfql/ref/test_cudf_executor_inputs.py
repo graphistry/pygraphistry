@@ -195,3 +195,55 @@ def test_auto_mode_without_cudf_falls_back(monkeypatch):
     )
 
     assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+
+
+def test_gpu_path_parity_equality():
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    executor = CuDFSamePathExecutor(inputs)
+    executor._forward()
+    result = executor._run_gpu()
+
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert result._nodes is not None and result._edges is not None
+    assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+    assert set(result._edges["src"]) == set(oracle.edges["src"])
+    assert set(result._edges["dst"]) == set(oracle.edges["dst"])
+
+
+def test_gpu_path_parity_inequality():
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "score"), ">", col("c", "score"))]
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    executor = CuDFSamePathExecutor(inputs)
+    executor._forward()
+    result = executor._run_gpu()
+
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert result._nodes is not None and result._edges is not None
+    assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+    assert set(result._edges["src"]) == set(oracle.edges["src"])
+    assert set(result._edges["dst"]) == set(oracle.edges["dst"])
