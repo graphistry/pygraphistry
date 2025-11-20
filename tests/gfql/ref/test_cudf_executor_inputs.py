@@ -6,6 +6,7 @@ from graphistry.compute import n, e_forward
 from graphistry.compute.gfql.cudf_executor import (
     build_same_path_inputs,
     CuDFSamePathExecutor,
+    execute_same_path_chain,
 )
 from graphistry.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
@@ -96,6 +97,31 @@ def test_forward_matches_oracle_tags_on_equality():
     assert oracle.tags is not None
     assert set(executor.alias_frames["a"]["id"]) == oracle.tags["a"]
     assert set(executor.alias_frames["c"]["id"]) == oracle.tags["c"]
+
+
+def test_run_materializes_oracle_sets():
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+
+    result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+
+    assert result._nodes is not None
+    assert result._edges is not None
+    assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+    assert set(result._edges["src"]) == set(oracle.edges["src"])
+    assert set(result._edges["dst"]) == set(oracle.edges["dst"])
 
 
 def test_forward_minmax_prune_matches_oracle():
