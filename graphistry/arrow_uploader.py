@@ -230,28 +230,6 @@ class ArrowUploader:
     ########################################################################3
 
 
-    def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
-        if not org_name or not token:
-            return
-        last = self._client_session._last_switched_org_token
-        if last == (org_name, token):
-            return
-        try:
-            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
-            response = requests.post(
-                switch_url,
-                data={'slug': org_name},
-                headers={'Authorization': f'Bearer {token}'},
-                verify=self.certificate_validation,
-            )
-            log_requests_error(response)
-            self._client_session._last_switched_org_token = (org_name, token)
-            from .pygraphistry import PyGraphistry
-            if PyGraphistry.session is self._client_session:
-                PyGraphistry.session._last_switched_org_token = (org_name, token)
-        except Exception as exc:
-            logger.warning("Failed to switch organization %s: %s", org_name, exc)
-
 
     def login(self, username, password, org_name=None):
         # base_path = self.server_base_path
@@ -266,7 +244,7 @@ class ArrowUploader:
             json=json_data)
         log_requests_error(out)
 
-        return self._finalize_login(out, org_name)
+        return self._handle_login_response(out, org_name)
 
     def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None) -> 'ArrowUploader':
         # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
@@ -283,23 +261,15 @@ class ArrowUploader:
             verify=self.certificate_validation,
             json=json_data, headers=headers)
         log_requests_error(out)
-        return self._finalize_login(out, org_name)
+        return self._handle_login_response(out, org_name)
 
-    def _finalize_login(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
+    def _handle_login_response(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
         from .pygraphistry import PyGraphistry
         json_response = None
         try:
-            # Check HTTP status before parsing
-            if not (200 <= out.status_code < 300):
-                raise Exception(f"Login failed with HTTP {out.status_code}: {out.text}")
-            
             json_response = out.json()
-            token_value = json_response.get('token', None)
-            if not token_value:
-                raise Exception(
-                    f"Server login response successful (HTTP {out.status_code}) but unexpected return format: "
-                    f"missing 'token' key in response. Response content: {out.text}"
-                )
+            if not ('token' in json_response):
+                raise Exception(out.text)
 
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
@@ -322,25 +292,19 @@ class ArrowUploader:
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
-                if self._client_session.org_name is not None:
-                    self._client_session.org_name = None
                 if PyGraphistry.session.org_name is not None:
                     PyGraphistry.session.org_name = None
             else:
                 if PyGraphistry.session.org_name is not None:
                     logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry.session.org_name)
-                self._client_session.org_name = logged_in_org_name
                 PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
-
-            if logged_in_org_name:
-                # Hashlink: graphistry/graphistry#2933 — Hub only honors org_name once /switch/ runs
-                self._switch_org(logged_in_org_name, token_value)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise
             
-        self.token = token_value
+        self.token = out.json()['token']
+
         return self
 
     def sso_login(self, org_name: Optional[str] = None, idp_name: Optional[str] = None) -> 'ArrowUploader':
@@ -409,29 +373,17 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
+            # print("get_jwt : {}".format(json_response))
             self.token = None
-            if 'status' not in json_response:
+            if not ('status' in json_response):
                 raise Exception(out.text)
-
-            if json_response['status'] != 'OK':
-                raise Exception(json_response.get('message', out.text))
-
-            data = json_response.get('data', {})
-            token_value = data.get('token')
-            if not token_value:
-                raise Exception("SSO response missing JWT token; cannot complete login")
-            self.token = token_value
-
-            active_org = data.get('active_organization')
-            if not active_org or not active_org.get('slug'):
-                raise Exception(
-                    "SSO response missing active organization; see graphistry/graphistry#2933"
-                )
-
-            slug = active_org['slug']
-            logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
-            self.org_name = slug
-            self._switch_org(slug, token_value or self.token)
+            else:
+                if json_response['status'] == 'OK':
+                    if 'token' in json_response['data']:
+                        self.token = json_response['data']['token']
+                    if 'active_organization' in json_response['data']:
+                        logger.debug("@ArrowUploader.sso_get_token, org_name: %s", json_response['data']['active_organization']['slug'])
+                        self.org_name = json_response['data']['active_organization']['slug']
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)

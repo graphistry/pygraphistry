@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import unittest, pytest
-try:
-    from mock import patch  # type: ignore
-except ImportError:  # pragma: no cover - stdlib fallback
-    from unittest.mock import patch
-import graphistry
+from mock import patch
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.messages import (
@@ -59,88 +55,6 @@ def test_register_with_only_personal_key_secret(capfd):
         PyGraphistry.register(personal_key_secret='only_personal_key_secret')
 
     assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_ID
-
-
-@patch("graphistry.pygraphistry.ArrowUploader.refresh")
-def test_refresh_switches_org(mock_refresh):
-    mock_arrow = unittest.mock.MagicMock()
-    mock_arrow.token = "tok123"
-    mock_refresh.return_value = mock_arrow
-
-    client = graphistry.client()
-    client.session.org_name = "mock-org"
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client.refresh()
-
-    mock_switch.assert_called_once_with("mock-org")
-
-
-@patch("graphistry.pygraphistry.ArrowUploader.refresh")
-def test_refresh_skips_switch_when_cached(mock_refresh):
-    mock_arrow = unittest.mock.MagicMock()
-    mock_arrow.token = "tok123"
-    mock_refresh.return_value = mock_arrow
-
-    client = graphistry.client()
-    client.session.org_name = "mock-org"
-    client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "tok123")
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client.refresh()
-
-    mock_switch.assert_not_called()
-
-
-@patch("graphistry.pygraphistry.ArrowUploader.refresh")
-def test_refresh_switches_when_org_changes(mock_refresh):
-    mock_arrow = unittest.mock.MagicMock()
-    mock_arrow.token = "tok123"
-    mock_refresh.return_value = mock_arrow
-
-    client = graphistry.client()
-    client.session.org_name = "new-org"
-    client.api_token("tok123")
-    client.session._last_switched_org_token = ("old-org", "tok123")
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client.refresh()
-
-    mock_switch.assert_called_once_with("new-org")
-
-
-def test_maybe_switch_org_cached_pair_skips():
-    client = graphistry.client()
-    client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "tok123")
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client._maybe_switch_org("mock-org")
-
-    mock_switch.assert_not_called()
-
-
-def test_maybe_switch_org_new_token_switches():
-    client = graphistry.client()
-    client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "old-token")
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client._maybe_switch_org("mock-org")
-
-    mock_switch.assert_called_once_with("mock-org")
-
-
-def test_maybe_switch_org_new_org_switches():
-    client = graphistry.client()
-    client.api_token("tok123")
-    client.session._last_switched_org_token = ("other-org", "tok123")
-
-    with patch.object(client, "switch_org") as mock_switch:
-        client._maybe_switch_org("mock-org")
-
-    mock_switch.assert_called_once_with("mock-org")
 
 
 class FakeRequestResponse(object):

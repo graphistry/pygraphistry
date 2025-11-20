@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import graphistry, pandas as pd, pytest, unittest
-try:
-    import mock  # type: ignore
-except ImportError:  # pragma: no cover - fallback for stdlib-only envs
-    from unittest import mock
+import graphistry, mock, pandas as pd, pytest, unittest
 
 from graphistry import ArrowUploader
 from graphistry.pygraphistry import PyGraphistry
@@ -224,10 +220,9 @@ class TestArrowUploader_Comms(unittest.TestCase):
                 'active_organization': {
                     "slug": "mock-org",
                     'is_found': True,
-                    'is_member': True,
-                },
-            }
-        )
+                    'is_member': True
+                }
+        })
         mock_post.return_value = mock_resp
 
         au = ArrowUploader()
@@ -236,71 +231,6 @@ class TestArrowUploader_Comms(unittest.TestCase):
         assert tok == "123"
         assert PyGraphistry.org_name() == "mock-org"
 
-    @mock.patch('graphistry.arrow_uploader.ArrowUploader._switch_org')
-    @mock.patch('requests.post')
-    def test_login_invokes_switch_org(self, mock_post, mock_switch):
-
-        mock_resp = self._mock_response(
-            json_data={
-                'token': '123',
-                'active_organization': {
-                    "slug": "mock-org",
-                    'is_found': True,
-                    'is_member': True
-                }
-        })
-        mock_post.return_value = mock_resp
-
-        au = ArrowUploader()
-        au.login(username="u", password="p", org_name="mock-org")
-
-        mock_switch.assert_called_once_with("mock-org", "123")
-
-    @mock.patch('requests.post')
-    def test_login_with_org_updates_client_session(self, mock_post):
-
-        mock_resp = self._mock_response(
-            json_data={
-                'token': '123',
-                'active_organization': {
-                    "slug": "mock-org",
-                    'is_found': True,
-                    'is_member': True,
-                },
-            }
-        )
-        mock_post.return_value = mock_resp
-
-        client = graphistry.client()
-        client.session.org_name = None
-        PyGraphistry.session.org_name = None
-
-        au = ArrowUploader(client_session=client.session)
-        au.login(username="u", password="p", org_name="mock-org")
-
-        assert client.session.org_name == "mock-org"
-        assert PyGraphistry.org_name() == "mock-org"
-
-    @mock.patch('graphistry.arrow_uploader.ArrowUploader._switch_org')
-    @mock.patch('requests.get')
-    def test_pkey_login_invokes_switch_org(self, mock_get, mock_switch):
-
-        mock_resp = self._mock_response(
-            json_data={
-                'token': '123',
-                'active_organization': {
-                    "slug": "mock-org",
-                    'is_found': True,
-                    'is_member': True,
-                },
-            }
-        )
-        mock_get.return_value = mock_resp
-
-        au = ArrowUploader()
-        au.pkey_login('id', 'secret', org_name="mock-org")
-
-        mock_switch.assert_called_once_with("mock-org", "123")
 
     @mock.patch('requests.post')
     def test_login_with_org_old_server(self, mock_post):
@@ -424,27 +354,5 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         au = ArrowUploader()
 
-        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
-            au.sso_get_token(state='ignored-valid')
-
+        au.sso_get_token(state='ignored-valid')
         assert au.token == '123'
-        assert au.org_name == 'mock-org'
-        mock_switch.assert_called_once_with('mock-org', '123')
-
-    @mock.patch('requests.get')
-    def test_sso_get_token_missing_org_raises(self, mock_get):
-
-        mock_resp = self._mock_response(
-            json_data={
-                'status': 'OK',
-                'message': 'State is valid',
-                'data': {
-                    'token': '123',
-                }
-        })
-        mock_get.return_value = mock_resp
-
-        au = ArrowUploader()
-
-        with pytest.raises(Exception):
-            au.sso_get_token(state='ignored-valid')

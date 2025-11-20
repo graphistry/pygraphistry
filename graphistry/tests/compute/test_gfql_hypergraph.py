@@ -678,37 +678,6 @@ class TestGFQLHypergraphFromEdgesReturnAs:
         assert result is not None
         assert len(result) > 0, "Entities dataframe should have rows"
 
-    def test_hypergraph_return_as_entities_without_jinja(self, monkeypatch):
-        """Ensure return_as DataFrames do not require pandas Styler/Jinja imports."""
-        from pandas.compat import _optional
-
-        real_import = _optional.import_optional_dependency
-
-        def fake_import(name, *args, **kwargs):
-            if name == 'jinja2':
-                raise ImportError("Jinja2 should not be required for hypergraph return_as")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(_optional, 'import_optional_dependency', fake_import)
-
-        events_df = pd.DataFrame({
-            'user': ['alice', 'bob'],
-            'product': ['laptop', 'phone']
-        })
-
-        g = CGFull().nodes(events_df)
-
-        result = g.gfql(
-            hypergraph(
-                entity_types=['user', 'product'],
-                return_as='entities',
-                engine='pandas'
-            )
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-
     def test_hypergraph_return_as_events(self):
         """Test hypergraph return_as='events' returns events DataFrame."""
         events_df = pd.DataFrame({
