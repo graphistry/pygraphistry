@@ -9,6 +9,7 @@ into.
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, Literal, Sequence, Set, List, Optional, Any
@@ -32,6 +33,8 @@ __all__ = [
     "build_same_path_inputs",
     "execute_same_path_chain",
 ]
+
+_CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
 
 
 @dataclass(frozen=True)
@@ -69,25 +72,16 @@ class CuDFSamePathExecutor:
         self._edge_column = inputs.graph._edge
 
     def run(self) -> Plottable:
-        """Execute full cuDF traversal once kernels are available.
+        """Execute full cuDF traversal.
 
-        Today this uses the reference enumerator to materialize the
-        filtered node/edge sets (GPU kernels to replace this path in
-        follow-ups). Alias frames are updated from the oracle tags so
-        downstream consumers can inspect per-alias bindings.
+        Currently defaults to an oracle-backed path unless GPU kernels are
+        explicitly enabled and available. Alias frames are updated from the
+        oracle tags so downstream consumers can inspect per-alias bindings.
         """
         self._forward()
-        oracle = enumerate_chain(
-            self.inputs.graph,
-            self.inputs.chain,
-            where=self.inputs.where,
-            include_paths=self.inputs.include_paths,
-            caps=OracleCaps(
-                max_nodes=1000, max_edges=5000, max_length=20, max_partial_rows=1_000_000
-            ),
-        )
-        self._update_alias_frames_from_oracle(oracle.tags)
-        return self._materialize_from_oracle(oracle.nodes, oracle.edges)
+        if self._should_attempt_gpu():
+            return self._run_gpu()
+        return self._run_oracle()
 
     def _forward(self) -> None:
         graph = self.inputs.graph
@@ -149,6 +143,58 @@ class CuDFSamePathExecutor:
         alias_frame = frame[subset_cols].copy()
         self.alias_frames[alias] = alias_frame
         self._apply_ready_clauses()
+
+    # --- Execution selection helpers -------------------------------------------------
+
+    def _should_attempt_gpu(self) -> bool:
+        """Decide whether to try GPU kernels for same-path execution."""
+
+        mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
+        if mode not in {"auto", "oracle", "strict"}:
+            mode = "auto"
+
+        # force oracle path
+        if mode == "oracle":
+            return False
+
+        # only CUDF engine supports GPU fastpath
+        if self.inputs.engine != Engine.CUDF:
+            return False
+
+        try:  # check cudf presence
+            import cudf  # type: ignore  # noqa: F401
+        except Exception:
+            if mode == "strict":
+                raise RuntimeError(
+                    "cuDF engine requested with strict mode but cudf is unavailable"
+                )
+            return False
+        return True
+
+    # --- Oracle (CPU) fallback -------------------------------------------------------
+
+    def _run_oracle(self) -> Plottable:
+        oracle = enumerate_chain(
+            self.inputs.graph,
+            self.inputs.chain,
+            where=self.inputs.where,
+            include_paths=self.inputs.include_paths,
+            caps=OracleCaps(
+                max_nodes=1000, max_edges=5000, max_length=20, max_partial_rows=1_000_000
+            ),
+        )
+        self._update_alias_frames_from_oracle(oracle.tags)
+        return self._materialize_from_oracle(oracle.nodes, oracle.edges)
+
+    # --- GPU path placeholder --------------------------------------------------------
+
+    def _run_gpu(self) -> Plottable:
+        """Placeholder for future cuDF kernels; currently raises to signal unimplemented."""
+
+        raise NotImplementedError(
+            "cuDF same-path executor GPU path not implemented; set "
+            f"{_CUDF_MODE_ENV}=oracle or auto for fallback"
+        )
 
     def _update_alias_frames_from_oracle(
         self, tags: Dict[str, Set[Any]]
