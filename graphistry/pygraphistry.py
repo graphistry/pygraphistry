@@ -1770,6 +1770,8 @@ class GraphistryClient(AuthManagerProtocol):
         point_icon: Optional[str] = None,
         point_x: Optional[str] = None,
         point_y: Optional[str] = None,
+        point_longitude: Optional[str] = None,
+        point_latitude: Optional[str] = None,
         dataset_id: Optional[str] = None,
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
@@ -1813,6 +1815,8 @@ class GraphistryClient(AuthManagerProtocol):
             point_opacity=point_opacity,
             point_x=point_x,
             point_y=point_y,
+            point_longitude=point_longitude,
+            point_latitude=point_latitude,
             dataset_id=dataset_id
         ))
 

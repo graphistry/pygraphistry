@@ -15,6 +15,7 @@ We recommend using the various plugins for additional layouts, such as for tree 
    circle
    fa2
    gib
+   mercator
    modularity_weighted
    ring
    sugiyama

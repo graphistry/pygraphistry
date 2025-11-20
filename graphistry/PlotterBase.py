@@ -29,8 +29,8 @@ from .bolt_util import (
     end_node_id_key,
     to_bolt_driver)
 
-
 from .arrow_uploader import ArrowUploader
+from .kepler import KeplerDataset, KeplerLayer, KeplerOptions, KeplerConfig, KeplerEncoding
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
@@ -152,6 +152,8 @@ class PlotterBase(Plottable):
         self._point_opacity : Optional[str] = None
         self._point_x : Optional[str] = None
         self._point_y : Optional[str] = None
+        self._point_longitude : Optional[str] = None
+        self._point_latitude : Optional[str] = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
@@ -803,6 +805,400 @@ class PlotterBase(Plottable):
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
+    def __encode_kepler_item(self, item_type: Optional[str] = None, item_dict: Optional[dict] = None, replace_encoding: Optional[dict] = None) -> Plottable:
+        """
+        Internal helper to add or replace Kepler encoding.
+
+        Args:
+            item_type: 'datasets', 'layers', 'options', or 'config'
+            item_dict: The dictionary representation of the item to append or replace
+            replace_encoding: Complete encoding dict to replace existing (for encode_kepler)
+
+        Returns:
+            New Plotter instance with the encoding updated
+        """
+        # Deep copy complex encodings
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        if replace_encoding is not None:
+            # Replace entire encoding (for encode_kepler)
+            # Ensure encodingType is set to "kepler"
+            replace_encoding['encodingType'] = 'kepler'
+            replace_encoding['graphType'] = 'point'
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = replace_encoding
+        else:
+            # Append or replace item
+            kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+                'encodingType': 'kepler',
+                'graphType': 'point',
+                'datasets': [],
+                'layers': [],
+                'options': {},
+                'config': {}
+            })
+
+            # For datasets and layers, append to array
+            # For options and config, replace the dict
+            if item_type in ('datasets', 'layers'):
+                kepler_encoding[item_type].append(item_dict)
+            elif item_type in ('options', 'config'):
+                kepler_encoding[item_type] = item_dict
+
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
+
+        res._dataset_id = None
+        return res
+
+    # Overload for raw_dict mode
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    # Overload for nodes dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["nodes"] = "nodes",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for edges dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["edges"] = "edges",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        map_node_coords: Optional[bool] = None,
+        map_node_coords_mapping: Optional[Dict[str, str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for countries/zeroOrderAdminRegions dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["countries", "zeroOrderAdminRegions"] = "countries",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        resolution: Optional[Literal[10, 50, 110]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_countries_by_col: Optional[str] = None,
+        include_countries: Optional[List[str]] = None,
+        exclude_countries: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for states/provinces/firstOrderAdminRegions dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["states", "provinces", "firstOrderAdminRegions"] = "states",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_states_by_col: Optional[str] = None,
+        include_states: Optional[List[str]] = None,
+        exclude_states: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_dataset(
+        self,
+        *args: Any,
+        **kwargs: Any
+    ) -> Plottable:
+        """Add a Kepler.gl dataset to the encoding.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerDataset`.
+        Returns a new Plotter instance with the dataset appended (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl dataset dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param id: Dataset identifier (auto-generated if None)
+        :type id: Optional[str]
+        :param type: Dataset type - 'nodes', 'edges', 'countries', 'states', etc.
+        :type type: Optional[str]
+        :param label: Display label (defaults to id)
+        :type label: Optional[str]
+        :param include: Columns to include (whitelist)
+        :type include: Optional[List[str]]
+        :param exclude: Columns to exclude (blacklist)
+        :type exclude: Optional[List[str]]
+        :param computed_columns: Computed/aggregated columns for data enrichment
+        :type computed_columns: Optional[Dict[str, Any]]
+        :param map_node_coords: Auto-map source/target node coordinates to edges (edges only)
+        :type map_node_coords: Optional[bool]
+        :param map_node_coords_mapping: Custom column names for mapped coordinates (edges only)
+        :type map_node_coords_mapping: Optional[Dict[str, str]]
+        :param resolution: Map resolution - 10 (high), 50 (medium), 110 (low) (geographic datasets only)
+        :type resolution: Optional[Literal[10, 50, 110]]
+        :param boundary_lakes: Include lake boundaries (geographic datasets only)
+        :type boundary_lakes: Optional[bool]
+        :return: New Plotter instance with the dataset added
+        :rtype: Plottable
+
+        **Example: Node dataset**
+            ::
+
+                g = g.encode_kepler_dataset(id="companies", type="nodes", label="Companies")
+
+        **Example: Edge dataset with coordinate mapping**
+            ::
+
+                g = g.encode_kepler_dataset(
+                    id="relationships",
+                    type="edges",
+                    map_node_coords=True
+                )
+
+        **Example: Countries dataset**
+            ::
+
+                g = g.encode_kepler_dataset(
+                    id="countries",
+                    type="countries",
+                    resolution=50
+                )
+
+        See :class:`graphistry.kepler.KeplerDataset` for complete parameter documentation.
+        """
+        dataset = KeplerDataset(*args, **kwargs)
+
+        # Use helper to add dataset
+        return self.__encode_kepler_item('datasets', dataset.to_dict())
+
+    def encode_kepler_layer(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        """Add a Kepler.gl layer to the encoding.
+
+        Accepts native Kepler.gl layer dictionary (same as :class:`graphistry.kepler.KeplerLayer`).
+        Returns a new Plotter instance with the layer appended (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl layer dictionary with structure: {'id': ..., 'type': ..., 'config': {...}}
+        :type raw_dict: Dict[str, Any]
+        :return: New Plotter instance with the layer added
+        :rtype: Plottable
+
+        **Example: Point layer**
+            ::
+
+                g = g.encode_kepler_layer({
+                    "id": "my-layer",
+                    "type": "point",
+                    "config": {
+                        "dataId": "my-dataset",
+                        "columns": {"lat": "latitude", "lng": "longitude"},
+                        "color": [255, 140, 0]
+                    }
+                })
+
+        **Example: Arc layer**
+            ::
+
+                g = g.encode_kepler_layer({
+                    "id": "connections",
+                    "type": "arc",
+                    "config": {
+                        "dataId": "edges",
+                        "columns": {
+                            "lat0": "edgeSourceLatitude",
+                            "lng0": "edgeSourceLongitude",
+                            "lat1": "edgeTargetLatitude",
+                            "lng1": "edgeTargetLongitude"
+                        }
+                    }
+                })
+
+        See :class:`graphistry.kepler.KeplerLayer` and :ref:`kepler-layer-format` for layer format details.
+        """
+        layer = KeplerLayer(raw_dict)
+
+        # Use helper to add layer
+        return self.__encode_kepler_item('layers', layer.to_dict())
+
+    @overload
+    def encode_kepler_options(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    @overload
+    def encode_kepler_options(
+        self,
+        raw_dict: None = None,
+        *,
+        center_map: Optional[bool] = None,
+        read_only: Optional[bool] = None,
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_options(self, *args: Any, **kwargs: Any) -> Plottable:
+        """Apply Kepler.gl visualization options to the plotter.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerOptions`.
+        Returns a new Plotter instance with the options applied (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl options dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param center_map: Auto-center map on data (default: True)
+        :type center_map: Optional[bool]
+        :param read_only: Disable map interactions (default: False)
+        :type read_only: Optional[bool]
+        :return: New Plotter instance with the options applied
+        :rtype: Plottable
+
+        **Example: Structured params**
+            ::
+
+                g = g.encode_kepler_options(center_map=True, read_only=False)
+
+        **Example: Native format**
+            ::
+
+                g = g.encode_kepler_options({"centerMap": True, "readOnly": False})
+
+        See :class:`graphistry.kepler.KeplerOptions` for complete parameter documentation.
+        """
+        options = KeplerOptions(*args, **kwargs)
+
+        # Use helper to set options
+        return self.__encode_kepler_item('options', options.to_dict())
+
+    @overload
+    def encode_kepler_config(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    @overload
+    def encode_kepler_config(
+        self,
+        raw_dict: None = None,
+        *,
+        cull_unused_columns: Optional[bool] = None,
+        overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
+        tile_style: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_config(self, *args: Any, **kwargs: Any) -> Plottable:
+        """Apply Kepler.gl configuration settings to the plotter.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerConfig`.
+        Returns a new Plotter instance with the config applied (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl config dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param cull_unused_columns: Remove columns not used by layers (default: True)
+        :type cull_unused_columns: Optional[bool]
+        :param overlay_blending: Blend mode - 'normal', 'additive', 'subtractive' (default: 'normal')
+        :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
+        :param tile_style: Base map tile style configuration
+        :type tile_style: Optional[Dict[str, Any]]
+        :return: New Plotter instance with the config applied
+        :rtype: Plottable
+
+        **Example: Structured params**
+            ::
+
+                g = g.encode_kepler_config(
+                    cull_unused_columns=True,
+                    overlay_blending='additive'
+                )
+
+        **Example: Native format**
+            ::
+
+                g = g.encode_kepler_config({
+                    "cullUnusedColumns": True,
+                    "overlayBlending": "additive"
+                })
+
+        See :class:`graphistry.kepler.KeplerConfig` for complete parameter documentation.
+        """
+        config = KeplerConfig(*args, **kwargs)
+
+        # Use helper to set config
+        return self.__encode_kepler_item('config', config.to_dict())
+
+    def encode_kepler(self, kepler_encoding: Union[Dict[str, Any], KeplerEncoding]) -> Plottable:
+        """Apply a complete Kepler.gl encoding to the plotter.
+
+        Accepts a :class:`graphistry.kepler.KeplerEncoding` object or plain dictionary.
+        Returns a new Plotter instance with the encoding applied (immutable pattern).
+
+        :param kepler_encoding: KeplerEncoding object or dict with structure: {'datasets': [...], 'layers': [...], 'options': {...}, 'config': {...}}
+        :type kepler_encoding: Union[Dict[str, Any], KeplerEncoding]
+        :return: New Plotter instance with the Kepler encoding applied
+        :rtype: Plottable
+
+        **Example: Using KeplerEncoding container**
+            ::
+
+                from graphistry import KeplerEncoding, KeplerDataset, KeplerLayer
+
+                kepler = (KeplerEncoding()
+                         .with_dataset(KeplerDataset(id="points", type="nodes"))
+                         .with_layer(KeplerLayer({
+                             "id": "point-layer",
+                             "type": "point",
+                             "config": {"dataId": "points", "columns": {"lat": "lat", "lng": "lng"}}
+                         })))
+                g = g.encode_kepler(kepler)
+
+        **Example: Using plain dict**
+            ::
+
+                kepler_dict = {
+                    'datasets': [{'info': {'id': 'points'}, 'type': 'nodes'}],
+                    'layers': [{'id': 'point-layer', 'type': 'point', 'config': {'dataId': 'points'}}],
+                    'options': {'centerMap': True},
+                    'config': {'cullUnusedColumns': True}
+                }
+                g = g.encode_kepler(kepler_dict)
+
+        See :class:`graphistry.kepler.KeplerEncoding` for complete documentation.
+        """
+        # Handle both KeplerEncoding instances and dict-like objects
+        if isinstance(kepler_encoding, KeplerEncoding):
+            kepler_dict = kepler_encoding.to_dict()
+        else:
+            kepler_dict = kepler_encoding.copy()
+
+        # Use helper to replace entire encoding
+        return self.__encode_kepler_item(replace_encoding=kepler_dict)
+
     def __encode_badge(
         self,
         graph_type: str,
@@ -994,6 +1390,8 @@ class PlotterBase(Plottable):
             point_icon: Optional[str] = None,
             point_x: Optional[str] = None,
             point_y: Optional[str] = None,
+            point_longitude: Optional[str] = None,
+            point_latitude: Optional[str] = None,
             dataset_id: Optional[str] = None,
             url: Optional[str] = None,
             nodes_file_id: Optional[str] = None,
@@ -1048,6 +1446,12 @@ class PlotterBase(Plottable):
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
         :type point_y: Optional[str]
+
+        :param point_longitude: Attribute containing node's longitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_longitude: Optional[str]
+
+        :param point_latitude: Attribute containing node's latitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_latitude: Optional[str]
 
         :param dataset_id: Remote dataset id
         :type dataset_id: Optional[str]
@@ -1134,6 +1538,8 @@ class PlotterBase(Plottable):
         res._point_icon = point_icon or self._point_icon
         res._point_x = point_x or self._point_x
         res._point_y = point_y or self._point_y
+        res._point_longitude = point_longitude or self._point_longitude
+        res._point_latitude = point_latitude or self._point_latitude
         res._dataset_id = dataset_id or self._dataset_id
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
@@ -1144,7 +1550,7 @@ class PlotterBase(Plottable):
             edge_title, edge_label, edge_color, edge_source_color,
             edge_destination_color, edge_size, edge_weight, edge_icon, edge_opacity,
             point_title, point_label, point_color, point_size, point_weight,
-            point_opacity, point_icon, point_x, point_y
+            point_opacity, point_icon, point_x, point_y, point_longitude, point_latitude
         ])
         id_params_set = any([dataset_id, url, nodes_file_id, edges_file_id])
 

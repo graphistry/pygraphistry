@@ -313,10 +313,10 @@ def validate_complex_encoding_badge(kind, mode, name, badge):
 def validate_complex_encoding(kind, mode, name, enc, attributes: Optional[List] = None):
 
 
-    name_match = re.match(r'^(point|edge)(Legend(Type|Pivot))?(Axis|Badge|Color|Icon|Opacity|Size|Weight)(Top|TopLeft|Left|BottomLeft|Bottom|BottomRight|Right|TopRight|Cover)?Encoding$', name)
+    name_match = re.match(r'^(point|edge)(Legend(Type|Pivot))?(Axis|Badge|Color|Icon|Kepler|Opacity|Size|Weight)(Top|TopLeft|Left|BottomLeft|Bottom|BottomRight|Right|TopRight|Cover)?Encoding$', name)
     if not name_match:
         raise ValueError({
-            'message': f'Fields of {kind}_encodings.complex.{mode}.* must have name of the form (point|edge)(Legend(Type|Pivot))?(Color|Icon|Size|Weight|Badge(Top|TopLeft...|Cover))Encoding',
+            'message': f'Fields of {kind}_encodings.complex.{mode}.* must have name of the form (point|edge)(Legend(Type|Pivot))?(Color|Icon|Size|Weight|Kepler|Badge(Top|TopLeft...|Cover))Encoding',
             'data': {'field': name}})
 
     n_kind, n_legend, n_legend_field, n_enc, n_badge_pos = name_match.groups()
@@ -325,6 +325,10 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: Optional[List] 
         raise ValueError({
             'message': f'Fields of {kind}_encodings.complex.{mode}.* must begin with {kind}*',
             'data': {'field': name}})
+
+    if n_enc == 'Kepler':
+        # Skip validation and pass through as-is
+        return enc
 
     if ('graphType' in enc) and (enc['graphType'] != n_kind):
         raise ValueError({
@@ -369,7 +373,7 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: Optional[List] 
             'message': f'Field {kind}_encodings.complex.{mode}.{name}.variation should be "categorical" or "continuous"',
             'data': { 'variation': enc['attribute'] }})
     out['variation'] = enc['variation']
-    
+
 
     should_validate_mapping = False
     # Type-directed checks

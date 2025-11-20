@@ -14,6 +14,7 @@ See the article on :ref:`10min` for a high-level overview of binding data and pl
    compute
    hyper
    ai
+   kepler/index
    utils/index
    layout/index
    plugins/index

@@ -10,6 +10,7 @@ See also:
 
    10min
    uiguide
+   kepler
    layout/intro
    layout/catalog
    layout/settings
