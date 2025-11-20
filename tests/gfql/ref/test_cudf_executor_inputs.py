@@ -167,9 +167,31 @@ def test_strict_mode_without_cudf_raises(monkeypatch):
         cudf_available = False
 
     if cudf_available:
-        # If cudf exists, strict mode should proceed to GPU path (currently NotImplemented)
-        with pytest.raises(NotImplementedError):
-            executor.run()
+        # If cudf exists, strict mode should proceed to GPU path (currently routes to oracle)
+        executor.run()
     else:
         with pytest.raises(RuntimeError):
             executor.run()
+
+
+def test_auto_mode_without_cudf_falls_back(monkeypatch):
+    graph = _make_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    monkeypatch.setenv(_CUDF_MODE_ENV, "auto")
+    inputs = build_same_path_inputs(graph, chain, where, Engine.CUDF)
+    executor = CuDFSamePathExecutor(inputs)
+    result = executor.run()
+    oracle = enumerate_chain(
+        graph,
+        chain,
+        where=where,
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+
+    assert set(result._nodes["id"]) == set(oracle.nodes["id"])

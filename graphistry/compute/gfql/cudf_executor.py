@@ -189,12 +189,10 @@ class CuDFSamePathExecutor:
     # --- GPU path placeholder --------------------------------------------------------
 
     def _run_gpu(self) -> Plottable:
-        """Placeholder for future cuDF kernels; currently raises to signal unimplemented."""
+        """Placeholder for future cuDF kernels; currently routes through oracle path."""
 
-        raise NotImplementedError(
-            "cuDF same-path executor GPU path not implemented; set "
-            f"{_CUDF_MODE_ENV}=oracle or auto for fallback"
-        )
+        # TODO: replace with real cuDF forward/backward summaries
+        return self._run_oracle()
 
     def _update_alias_frames_from_oracle(
         self, tags: Dict[str, Set[Any]]
