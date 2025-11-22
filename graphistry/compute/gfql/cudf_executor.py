@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Literal, Sequence, Set, List, Optional, Any
+from typing import Dict, Literal, Sequence, Set, List, Optional, Any, cast
 
 import pandas as pd
 
@@ -524,14 +524,19 @@ class CuDFSamePathExecutor:
         if l_min is None or l_max is None or r_min is None or r_max is None:
             return merged
 
+        l_min_any = cast(Any, l_min)
+        l_max_any = cast(Any, l_max)
+        r_min_any = cast(Any, r_min)
+        r_max_any = cast(Any, r_max)
+
         if clause.op == ">":
-            mask = l_min > r_max
+            mask = l_min_any > r_max_any
         elif clause.op == ">=":
-            mask = l_min >= r_max
+            mask = l_min_any >= r_max_any
         elif clause.op == "<":
-            mask = l_max < r_min
+            mask = l_max_any < r_min_any
         else:  # <=
-            mask = l_max <= r_min
+            mask = l_max_any <= r_min_any
 
         return merged[mask]
 
