@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Compute / hop**: `hop()` now accepts `min_hops`/`max_hops` traversal ranges, optional hop labels for nodes/edges (including seeds), and post-traversal slicing via `output_min`/`output_max` with drop control to keep outputs compact.
+
 ## [0.45.10 - 2025-11-19]
 
 ### Added
