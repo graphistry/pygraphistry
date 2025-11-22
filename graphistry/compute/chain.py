@@ -7,6 +7,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
+from typing import cast
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
@@ -131,7 +132,10 @@ class Chain(ASTSerializable):
                 f"Chain field must be a list, got {type(d['chain']).__name__}"
             )
         
-        where = parse_where_json(d.get('where'))
+        where_raw = d.get('where')
+        where = parse_where_json(
+            cast(Optional[Sequence[Dict[str, Dict[str, str]]]], where_raw)
+        )
         out = cls(
             [ASTObject_from_json(op, validate=validate) for op in d['chain']],
             where=where,
@@ -145,7 +149,7 @@ class Chain(ASTSerializable):
         """
         if validate:
             self.validate()
-        data = {
+        data: Dict[str, JSONVal] = {
             'type': self.__class__.__name__,
             'chain': [op.to_json() for op in self.chain]
         }
