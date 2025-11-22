@@ -555,11 +555,18 @@ class CuDFSamePathExecutor:
         """Build result graph from allowed node/edge ids and refresh alias frames."""
 
         nodes_df = self.inputs.graph._nodes
-        edges_df = self.inputs.graph._edges
         node_id = self._node_column
         edge_id = self._edge_column
         src = self._source_column
         dst = self._destination_column
+
+        edge_frames = [
+            self.forward_steps[idx]._edges
+            for idx, op in enumerate(self.inputs.chain)
+            if isinstance(op, ASTEdge) and self.forward_steps[idx]._edges is not None
+        ]
+        concatenated_edges = self._concat_frames(edge_frames)
+        edges_df = concatenated_edges if concatenated_edges is not None else self.inputs.graph._edges
 
         if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
             raise ValueError("Graph bindings are incomplete for same-path execution")
@@ -602,6 +609,23 @@ class CuDFSamePathExecutor:
             if binding.step_index == step_index:
                 return alias
         return None
+
+    @staticmethod
+    def _concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
+        """Concatenate a sequence of pandas or cuDF frames, preserving type."""
+
+        if not frames:
+            return None
+        first = frames[0]
+        try:
+            if first.__class__.__module__.startswith("cudf"):
+                import cudf  # type: ignore
+
+                return cudf.concat(frames, ignore_index=True)
+        except Exception:
+            # Fall back to pandas concat when cuDF is unavailable or mismatched
+            pass
+        return pd.concat(frames, ignore_index=True)
 
 
     def _apply_ready_clauses(self) -> None:
@@ -805,135 +829,3 @@ def _validate_where_aliases(
         raise ValueError(
             f"WHERE references aliases with no node/edge bindings: {missing_str}"
         )
-
-    # --- GPU helpers ---------------------------------------------------------------
-
-    def _compute_allowed_tags(self) -> Dict[str, Set[Any]]:
-        """Seed allowed ids from alias frames (post-forward pruning)."""
-
-        out: Dict[str, Set[Any]] = {}
-        for alias, binding in self.inputs.alias_bindings.items():
-            frame = self.alias_frames.get(alias)
-            if frame is None:
-                continue
-            id_col = self._node_column if binding.kind == "node" else self._edge_column
-            if id_col is None or id_col not in frame.columns:
-                continue
-            out[alias] = self._series_values(frame[id_col])
-        return out
-
-    @dataclass
-    class _PathState:
-        allowed_nodes: Dict[int, Set[Any]]
-        allowed_edges: Dict[int, Set[Any]]
-
-    def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> "_PathState":
-        """Propagate allowed ids backward across edges to enforce path coherence."""
-
-        node_indices: List[int] = []
-        edge_indices: List[int] = []
-        for idx, op in enumerate(self.inputs.chain):
-            if isinstance(op, ASTNode):
-                node_indices.append(idx)
-            elif isinstance(op, ASTEdge):
-                edge_indices.append(idx)
-        if not node_indices:
-            raise ValueError("Same-path executor requires at least one node step")
-        if len(node_indices) != len(edge_indices) + 1:
-            raise ValueError("Chain must alternate node/edge steps for same-path execution")
-
-        allowed_nodes: Dict[int, Set[Any]] = {}
-        allowed_edges: Dict[int, Set[Any]] = {}
-
-        # Seed node allowances from tags or full frames
-        for idx in node_indices:
-            node_alias = self._alias_for_step(idx)
-            frame = self.forward_steps[idx]._nodes
-            if frame is None or self._node_column is None:
-                continue
-            if node_alias and node_alias in allowed_tags:
-                allowed_nodes[idx] = set(allowed_tags[node_alias])
-            else:
-                allowed_nodes[idx] = self._series_values(frame[self._node_column])
-
-        # Walk edges backward
-        for edge_idx, right_node_idx in reversed(list(zip(edge_indices, node_indices[1:]))):
-            edge_alias = self._alias_for_step(edge_idx)
-            left_node_idx = node_indices[node_indices.index(right_node_idx) - 1]
-            edges_df = self.forward_steps[edge_idx]._edges
-            if edges_df is None:
-                continue
-
-            # Filter by destination
-            filtered = edges_df
-            if self._destination_column and self._destination_column in filtered.columns:
-                allowed_dst = allowed_nodes.get(right_node_idx)
-                if allowed_dst is not None:
-                    filtered = filtered[
-                        filtered[self._destination_column].isin(list(allowed_dst))
-                    ]
-
-            # Filter by edge tags if supplied
-            if edge_alias and edge_alias in allowed_tags:
-                allowed_edge_ids = allowed_tags[edge_alias]
-                if self._edge_column and self._edge_column in filtered.columns:
-                    filtered = filtered[
-                        filtered[self._edge_column].isin(list(allowed_edge_ids))
-                    ]
-
-            # Capture allowed edges
-            if self._edge_column and self._edge_column in filtered.columns:
-                allowed_edges[edge_idx] = self._series_values(filtered[self._edge_column])
-
-            # Propagate allowed sources
-            if self._source_column and self._source_column in filtered.columns:
-                allowed_src = self._series_values(filtered[self._source_column])
-                current = allowed_nodes.get(left_node_idx, set())
-                allowed_nodes[left_node_idx] = current & allowed_src if current else allowed_src
-
-        return self._PathState(allowed_nodes=allowed_nodes, allowed_edges=allowed_edges)
-
-    def _materialize_filtered(self, path_state: "_PathState") -> Plottable:
-        """Build result graph from allowed node/edge ids and refresh alias frames."""
-
-        nodes_df = self.inputs.graph._nodes
-        edges_df = self.inputs.graph._edges
-        node_id = self._node_column
-        edge_id = self._edge_column
-        src = self._source_column
-        dst = self._destination_column
-
-        if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
-            raise ValueError("Graph bindings are incomplete for same-path execution")
-
-        allowed_node_ids: Set[Any] = set().union(*path_state.allowed_nodes.values()) if path_state.allowed_nodes else set()
-        allowed_edge_ids: Set[Any] = set().union(*path_state.allowed_edges.values()) if path_state.allowed_edges else set()
-
-        filtered_nodes = nodes_df[nodes_df[node_id].isin(list(allowed_node_ids))] if allowed_node_ids else nodes_df.iloc[0:0]
-        filtered_edges = edges_df
-        filtered_edges = filtered_edges[
-            filtered_edges[dst].isin(list(allowed_node_ids))
-        ] if allowed_node_ids else filtered_edges.iloc[0:0]
-        if allowed_edge_ids and edge_id in filtered_edges.columns:
-            filtered_edges = filtered_edges[filtered_edges[edge_id].isin(list(allowed_edge_ids))]
-
-        # Refresh alias frames based on filtered data
-        for alias, binding in self.inputs.alias_bindings.items():
-            frame = (
-                filtered_nodes if binding.kind == "node" else filtered_edges
-            )
-            id_col = self._node_column if binding.kind == "node" else self._edge_column
-            if id_col is None or id_col not in frame.columns:
-                continue
-            required = set(self.inputs.column_requirements.get(alias, set()))
-            required.add(id_col)
-            subset = frame[[c for c in frame.columns if c in required]].copy()
-            self.alias_frames[alias] = subset
-
-        return self._materialize_from_oracle(filtered_nodes, filtered_edges)
-
-    def _alias_for_step(self, step_index: int) -> Optional[str]:
-        for alias, binding in self.inputs.alias_bindings.items():
-            if binding.step_index == step_index:
-                return alias
-        return None
