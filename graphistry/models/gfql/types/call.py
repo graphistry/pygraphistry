@@ -86,6 +86,14 @@ class HopParams(TypedDict, total=False):
     """Parameters for hop() traversal operation."""
     nodes: Any
     hops: int
+    min_hops: int
+    max_hops: int
+    output_min: int
+    output_max: int
+    drop_outside: bool
+    label_nodes: str
+    label_edges: str
+    label_seed: bool
     to_fixed_point: bool
     direction: Literal['forward', 'reverse', 'undirected']
     source_node_match: Dict[str, Any]

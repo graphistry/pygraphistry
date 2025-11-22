@@ -153,10 +153,10 @@ class Startswith(ASTPredicate):
                 if len(self.pat) == 0:
                     import pandas as pd
                     # Create False for all values
-                    result = pd.Series([False] * len(s), index=s.index)
+                    result = pd.Series([False] * len(s), index=s.index)  # type: ignore[assignment]
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = result.astype(object)
+                        result = result.astype(object)  # type: ignore[assignment]
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
@@ -323,10 +323,10 @@ class Endswith(ASTPredicate):
                 if len(self.pat) == 0:
                     import pandas as pd
                     # Create False for all values
-                    result = pd.Series([False] * len(s), index=s.index)
+                    result = pd.Series([False] * len(s), index=s.index)  # type: ignore[assignment]
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = result.astype(object)
+                        result = result.astype(object)  # type: ignore[assignment]
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()

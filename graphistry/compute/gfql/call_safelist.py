@@ -219,11 +219,21 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'nodes', 'hops', 'to_fixed_point', 'direction',
             'source_node_match', 'edge_match', 'destination_node_match',
             'source_node_query', 'edge_query', 'destination_node_query',
-            'return_as_wave_front', 'target_wave_front', 'engine'
+            'return_as_wave_front', 'target_wave_front', 'engine',
+            'min_hops', 'max_hops', 'output_min', 'output_max', 'drop_outside',
+            'label_nodes', 'label_edges', 'label_seed'
         },
         'required_params': set(),
         'param_validators': {
             'hops': is_int,
+            'min_hops': is_int,
+            'max_hops': is_int,
+            'output_min': is_int,
+            'output_max': is_int,
+            'drop_outside': is_bool,
+            'label_nodes': is_string,
+            'label_edges': is_string,
+            'label_seed': is_bool,
             'to_fixed_point': is_bool,
             'direction': lambda v: v in ['forward', 'reverse', 'undirected'],
             'source_node_match': is_dict,

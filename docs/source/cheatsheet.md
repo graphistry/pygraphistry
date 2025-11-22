@@ -906,6 +906,15 @@ g2.plot() # nodes are values from cols s, d, k1
     direction='forward', # 'reverse', 'undirected'
     hops=2, # number (1..n hops, inclusive) or None if to_fixed_point
     to_fixed_point=False, 
+    # optional traversal range + labeling
+    min_hops=1,  # inclusive lower bound (defaults to 1 unless hops==0)
+    max_hops=3,  # inclusive upper bound; defaults to hops
+    output_min=2,  # optional view slice after traversal
+    output_max=3,
+    drop_outside=True,  # keep only hops in [output_min, output_max]
+    label_nodes='hop',  # first-arrival hop number
+    label_edges='edge_hop',  # traversal hop number
+    label_seed=True,  # seeds get hop 0 when labeling
 
     #every edge source node must match these
     source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},

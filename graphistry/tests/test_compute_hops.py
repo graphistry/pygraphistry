@@ -49,6 +49,21 @@ def hops_graph() -> CGFull:
 
     return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
 
+
+def simple_chain_graph() -> CGFull:
+    nodes_df = pd.DataFrame([
+        {'node': 'a'},
+        {'node': 'b'},
+        {'node': 'c'},
+        {'node': 'd'},
+    ])
+    edges_df = pd.DataFrame([
+        {'s': 'a', 'd': 'b'},
+        {'s': 'b', 'd': 'c'},
+        {'s': 'c', 'd': 'd'},
+    ])
+    return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
+
 class TestComputeHopMixin(NoAuthTestCase):
 
 
@@ -183,6 +198,38 @@ class TestComputeHopMixin(NoAuthTestCase):
     def test_predicate_is_in(self):
         g = hops_graph()
         assert g.hop(source_node_match={'node': is_in(['e', 'k'])})._edges.shape == (3, 3)
+
+    def test_hop_min_max_range(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=2, max_hops=3)
+        assert set(g2._nodes[g2._node].to_list()) == {'c', 'd'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
+
+    def test_hop_labels_nodes_edges(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_nodes='hop', label_edges='edge_hop', label_seed=True)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+        edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
+        assert edge_hops == {('a', 'b', 1), ('b', 'c', 2), ('c', 'd', 3)}
+
+    def test_hop_output_slice(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(
+            seeds,
+            min_hops=1,
+            max_hops=3,
+            output_min=2,
+            output_max=2,
+            label_nodes='hop',
+            label_edges='edge_hop'
+        )
+        assert set(g2._nodes[g._node].to_list()) == {'c'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
+        assert set(g2._edges['edge_hop'].to_list()) == {2}
 
 class TestComputeHopMixinQuery(NoAuthTestCase):
 

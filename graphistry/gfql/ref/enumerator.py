@@ -359,7 +359,7 @@ def _build_edge_frame(
 
 
 def _apply_where(paths: pd.DataFrame, where: Sequence[WhereComparison]) -> pd.Series:
-    mask = pd.Series(True, index=paths.index)
+    mask: pd.Series = pd.Series(True, index=paths.index, dtype=bool)
     for clause in where:
         left_key = _alias_key(clause.left.alias, clause.left.column)
         right_key = _alias_key(clause.right.alias, clause.right.column)
@@ -372,7 +372,8 @@ def _apply_where(paths: pd.DataFrame, where: Sequence[WhereComparison]) -> pd.Se
             result = _compare(left, right, clause.op)
         except Exception:
             result = pd.Series(False, index=paths.index)
-        mask &= valid & result.fillna(False)
+        result_bool = result.fillna(False).astype(bool)
+        mask &= valid & result_bool
     return mask
 
 
