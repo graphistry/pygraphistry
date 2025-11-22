@@ -60,7 +60,7 @@ def parse_where_json(
         op_name, payload = next(iter(entry.items()))
         if op_name not in {"eq", "neq", "gt", "lt", "ge", "le"}:
             raise ValueError(f"Unsupported WHERE operator '{op_name}'")
-        op_map = {
+        op_map: Dict[str, ComparisonOp] = {
             "eq": "==",
             "neq": "!=",
             "gt": ">",

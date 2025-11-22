@@ -1,9 +1,9 @@
 """GFQL unified entrypoint for chains and DAGs"""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import Engine, EngineAbstract
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
@@ -235,7 +235,7 @@ def gfql(self: Plottable,
 
         # Handle dict convenience first
         if isinstance(query, dict) and "chain" in query:
-            chain_items = []
+            chain_items: List[ASTObject] = []
             for item in query["chain"]:
                 if isinstance(item, dict):
                     from .ast import from_json
@@ -244,7 +244,9 @@ def gfql(self: Plottable,
                     chain_items.append(item)
                 else:
                     raise TypeError(f"Unsupported chain entry type: {type(item)}")
-            where_meta = parse_where_json(query.get("where"))
+            where_meta = parse_where_json(
+                cast(Optional[List[Dict[str, Dict[str, str]]]], query.get("where"))
+            )
             query = Chain(chain_items, where=where_meta)
         elif isinstance(query, dict):
             # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
@@ -314,18 +316,20 @@ def gfql(self: Plottable,
 def _chain_dispatch(
     g: Plottable,
     chain_obj: Chain,
-    engine: EngineAbstract,
+    engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
     """Dispatch chain execution, including cuDF same-path executor when applicable."""
 
-    if engine == EngineAbstract.CUDF and chain_obj.where:
+    is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
+    if is_cudf and chain_obj.where:
+        engine_enum = Engine.CUDF
         inputs = build_same_path_inputs(
             g,
             chain_obj.chain,
             chain_obj.where,
-            engine=EngineAbstract.CUDF,
+            engine=engine_enum,
             include_paths=False,
         )
         return execute_same_path_chain(
