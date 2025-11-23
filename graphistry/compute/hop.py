@@ -443,14 +443,14 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    track_hops = (
-        label_nodes is not None
-        or label_edges is not None
-        or label_seed
-        or resolved_min_hops > 1
-        or output_min is not None
-        or output_max is not None
-    )
+    track_hops = any([
+        label_nodes,
+        label_edges,
+        label_seed,
+        resolved_min_hops > 1,
+        output_min is not None,
+        output_max is not None,
+    ])
     track_node_hops = track_hops or label_nodes is not None or label_seed
     track_edge_hops = track_hops or label_edges is not None
 
@@ -458,13 +458,9 @@ def hop(self: Plottable,
     node_hop_col = None
     if track_edge_hops:
         edge_hop_col = resolve_label_col(label_edges, edges_indexed, '_hop')
-    if track_node_hops:
-        node_hop_col = resolve_label_col(label_nodes, g2._nodes, '_hop')
-    seen_edge_marker_col = None
-    seen_node_marker_col = None
-    if track_edge_hops:
         seen_edge_marker_col = generate_safe_column_name('__gfql_edge_seen__', edges_indexed, prefix='__seen_', suffix='__')
     if track_node_hops:
+        node_hop_col = resolve_label_col(label_nodes, g2._nodes, '_hop')
         seen_node_marker_col = generate_safe_column_name('__gfql_node_seen__', g2._nodes, prefix='__seen_', suffix='__')
 
     wave_front = starting_nodes[[g2._node]][:0]
@@ -502,7 +498,7 @@ def hop(self: Plottable,
         if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
             break
 
-        current_hop = current_hop + 1
+        current_hop += 1
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP BEGIN ~~~~~~~~~~~')

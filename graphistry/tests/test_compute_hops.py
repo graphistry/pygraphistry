@@ -1,4 +1,5 @@
 import pandas as pd
+import graphistry
 from common import NoAuthTestCase
 from functools import lru_cache
 
@@ -230,6 +231,60 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(g2._nodes[g._node].to_list()) == {'c'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
         assert set(g2._edges['edge_hop'].to_list()) == {2}
+
+    def test_hop_cycle_min_gt_one(self):
+        # Cycle a->b->c->a; ensure min>1 does not loop infinitely and labels stick to earliest hop
+        edges = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
+        g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=2, max_hops=3, label_nodes='hop', label_edges='edge_hop')
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'a')}
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops['a'] == 3  # first return to seed at hop 3
+        assert node_hops.get('c') == 2
+        assert set(g2._edges['edge_hop']) == {2, 3}
+
+    def test_hop_undirected_min_gt_one(self):
+        edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, direction='undirected', min_hops=2, max_hops=3, label_nodes='hop', label_edges='edge_hop')
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
+        assert set(g2._edges['edge_hop']) == {2}
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops.get('c') == 2
+
+    def test_hop_label_collision_suffix(self):
+        # Existing hop column should be preserved; new label suffixes
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g_existing = g.nodes(g._nodes.assign(hop='keep_me'))
+        g2 = g_existing.hop(seeds, min_hops=1, max_hops=2, label_nodes='hop', label_edges='hop')
+        assert 'hop' in g2._nodes.columns and 'hop_1' in g2._nodes.columns
+        assert set(g2._edges.columns) & {'hop', 'hop_1'} == {'hop'}  # edges only suffix once
+        assert 'keep_me' in set(g2._nodes['hop'])
+
+    def test_hop_seed_output_slice_with_label_seed(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=1, max_hops=3, output_min=2, output_max=3, label_nodes='hop', label_seed=True, drop_outside=False)
+        # Seeds kept with hop 0 even though outside slice when drop_outside=False
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops['a'] == 0 and node_hops['c'] == 2 and node_hops['d'] == 3
+
+    def test_hop_call_path_new_params(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        payload = {'type': 'Call', 'function': 'hop', 'params': {
+            'nodes': seeds,
+            'min_hops': 1,
+            'max_hops': 2,
+            'label_nodes': 'hop',
+            'label_edges': 'edge_hop'
+        }}
+        g2 = g.gfql([payload])
+        assert set(g2._nodes['hop']) == {1, 2}
+        assert set(g2._edges['edge_hop']) == {1, 2}
 
 class TestComputeHopMixinQuery(NoAuthTestCase):
 
