@@ -9,6 +9,7 @@ from graphistry.compute.gfql.cudf_executor import (
     execute_same_path_chain,
 )
 from graphistry.compute.gfql_unified import gfql
+from graphistry.compute.chain import Chain
 from graphistry.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
@@ -414,3 +415,27 @@ def test_dispatch_dict_where_triggers_executor():
     assert set(result._nodes["id"]) == set(oracle.nodes["id"])
     assert set(result._edges["src"]) == set(oracle.edges["src"])
     assert set(result._edges["dst"]) == set(oracle.edges["dst"])
+
+
+def test_dispatch_chain_list_and_single_ast():
+    graph = _make_graph()
+    chain_ops = [
+        n({"type": "account"}, name="a"),
+        e_forward(name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+
+    for query in [Chain(chain_ops, where=where), chain_ops]:
+        result = gfql(graph, query, engine=Engine.PANDAS)
+        oracle = enumerate_chain(
+            graph,
+            chain_ops if isinstance(query, list) else list(chain_ops),
+            where=where,
+            include_paths=False,
+            caps=OracleCaps(max_nodes=20, max_edges=20),
+        )
+        assert result._nodes is not None and result._edges is not None
+        assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+        assert set(result._edges["src"]) == set(oracle.edges["src"])
+        assert set(result._edges["dst"]) == set(oracle.edges["dst"])
