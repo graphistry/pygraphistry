@@ -219,15 +219,7 @@ class TestComputeHopMixin(NoAuthTestCase):
     def test_hop_output_slice(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(
-            seeds,
-            min_hops=1,
-            max_hops=3,
-            output_min=2,
-            output_max=2,
-            label_nodes='hop',
-            label_edges='edge_hop'
-        )
+        g2 = g.hop(seeds, min_hops=2, max_hops=2, label_nodes='hop', label_edges='edge_hop')
         assert set(g2._nodes[g._node].to_list()) == {'c'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
         assert set(g2._edges['edge_hop'].to_list()) == {2}
@@ -264,13 +256,12 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(g2._edges.columns) & {'hop', 'hop_1'} == {'hop'}  # edges only suffix once
         assert 'keep_me' in set(g2._nodes['hop'])
 
-    def test_hop_seed_output_slice_with_label_seed(self):
+    def test_hop_seed_labels(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, min_hops=1, max_hops=3, output_min=2, output_max=3, label_nodes='hop', label_seed=True, drop_outside=False)
-        # Seeds kept with hop 0 even though outside slice when drop_outside=False
+        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_nodes='hop', label_seed=True)
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
-        assert node_hops['a'] == 0 and node_hops['c'] == 2 and node_hops['d'] == 3
+        assert node_hops['a'] == 0 and node_hops['b'] == 1 and node_hops['c'] == 2 and node_hops['d'] == 3
 
     def test_hop_call_path_new_params(self):
         g = simple_chain_graph()

@@ -241,9 +241,6 @@ def hop(self: Plottable,
     *,
     min_hops: Optional[int] = None,
     max_hops: Optional[int] = None,
-    output_min: Optional[int] = None,
-    output_max: Optional[int] = None,
-    drop_outside: bool = True,
     label_nodes: Optional[str] = None,
     label_edges: Optional[str] = None,
     label_seed: bool = False,
@@ -270,8 +267,6 @@ def hop(self: Plottable,
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1). Shorthand for max_hops.
     min_hops/max_hops: inclusive traversal bounds; defaults preserve legacy behavior (min=1 unless max=0; max defaults to hops).
-    output_min/output_max: optional output slice after traversal bounds; defaults to min/max.
-    drop_outside: when True, prune nodes/edges outside the output range (default).
     label_nodes/label_edges: optional column names to store hop numbers (first traversal for nodes, traversal hop for edges).
     label_seed: when True, annotate seeds as hop 0 (only when labeling enabled).
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
@@ -360,17 +355,8 @@ def hop(self: Plottable,
     if resolved_max_hops is not None and resolved_min_hops > resolved_max_hops:
         raise ValueError(f'min_hops ({resolved_min_hops}) cannot exceed max_hops ({resolved_max_hops})')
 
-    final_output_min = output_min if output_min is not None else resolved_min_hops
-    final_output_max = output_max if output_max is not None else resolved_max_hops
-
-    if final_output_min is not None and final_output_min < 0:
-        raise ValueError(f'output_min must be >= 0, received: {final_output_min}')
-
-    if final_output_max is not None and final_output_max < 0:
-        raise ValueError(f'output_max must be >= 0, received: {final_output_max}')
-
-    if final_output_min is not None and final_output_max is not None and final_output_min > final_output_max:
-        raise ValueError(f'output_min ({final_output_min}) cannot exceed output_max ({final_output_max})')
+    final_output_min = resolved_min_hops if resolved_min_hops > 1 else None
+    final_output_max = resolved_max_hops
 
     if destination_node_match == {}:
         destination_node_match = None
@@ -443,7 +429,7 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    track_hops = bool(label_nodes or label_edges or label_seed or resolved_min_hops > 1 or output_min is not None or output_max is not None)
+    track_hops = bool(label_nodes or label_edges or label_seed or resolved_min_hops > 1)
     track_node_hops = track_hops or bool(label_nodes or label_seed)
     track_edge_hops = track_hops or label_edges is not None
 
@@ -725,7 +711,7 @@ def hop(self: Plottable,
             max_mask = edge_labels_source[edge_hop_col] <= final_output_max
             edge_mask = max_mask if edge_mask is None else edge_mask & max_mask
 
-        if edge_mask is not None and drop_outside:
+        if edge_mask is not None:
             edge_labels_source = edge_labels_source[edge_mask]
 
         final_edges = safe_merge(edges_indexed, edge_labels_source, on=EDGE_ID, how='inner')
@@ -764,7 +750,7 @@ def hop(self: Plottable,
                 max_node_mask = node_labels_source[node_hop_col] <= final_output_max
                 node_mask = max_node_mask if node_mask is None else node_mask & max_node_mask
 
-            if node_mask is not None and drop_outside:
+            if node_mask is not None:
                 node_labels_source = node_labels_source[node_mask]
 
             if label_seed and node_hop_records is not None:

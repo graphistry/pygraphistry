@@ -88,9 +88,6 @@ class HopParams(TypedDict, total=False):
     hops: int
     min_hops: int
     max_hops: int
-    output_min: int
-    output_max: int
-    drop_outside: bool
     label_nodes: str
     label_edges: str
     label_seed: bool
