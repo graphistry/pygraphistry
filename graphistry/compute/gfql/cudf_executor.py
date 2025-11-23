@@ -521,24 +521,26 @@ class CuDFSamePathExecutor:
         r_min = merged.get(f"{right_col}__min_r")
         r_max = merged.get(f"{right_col}__max_r")
 
-        if l_min is None or l_max is None or r_min is None or r_max is None:
+        if (
+            l_min is None
+            or l_max is None
+            or r_min is None
+            or r_max is None
+            or f"{left_col}__min" not in merged.columns
+            or f"{left_col}__max" not in merged.columns
+            or f"{right_col}__min_r" not in merged.columns
+            or f"{right_col}__max_r" not in merged.columns
+        ):
             return merged
 
-        l_min_any = cast(Any, l_min)
-        l_max_any = cast(Any, l_max)
-        r_min_any = cast(Any, r_min)
-        r_max_any = cast(Any, r_max)
-
         if clause.op == ">":
-            mask = l_min_any > r_max_any
-        elif clause.op == ">=":
-            mask = l_min_any >= r_max_any
-        elif clause.op == "<":
-            mask = l_max_any < r_min_any
-        else:  # <=
-            mask = l_max_any <= r_min_any
-
-        return merged[mask]
+            return merged[merged[f"{left_col}__min"] > merged[f"{right_col}__max_r"]]
+        if clause.op == ">=":
+            return merged[merged[f"{left_col}__min"] >= merged[f"{right_col}__max_r"]]
+        if clause.op == "<":
+            return merged[merged[f"{left_col}__max"] < merged[f"{right_col}__min_r"]]
+        # <=
+        return merged[merged[f"{left_col}__max"] <= merged[f"{right_col}__min_r"]]
 
     @staticmethod
     def _evaluate_clause(series_left: Any, op: str, series_right: Any) -> Any:
@@ -617,19 +619,13 @@ class CuDFSamePathExecutor:
 
     @staticmethod
     def _concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
-        """Concatenate a sequence of pandas or cuDF frames, preserving type."""
-
         if not frames:
             return None
         first = frames[0]
-        try:
-            if first.__class__.__module__.startswith("cudf"):
-                import cudf  # type: ignore
+        if first.__class__.__module__.startswith("cudf"):
+            import cudf  # type: ignore
 
-                return cudf.concat(frames, ignore_index=True)
-        except Exception:
-            # Fall back to pandas concat when cuDF is unavailable or mismatched
-            pass
+            return cudf.concat(frames, ignore_index=True)
         return pd.concat(frames, ignore_index=True)
 
 
