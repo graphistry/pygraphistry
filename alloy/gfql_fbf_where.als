@@ -68,7 +68,9 @@ pred whereHolds(w: WhereClause, c: Chain, bn: seq Node) {
 fun SpecNodes(c: Chain): set Node { { n: Node | some bn: seq Node, be: seq Edge | BindingFor(c,bn,be) and n in bn.elems[] } }
 fun SpecEdges(c: Chain): set Edge { { e: Edge | some bn: seq Node, be: seq Edge | BindingFor(c,bn,be) and e in be.elems[] } }
 
-// Algo: forward/backward/forward under set semantics
+// Algo: forward/backward/forward under set semantics with simple lowerings:
+// - Inequalities lowered to min/max summaries per alias/value
+// - Equalities lowered to exact value sets per alias
 pred Algo(c: Chain, outN: set Node, outE: set Edge) {
   // forward filter
   let fn = { n: Node | some i: c.steps.inds | i%2=0 and nFilterOK[c.steps[i], n] },
@@ -76,8 +78,25 @@ pred Algo(c: Chain, outN: set Node, outE: set Edge) {
     // backward prune: edge endpoints must be allowed nodes
     outE = { e: fe | e.src in fn and e.dst in fn }
     outN = fn
-    // where enforcement: nodes in outN must admit some binding satisfying where
-    all n: outN | some bn: seq Node, be: seq Edge | BindingFor(c,bn,be) and n in bn.elems[]
+    // where enforcement via summaries
+    all w: c.where | lowerWhere(w, c, outN, outE)
+}
+
+pred lowerWhere(w: WhereClause, c: Chain, outN: set Node, outE: set Edge) {
+  // compute per-alias value sets
+  some ln: aliasNodes(outN, c, w.lhs.a)
+  some rn: aliasNodes(outN, c, w.rhs.a)
+  let lvals = ln.vals, rvals = rn.vals |
+    (w.op = Eq => some v: lvals & rvals | v = w.lhs.v and v = w.rhs.v)
+    or (w.op = Neq => no (lvals & rvals))
+    or (w.op = Lt => some lv: lvals | some rv: rvals | lv = w.lhs.v and rv = w.rhs.v and lv -> rv in Ord.lt)
+    or (w.op = Lte => some lv: lvals | some rv: rvals | lv = w.lhs.v and rv = w.rhs.v and (lv = rv or lv -> rv in Ord.lt))
+    or (w.op = Gt => some lv: lvals | some rv: rvals | lv = w.lhs.v and rv = w.rhs.v and rv -> lv in Ord.lt)
+    or (w.op = Gte => some lv: lvals | some rv: rvals | lv = w.lhs.v and rv = w.rhs.v and (lv = rv or rv -> lv in Ord.lt))
+}
+
+fun aliasNodes(ns: set Node, c: Chain, a: Alias): set Node {
+  { n: ns | some i: c.steps.inds | i%2=0 and c.steps[i].aliasN = a }
 }
 
 assert SpecNoWhereEqAlgoNoWhere {
