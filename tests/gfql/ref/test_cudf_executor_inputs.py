@@ -249,36 +249,11 @@ def test_gpu_path_parity_inequality():
     assert set(result._edges["dst"]) == set(oracle.edges["dst"])
 
 
-def test_cycle_and_branch_parity():
-    nodes = pd.DataFrame(
-        [
-            {"id": "a1", "type": "account", "value": 1},
-            {"id": "a2", "type": "account", "value": 3},
-            {"id": "b1", "type": "user", "value": 5},
-            {"id": "b2", "type": "user", "value": 2},
-        ]
-    )
-    edges = pd.DataFrame(
-        [
-            {"src": "a1", "dst": "b1"},
-            {"src": "a1", "dst": "b2"},  # branch
-            {"src": "b1", "dst": "a2"},  # cycle back to account
-        ]
-    )
-    graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
-    chain = [
-        n({"type": "account"}, name="a"),
-        e_forward(name="r1"),
-        n({"type": "user"}, name="b"),
-        e_forward(name="r2"),
-        n({"type": "account"}, name="c"),
-    ]
-    where = [compare(col("a", "value"), "<", col("c", "value"))]
+def _assert_parity(graph, chain, where):
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
     executor = CuDFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_gpu()
-
     oracle = enumerate_chain(
         graph,
         chain,
@@ -292,42 +267,35 @@ def test_cycle_and_branch_parity():
     assert set(result._edges["dst"]) == set(oracle.edges["dst"])
 
 
-def test_edge_filter_without_id_preserved():
-    nodes = pd.DataFrame(
+def test_topology_parity_scenarios():
+    scenarios = []
+
+    nodes_cycle = pd.DataFrame(
         [
-            {"id": "acct1", "type": "account", "owner_id": "user1"},
-            {"id": "acct2", "type": "account", "owner_id": "user2"},
-            {"id": "user1", "type": "user"},
-            {"id": "user2", "type": "user"},
-            {"id": "user3", "type": "user"},
+            {"id": "a1", "type": "account", "value": 1},
+            {"id": "a2", "type": "account", "value": 3},
+            {"id": "b1", "type": "user", "value": 5},
+            {"id": "b2", "type": "user", "value": 2},
         ]
     )
-    edges = pd.DataFrame(
+    edges_cycle = pd.DataFrame(
         [
-            {"src": "acct1", "dst": "user1", "etype": "owns"},
-            {"src": "acct2", "dst": "user2", "etype": "owns"},
-            {"src": "acct1", "dst": "user3", "etype": "follows"},
+            {"src": "a1", "dst": "b1"},
+            {"src": "a1", "dst": "b2"},  # branch
+            {"src": "b1", "dst": "a2"},  # cycle back
         ]
     )
-    graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
-    chain = [
+    chain_cycle = [
         n({"type": "account"}, name="a"),
-        e_forward({"etype": "owns"}, name="r"),
-        n({"type": "user"}, name="c"),
+        e_forward(name="r1"),
+        n({"type": "user"}, name="b"),
+        e_forward(name="r2"),
+        n({"type": "account"}, name="c"),
     ]
-    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
-    executor._forward()
-    result = executor._run_gpu()
+    where_cycle = [compare(col("a", "value"), "<", col("c", "value"))]
+    scenarios.append((nodes_cycle, edges_cycle, chain_cycle, where_cycle, None))
 
-    assert result._edges is not None
-    # Ensure the non-matching edge (follows) is not reintroduced
-    assert set(result._edges["dst"]) == {"user1", "user2"}
-
-
-def test_multi_clause_mixed_predicates():
-    nodes = pd.DataFrame(
+    nodes_mixed = pd.DataFrame(
         [
             {"id": "a1", "type": "account", "owner_id": "u1", "score": 2},
             {"id": "a2", "type": "account", "owner_id": "u2", "score": 7},
@@ -336,41 +304,59 @@ def test_multi_clause_mixed_predicates():
             {"id": "u3", "type": "user", "score": 5},
         ]
     )
-    edges = pd.DataFrame(
+    edges_mixed = pd.DataFrame(
         [
             {"src": "a1", "dst": "u1"},
             {"src": "a2", "dst": "u2"},
             {"src": "a2", "dst": "u3"},
         ]
     )
-    graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
-    chain = [
+    chain_mixed = [
         n({"type": "account"}, name="a"),
         e_forward(name="r1"),
         n({"type": "user"}, name="b"),
         e_forward(name="r2"),
         n({"type": "account"}, name="c"),
     ]
-    where = [
+    where_mixed = [
         compare(col("a", "owner_id"), "==", col("b", "id")),
         compare(col("b", "score"), ">", col("c", "score")),
     ]
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
-    executor._forward()
-    result = executor._run_gpu()
+    scenarios.append((nodes_mixed, edges_mixed, chain_mixed, where_mixed, None))
 
-    oracle = enumerate_chain(
-        graph,
-        chain,
-        where=where,
-        include_paths=False,
-        caps=OracleCaps(max_nodes=50, max_edges=50),
+    nodes_edge_filter = pd.DataFrame(
+        [
+            {"id": "acct1", "type": "account", "owner_id": "user1"},
+            {"id": "acct2", "type": "account", "owner_id": "user2"},
+            {"id": "user1", "type": "user"},
+            {"id": "user2", "type": "user"},
+            {"id": "user3", "type": "user"},
+        ]
     )
-    assert result._nodes is not None and result._edges is not None
-    assert set(result._nodes["id"]) == set(oracle.nodes["id"])
-    assert set(result._edges["src"]) == set(oracle.edges["src"])
-    assert set(result._edges["dst"]) == set(oracle.edges["dst"])
+    edges_edge_filter = pd.DataFrame(
+        [
+            {"src": "acct1", "dst": "user1", "etype": "owns"},
+            {"src": "acct2", "dst": "user2", "etype": "owns"},
+            {"src": "acct1", "dst": "user3", "etype": "follows"},
+        ]
+    )
+    chain_edge_filter = [
+        n({"type": "account"}, name="a"),
+        e_forward({"etype": "owns"}, name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+    where_edge_filter = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    scenarios.append((nodes_edge_filter, edges_edge_filter, chain_edge_filter, where_edge_filter, {"dst": {"user1", "user2"}}))
+
+    for nodes_df, edges_df, chain, where, edge_expect in scenarios:
+        graph = CGFull().nodes(nodes_df, "id").edges(edges_df, "src", "dst")
+        _assert_parity(graph, chain, where)
+        if edge_expect:
+            assert graph._edge is None or "etype" in edges_df.columns  # guard unused expectation
+            result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+            assert result._edges is not None
+            if "dst" in edge_expect:
+                assert set(result._edges["dst"]) == edge_expect["dst"]
 
 
 def test_cudf_gpu_path_if_available():
