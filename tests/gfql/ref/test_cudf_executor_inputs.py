@@ -8,6 +8,7 @@ from graphistry.compute.gfql.cudf_executor import (
     CuDFSamePathExecutor,
     execute_same_path_chain,
 )
+from graphistry.compute.gfql_unified import gfql
 from graphistry.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
@@ -389,3 +390,27 @@ def test_cudf_gpu_path_if_available():
     assert result._nodes is not None and result._edges is not None
     assert set(result._nodes["id"].to_pandas()) == {"acct1", "acct2"}
     assert set(result._edges["src"].to_pandas()) == {"acct1", "acct2"}
+
+
+def test_dispatch_dict_where_triggers_executor():
+    pytest.importorskip("cudf")
+    graph = _make_graph()
+    query = {
+        "chain": [
+            {"type": "Node", "name": "a", "filter_dict": {"type": "account"}},
+            {"type": "Edge", "name": "r", "direction": "forward", "hops": 1},
+            {"type": "Node", "name": "c", "filter_dict": {"type": "user"}},
+        ],
+        "where": [{"eq": {"left": "a.owner_id", "right": "c.id"}}],
+    }
+    result = gfql(graph, query, engine=Engine.CUDF)
+    oracle = enumerate_chain(
+        graph, [n({"type": "account"}, name="a"), e_forward(name="r"), n({"type": "user"}, name="c")],
+        where=[compare(col("a", "owner_id"), "==", col("c", "id"))],
+        include_paths=False,
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert result._nodes is not None and result._edges is not None
+    assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+    assert set(result._edges["src"]) == set(oracle.edges["src"])
+    assert set(result._edges["dst"]) == set(oracle.edges["dst"])
