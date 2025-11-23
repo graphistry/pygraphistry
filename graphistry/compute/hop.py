@@ -443,15 +443,8 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    track_hops = any([
-        label_nodes,
-        label_edges,
-        label_seed,
-        resolved_min_hops > 1,
-        output_min is not None,
-        output_max is not None,
-    ])
-    track_node_hops = track_hops or label_nodes is not None or label_seed
+    track_hops = bool(label_nodes or label_edges or label_seed or resolved_min_hops > 1 or output_min is not None or output_max is not None)
+    track_node_hops = track_hops or bool(label_nodes or label_seed)
     track_edge_hops = track_hops or label_edges is not None
 
     edge_hop_col = None
