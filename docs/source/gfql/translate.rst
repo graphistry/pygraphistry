@@ -199,7 +199,7 @@ Performing Multi-Hop Traversals
         nodes=pd.DataFrame({g._node: ['Alice']}),
         min_hops=2,
         max_hops=2,
-        label_nodes='hop'
+        label_node_hops='hop'
     )
 
 **Explanation**:

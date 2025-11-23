@@ -88,9 +88,9 @@ class HopParams(TypedDict, total=False):
     hops: int
     min_hops: int
     max_hops: int
-    label_nodes: str
-    label_edges: str
-    label_seed: bool
+    label_node_hops: str
+    label_edge_hops: str
+    label_seeds: bool
     to_fixed_point: bool
     direction: Literal['forward', 'reverse', 'undirected']
     source_node_match: Dict[str, Any]

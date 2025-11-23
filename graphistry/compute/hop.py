@@ -241,9 +241,9 @@ def hop(self: Plottable,
     *,
     min_hops: Optional[int] = None,
     max_hops: Optional[int] = None,
-    label_nodes: Optional[str] = None,
-    label_edges: Optional[str] = None,
-    label_seed: bool = False,
+    label_node_hops: Optional[str] = None,
+    label_edge_hops: Optional[str] = None,
+    label_seeds: bool = False,
     to_fixed_point: bool = False,
     direction: str = 'forward',
     edge_match: Optional[dict] = None,
@@ -267,8 +267,8 @@ def hop(self: Plottable,
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1). Shorthand for max_hops.
     min_hops/max_hops: inclusive traversal bounds; defaults preserve legacy behavior (min=1 unless max=0; max defaults to hops).
-    label_nodes/label_edges: optional column names to store hop numbers (first traversal for nodes, traversal hop for edges).
-    label_seed: when True, annotate seeds as hop 0 (only when labeling enabled).
+    label_node_hops/label_edge_hops: optional column names to store hop numbers (first traversal for nodes, traversal hop for edges).
+    label_seeds: when True, annotate seeds as hop 0 (only when labeling enabled).
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
     direction: 'forward', 'reverse', 'undirected'
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
@@ -429,17 +429,17 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    track_hops = bool(label_nodes or label_edges or label_seed or resolved_min_hops > 1)
-    track_node_hops = track_hops or bool(label_nodes or label_seed)
-    track_edge_hops = track_hops or label_edges is not None
+    track_hops = bool(label_node_hops or label_edge_hops or label_seeds or resolved_min_hops > 1)
+    track_node_hops = track_hops or bool(label_node_hops or label_seeds)
+    track_edge_hops = track_hops or label_edge_hops is not None
 
     edge_hop_col = None
     node_hop_col = None
     if track_edge_hops:
-        edge_hop_col = resolve_label_col(label_edges, edges_indexed, '_hop')
+        edge_hop_col = resolve_label_col(label_edge_hops, edges_indexed, '_hop')
         seen_edge_marker_col = generate_safe_column_name('__gfql_edge_seen__', edges_indexed, prefix='__seen_', suffix='__')
     if track_node_hops:
-        node_hop_col = resolve_label_col(label_nodes, g2._nodes, '_hop')
+        node_hop_col = resolve_label_col(label_node_hops, g2._nodes, '_hop')
         seen_node_marker_col = generate_safe_column_name('__gfql_node_seen__', g2._nodes, prefix='__seen_', suffix='__')
 
     wave_front = starting_nodes[[g2._node]][:0]
@@ -457,7 +457,7 @@ def hop(self: Plottable,
     node_hop_records = None
     edge_hop_records = None
 
-    if track_node_hops and label_seed and node_hop_col is not None:
+    if track_node_hops and label_seeds and node_hop_col is not None:
         seed_nodes = starting_nodes[[g2._node]].drop_duplicates()
         node_hop_records = seed_nodes.assign(**{node_hop_col: 0})
 
@@ -715,7 +715,7 @@ def hop(self: Plottable,
             edge_labels_source = edge_labels_source[edge_mask]
 
         final_edges = safe_merge(edges_indexed, edge_labels_source, on=EDGE_ID, how='inner')
-        if not label_edges and edge_hop_col in final_edges:
+        if label_edge_hops is None and edge_hop_col in final_edges:
             final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
         final_edges = safe_merge(edges_indexed, matches_edges, on=EDGE_ID, how='inner')
@@ -753,7 +753,7 @@ def hop(self: Plottable,
             if node_mask is not None:
                 node_labels_source = node_labels_source[node_mask]
 
-            if label_seed and node_hop_records is not None:
+            if label_seeds and node_hop_records is not None:
                 seed_rows = node_hop_records[node_hop_col] == 0
                 if seed_rows.any():
                     seeds_for_output = node_hop_records[seed_rows]
@@ -781,7 +781,7 @@ def hop(self: Plottable,
                 on=g2._node,
                 how='left')
 
-            if not label_nodes and node_hop_col in final_nodes:
+            if label_node_hops is None and node_hop_col in final_nodes:
                 final_nodes = final_nodes.drop(columns=[node_hop_col])
         else:
             final_nodes = safe_merge(

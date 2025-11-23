@@ -210,7 +210,7 @@ class TestComputeHopMixin(NoAuthTestCase):
     def test_hop_labels_nodes_edges(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_nodes='hop', label_edges='edge_hop', label_seed=True)
+        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_node_hops='hop', label_edge_hops='edge_hop', label_seeds=True)
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
         assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
         edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
@@ -219,7 +219,7 @@ class TestComputeHopMixin(NoAuthTestCase):
     def test_hop_output_slice(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, min_hops=2, max_hops=2, label_nodes='hop', label_edges='edge_hop')
+        g2 = g.hop(seeds, min_hops=2, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop')
         assert set(g2._nodes[g._node].to_list()) == {'c'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
         assert set(g2._edges['edge_hop'].to_list()) == {2}
@@ -229,7 +229,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         edges = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
         g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, min_hops=2, max_hops=3, label_nodes='hop', label_edges='edge_hop')
+        g2 = g.hop(seeds, min_hops=2, max_hops=3, label_node_hops='hop', label_edge_hops='edge_hop')
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'a')}
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
         assert node_hops['a'] == 3  # first return to seed at hop 3
@@ -240,7 +240,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, direction='undirected', min_hops=2, max_hops=3, label_nodes='hop', label_edges='edge_hop')
+        g2 = g.hop(seeds, direction='undirected', min_hops=2, max_hops=3, label_node_hops='hop', label_edge_hops='edge_hop')
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
         assert set(g2._edges['edge_hop']) == {2}
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
@@ -251,7 +251,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g_existing = g.nodes(g._nodes.assign(hop='keep_me'))
-        g2 = g_existing.hop(seeds, min_hops=1, max_hops=2, label_nodes='hop', label_edges='hop')
+        g2 = g_existing.hop(seeds, min_hops=1, max_hops=2, label_node_hops='hop', label_edge_hops='hop')
         assert 'hop' in g2._nodes.columns and 'hop_1' in g2._nodes.columns
         assert set(g2._edges.columns) & {'hop', 'hop_1'} == {'hop'}  # edges only suffix once
         assert 'keep_me' in set(g2._nodes['hop'])
@@ -259,7 +259,7 @@ class TestComputeHopMixin(NoAuthTestCase):
     def test_hop_seed_labels(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
-        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_nodes='hop', label_seed=True)
+        g2 = g.hop(seeds, min_hops=1, max_hops=3, label_node_hops='hop', label_seeds=True)
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
         assert node_hops['a'] == 0 and node_hops['b'] == 1 and node_hops['c'] == 2 and node_hops['d'] == 3
 
@@ -270,8 +270,8 @@ class TestComputeHopMixin(NoAuthTestCase):
             'nodes': seeds,
             'min_hops': 1,
             'max_hops': 2,
-            'label_nodes': 'hop',
-            'label_edges': 'edge_hop'
+            'label_node_hops': 'hop',
+            'label_edge_hops': 'edge_hop'
         }}
         g2 = g.gfql([payload])
         assert set(g2._nodes['hop']) == {1, 2}
