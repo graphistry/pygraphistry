@@ -25,6 +25,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
+      alloy: ${{ steps.filter.outputs.alloy }}
     steps:
     - uses: actions/checkout@v3
     - uses: dorny/paths-filter@v3
@@ -58,6 +59,8 @@ jobs:
             - '**.rst'
             - 'demos/**'
             - 'notebooks/**'
+          alloy:
+            - 'alloy/**'
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
@@ -122,6 +125,22 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
+
+  alloy-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.alloy == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Run Alloy checks (full scopes)
+      run: |
+        FULL=1 bash alloy/check_fbf_where.sh
 
   test-minimal-python:
     needs: [changes, python-lint-types]
