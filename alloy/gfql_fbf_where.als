@@ -160,6 +160,16 @@ assert SpecWhereEqAlgoLoweredMultiChain {
     Algo[c] and SpecAlgoEq[c]
 }
 
+assert SpecNoWhereEqAlgoNoWhereMultiChainFull {
+  all c: Chain |
+    Algo[c] and (no c.wheres implies SpecAlgoEq[c])
+}
+
+assert SpecWhereEqAlgoLoweredMultiChainFull {
+  all c: Chain |
+    Algo[c] and SpecAlgoEq[c]
+}
+
 // Convenience aliases for alternate scopes
 assert SpecNoWhereEqAlgoNoWhereSmall {
   all c: Chain |
@@ -243,6 +253,10 @@ check SpecWhereEqAlgoLoweredSmall for 4 but 3 Step, 3 Value, 3 Binding, 4 Node, 
 // Multi-chain sanity (small scope to keep solve time low)
 check SpecNoWhereEqAlgoNoWhereMultiChain for 4 but 3 Step, 3 Value, 2 Binding, 4 Node, 4 Edge, 2 Chain
 check SpecWhereEqAlgoLoweredMultiChain for 4 but 3 Step, 3 Value, 2 Binding, 4 Node, 4 Edge, 2 Chain
+
+// Multi-chain fuller scope (optional; gated via script env to keep runtime predictable)
+check SpecNoWhereEqAlgoNoWhereMultiChainFull for 8 but 4 Step, 4 Value, 4 Binding, 2 Chain
+check SpecWhereEqAlgoLoweredMultiChainFull for 8 but 4 Step, 4 Value, 4 Binding, 2 Chain
 
 // Scenario-specific coverage (smaller scopes to keep solving fast)
 check SpecWhereEqAlgoLoweredFan for 6 but 3 Step, 3 Value, 3 Binding, 6 Node, 6 Edge, 1 Chain
