@@ -198,13 +198,12 @@ Performing Multi-Hop Traversals
     g.hop(
         nodes=pd.DataFrame({g._node: ['Alice']}),
         min_hops=2,
-        max_hops=2,
-        label_node_hops='hop'
+        max_hops=2
     )
 
 **Explanation**:
 
-- `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. Labels are optional and can help color/debug hop distance if you want to visualize.
+- `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. If you set `label_node_hops`/`label_edge_hops`, those column names will store the hop step (nodes = first arrival, edges = traversal step); omit or `None` to skip labels.
 
 **Explanation**:
 

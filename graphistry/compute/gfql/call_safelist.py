@@ -227,8 +227,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'hops': is_int,
             'min_hops': is_int,
             'max_hops': is_int,
-            'label_node_hops': is_string,
-            'label_edge_hops': is_string,
+            'label_node_hops': is_string_or_none,
+            'label_edge_hops': is_string_or_none,
             'label_seeds': is_bool,
             'to_fixed_point': is_bool,
             'direction': lambda v: v in ['forward', 'reverse', 'undirected'],
@@ -241,7 +241,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'return_as_wave_front': is_bool,
             'engine': is_string
         },
-        'description': 'Traverse graph by following edges'
+        'description': 'Traverse edges with optional hop bounds and node/edge hop label columns'
     },
 
     # In/out degree methods

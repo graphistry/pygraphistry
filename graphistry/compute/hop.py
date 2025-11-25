@@ -267,8 +267,8 @@ def hop(self: Plottable,
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1). Shorthand for max_hops.
     min_hops/max_hops: inclusive traversal bounds; defaults preserve legacy behavior (min=1 unless max=0; max defaults to hops).
-    label_node_hops/label_edge_hops: optional column names to store hop numbers (first traversal for nodes, traversal hop for edges).
-    label_seeds: when True, annotate seeds as hop 0 (only when labeling enabled).
+    label_node_hops/label_edge_hops: optional column names for hop numbers (omit or None to skip). Nodes record the first hop step they are reached (1 = first expansion); edges record the hop step that traversed them.
+    label_seeds: when True and labeling, also write hop 0 for seed nodes in the node label column.
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
     direction: 'forward', 'reverse', 'undirected'
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)

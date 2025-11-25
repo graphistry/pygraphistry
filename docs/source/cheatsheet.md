@@ -909,9 +909,9 @@ g2.plot() # nodes are values from cols s, d, k1
     # optional traversal range + labeling
     min_hops=1,  # inclusive lower bound (defaults to 1 unless hops==0)
     max_hops=3,  # inclusive upper bound; defaults to hops
-    label_node_hops='hop',  # first-arrival hop number
-    label_edge_hops='edge_hop',  # traversal hop number
-    label_seeds=True,  # seeds get hop 0 when labeling
+    label_node_hops='hop',  # write first hop step each node is reached (omit/None to skip)
+    label_edge_hops='edge_hop',  # hop step for each traversed edge
+    label_seeds=True,  # also tag starting seeds as hop 0 when labeling
 
     #every edge source node must match these
     source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},
