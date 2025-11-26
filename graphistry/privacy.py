@@ -1,5 +1,10 @@
 from typing import List, Optional
-from typing_extensions import Literal, TypedDict
+
+try:
+    # Prefer stdlib typing (Py3.8+) to avoid depending on typing_extensions for TypedDict
+    from typing import Literal, TypedDict
+except ImportError:  # pragma: no cover - fallback for older runtimes
+    from typing_extensions import Literal, TypedDict
 
 Mode = Literal['private', 'organization', 'public']
 

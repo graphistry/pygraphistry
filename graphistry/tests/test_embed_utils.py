@@ -15,7 +15,7 @@ dep_flag, _, _, _, _, _, _, _ = lazy_embed_import()
 has_cudf, cudf = check_cudf()
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = has_cudf and os.environ.get("TEST_CUDF", "0") == "1"
 
 class TestEmbed(unittest.TestCase):
 
