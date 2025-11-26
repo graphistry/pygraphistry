@@ -6,6 +6,12 @@ open util/integer
 // Path semantics: bindings are sequences aligned to seqSteps with WHERE applied per binding.
 // Set semantics: forward/backward/forward collects per-alias node/edge sets, then checks WHERE via summaries.
 // Scopes (checks): up to 8 Nodes, 8 Edges, 4 Steps, 4 Values. Nulls/hashing omitted; bounded values only.
+// Mapping to Python hop/chain:
+// - seqSteps alternates NodeStep/EdgeStep like graphistry.compute.GSQL chain builder.
+// - aliasN/aliasE mirror user aliases; WHERE binds to NodeStep aliases only.
+// - nFilter/eFilter correspond to per-step filter columns; WHERE models cross-step predicates.
+// - Spec uses path bindings (sequence) like hop composition; Algo uses set semantics like executor.
+// - Null/NaN not modeled; hashing treated as prefilter and omitted here.
 
 abstract sig Value {}
 sig Val extends Value {}

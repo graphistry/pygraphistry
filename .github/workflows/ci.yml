@@ -149,9 +149,18 @@ jobs:
       run: |
         docker pull ghcr.io/graphistry/alloy6:6.2.0 || true
 
-    - name: Run Alloy checks (full scopes)
+    - name: Run Alloy checks (scoped on PR/push, full on schedule/dispatch)
+      env:
+        EVENT_NAME: ${{ github.event_name }}
       run: |
-        ALLOY_PUSH=1 FULL=1 bash alloy/check_fbf_where.sh
+        if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          FULL=1
+          MULTI=1
+        else
+          FULL=0
+          MULTI=0
+        fi
+        ALLOY_PUSH=1 FULL=$FULL MULTI=$MULTI bash alloy/check_fbf_where.sh
 
   test-minimal-python:
     needs: [changes, python-lint-types]
