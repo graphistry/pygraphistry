@@ -458,6 +458,19 @@ class TestUMAPMethods(unittest.TestCase):
 
         graphistry.nodes(df).umap()
         assert True
+        
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_type_edgecase(self):
+        values = pd.Series(np.random.rand(50))
+        num_to_convert = int(len(values) * 0.05)
+        indices_to_convert = np.random.choice(len(values), num_to_convert, replace=False)
+        for i in indices_to_convert:
+            values[i] = str(values[i])
+        values.loc[13] = '92.026 123.903 702.124'
+        values.loc[33] = '26.092 903.123'
+
+        graphistry.nodes(values).umap()
+        assert True
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
