@@ -10,9 +10,10 @@ Geographic layout using Mercator projection for latitude/longitude coordinates.
    geographic layout when latitude/longitude bindings are detected. Use ``mercator_layout()`` only when
    you need projected coordinates locally for analysis or exporting to other tools.
 
-.. automodule:: graphistry.layouts
-   :members: mercator_layout
-   :noindex:
+.. automodule:: graphistry.layout.mercator
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 See Also
 --------
