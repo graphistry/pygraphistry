@@ -251,7 +251,10 @@ def ring_continuous(
     if play_ms != 0:
         play_value = play_ms
     elif 'play' in g._url_params:
-        play_value = g._url_params['play']
+        try:
+            play_value = int(g._url_params['play'])
+        except (ValueError, TypeError):
+            play_value = 0
     else:
         play_value = 0
 
