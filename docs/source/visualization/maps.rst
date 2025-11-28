@@ -39,43 +39,29 @@ Basic Usage
 
     # Nodes with geographic coordinates
     cities = pd.DataFrame({
-        'id': ['NYC', 'LA', 'London'],
-        'name': ['New York', 'Los Angeles', 'London'],
-        'latitude': [40.7128, 34.0522, 51.5074],
-        'longitude': [-74.0060, -118.2437, -0.1278]
+        "city": ["NYC", "LA", "London", "Paris", "Tokyo"],
+        "latitude": [40.7128, 34.0522, 51.5074, 48.8566, 35.6762],
+        "longitude": [-74.0060, -118.2437, -0.1278, 2.3522, 139.6503]
+    })
+
+    # Edges between cities
+    flights = pd.DataFrame({
+        "origin": ["NYC", "LA", "London", "Paris"],
+        "destination": ["LA", "London", "Tokyo", "NYC"]
     })
 
     # Bind lat/lon columns
     g = (graphistry
-         .nodes(cities, 'id')
-         .bind(point_latitude='latitude', point_longitude='longitude')
+         .nodes(cities, "city")
+         .edges(flights, "origin", "destination")
+         .bind(point_latitude="latitude", point_longitude="longitude")
          .layout_settings(play=0))
 
     g.plot()
 
-Graphistry automatically detects the geographic bindings and applies server-side map layout.
+Graphistry automatically applies server-side map layout when geographic bindings are set.
 
-**Default column names:** If your columns are named ``latitude`` and ``longitude``, bindings are detected automatically.
-
-Edge Geographic Visualization
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For edges with geographic endpoints:
-
-::
-
-    flights = pd.DataFrame({
-        'origin': ['NYC', 'LA', 'London'],
-        'destination': ['LA', 'London', 'NYC']
-    })
-
-    g = (graphistry
-         .nodes(cities, 'id')
-         .edges(flights, 'origin', 'destination')
-         .bind(point_latitude='latitude', point_longitude='longitude')
-         .layout_settings(play=0))
-
-    g.plot()
+**Default bindings:** The default ``point_latitude`` and ``point_longitude`` bindings are ``"latitude"`` and ``"longitude"``, so explicit binding is not necessary if your columns use these names.
 
 See Also
 ~~~~~~~~
@@ -103,16 +89,16 @@ Basic Usage
     import pandas as pd
 
     cities = pd.DataFrame({
-        'id': ['NYC', 'LA', 'London'],
-        'latitude': [40.7128, 34.0522, 51.5074],
-        'longitude': [-74.0060, -118.2437, -0.1278]
+        "id": ["NYC", "LA", "London"],
+        "latitude": [40.7128, 34.0522, 51.5074],
+        "longitude": [-74.0060, -118.2437, -0.1278]
     })
 
     # Apply Mercator projection
-    g = graphistry.nodes(cities, 'id').mercator_layout()
+    g = graphistry.nodes(cities, "id").mercator_layout()
 
-    # Coordinates now in 'x' and 'y' columns
-    print(g._nodes[['id', 'x', 'y']])
+    # Coordinates now in "x" and "y" columns
+    print(g._nodes[["id", "x", "y"]])
 
 Custom Column Names
 ~~~~~~~~~~~~~~~~~~~
@@ -120,14 +106,14 @@ Custom Column Names
 ::
 
     cities = pd.DataFrame({
-        'id': ['NYC', 'LA', 'London'],
-        'lat': [40.7128, 34.0522, 51.5074],
-        'lon': [-74.0060, -118.2437, -0.1278]
+        "id": ["NYC", "LA", "London"],
+        "lat": [40.7128, 34.0522, 51.5074],
+        "lon": [-74.0060, -118.2437, -0.1278]
     })
 
     g = (graphistry
-         .nodes(cities, 'id')
-         .bind(point_latitude='lat', point_longitude='lon')
+         .nodes(cities, "id")
+         .bind(point_latitude="lat", point_longitude="lon")
          .mercator_layout())
 
 Scaling Options
@@ -139,7 +125,7 @@ Scaling Options
 
     g = g.mercator_layout(scale_for_graphistry=True)  # Default
 
-**Unscaled mode:** Standard Earth radius for geographic accuracy
+**Unscaled mode:** Standard Web Mercator (EPSG:3857) with Earth radius ~6,378,137 meters for geographic accuracy
 
 ::
 
@@ -157,13 +143,13 @@ Mercator layout automatically uses GPU acceleration (CuPy) when available:
 
     # cuDF DataFrame
     cities_gpu = cudf.DataFrame({
-        'id': ['NYC', 'LA', 'London'],
-        'latitude': [40.7128, 34.0522, 51.5074],
-        'longitude': [-74.0060, -118.2437, -0.1278]
+        "id": ["NYC", "LA", "London"],
+        "latitude": [40.7128, 34.0522, 51.5074],
+        "longitude": [-74.0060, -118.2437, -0.1278]
     })
 
     # Automatically uses GPU-accelerated projection
-    g = graphistry.nodes(cities_gpu, 'id').mercator_layout()
+    g = graphistry.nodes(cities_gpu, "id").mercator_layout()
 
 See Also
 ~~~~~~~~
@@ -198,14 +184,14 @@ Quick Start
     import pandas as pd
 
     cities = pd.DataFrame({
-        'id': ['NYC', 'LA', 'London'],
-        'latitude': [40.7128, 34.0522, 51.5074],
-        'longitude': [-74.0060, -118.2437, -0.1278]
+        "id": ["NYC", "LA", "London"],
+        "latitude": [40.7128, 34.0522, 51.5074],
+        "longitude": [-74.0060, -118.2437, -0.1278]
     })
 
     g = (graphistry
-         .nodes(cities, 'id')
-         .bind(point_latitude='latitude', point_longitude='longitude')
+         .nodes(cities, "id")
+         .bind(point_latitude="latitude", point_longitude="longitude")
          .encode_kepler_dataset(id="cities", type="nodes")
          .encode_kepler_layer(KeplerLayer({
              "id": "city-points",
@@ -228,22 +214,22 @@ Visualize nodes as points on a map with explicit layer configuration:
 ::
 
     cities = pd.DataFrame({
-        'city': ['NYC', 'LA', 'London', 'Paris', 'Tokyo'],
-        'latitude': [40.7128, 34.0522, 51.5074, 48.8566, 35.6762],
-        'longitude': [-74.0060, -118.2437, -0.1278, 2.3522, 139.6503]
+        "city": ["NYC", "LA", "London", "Paris", "Tokyo"],
+        "latitude": [40.7128, 34.0522, 51.5074, 48.8566, 35.6762],
+        "longitude": [-74.0060, -118.2437, -0.1278, 2.3522, 139.6503]
     })
 
     g = (graphistry
-        .nodes(cities, 'city')
-        .encode_kepler_dataset(id='nodes', type='nodes', label='Cities')
+        .nodes(cities, "city")
+        .encode_kepler_dataset(id="nodes", type="nodes", label="Cities")
         .encode_kepler_layer(KeplerLayer({
-            'id': 'node-layer',
-            'type': 'point',
-            'config': {
-                'dataId': 'nodes',
-                'label': 'Cities',
-                'color': [255, 0, 0],
-                'columns': {'lat': 'latitude', 'lng': 'longitude'}
+            "id": "node-layer",
+            "type": "point",
+            "config": {
+                "dataId": "nodes",
+                "label": "Cities",
+                "color": [255, 0, 0],
+                "columns": {"lat": "latitude", "lng": "longitude"}
             }
         }))
         .layout_settings(play=0))
@@ -257,14 +243,14 @@ Visualize edges as arcs between locations:
 ::
 
     flights = pd.DataFrame({
-        'origin': ['NYC', 'LA'],
-        'destination': ['LA', 'London']
+        "origin": ["NYC", "LA"],
+        "destination": ["LA", "London"]
     })
 
     g = (graphistry
-         .nodes(cities, 'id')
-         .edges(flights, 'origin', 'destination')
-         .bind(point_latitude='latitude', point_longitude='longitude')
+         .nodes(cities, "id")
+         .edges(flights, "origin", "destination")
+         .bind(point_latitude="latitude", point_longitude="longitude")
          .encode_kepler_dataset(id="cities", type="nodes")
          .encode_kepler_dataset(id="flights", type="edges", map_node_coords=True)
          .encode_kepler_layer(KeplerLayer({
@@ -299,24 +285,24 @@ Aggregate points into hexagonal bins for density visualization:
 ::
 
     locations = pd.DataFrame({
-        'location': ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix'],
-        'latitude': [40.7128, 34.0522, 41.8781, 29.7604, 33.4484],
-        'longitude': [-74.0060, -118.2437, -87.6298, -95.3698, -112.0740]
+        "location": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+        "latitude": [40.7128, 34.0522, 41.8781, 29.7604, 33.4484],
+        "longitude": [-74.0060, -118.2437, -87.6298, -95.3698, -112.0740]
     })
 
     g = (graphistry
-        .nodes(locations, 'location')
-        .encode_kepler_dataset(id='nodes', type='nodes', label='Locations')
+        .nodes(locations, "location")
+        .encode_kepler_dataset(id="nodes", type="nodes", label="Locations")
         .encode_kepler_layer(KeplerLayer({
-            'id': 'density-layer',
-            'type': 'hexagon',
-            'config': {
-                'dataId': 'nodes',
-                'label': 'Density',
-                'columns': {'lat': 'latitude', 'lng': 'longitude'},
-                'visConfig': {
-                    'worldUnitSize': 1,
-                    'elevationScale': 5
+            "id": "density-layer",
+            "type": "hexagon",
+            "config": {
+                "dataId": "nodes",
+                "label": "Density",
+                "columns": {"lat": "latitude", "lng": "longitude"},
+                "visConfig": {
+                    "worldUnitSize": 1,
+                    "elevationScale": 5
                 }
             }
         }))
@@ -331,12 +317,12 @@ Visualize countries and states with built-in geographic data:
 ::
 
     countries = pd.DataFrame({
-        'country': ['USA', 'GBR', 'FRA'],
-        'gdp': [21.43, 2.83, 2.72]
+        "country": ["USA", "GBR", "FRA"],
+        "gdp": [21.43, 2.83, 2.72]
     })
 
     g = (graphistry
-         .nodes(countries, 'country')
+         .nodes(countries, "country")
          .encode_kepler_dataset(
              id="countries",
              type="countries",
@@ -362,21 +348,21 @@ Control map behavior and appearance (continuing from examples above):
     # Method 1: Direct parameters
     g = (g
          .encode_kepler_options(center_map=True, read_only=False)
-         .encode_kepler_config(cull_unused_columns=True, overlay_blending='additive'))
+         .encode_kepler_config(cull_unused_columns=True, overlay_blending="additive"))
 
     # Method 2: Using KeplerEncoding builder
     from graphistry import KeplerEncoding
 
     encoding = (KeplerEncoding()
         .with_options(center_map=True, read_only=False)
-        .with_config(cull_unused_columns=True, overlay_blending='additive'))
+        .with_config(cull_unused_columns=True, overlay_blending="additive"))
     g2 = g.encode_kepler(encoding)
 
     # Method 3: Using KeplerOptions/Config objects
     from graphistry import KeplerOptions, KeplerConfig
 
     opts = KeplerOptions(center_map=True, read_only=False)
-    cfg = KeplerConfig(cull_unused_columns=True, overlay_blending='additive')
+    cfg = KeplerConfig(cull_unused_columns=True, overlay_blending="additive")
     encoding = KeplerEncoding(options=opts, config=cfg)
     g3 = g.encode_kepler(encoding)
 
@@ -390,46 +376,46 @@ Build full Kepler configuration with multiple datasets, layers, options, and con
     from graphistry import KeplerEncoding, KeplerDataset, KeplerLayer
 
     cities = pd.DataFrame({
-        'city': ['NYC', 'LA', 'London', 'Paris', 'Tokyo'],
-        'latitude': [40.7128, 34.0522, 51.5074, 48.8566, 35.6762],
-        'longitude': [-74.0060, -118.2437, -0.1278, 2.3522, 139.6503]
+        "city": ["NYC", "LA", "London", "Paris", "Tokyo"],
+        "latitude": [40.7128, 34.0522, 51.5074, 48.8566, 35.6762],
+        "longitude": [-74.0060, -118.2437, -0.1278, 2.3522, 139.6503]
     })
 
     routes = pd.DataFrame({
-        'origin': ['NYC', 'LA', 'London'],
-        'destination': ['LA', 'London', 'Tokyo']
+        "origin": ["NYC", "LA", "London"],
+        "destination": ["LA", "London", "Tokyo"]
     })
 
     config = (
         KeplerEncoding()
-        .with_dataset(KeplerDataset(id='nodes', type='nodes', label='Cities'))
-        .with_dataset(KeplerDataset(id='edges', type='edges', label='Routes'))
+        .with_dataset(KeplerDataset(id="nodes", type="nodes", label="Cities"))
+        .with_dataset(KeplerDataset(id="edges", type="edges", label="Routes"))
         .with_layer(KeplerLayer({
-            'id': 'node-layer',
-            'type': 'point',
-            'config': {
-                'dataId': 'nodes',
-                'columns': {'lat': 'latitude', 'lng': 'longitude'}
+            "id": "node-layer",
+            "type": "point",
+            "config": {
+                "dataId": "nodes",
+                "columns": {"lat": "latitude", "lng": "longitude"}
             }
         }))
         .with_layer(KeplerLayer({
-            'id': 'edge-layer',
-            'type': 'arc',
-            'config': {
-                'dataId': 'edges',
-                'columns': {
-                    'lat0': 'edgeSourceLatitude', 'lng0': 'edgeSourceLongitude',
-                    'lat1': 'edgeTargetLatitude', 'lng1': 'edgeTargetLongitude'
+            "id": "edge-layer",
+            "type": "arc",
+            "config": {
+                "dataId": "edges",
+                "columns": {
+                    "lat0": "edgeSourceLatitude", "lng0": "edgeSourceLongitude",
+                    "lat1": "edgeTargetLatitude", "lng1": "edgeTargetLongitude"
                 }
             }
         }))
         .with_options(center_map=True, read_only=False)
-        .with_config(cull_unused_columns=True, overlay_blending='normal')
+        .with_config(cull_unused_columns=True, overlay_blending="normal")
     )
 
     g = (graphistry
-         .nodes(cities, 'city')
-         .edges(routes, 'origin', 'destination')
+         .nodes(cities, "city")
+         .edges(routes, "origin", "destination")
          .encode_kepler(config)
          .layout_settings(play=0))
     g.plot()
