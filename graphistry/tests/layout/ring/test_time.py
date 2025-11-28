@@ -365,3 +365,58 @@ class Test_time_ring(NoAuthTestCase):
         assert 'y' in g._nodes
         assert not g._nodes.x.isna().any()
         assert not g._nodes.y.isna().any()
+
+    def test_play_ms_preserves_url_param(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                't': pd.Series(['2015-01-16', '2015-01-17', '2015-01-18'], dtype='datetime64[ns]')
+            }))
+            .settings(url_params={'play': 6000})
+            .time_ring_layout('t')
+        )
+        assert g._url_params.get('play') == 6000
+
+    def test_play_ms_explicit_zero(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                't': pd.Series(['2015-01-16', '2015-01-17', '2015-01-18'], dtype='datetime64[ns]')
+            }))
+            .settings(url_params={'play': 6000})
+            .time_ring_layout('t', play_ms=0)
+        )
+        assert g._url_params.get('play') == 0
+
+    def test_play_ms_explicit_value(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                't': pd.Series(['2015-01-16', '2015-01-17', '2015-01-18'], dtype='datetime64[ns]')
+            }))
+            .settings(url_params={'play': 6000})
+            .time_ring_layout('t', play_ms=3000)
+        )
+        assert g._url_params.get('play') == 3000
+
+    def test_play_ms_default_when_no_url_param(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                't': pd.Series(['2015-01-16', '2015-01-17', '2015-01-18'], dtype='datetime64[ns]')
+            }))
+            .time_ring_layout('t')
+        )
+        assert g._url_params.get('play') == 2000
