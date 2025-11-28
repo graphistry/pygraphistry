@@ -77,7 +77,7 @@ def ring_continuous(
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_labels: Optional[Callable[[float, int, float], str]] = None,
     reverse: bool = False,
-    play_ms: int = 0,
+    play_ms: Optional[int] = None,
     engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
 
@@ -105,7 +105,7 @@ def ring_continuous(
     :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
     :format_label: Optional[Callable[[float, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring width
     :reverse: bool Reverse the direction of the rings
-    :play_ms: int initial layout time in milliseconds, default 2000
+    :play_ms: Optional[int] initial layout time in milliseconds. If None (default), honors existing url_params['play'] or defaults to 0
     :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
@@ -248,7 +248,7 @@ def ring_continuous(
 
     #print('axis', axis)
 
-    if play_ms != 0:
+    if play_ms is not None:
         play_value = play_ms
     elif 'play' in g._url_params:
         try:
