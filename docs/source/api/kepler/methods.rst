@@ -28,4 +28,4 @@ See Also
 - :ref:`kepler-options-api`: KeplerOptions configuration
 - :ref:`kepler-config-api`: KeplerConfig configuration
 - :ref:`kepler-encoding-api`: KeplerEncoding configuration
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: User guide with examples

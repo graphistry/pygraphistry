@@ -15,7 +15,7 @@ using Kepler.gl. This includes configuration for datasets, layers, and complete 
 Quick Links
 -----------
 
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: Maps & geographic visualization guide
 - :ref:`mercator-api`: Mercator projection layout (optional)
 - `Kepler.gl Documentation <https://docs.kepler.gl/>`_
 
@@ -157,6 +157,6 @@ Advanced Configuration Example
 See Also
 --------
 
-- :ref:`kepler-guide`: Comprehensive user guide
+- :ref:`maps-guide`: Maps & geographic visualization guide
 - :ref:`mercator-api`: Mercator projection layout
 - :ref:`layout-catalog`: Layout catalog with all available layouts

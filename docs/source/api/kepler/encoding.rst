@@ -205,5 +205,5 @@ See Also
 
 - :ref:`kepler-dataset-api`: Dataset configuration
 - :ref:`kepler-layer-api`: Layer configuration
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: User guide with examples
 - :ref:`kepler-methods-api`: Plotter methods (encode_kepler, encode_kepler_dataset, encode_kepler_layer)

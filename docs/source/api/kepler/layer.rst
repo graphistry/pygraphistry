@@ -21,4 +21,4 @@ See Also
 - :ref:`kepler-layer-format`: Native Kepler.gl layer format reference
 - :ref:`kepler-dataset-api`: Dataset configuration
 - :ref:`kepler-encoding-api`: Complete Kepler configuration
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: User guide with examples

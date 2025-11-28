@@ -15,5 +15,5 @@ See Also
 
 - :ref:`kepler-config-api`: Configuration settings
 - :ref:`kepler-encoding-api`: Complete Kepler configuration
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: User guide with examples
 - `Kepler.gl Config Documentation <https://docs.kepler.gl/docs/api-reference/advanced-usages/custom-map-style>`_

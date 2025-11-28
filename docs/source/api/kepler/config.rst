@@ -15,5 +15,5 @@ See Also
 
 - :ref:`kepler-options-api`: Visualization options
 - :ref:`kepler-encoding-api`: Complete Kepler configuration
-- :ref:`kepler-guide`: User guide with examples
+- :ref:`maps-guide`: User guide with examples
 - `Kepler.gl Config API <https://docs.kepler.gl/docs/api-reference/advanced-usages/using-updaters>`_

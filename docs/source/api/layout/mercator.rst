@@ -18,5 +18,5 @@ Geographic layout using Mercator projection for latitude/longitude coordinates.
 See Also
 --------
 
-- :ref:`Kepler User Guide <kepler-guide>`: Geographic visualization guide
+- :ref:`maps-guide`: Geographic visualization guide
 - :ref:`Kepler API Reference <kepler-api>`: Kepler.gl integration API
