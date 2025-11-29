@@ -413,6 +413,8 @@ class Plottable(Protocol):
         *,
         min_hops: Optional[int] = None,
         max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
         label_node_hops: Optional[str] = None,
         label_edge_hops: Optional[str] = None,
         label_seeds: bool = False,

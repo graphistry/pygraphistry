@@ -47,6 +47,9 @@ def is_int(v: Any) -> bool:
 def is_bool(v: Any) -> bool:
     return isinstance(v, bool)
 
+def is_int_or_none(v: Any) -> bool:
+    return v is None or isinstance(v, int)
+
 
 def is_dict(v: Any) -> bool:
     return isinstance(v, dict)
@@ -220,13 +223,16 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'source_node_match', 'edge_match', 'destination_node_match',
             'source_node_query', 'edge_query', 'destination_node_query',
             'return_as_wave_front', 'target_wave_front', 'engine',
-            'min_hops', 'max_hops', 'label_node_hops', 'label_edge_hops', 'label_seeds'
+            'min_hops', 'max_hops', 'output_min_hops', 'output_max_hops',
+            'label_node_hops', 'label_edge_hops', 'label_seeds'
         },
         'required_params': set(),
         'param_validators': {
             'hops': is_int,
             'min_hops': is_int,
             'max_hops': is_int,
+            'output_min_hops': is_int_or_none,
+            'output_max_hops': is_int_or_none,
             'label_node_hops': is_string_or_none,
             'label_edge_hops': is_string_or_none,
             'label_seeds': is_bool,

@@ -241,6 +241,8 @@ def hop(self: Plottable,
     *,
     min_hops: Optional[int] = None,
     max_hops: Optional[int] = None,
+    output_min_hops: Optional[int] = None,
+    output_max_hops: Optional[int] = None,
     label_node_hops: Optional[str] = None,
     label_edge_hops: Optional[str] = None,
     label_seeds: bool = False,
@@ -267,6 +269,7 @@ def hop(self: Plottable,
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1). Shorthand for max_hops.
     min_hops/max_hops: inclusive traversal bounds; defaults preserve legacy behavior (min=1 unless max=0; max defaults to hops).
+    output_min_hops/output_max_hops: optional output slice applied after traversal; defaults to traversal bounds (min>1 copied to output_min). Useful for showing a subrange (e.g., min/max = 2..4 but display only hops 3..4).
     label_node_hops/label_edge_hops: optional column names for hop numbers (omit or None to skip). Nodes record the first hop step they are reached (1 = first expansion); edges record the hop step that traversed them.
     label_seeds: when True and labeling, also write hop 0 for seed nodes in the node label column.
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
@@ -355,8 +358,30 @@ def hop(self: Plottable,
     if resolved_max_hops is not None and resolved_min_hops > resolved_max_hops:
         raise ValueError(f'min_hops ({resolved_min_hops}) cannot exceed max_hops ({resolved_max_hops})')
 
-    final_output_min = resolved_min_hops if resolved_min_hops > 1 else None
-    final_output_max = resolved_max_hops
+    resolved_output_min = output_min_hops
+    resolved_output_max = output_max_hops
+
+    if resolved_output_min is not None and resolved_output_min < 0:
+        raise ValueError(f'output_min_hops must be >= 0, received: {resolved_output_min}')
+    if resolved_output_max is not None and resolved_output_max < 0:
+        raise ValueError(f'output_max_hops must be >= 0, received: {resolved_output_max}')
+    if resolved_output_min is not None and resolved_output_max is not None and resolved_output_min > resolved_output_max:
+        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed output_max_hops ({resolved_output_max})')
+
+    # Default output slice mirrors traversal unless overridden
+    if resolved_output_min is None:
+        resolved_output_min = resolved_min_hops if resolved_min_hops > 1 else None
+    if resolved_output_max is None:
+        resolved_output_max = resolved_max_hops
+
+    # Keep output slice within traversal range if both known
+    if resolved_output_min is not None and resolved_max_hops is not None and resolved_output_min > resolved_max_hops:
+        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed max_hops traversal bound ({resolved_max_hops})')
+    if resolved_output_max is not None and resolved_min_hops is not None and resolved_output_max < resolved_min_hops:
+        raise ValueError(f'output_max_hops ({resolved_output_max}) cannot be below min_hops traversal bound ({resolved_min_hops})')
+
+    final_output_min = resolved_output_min
+    final_output_max = resolved_output_max
 
     if destination_node_match == {}:
         destination_node_match = None
@@ -429,7 +454,14 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    track_hops = bool(label_node_hops or label_edge_hops or label_seeds or resolved_min_hops > 1)
+    track_hops = bool(
+        label_node_hops
+        or label_edge_hops
+        or label_seeds
+        or resolved_min_hops > 1
+        or output_min_hops is not None
+        or output_max_hops is not None
+    )
     track_node_hops = track_hops or bool(label_node_hops or label_seeds)
     track_edge_hops = track_hops or label_edge_hops is not None
 
