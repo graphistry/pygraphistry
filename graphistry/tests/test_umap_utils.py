@@ -1,18 +1,14 @@
 import sys
 import types
 from pathlib import Path
-from typing import Literal as _Literal
 
 import pandas as pd
 
-# Ensure typing_extensions.Literal is available for importing graphistry modules
-typing_extensions_stub = types.ModuleType("typing_extensions")
-typing_extensions_stub.Literal = _Literal
-sys.modules.setdefault("typing_extensions", typing_extensions_stub)
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# Force imports to use the in-repo package rather than any preinstalled wheel
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+sys.modules.pop("graphistry", None)
 
 from graphistry import umap_utils  # noqa: E402
 
