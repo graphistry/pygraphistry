@@ -18,6 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **UMAP / CuPy 13**: `umap_graph_to_weighted_edges()` now converts cuML COO matrices via `cupy.asnumpy()` / legacy `.get()` fallbacks instead of the removed `cupyx.scipy.sparse.coo_matrix.get()` so GFQL UMAP operations work again on RAPIDS 25.10 / CUDA 13 while staying compatible with older stacks (#844).
+- **Init / Exports**: Re-export `graphistry.compute` from the top-level package so GFQL/remote tests importing `graphistry.compute` via `import graphistry` keep working across Python versions (#844).
 
 ## [0.45.9 - 2025-11-10]
 
