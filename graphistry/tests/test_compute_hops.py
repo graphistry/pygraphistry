@@ -65,6 +65,27 @@ def simple_chain_graph() -> CGFull:
     ])
     return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
 
+
+def branching_chain_graph() -> CGFull:
+    nodes_df = pd.DataFrame([
+        {'node': 'a'},
+        {'node': 'b1'},
+        {'node': 'c1'},
+        {'node': 'd1'},
+        {'node': 'e1'},
+        {'node': 'b2'},
+        {'node': 'c2'},
+    ])
+    edges_df = pd.DataFrame([
+        {'s': 'a', 'd': 'b1'},
+        {'s': 'b1', 'd': 'c1'},
+        {'s': 'c1', 'd': 'd1'},
+        {'s': 'd1', 'd': 'e1'},
+        {'s': 'a', 'd': 'b2'},
+        {'s': 'b2', 'd': 'c2'},
+    ])
+    return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
+
 class TestComputeHopMixin(NoAuthTestCase):
 
 
@@ -207,6 +228,13 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(g2._nodes[g2._node].to_list()) == {'c', 'd'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
 
+    def test_hop_exact_three_branch(self):
+        g = branching_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=3, max_hops=3)
+        assert set(g2._nodes[g._node].to_list()) == {'d1'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('c1', 'd1')}
+
     def test_hop_labels_nodes_edges(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
@@ -216,6 +244,22 @@ class TestComputeHopMixin(NoAuthTestCase):
         edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
         assert edge_hops == {('a', 'b', 1), ('b', 'c', 2), ('c', 'd', 3)}
 
+    def test_hop_labels_seed_toggle(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g_no_seed = g.hop(seeds, min_hops=1, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop', label_seeds=False)
+        node_hops_no_seed = dict(zip(g_no_seed._nodes[g._node], g_no_seed._nodes['hop']))
+        assert 'a' not in node_hops_no_seed
+        assert node_hops_no_seed == {'b': 1, 'c': 2}
+        edge_hops_no_seed = {(row['s'], row['d'], row['edge_hop']) for _, row in g_no_seed._edges.iterrows()}
+        assert edge_hops_no_seed == {('a', 'b', 1), ('b', 'c', 2)}
+
+        g_with_seed = g.hop(seeds, min_hops=1, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop', label_seeds=True)
+        node_hops_with_seed = dict(zip(g_with_seed._nodes[g._node], g_with_seed._nodes['hop']))
+        assert node_hops_with_seed == {'a': 0, 'b': 1, 'c': 2}
+        edge_hops_with_seed = {(row['s'], row['d'], row['edge_hop']) for _, row in g_with_seed._edges.iterrows()}
+        assert edge_hops_with_seed == {('a', 'b', 1), ('b', 'c', 2)}
+
     def test_hop_output_slice(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
@@ -223,6 +267,25 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(g2._nodes[g._node].to_list()) == {'c'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
         assert set(g2._edges['edge_hop'].to_list()) == {2}
+
+    def test_hop_output_slice_range(self):
+        g = branching_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(
+            seeds,
+            min_hops=2,
+            max_hops=4,
+            output_min_hops=3,
+            output_max_hops=4,
+            label_node_hops='hop',
+            label_edge_hops='edge_hop'
+        )
+        assert set(g2._nodes[g._node].to_list()) == {'d1', 'e1'}
+        assert set(g2._nodes['hop'].to_list()) == {3, 4}
+        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {
+            ('c1', 'd1', 3),
+            ('d1', 'e1', 4)
+        }
 
     def test_hop_cycle_min_gt_one(self):
         # Cycle a->b->c->a; ensure min>1 does not loop infinitely and labels stick to earliest hop
