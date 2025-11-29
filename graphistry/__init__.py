@@ -113,6 +113,7 @@ from graphistry.privacy import (
     Mode, Privacy
 )
 
+from . import compute as compute  # noqa: F401
 from . import pygraphistry as pygraphistry  # noqa: F401
 from . import render as render  # noqa: F401
 from . import arrow_uploader as arrow_uploader  # noqa: F401
