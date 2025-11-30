@@ -254,6 +254,8 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PYTEST_ADDOPTS: "-k 'not embed_utils and not dgl_utils'"
 
     strategy:
       matrix:
@@ -370,6 +372,8 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PYTEST_ADDOPTS: "-k 'not embed_utils and not dgl_utils'"
 
     strategy:
       matrix:
@@ -420,7 +424,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install --upgrade torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
-        python -m pip install --upgrade dgl==2.4.0 -f https://data.dgl.ai/wheels/repo.html
+        python -m pip install --upgrade dgl==2.1.0
         python -m pip install -e .[test,testai,ai]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
@@ -508,6 +512,43 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         ./bin/test-dgl.sh
+
+  test-dgl-cpu:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      PIP_PREFER_BINARY: "1"
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install DGL stack (CPU)
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install torch==2.1.0
+        python -m pip install torchdata
+        python -m pip install dgl==2.1.0
+        python -m pip install -e .[test,testai,ai]
+
+    - name: Run DGL tests
+      env:
+        HF_HUB_OFFLINE: 1
+        HF_HOME: /tmp/hf-cache
+        HF_HUB_CACHE: /tmp/hf-cache
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p "${HF_HOME}"
+        pytest graphistry/tests/test_embed_utils.py graphistry/tests/test_dgl_utils.py -vv --disable-warnings -x
 
 
   test-neo4j:
