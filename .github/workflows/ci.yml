@@ -65,11 +65,13 @@ jobs:
         # Compare the latest commit to its immediate predecessor (push)
         # or to the PR base (pull_request) to see if ONLY docs files changed.
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          base_ref="${{ github.event.pull_request.base.sha }}"
+          # Compare the tip commit to its immediate parent to see if the latest commit is docs-only.
+          base_ref=$(git rev-parse HEAD^ 2>/dev/null || true)
+          base_ref=${base_ref:-${{ github.event.pull_request.base.sha }}}
         else
           base_ref="${{ github.event.before }}"
+          base_ref=${base_ref:-HEAD^}
         fi
-        base_ref=${base_ref:-HEAD^}
         changed_files=$(git diff --name-only "${base_ref}" HEAD || true)
         docs_only=true
         for f in $changed_files; do
