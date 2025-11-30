@@ -254,8 +254,6 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      PYTEST_ADDOPTS: "-k 'not embed_utils and not dgl_utils'"
 
     strategy:
       matrix:
@@ -371,8 +369,6 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      PYTEST_ADDOPTS: "-k 'not embed_utils and not dgl_utils'"
 
     strategy:
       matrix:
