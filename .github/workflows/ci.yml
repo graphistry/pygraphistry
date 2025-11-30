@@ -525,11 +525,11 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         cat <<'EOF' > /tmp/dgl-constraints.txt
-        torch==2.1.0
+        torch==2.0.1
         torchdata==0.6.1
         dgl==2.1.0
         EOF
-        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.1.0 torchdata==0.6.1 dgl==2.1.0
+        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
         python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,dgl]
 
     - name: Run DGL tests
