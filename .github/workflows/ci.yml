@@ -501,16 +501,6 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-umap-learn-core.sh
 
-    - name: Full embed tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-embed.sh
-
-    - name: Full DGL tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-dgl.sh
-
   test-dgl-cpu:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -547,6 +537,8 @@ jobs:
         source pygraphistry/bin/activate
         mkdir -p "${HF_HOME}"
         pytest graphistry/tests/test_embed_utils.py graphistry/tests/test_dgl_utils.py -vv --disable-warnings -x
+        ./bin/test-embed.sh
+        ./bin/test-dgl.sh
 
 
   test-neo4j:
