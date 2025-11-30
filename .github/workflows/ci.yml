@@ -279,6 +279,8 @@ jobs:
       run: |
         echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
         echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
 
     - name: Prepare HF cache directory
       run: |
@@ -394,6 +396,8 @@ jobs:
       run: |
         echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
         echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
 
     - name: Prepare HF cache directory
       run: |
