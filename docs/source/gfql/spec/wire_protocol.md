@@ -84,7 +84,10 @@ n({"type": "person", "age": gt(30)}, name="adults")
 ```python
 e_forward(
     {"type": "transaction"},
-    hops=2,
+    min_hops=2,
+    max_hops=4,
+    output_min_hops=3,
+    label_edge_hops="edge_hop",
     source_node_match={"active": True},
     name="txns"
 )
@@ -95,16 +98,21 @@ e_forward(
 {
   "type": "Edge",
   "direction": "forward",
-  "edge_match": {
-    "type": "transaction"
-  },
-  "hops": 2,
-  "source_node_match": {
-    "active": true
-  },
+  "edge_match": { "type": "transaction" },
+  "min_hops": 2,
+  "max_hops": 4,
+  "output_min_hops": 3,
+  "label_edge_hops": "edge_hop",
+  "source_node_match": { "active": true },
   "name": "txns"
 }
 ```
+
+Optional fields:
+- `hops` (shorthand for `max_hops`)
+- `output_max_hops`
+- `label_node_hops`, `label_edge_hops`, `label_seeds`
+- `to_fixed_point`
 
 ### Chain
 
