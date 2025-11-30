@@ -300,7 +300,7 @@ jobs:
 
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
-      if: steps.hf-cache.outputs.cache-hit != 'true'
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
@@ -336,8 +336,8 @@ PY
 
     - name: Enable HF offline for tests
       run: |
-        cache_hit="${{ steps.hf-cache.outputs.cache-hit }}"
-        warm_success="${{ steps.warm-hf.outputs.success }}"
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
         if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
           echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
           echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
@@ -416,18 +416,14 @@ PY
         echo "umap-learn: `pip show umap-learn | grep Version`"
 
     - name: Warm HF cache (sentence-transformers)
-      if: steps.hf-cache.outputs.cache-hit != 'true'
-      env:
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      id: warm-hf
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
       run: |
         mkdir -p "${HF_HOME}"
-        if [ -z "${HF_TOKEN}" ]; then
-          echo "HF_TOKEN missing; skipping warm (will rely on restored cache or skip hf tests)"
-          exit 0
-        fi
         source pygraphistry/bin/activate
         python - <<'PY'
 import os
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 models = [
@@ -436,25 +432,35 @@ models = [
     "sentence-transformers/paraphrase-albert-small-v2",
 ]
 
-token = os.environ.get("HF_TOKEN")
-if token:
-    os.environ["HF_HUB_TOKEN"] = token
-
 cache_dir = os.environ["HF_HOME"]
-for model in models:
-    SentenceTransformer(model, cache_folder=cache_dir)
+status_file = Path(cache_dir) / ".hf_cache_warmed"
+status_file.parent.mkdir(parents=True, exist_ok=True)
 
-print(f"✅ HF cache warmed at {cache_dir}")
+success = True
+for model in models:
+    try:
+        SentenceTransformer(model, cache_folder=cache_dir)
+    except Exception as exc:  # pragma: no cover - logging only
+        success = False
+        print(f"⚠️ HF warm failed for {model}: {exc}")
+
+status_file.write_text("ok\n" if success else "partial\n")
+with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+    fh.write(f"success={str(success).lower()}\n")
+
+print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
 PY
 
     - name: Enable HF offline for tests
       run: |
-        if [ "${{ steps.hf-cache.outputs.cache-hit }}" = "true" ] || [ -n "${{ secrets.HF_TOKEN }}" ]; then
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
+        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
           echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
-          echo "Using HF cache at ${HF_HOME} (cache-hit: ${{ steps.hf-cache.outputs.cache-hit }})"
+          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
         else
           echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
-          echo "HF cache not primed and HF_TOKEN missing; HF-dependent tests may skip or go online."
+          echo "HF cache not available; HF-dependent tests may skip or go online."
         fi
 
     - name: Full dbscan tests (rich featurize)
