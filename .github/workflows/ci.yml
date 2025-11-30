@@ -524,10 +524,13 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install torch==2.1.0
-        python -m pip install torchdata==0.6.1
-        python -m pip install dgl==2.1.0
-        python -m pip install -e .[test,testai,ai,dgl]
+        cat <<'EOF' > /tmp/dgl-constraints.txt
+        torch==2.1.0
+        torchdata==0.6.1
+        dgl==2.1.0
+        EOF
+        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.1.0 torchdata==0.6.1 dgl==2.1.0
+        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,dgl]
 
     - name: Run DGL tests
       env:
