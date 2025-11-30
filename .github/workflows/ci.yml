@@ -119,8 +119,6 @@ jobs:
         ./bin/lint.sh
 
     - name: Type check
-      env:
-        PYTHON_VERSION: ${{ matrix.python-version }}
       run: |
         source pygraphistry/bin/activate
         ./bin/typecheck.sh

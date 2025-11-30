@@ -69,6 +69,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 - **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
+- **CI / Lint & Types**: Split lint/type runners from resolution: `bin/flake8.sh`/`bin/mypy.sh` are now minimal and respect `FLAKE8_CMD`/`MYPY_CMD`; `bin/lint.sh`/`bin/typecheck.sh` resolve `uvx` → `python -m …` → bare tool, relying on `mypy.ini`’s interpreter default instead of forcing 3.8. CI still uses `.[test]` installs and the matrix interpreters.
 - **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
