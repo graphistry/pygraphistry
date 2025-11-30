@@ -195,14 +195,18 @@ def combine_steps(
     if label_steps is None:
         label_steps = steps
 
-    def apply_output_slice(op: ASTObject, df):
-        if not isinstance(op, ASTEdge):
+    def apply_output_slice(op: ASTObject, op_label: ASTObject, df):
+        if not isinstance(op_label, ASTEdge):
             return df
         out_min = getattr(op, 'output_min_hops', None)
         out_max = getattr(op, 'output_max_hops', None)
+        # Fall back to forward op (with labels) when reverse op drops slice info
+        if out_min is None and out_max is None:
+            out_min = getattr(op_label, 'output_min_hops', None)
+            out_max = getattr(op_label, 'output_max_hops', None)
         if out_min is None and out_max is None:
             return df
-        label_col = op.label_node_hops if kind == 'nodes' else op.label_edge_hops
+        label_col = op_label.label_node_hops if kind == 'nodes' else op_label.label_edge_hops
         if label_col is None:
             # best-effort fallback to any hop-like column
             hop_like = [c for c in df.columns if 'hop' in c]
@@ -221,8 +225,9 @@ def combine_steps(
     dfs_to_concat = []
     extra_step_dfs = []
     base_cols = set(getattr(g, df_fld).columns)
-    for (op, g_step) in steps:
-        step_df = apply_output_slice(op, getattr(g_step, df_fld))
+    for idx, (op, g_step) in enumerate(steps):
+        op_label = label_steps[idx][0] if idx < len(label_steps) else op
+        step_df = apply_output_slice(op, op_label, getattr(g_step, df_fld))
         if id not in step_df.columns:
             step_id = getattr(g_step, '_node' if kind == 'nodes' else '_edge')
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
@@ -230,8 +235,8 @@ def combine_steps(
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
 
-    for (op, g_step) in label_steps:
-        step_df = apply_output_slice(op, getattr(g_step, df_fld))
+    for idx, (op, g_step) in enumerate(label_steps):
+        step_df = apply_output_slice(op, op, getattr(g_step, df_fld))
         if id not in step_df.columns:
             continue
         # Keep only non-base columns (e.g., hop labels) so we don't duplicate core graph fields
@@ -266,9 +271,10 @@ def combine_steps(
                 out_df = out_df.drop(columns=[col_x, col_y])
 
     # Final post-filter: apply output slice to the combined result
-    for op, _ in steps:
+    for idx, (op, _) in enumerate(steps):
+        op_label = label_steps[idx][0] if idx < len(label_steps) else op
         if isinstance(op, ASTEdge):
-            out_df = apply_output_slice(op, out_df)
+            out_df = apply_output_slice(op, op_label, out_df)
 
     # If hop labels requested and seeds should be labeled, add hop 0 for seeds missing labels
     if kind == 'nodes' and label_cols:
