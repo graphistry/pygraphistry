@@ -305,34 +305,34 @@ jobs:
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
         python - <<'PY'
-import os
-from pathlib import Path
-from sentence_transformers import SentenceTransformer
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
 
-models = [
-    "sentence-transformers/average_word_embeddings_komninos",
-    "sentence-transformers/paraphrase-MiniLM-L6-v2",
-    "sentence-transformers/paraphrase-albert-small-v2",
-]
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
 
-cache_dir = os.environ["HF_HOME"]
-status_file = Path(cache_dir) / ".hf_cache_warmed"
-status_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
 
-success = True
-for model in models:
-    try:
-        SentenceTransformer(model, cache_folder=cache_dir)
-    except Exception as exc:  # pragma: no cover - logging only
-        success = False
-        print(f"⚠️ HF warm failed for {model}: {exc}")
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
 
-status_file.write_text("ok\n" if success else "partial\n")
-with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-    fh.write(f"success={str(success).lower()}\n")
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
 
-print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
-PY
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
 
     - name: Enable HF offline for tests
       run: |
@@ -422,34 +422,34 @@ PY
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
         python - <<'PY'
-import os
-from pathlib import Path
-from sentence_transformers import SentenceTransformer
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
 
-models = [
-    "sentence-transformers/average_word_embeddings_komninos",
-    "sentence-transformers/paraphrase-MiniLM-L6-v2",
-    "sentence-transformers/paraphrase-albert-small-v2",
-]
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
 
-cache_dir = os.environ["HF_HOME"]
-status_file = Path(cache_dir) / ".hf_cache_warmed"
-status_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
 
-success = True
-for model in models:
-    try:
-        SentenceTransformer(model, cache_folder=cache_dir)
-    except Exception as exc:  # pragma: no cover - logging only
-        success = False
-        print(f"⚠️ HF warm failed for {model}: {exc}")
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
 
-status_file.write_text("ok\n" if success else "partial\n")
-with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-    fh.write(f"success={str(success).lower()}\n")
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
 
-print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
-PY
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
 
     - name: Enable HF offline for tests
       run: |
