@@ -409,6 +409,186 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(g2._nodes['hop']) == {1, 2}
         assert set(g2._edges['edge_hop']) == {1, 2}
 
+    def test_gfql_edge_forward_min_max_labels(self):
+        g = simple_chain_graph()
+        seeds = ['a']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'forward',
+                'min_hops': 1,
+                'max_hops': 2,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+                'label_seeds': True,
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 0, 'b': 1, 'c': 2}
+        edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
+        assert edge_hops == {('a', 'b', 1), ('b', 'c', 2)}
+
+    def test_gfql_edge_forward_output_slice(self):
+        g = simple_chain_graph()
+        seeds = ['a']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'forward',
+                'min_hops': 1,
+                'max_hops': 3,
+                'output_min_hops': 2,
+                'label_node_hops': 'hop',
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'c': 2, 'd': 3}  # output slice drops hop 1
+        assert set(g2._nodes['hop']) == {2, 3}
+
+    def test_gfql_edge_forward_edge_query(self):
+        e_df = pd.DataFrame({
+            's': ['a', 'a', 'd', 'd', 'f', 'f'],
+            'd': ['b', 'b', 'e', 'e', 'g', 'g'],
+            't': ['x', 'h', 'x', 'h', 'x', 'h']
+        })
+        n_df = pd.DataFrame({
+            'n': ['a', 'b', 'd', 'e', 'f', 'g'],
+            't': ['x', 'm', 'x', 'n', 'x', 'o']
+        })
+        g = CGFull().edges(e_df, 's', 'd').nodes(n_df, 'n')
+        chain = [
+            {'type': 'Node', 'filter_dict': {'n': is_in(['a'])}},
+            {
+                'type': 'Edge',
+                'direction': 'forward',
+                'min_hops': 1,
+                'max_hops': 1,
+                'edge_query': 't == "h"',
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+                'label_seeds': True,
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 0, 'b': 1}
+        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('a', 'b', 1)}
+
+    def test_gfql_edge_reverse_min_max_labels(self):
+        g = simple_chain_graph()
+        seeds = ['c']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'reverse',
+                'min_hops': 1,
+                'max_hops': 2,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+                'label_seeds': True,
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 2, 'b': 1, 'c': 0}
+        assert set(g2._edges['edge_hop']) == {1, 2}
+
+    def test_gfql_edge_reverse_output_slice(self):
+        g = simple_chain_graph()
+        seeds = ['c']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'reverse',
+                'min_hops': 1,
+                'max_hops': 3,
+                'output_min_hops': 2,
+                'output_max_hops': 3,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 2}
+        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('a', 'b', 2)}
+
+    def test_gfql_edge_reverse_edge_query(self):
+        e_df = pd.DataFrame({
+            's': ['a', 'a', 'd', 'd', 'f', 'f'],
+            'd': ['b', 'b', 'e', 'e', 'g', 'g'],
+            't': ['x', 'h', 'x', 'h', 'x', 'h']
+        })
+        n_df = pd.DataFrame({
+            'n': ['a', 'b', 'd', 'e', 'f', 'g'],
+            't': ['x', 'm', 'x', 'n', 'x', 'o']
+        })
+        g = CGFull().edges(e_df, 's', 'd').nodes(n_df, 'n')
+        chain = [
+            {'type': 'Node', 'filter_dict': {'n': is_in(['e'])}},
+            {
+                'type': 'Edge',
+                'direction': 'reverse',
+                'min_hops': 1,
+                'max_hops': 1,
+                'edge_query': 't == "h"',
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+                'label_seeds': True,
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'d': 1, 'e': 0}
+        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('d', 'e', 1)}
+
+    def test_gfql_edge_undirected_labels(self):
+        g = simple_chain_graph()
+        seeds = ['a']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'undirected',
+                'min_hops': 1,
+                'max_hops': 2,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+                'label_seeds': True,
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 0, 'b': 1, 'c': 2}
+        assert set(g2._edges['edge_hop']) == {1, 2}
+
+    def test_gfql_edge_undirected_output_slice(self):
+        g = simple_chain_graph()
+        seeds = ['a']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'undirected',
+                'min_hops': 1,
+                'max_hops': 3,
+                'output_min_hops': 2,
+                'output_max_hops': 3,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+            },
+        ]
+        g2 = g.gfql(chain)
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 2, 'c': 2, 'd': 3}
+        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('b', 'c', 2), ('c', 'd', 3)}
+
 class TestComputeHopMixinQuery(NoAuthTestCase):
 
     def test_hop_source_query(self):

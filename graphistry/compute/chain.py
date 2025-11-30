@@ -153,7 +153,13 @@ class Chain(ASTSerializable):
 ###############################################################################
 
 
-def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]], engine: Engine) -> DataFrameT:
+def combine_steps(
+    g: Plottable,
+    kind: str,
+    steps: List[Tuple[ASTObject, Plottable]],
+    engine: Engine,
+    label_steps: Optional[List[Tuple[ASTObject, Plottable]]] = None
+) -> DataFrameT:
     """
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
@@ -186,15 +192,52 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
     logger.debug('-----------[ combine %s ---------------]', kind)
 
     # df[[id]] - with defensive checks for column existence
+    if label_steps is None:
+        label_steps = steps
+
+    def apply_output_slice(op: ASTObject, df):
+        if not isinstance(op, ASTEdge):
+            return df
+        out_min = getattr(op, 'output_min_hops', None)
+        out_max = getattr(op, 'output_max_hops', None)
+        if out_min is None and out_max is None:
+            return df
+        label_col = op.label_node_hops if kind == 'nodes' else op.label_edge_hops
+        if label_col is None:
+            # best-effort fallback to any hop-like column
+            hop_like = [c for c in df.columns if 'hop' in c]
+            if not hop_like:
+                return df
+            label_col = hop_like[0]
+        if label_col not in df.columns:
+            return df
+        mask = df[label_col].notna()
+        if out_min is not None:
+            mask = mask & (df[label_col] >= out_min)
+        if out_max is not None:
+            mask = mask & (df[label_col] <= out_max)
+        return df[mask]
+
     dfs_to_concat = []
+    extra_step_dfs = []
+    base_cols = set(getattr(g, df_fld).columns)
     for (op, g_step) in steps:
-        step_df = getattr(g_step, df_fld)
+        step_df = apply_output_slice(op, getattr(g_step, df_fld))
         if id not in step_df.columns:
             step_id = getattr(g_step, '_node' if kind == 'nodes' else '_edge')
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
+
+    for (op, g_step) in label_steps:
+        step_df = apply_output_slice(op, getattr(g_step, df_fld))
+        if id not in step_df.columns:
+            continue
+        # Keep only non-base columns (e.g., hop labels) so we don't duplicate core graph fields
+        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols]
+        if extra_cols:
+            extra_step_dfs.append(step_df[[id] + extra_cols])
 
     # Honor user's engine request by converting DataFrames to match requested engine
     # This ensures API contract: engine parameter guarantees output DataFrame type
@@ -206,6 +249,45 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
     concat = df_concat(engine)
     out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
+
+    # Merge through any additional columns produced by steps (e.g., hop labels)
+    label_cols = set()
+    for step_df in extra_step_dfs:
+        if len(step_df.columns) <= 1:  # only id column
+            continue
+        label_cols.update([c for c in step_df.columns if c != id])
+        out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
+        for col in step_df.columns:
+            if col == id:
+                continue
+            col_x, col_y = f'{col}_x', f'{col}_y'
+            if col_x in out_df.columns and col_y in out_df.columns:
+                out_df[col] = out_df[col_x].fillna(out_df[col_y])
+                out_df = out_df.drop(columns=[col_x, col_y])
+
+    # Final post-filter: apply output slice to the combined result
+    for op, _ in steps:
+        if isinstance(op, ASTEdge):
+            out_df = apply_output_slice(op, out_df)
+
+    # If hop labels requested and seeds should be labeled, add hop 0 for seeds missing labels
+    if kind == 'nodes' and label_cols:
+        label_seeds_requested = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
+        if label_seeds_requested and label_steps:
+            seed_df = getattr(label_steps[0][1], df_fld)
+            if seed_df is not None and id in seed_df.columns:
+                seed_ids = seed_df[[id]].drop_duplicates()
+                # align engines defensively
+                if resolve_engine(EngineAbstract.AUTO, seed_ids) != resolve_engine(EngineAbstract.AUTO, out_df):
+                    seed_ids = df_to_engine(seed_ids, resolve_engine(EngineAbstract.AUTO, out_df))
+                try:
+                    seed_mask = out_df[id].isin(seed_ids[id])
+                except Exception:
+                    seed_mask = None
+                if seed_mask is not None:
+                    for col in label_cols:
+                        if col in out_df.columns:
+                            out_df.loc[seed_mask, col] = out_df.loc[seed_mask, col].fillna(0)
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
@@ -750,10 +832,22 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     logger.debug('edges: %s', g_step._edges)
 
             logger.debug('============ COMBINE NODES ============')
-            final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+            final_nodes_df = combine_steps(
+                g,
+                'nodes',
+                list(zip(ops, reversed(g_stack_reverse))),
+                engine_concrete,
+                label_steps=list(zip(ops, g_stack))
+            )
 
             logger.debug('============ COMBINE EDGES ============')
-            final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
+            final_edges_df = combine_steps(
+                g,
+                'edges',
+                list(zip(ops, reversed(g_stack_reverse))),
+                engine_concrete,
+                label_steps=list(zip(ops, g_stack))
+            )
             if added_edge_index:
                 # Drop the internal edge index column (stored in g._edge after we added it)
                 final_edges_df = final_edges_df.drop(columns=[g._edge])
