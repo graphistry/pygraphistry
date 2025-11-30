@@ -77,6 +77,9 @@ Edge Matchers
   - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
   - `edge_query`: Custom query string for edge attributes.
   - `hops`: `int`, number of hops to traverse.
+  - `min_hops`/`max_hops`: Inclusive traversal bounds (default to `hops`).
+  - `output_min_hops`/`output_max_hops`: Optional post-filter slice; defaults keep all traversed hops up to `max_hops`.
+  - `label_node_hops`/`label_edge_hops`: Optional column names for hop numbers; `label_seeds=True` adds hop 0 for seeds.
   - `to_fixed_point`: `bool`, continue traversal until no more matches.
   - `source_node_match`: Filter for source nodes.
   - `destination_node_match`: Filter for destination nodes.
@@ -91,6 +94,18 @@ Edge Matchers
   .. code-block:: python
 
       e_forward({"status": "active"}, hops=2)
+
+- Traverse 2..4 hops but show only hops 3..4 with labels:
+
+  .. code-block:: python
+
+      e_forward(
+          {"status": "active"},
+          min_hops=2,
+          max_hops=4,
+          output_min_hops=3,
+          label_edge_hops="edge_hop"
+      )
 
 - Use custom edge query strings:
 
