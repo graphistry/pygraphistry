@@ -300,7 +300,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install --upgrade torch==2.2.2+cpu -f https://download.pytorch.org/whl/cpu
+        python -m pip install --upgrade torch==2.7.1+cpu -f https://download.pytorch.org/whl/cpu
         python -m pip install --upgrade dgl==2.1.0
         python -m pip install -e .[test,testai,umap-learn]
 
