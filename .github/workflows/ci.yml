@@ -528,7 +528,7 @@ jobs:
         faiss-cpu
         EOF
         python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
-        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl]
+        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
 
     - name: Run DGL tests
       env:
