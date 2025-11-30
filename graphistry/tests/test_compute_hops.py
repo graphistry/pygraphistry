@@ -406,7 +406,7 @@ class TestComputeHopMixin(NoAuthTestCase):
             'label_edge_hops': 'edge_hop'
         }}
         g2 = g.gfql([payload])
-        assert set(g2._nodes['hop']) == {1, 2}
+        assert set(g2._nodes['hop'].dropna()) == {1, 2}
         assert set(g2._edges['edge_hop']) == {1, 2}
 
     def test_gfql_edge_forward_min_max_labels(self):

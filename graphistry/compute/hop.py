@@ -757,7 +757,9 @@ def hop(self: Plottable,
 
         final_edges = safe_merge(edges_indexed, edge_labels_source, on=EDGE_ID, how='inner')
         if label_edge_hops is None and edge_hop_col in final_edges:
-            final_edges = final_edges.drop(columns=[edge_hop_col])
+            # Preserve hop labels when output slicing is requested so callers can filter
+            if output_min_hops is None and output_max_hops is None:
+                final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
         final_edges = safe_merge(edges_indexed, matches_edges, on=EDGE_ID, how='inner')
 

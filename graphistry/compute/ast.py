@@ -559,10 +559,18 @@ class ASTEdge(ASTObject):
             logger.debug('g._edges:\n%s\n', g._edges)
             logger.debug('----------------------------------------')
 
-        # When used inside chain/gfql, we always return wavefronts; keep traversal unsliced here
-        # and let the final combine step apply any output_min/output_max filters using the hop labels.
-        resolved_output_min = None
-        resolved_output_max = None
+        wants_output_slice = self.output_min_hops is not None or self.output_max_hops is not None
+        return_wavefront = True  # AST edges are used in chain/gfql wavefront mode
+        # Avoid slicing during traversal but keep hop labels so the final combine step can filter.
+        resolved_output_min = None if return_wavefront else self.output_min_hops
+        resolved_output_max = None if return_wavefront else self.output_max_hops
+
+        label_node_hops = self.label_node_hops
+        label_edge_hops = self.label_edge_hops
+        if return_wavefront and wants_output_slice:
+            # Ensure hop labels exist for post-filtering even if user didn't request explicit labels
+            label_node_hops = label_node_hops or '__gfql_output_node_hop__'
+            label_edge_hops = label_edge_hops or '__gfql_output_edge_hop__'
 
         out_g = g.hop(
             nodes=prev_node_wavefront,
@@ -571,8 +579,8 @@ class ASTEdge(ASTObject):
             max_hops=self.max_hops,
             output_min_hops=resolved_output_min,
             output_max_hops=resolved_output_max,
-            label_node_hops=self.label_node_hops,
-            label_edge_hops=self.label_edge_hops,
+            label_node_hops=label_node_hops,
+            label_edge_hops=label_edge_hops,
             label_seeds=self.label_seeds,
             to_fixed_point=self.to_fixed_point,
             direction=self.direction,
