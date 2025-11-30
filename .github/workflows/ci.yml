@@ -502,12 +502,13 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-dgl-cpu:
-    needs: [changes]
+    needs: [changes, test-minimal-python]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
       PIP_PREFER_BINARY: "1"
+      DGLBACKEND: pytorch
     steps:
     - uses: actions/checkout@v3
       with:
