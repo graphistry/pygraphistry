@@ -82,7 +82,9 @@ g.gfql([
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
 | `-[r]-` | `e(name="r")` | `{"type": "Edge", "direction": "undirected", "name": "r"}` |
 | `-[*2]->` | `e_forward(hops=2)` | `{"type": "Edge", "direction": "forward", "hops": 2}` |
-| `-[*1..3]->` | `e_forward(hops=3)` | `{"type": "Edge", "direction": "forward", "hops": 3}` | # upper-bound only; lower bound = 1 |
+| `-[*1..3]->` | `e_forward(min_hops=1, max_hops=3)` | `{"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 3}` |
+| `-[*3..3]->` | `e_forward(min_hops=3, max_hops=3)` | `{"type": "Edge", "direction": "forward", "min_hops": 3, "max_hops": 3}` |
+| `-[*2..4]->` but only show hops 3..4 | `e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 4, "output_min_hops": 3, "label_edge_hops": "edge_hop"}` |
 | `-[*]->` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
 
