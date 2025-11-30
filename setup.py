@@ -70,7 +70,21 @@ base_extras_heavy = {
   ],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+# DGL extras are split by runtime flavor. CPU is pinned to the last
+# compatible stack; GPU is available as a separate opt-in extra (not
+# included in 'all' to avoid torch conflicts).
+base_extras_heavy['dgl-cpu'] = [
+    'torch==2.0.1',
+    'torchdata==0.6.1',
+    'dgl==2.1.0',
+]
+dgl_gpu_extra = {
+  'dgl-gpu': [
+    'torch==2.4.1',
+    'dgl-cu12==2.4.0',
+  ]
+}
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
@@ -79,6 +93,7 @@ extras_require = {
   **base_extras_light,
   **base_extras_heavy,
   **dev_extras,
+  **dgl_gpu_extra,
 
   #kitchen sink for users -- not recommended
   'all': unique_flatten_dict(base_extras),
