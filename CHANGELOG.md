@@ -18,7 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infra
 - **CI / HuggingFace cache**: Prewarm sentence-transformers models into a shared `HF_HOME` cache via Actions cache (per-OS key), then run `test-core-umap` and `test-full-ai` with `HF_HUB_OFFLINE=1` to avoid HF 429s in `feature_utils` tests; falls back gracefully when `HF_TOKEN` is unavailable (#853).
-- **CI / DGL isolation**: Moved DGL/embed tests into a legacy CPU job pinned to torch 2.1/dgl 2.1 and removed DGL from the main matrix (AI installs now exclude DGL; new `dgl` extra for optional use). Main jobs stay on newer torch without DGL install to avoid wheel/ABI churn (#856).
+- **CI / DGL isolation**: Moved DGL/embed tests into a legacy CPU job pinned to torch 2.0.1/torchdata 0.6.1/dgl 2.1 (CPU wheels only) and removed DGL from the main matrix. Extras split into `dgl-cpu` (pinned) and `dgl-gpu` (torch 2.4.1 + dgl-cu12 2.4.0, opt-in); main jobs stay on newer torch without DGL install to avoid wheel/ABI churn (#856).
 
 ## [0.45.9 - 2025-11-10]
 
