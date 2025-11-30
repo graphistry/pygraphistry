@@ -61,12 +61,12 @@ Edge Matchers
 
 .. code-block:: python
 
-  e_forward(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_reverse(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_undirected(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_forward(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_reverse(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_undirected(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
   
   # alias for e_undirected
-  e(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
 
 :meth:`e <graphistry.compute.ast.e>` matches edges based on their attributes (undirected). May also include matching on edge's source and destination nodes.
 

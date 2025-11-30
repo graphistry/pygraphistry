@@ -102,6 +102,12 @@
   "type": "Edge",
   "direction": "forward|reverse|undirected",   // required
   "max_hops": 1,                               // default: 1 (hops shorthand)
+  "min_hops": 1,                               // optional; default 1 unless max_hops is 0
+  "output_min_hops": 1,                        // optional post-filter slice; defaults keep 1..max_hops
+  "output_max_hops": 1,                        // optional post-filter cap; defaults to max_hops
+  "label_node_hops": "hop",                    // optional; omit/null to skip node hop labels
+  "label_edge_hops": "edge_hop",               // optional; omit/null to skip edge hop labels
+  "label_seeds": false,                        // optional; when true, label seeds at hop 0
   "to_fixed_point": false,                     // default: false
   "edge_match": {filters},                     // optional
   "source_node_match": {filters},              // optional
@@ -538,7 +544,8 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 1. **Always include `type` field** in every object
 2. **Chain wraps operations** - use `{"type": "Chain", "chain": [...]}`
 3. **Edge defaults:** `direction: "forward"`, `max_hops: 1` (`hops` shorthand), `min_hops: 1` unless `max_hops` is 0, `to_fixed_point: false`
-4. **Empty filters:** Use `{}` for match-all
+4. **Output slice defaults:** If `output_min_hops`/`output_max_hops` are omitted, results keep all traversed hops up to `max_hops`; set them to post-filter displayed hops.
+5. **Empty filters:** Use `{}` for match-all
 5. **Predicates:** Wrap comparisons: `{"type": "GT", "val": 100}`
 6. **Temporal:** Tag values: `{"type": "datetime", "value": "...", "timezone": "UTC"}`
 7. **ChainRef:** Reference bindings: `{"type": "ChainRef", "ref": "name", "chain": [...]}`

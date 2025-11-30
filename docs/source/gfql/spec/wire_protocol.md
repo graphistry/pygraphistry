@@ -110,6 +110,7 @@ e_forward(
 
 Optional fields:
 - `hops` (shorthand for `max_hops`)
+- `output_min_hops`
 - `output_max_hops`
 - `label_node_hops`, `label_edge_hops`, `label_seeds`
 - `to_fixed_point`
