@@ -564,12 +564,18 @@ class ASTEdge(ASTObject):
         # Avoid slicing during traversal but keep hop labels so the final combine step can filter.
         resolved_output_min = None if return_wavefront else self.output_min_hops
         resolved_output_max = None if return_wavefront else self.output_max_hops
-        # Loosen min bound during wavefront traversal to keep paths alive for backward/forward phases; final min is enforced later.
-        resolved_min_hops = 0 if return_wavefront else self.min_hops
+        # Use declared min_hops for traversal; seeds are handled separately when label_seeds is True.
+        resolved_min_hops = self.min_hops if self.min_hops is not None else 0
+        resolved_max_hops = self.max_hops
+        # When min==max and we need labels later, traverse all hops up to max to keep path context for reverse pruning
+        if return_wavefront and self.min_hops is not None and self.max_hops is not None and self.min_hops == self.max_hops:
+            resolved_min_hops = 0
+            resolved_max_hops = self.max_hops
 
         label_node_hops = self.label_node_hops
         label_edge_hops = self.label_edge_hops
-        if return_wavefront and wants_output_slice:
+        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0)
+        if return_wavefront and needs_auto_labels:
             # Ensure hop labels exist for post-filtering even if user didn't request explicit labels
             label_node_hops = label_node_hops or '__gfql_output_node_hop__'
             label_edge_hops = label_edge_hops or '__gfql_output_edge_hop__'

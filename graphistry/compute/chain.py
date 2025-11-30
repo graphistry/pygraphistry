@@ -1,4 +1,5 @@
 import logging
+import pandas as pd
 from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING, Callable, Any
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
@@ -317,6 +318,43 @@ def combine_steps(
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
+
+    # Handle seed labeling toggles after slicing
+    if kind == 'nodes' and label_cols:
+        seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
+        seed_ids = seeds_df[[id]].drop_duplicates() if seeds_df is not None and id in seeds_df.columns else None
+        label_seeds_true = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
+        if seed_ids is not None:
+            if label_seeds_true:
+                # Ensure seeds are present and labeled 0
+                seeds_with_labels = seed_ids.copy()
+                for col in label_cols:
+                    if col in out_df.columns:
+                        seeds_with_labels[col] = 0
+                out_df = safe_merge(out_df, seeds_with_labels, on=id, how='outer', engine=engine)
+            else:
+                # Clear seed labels when label_seeds=False
+                if id in out_df.columns:
+                    mask = out_df[id].isin(seed_ids[id])
+                    for col in label_cols:
+                        if col in out_df.columns:
+                            out_df.loc[mask, col] = pd.NA
+
+    # Collapse merge suffixes (_x/_y) into a single column
+    cols = list(out_df.columns)
+    for c in cols:
+        if c.endswith('_x'):
+            base = c[:-2]
+            c_y = base + '_y'
+            if c_y in out_df.columns:
+                out_df[base] = out_df[c].combine_first(out_df[c_y])
+                out_df = out_df.drop(columns=[c, c_y])
+        elif c.endswith('_y'):
+            base = c[:-2]
+            c_x = base + '_x'
+            if c_x in out_df.columns:
+                out_df[base] = out_df[c_x].combine_first(out_df[c])
+                out_df = out_df.drop(columns=[c, c_x])
 
     return out_df
 
