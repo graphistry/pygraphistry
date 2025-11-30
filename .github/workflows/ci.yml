@@ -24,6 +24,7 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
+      docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
     - uses: dorny/paths-filter@v3
@@ -58,10 +59,33 @@ jobs:
             - 'demos/**'
             - 'notebooks/**'
 
+    - name: Detect docs-only change on tip
+      id: docs_only_latest
+      run: |
+        # Compare the latest commit to its immediate predecessor (push)
+        # or to the PR base (pull_request) to see if ONLY docs files changed.
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          base_ref="${{ github.event.pull_request.base.sha }}"
+        else
+          base_ref="${{ github.event.before }}"
+        fi
+        base_ref=${base_ref:-HEAD^}
+        changed_files=$(git diff --name-only "${base_ref}" HEAD || true)
+        docs_only=true
+        for f in $changed_files; do
+          if [[ "$f" == "README.md" || "$f" == "CHANGELOG.md" || "$f" == docs/* || "$f" == demos/* || "$f" == notebooks/* || "$f" == *.md || "$f" == *.rst ]]; then
+            continue
+          else
+            docs_only=false
+            break
+          fi
+        done
+        echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
+
   python-lint-types:
     needs: changes
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     
@@ -102,7 +126,7 @@ jobs:
   test-minimal-python:
     needs: [changes, python-lint-types]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
 
