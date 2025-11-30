@@ -21,13 +21,20 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.scene_settings` to modify the appe
        # Hide menus
        menu=False,
        info=False,
-       # Customize graph
+       # Customize graph appearance
        show_arrows=False,
-       point_size=1.0,
-       edge_curvature=0.0,
-       edge_opacity=0.5,
-       point_opacity=0.9
+       point_size=1.0,         # Node size (logarithmic scale: 0.1-10.0 → UI 0-100)
+       edge_curvature=0.0,     # 0.0 = straight edges
+       edge_opacity=0.5,       # 0.0-1.0 range (50% transparent)
+       point_opacity=0.9       # 0.0-1.0 range (90% opaque)
    ).plot()
+
+**Value Ranges:**
+
+- ``point_size``: Range 0.1 to 10.0. The UI uses a logarithmic scale (0-100) for display. For example: 0.2 displays as approximately "15", 0.5 as "35", 1.0 as "50", 2.0 as "65", and 5.0 as "85". This logarithmic mapping provides finer control over smaller point sizes.
+- ``edge_curvature``: Range 0.0 to 1.0 (0.0 for straight edges, displayed as 0-100 in UI)
+- ``edge_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
+- ``point_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 
 
 Styling the Background and Foreground

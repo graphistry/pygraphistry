@@ -176,15 +176,29 @@ def umap_graph_to_weighted_edges(umap_graph, engine: UMAPEngineConcrete, is_lega
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (engine == "umap_learn") or is_legacy:
-        return pd.DataFrame(
-            {src: coo.row, dst: coo.col, weight_col: coo.data}
-        )
+    if engine == "umap_learn" or is_legacy:
+        return pd.DataFrame({src: coo.row, dst: coo.col, weight_col: coo.data})
     assert engine == "cuml"
     import cudf
-    return cudf.DataFrame(
-        {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
-    )
+
+    try:
+        import cupy  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover
+        cupy = None
+
+    def _to_host(values):
+        # CUDA 13 (CuPy 13) removed COO.get(); prefer cupy.asnumpy while retaining legacy support (#844)
+        if cupy is not None and isinstance(values, cupy.ndarray):
+            return cupy.asnumpy(values)
+        get_fn = getattr(values, "get", None)
+        if callable(get_fn):
+            return get_fn()
+        return values
+
+    row = _to_host(coo.row)
+    col = _to_host(coo.col)
+    data = _to_host(coo.data)
+    return cudf.DataFrame({src: row, dst: col, weight_col: data})
 
 
 ##############################################################################

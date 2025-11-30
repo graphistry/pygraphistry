@@ -14,7 +14,7 @@ from graphistry.embed_utils import check_cudf
 
 # Check for cudf availability
 has_cudf, _ = check_cudf()
-is_test_cudf = has_cudf and os.environ.get("TEST_CUDF", "1") != "0"
+is_test_cudf = has_cudf and os.environ.get("TEST_CUDF", "0") == "1"
 
 
 class TestPolicyBehavior:

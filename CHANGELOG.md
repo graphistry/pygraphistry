@@ -8,8 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.45.10 - 2025-11-19]
+
 ### Added
 - **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
+
+### Fixed
+- **Auth:** Work around server issue [graphistry/graphistry#2933](https://github.com/graphistry/graphistry/issues/2933) by automatically calling `/api/v2/o/<slug>/switch/` in ArrowUploader logins, SSO, and token refresh paths so `org_name` is honored for entitlements. Track the last `(org, token)` we switched to in the session to avoid redundant calls. (PR [#832](https://github.com/graphistry/pygraphistry/pull/832))
+- **GFQL / Hypergraph:** Prevent `return_as=*` calls from importing pandas Styler/Jinja by skipping Protocol `isinstance()` checks whenever hypergraph legitimately returns DataFrames, fixing CI/test failures on setups without Jinja2.
+- **UMAP / CuPy 13**: `umap_graph_to_weighted_edges()` now converts cuML COO matrices via `cupy.asnumpy()` / legacy `.get()` fallbacks instead of the removed `cupyx.scipy.sparse.coo_matrix.get()` so GFQL UMAP operations work again on RAPIDS 25.10 / CUDA 13 while staying compatible with older stacks (#844).
+- **Init / Exports**: Re-export `graphistry.compute` from the top-level package so GFQL/remote tests importing `graphistry.compute` via `import graphistry` keep working across Python versions (#844).
 
 ### Tests
 - **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
