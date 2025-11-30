@@ -564,8 +564,8 @@ class ASTEdge(ASTObject):
         # Avoid slicing during traversal but keep hop labels so the final combine step can filter.
         resolved_output_min = None if return_wavefront else self.output_min_hops
         resolved_output_max = None if return_wavefront else self.output_max_hops
-        # Use declared min_hops for traversal; seeds are handled separately when label_seeds is True.
-        resolved_min_hops = self.min_hops if self.min_hops is not None else 0
+        # Use declared min_hops for traversal; let hop defaults apply when None.
+        resolved_min_hops = self.min_hops
         resolved_max_hops = self.max_hops
         # When min==max and we need labels later, traverse all hops up to max to keep path context for reverse pruning
         if return_wavefront and self.min_hops is not None and self.max_hops is not None and self.min_hops == self.max_hops:

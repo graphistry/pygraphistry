@@ -175,12 +175,24 @@ def combine_steps(
     logger.debug('combine_steps ops pre: %s', [op for (op, _) in steps])
     if kind == 'edges':
         logger.debug('EDGES << recompute forwards given reduced set')
+        node_id = getattr(g, '_node')
+        full_nodes = getattr(g, '_nodes', None)
         steps = [
             (
                 op,  # forward op
                 op(
                     g=g.edges(g_step._edges),  # transition via any found edge
-                    prev_node_wavefront=g_step._nodes,  # start from where backwards step says is reachable
+
+                    # restore node attributes for matching by rejoining against the original nodes
+                    prev_node_wavefront=(
+                        safe_merge(
+                            full_nodes,
+                            g_step._nodes[[node_id]],
+                            on=node_id,
+                            how='inner',
+                            engine=engine,
+                        ) if full_nodes is not None and node_id is not None and g_step._nodes is not None else g_step._nodes
+                    ),
 
                     #target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
                     target_wave_front=None,  # ^^^ optimization: valid transitions already limit to known-good ones
@@ -241,7 +253,7 @@ def combine_steps(
         if id not in step_df.columns:
             continue
         # Keep only non-base columns (e.g., hop labels) so we don't duplicate core graph fields
-        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols]
+        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
 
@@ -304,14 +316,42 @@ def combine_steps(
 
     # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
-    for (op, g_step) in steps:
+    for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
             step_df = getattr(g_step, df_fld)[[id, op._name]]
             # Use safe_merge to handle engine type coercion automatically
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
-            s = out_df[op._name]
-            out_df[op._name] = s.where(s.notna(), False).astype('bool')
+            # Collapse any merge suffixes introduced by repeated tags
+            x_name, y_name = f'{op._name}_x', f'{op._name}_y'
+            if x_name in out_df.columns and y_name in out_df.columns:
+                out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
+                out_df = out_df.drop(columns=[x_name, y_name])
+            out_df[op._name] = out_df[op._name].fillna(False).astype('bool')
+
+            # Restrict node aliases to endpoints that actually fed the next edge step
+            if kind == 'nodes' and idx + 1 < len(steps):
+                next_op, next_step = steps[idx + 1]
+                if isinstance(next_op, ASTEdge):
+                    allowed_ids = None
+                    try:
+                        if next_op.direction == 'forward':
+                            allowed_ids = next_step._edges[next_step._source]
+                        elif next_op.direction == 'reverse':
+                            allowed_ids = next_step._edges[next_step._destination]
+                        else:  # undirected
+                            allowed_ids = pd.concat(
+                                [
+                                    next_step._edges[next_step._source],
+                                    next_step._edges[next_step._destination],
+                                ],
+                                ignore_index=True,
+                            )
+                    except Exception:
+                        allowed_ids = None
+
+                    if allowed_ids is not None and id in out_df.columns:
+                        out_df[op._name] = out_df[op._name] & out_df[id].isin(allowed_ids)
 
     # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
@@ -848,6 +888,25 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     prev_orig_step = None
                 else:
                     prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
+                # Reattach node attributes for reverse wavefronts so downstream matches work
+                prev_wavefront_nodes = prev_loop_step._nodes
+                if g._node is not None and prev_wavefront_nodes is not None and g._nodes is not None:
+                    prev_wavefront_nodes = safe_merge(
+                        g._nodes,
+                        prev_wavefront_nodes[[g._node]],
+                        on=g._node,
+                        how='inner',
+                        engine=engine_concrete
+                    )
+                target_wave_front_nodes = prev_orig_step._nodes if prev_orig_step is not None else None
+                if g._node is not None and target_wave_front_nodes is not None and g._nodes is not None:
+                    target_wave_front_nodes = safe_merge(
+                        g._nodes,
+                        target_wave_front_nodes[[g._node]],
+                        on=g._node,
+                        how='inner',
+                        engine=engine_concrete
+                    )
                 assert prev_loop_step._nodes is not None
                 g_step_reverse = (
                     (op.reverse())(
@@ -858,10 +917,10 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
                         # check for hits against fully valid targets
                         # ast will replace g.node() with this as its starting points
-                        prev_node_wavefront=prev_loop_step._nodes,
+                        prev_node_wavefront=prev_wavefront_nodes,
 
                         # only allow transitions to these nodes (vs prev_node_wavefront)
-                        target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None,
+                        target_wave_front=target_wave_front_nodes,
 
                         engine=engine_concrete
                     )
