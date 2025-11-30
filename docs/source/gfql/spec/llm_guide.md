@@ -39,7 +39,7 @@
 
 ## Quick Example: Fraud Detection
 
-**Dense:** `let({'suspicious': n({'risk_score': gt(80)}), 'flows': ref('suspicious', [e_forward(hops=3), n()]), 'ranked': ref('flows', [call('compute_cugraph', {'alg': 'pagerank'})]), 'viz': ref('ranked', [call('encode_point_color', {...}), call('encode_point_icon', {...})])})`
+**Dense:** `let({'suspicious': n({'risk_score': gt(80)}), 'flows': ref('suspicious', [e_forward(min_hops=1, max_hops=3), n()]), 'ranked': ref('flows', [call('compute_cugraph', {'alg': 'pagerank'})]), 'viz': ref('ranked', [call('encode_point_color', {...}), call('encode_point_icon', {...})])})`
 
 **JSON:**
 ```json
@@ -54,7 +54,7 @@
       "type": "ChainRef",
       "ref": "suspicious",
       "chain": [
-        {"type": "Edge", "direction": "forward", "hops": 3, "to_fixed_point": false,
+        {"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 3, "to_fixed_point": false,
          "edge_match": {"amount": {"type": "GT", "val": 10000}}},
         {"type": "Node", "filter_dict": {}}
       ]
@@ -101,7 +101,7 @@
 {
   "type": "Edge",
   "direction": "forward|reverse|undirected",   // required
-  "hops": 1,                                   // default: 1
+  "max_hops": 1,                               // default: 1 (hops shorthand)
   "to_fixed_point": false,                     // default: false
   "edge_match": {filters},                     // optional
   "source_node_match": {filters},              // optional
@@ -180,14 +180,14 @@
 
 **Multi-hop (friends of friends):**
 ```python
-# Dense: [n({'name': 'Alice'}), e_forward(hops=2), n()]
+# Dense: [n({'name': 'Alice'}), e_forward(min_hops=1, max_hops=2), n()]
 ```
 ```json
 {
   "type": "Chain",
   "chain": [
     {"type": "Node", "filter_dict": {"name": "Alice"}},
-    {"type": "Edge", "direction": "forward", "hops": 2, "to_fixed_point": false},
+    {"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 2, "to_fixed_point": false},
     {"type": "Node", "filter_dict": {}}
   ]
 }
@@ -330,9 +330,9 @@
 
 ### Traversals & Filters
 
-**Hop (Multi-step):** `call('hop', {'hops': 3, 'direction': 'forward'})`
+**Hop (Multi-step):** `call('hop', {'min_hops': 1, 'max_hops': 3, 'direction': 'forward'})`
 ```json
-{"type": "Call", "function": "hop", "params": {"hops": 3, "direction": "forward"}}
+{"type": "Call", "function": "hop", "params": {"min_hops": 1, "max_hops": 3, "direction": "forward"}}
 ```
 
 **Filter Nodes:** `call('filter_nodes_by_dict', {'query': {'type': 'Person', 'age': {'type': 'GT', 'val': 30}}})`
@@ -537,7 +537,7 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 
 1. **Always include `type` field** in every object
 2. **Chain wraps operations** - use `{"type": "Chain", "chain": [...]}`
-3. **Edge defaults:** `direction: "forward"`, `hops: 1`, `to_fixed_point: false`
+3. **Edge defaults:** `direction: "forward"`, `max_hops: 1` (`hops` shorthand), `min_hops: 1` unless `max_hops` is 0, `to_fixed_point: false`
 4. **Empty filters:** Use `{}` for match-all
 5. **Predicates:** Wrap comparisons: `{"type": "GT", "val": 100}`
 6. **Temporal:** Tag values: `{"type": "datetime", "value": "...", "timezone": "UTC"}`
@@ -553,7 +553,7 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 **Wrong:** Raw datetime: `{"timestamp": "2024-01-01"}`
 **Correct:** `{"timestamp": {"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00"}}}`
 
-**Wrong:** Forgot to_fixed_point: `{"hops": 999}` for "traverse all"
+**Wrong:** Forgot to_fixed_point: `{"max_hops": 999}` for "traverse all"
 **Correct:** `{"to_fixed_point": true}`
 
 **Wrong:** Using `"backward"` instead of `"reverse"`
