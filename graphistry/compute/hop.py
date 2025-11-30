@@ -833,6 +833,23 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
+    # Ensure all edge endpoints are present in nodes
+    if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
+        endpoints = concat(
+            [
+                g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
+                g_out._edges[[g_out._destination]].rename(columns={g_out._destination: g_out._node}),
+            ],
+            ignore_index=True,
+            sort=False,
+        ).drop_duplicates(subset=[g_out._node])
+        # Align engine types
+        if resolve_engine(EngineAbstract.AUTO, endpoints) != resolve_engine(EngineAbstract.AUTO, g_out._nodes):
+            endpoints = df_to_engine(endpoints, resolve_engine(EngineAbstract.AUTO, g_out._nodes))
+        g_out = g_out.nodes(
+            concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node])
+        )
+
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ HOP OUTPUT ~~~~~~~~~~~')
         logger.debug('nodes:\n%s', g_out._nodes)

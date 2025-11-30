@@ -856,6 +856,23 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
+            # Ensure node set covers edge endpoints after any output slicing
+            if g_out._edges is not None and len(g_out._edges) > 0:
+                concat_fn = df_concat(engine_concrete)
+                endpoints = concat_fn(
+                    [
+                        g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
+                        g_out._edges[[g_out._destination]].rename(columns={g_out._destination: g_out._node}),
+                    ],
+                    ignore_index=True,
+                    sort=False,
+                ).drop_duplicates(subset=[g_out._node])
+                if resolve_engine(EngineAbstract.AUTO, endpoints) != resolve_engine(EngineAbstract.AUTO, g_out._nodes):
+                    endpoints = df_to_engine(endpoints, resolve_engine(EngineAbstract.AUTO, g_out._nodes))
+                g_out = g_out.nodes(
+                    concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node])
+                )
+
             # Mark as successful
             success = True
 

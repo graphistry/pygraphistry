@@ -264,8 +264,8 @@ class TestComputeHopMixin(NoAuthTestCase):
         seeds = pd.DataFrame({g._node: ['a']})
         g_no_seed = g.hop(seeds, min_hops=1, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop', label_seeds=False)
         node_hops_no_seed = dict(zip(g_no_seed._nodes[g._node], g_no_seed._nodes['hop']))
-        assert 'a' not in node_hops_no_seed
-        assert node_hops_no_seed == {'b': 1, 'c': 2}
+        assert pd.isna(node_hops_no_seed.get('a'))
+        assert {k: v for k, v in node_hops_no_seed.items() if pd.notna(v)} == {'b': 1, 'c': 2}
         edge_hops_no_seed = {(row['s'], row['d'], row['edge_hop']) for _, row in g_no_seed._edges.iterrows()}
         assert edge_hops_no_seed == {('a', 'b', 1), ('b', 'c', 2)}
 
@@ -279,8 +279,8 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop')
-        assert set(g2._nodes[g._node].to_list()) == {'b', 'c'}
-        assert set(g2._nodes['hop'].to_list()) == {1, 2}
+        assert set(g2._nodes[g._node].to_list()) == {'a', 'b', 'c'}
+        assert set(g2._nodes['hop'].dropna().to_list()) == {1, 2}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c')}
         assert set(g2._edges['edge_hop'].to_list()) == {1, 2}
 
@@ -313,8 +313,8 @@ class TestComputeHopMixin(NoAuthTestCase):
             label_node_hops='hop',
             label_edge_hops='edge_hop'
         )
-        assert set(g2._nodes[g._node].to_list()) == {'d1', 'e1'}
-        assert set(g2._nodes['hop'].to_list()) == {3, 4}
+        assert set(g2._nodes[g._node].to_list()) == {'c1', 'd1', 'e1'}
+        assert set(g2._nodes.dropna(subset=['hop'])['hop'].to_list()) == {3, 4}
         assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {
             ('c1', 'd1', 3),
             ('d1', 'e1', 4)
@@ -351,7 +351,7 @@ class TestComputeHopMixin(NoAuthTestCase):
             output_max_hops=3
         )
         # Output slice applies even without explicit labels; label columns are dropped
-        assert set(g2._nodes[g._node].to_list()) == {'d1'}
+        assert set(g2._nodes[g._node].to_list()) == {'c1', 'd1'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('c1', 'd1')}
         assert 'hop' not in g2._nodes.columns
         assert 'edge_hop' not in g2._edges.columns
@@ -445,9 +445,10 @@ class TestComputeHopMixin(NoAuthTestCase):
             },
         ]
         g2 = g.gfql(chain)
-        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
-        assert node_hops == {'c': 2, 'd': 3}  # output slice drops hop 1
-        assert set(g2._nodes['hop']) == {2, 3}
+        hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        labeled = {k: v for k, v in hops.items() if pd.notna(v)}
+        assert labeled == {'c': 2, 'd': 3}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
 
     def test_gfql_edge_forward_edge_query(self):
         e_df = pd.DataFrame({
@@ -515,9 +516,12 @@ class TestComputeHopMixin(NoAuthTestCase):
             },
         ]
         g2 = g.gfql(chain)
-        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
-        assert node_hops == {'a': 2}
+        hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        labeled = {k: v for k, v in hops.items() if pd.notna(v)}
+        assert labeled == {'a': 2}
         assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('a', 'b', 2)}
+        # endpoints of kept edges are present
+        assert set(g2._edges[g._source]).union(set(g2._edges[g._destination])) <= set(g2._nodes[g._node])
 
     def test_gfql_edge_reverse_edge_query(self):
         e_df = pd.DataFrame({
@@ -585,9 +589,11 @@ class TestComputeHopMixin(NoAuthTestCase):
             },
         ]
         g2 = g.gfql(chain)
-        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
-        assert node_hops == {'a': 2, 'c': 2, 'd': 3}
-        assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {('b', 'c', 2), ('c', 'd', 3)}
+        hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        labeled = {k: v for k, v in hops.items() if pd.notna(v)}
+        assert labeled == {'a': 2, 'c': 2, 'd': 3}
+        assert set(zip(g2._edges[g._source], g2._edges[g._destination], g2._edges['edge_hop'])) == {('b', 'c', 2), ('c', 'd', 3)}
+        assert set(g2._edges[g._source]).union(set(g2._edges[g._destination])) <= set(g2._nodes[g._node])
 
 class TestComputeHopMixinQuery(NoAuthTestCase):
 
