@@ -909,8 +909,8 @@ g2.plot() # nodes are values from cols s, d, k1
     # optional traversal range + labeling
     min_hops=1,  # inclusive lower bound (defaults to 1 unless hops==0)
     max_hops=3,  # inclusive upper bound; defaults to hops
-    output_min_hops=None,  # optional output slice lower bound (post-filter)
-    output_max_hops=None,  # optional output slice upper bound (post-filter)
+    output_min_hops=None,  # optional output slice lower bound (post-filter; defaults keep early hops)
+    output_max_hops=None,  # optional output slice upper bound (post-filter; defaults to max_hops)
     label_node_hops='hop',  # write first hop step each node is reached (omit/None to skip)
     label_edge_hops='edge_hop',  # hop step for each traversed edge
     label_seeds=True,  # also tag starting seeds as hop 0 when labeling

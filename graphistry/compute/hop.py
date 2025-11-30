@@ -269,7 +269,7 @@ def hop(self: Plottable,
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1). Shorthand for max_hops.
     min_hops/max_hops: inclusive traversal bounds; defaults preserve legacy behavior (min=1 unless max=0; max defaults to hops).
-    output_min_hops/output_max_hops: optional output slice applied after traversal; defaults to traversal bounds (min>1 copied to output_min). Useful for showing a subrange (e.g., min/max = 2..4 but display only hops 3..4).
+    output_min_hops/output_max_hops: optional output slice applied after traversal; defaults keep all traversed hops up to max_hops. Useful for showing a subrange (e.g., min/max = 2..4 but display only hops 3..4).
     label_node_hops/label_edge_hops: optional column names for hop numbers (omit or None to skip). Nodes record the first hop step they are reached (1 = first expansion); edges record the hop step that traversed them.
     label_seeds: when True and labeling, also write hop 0 for seed nodes in the node label column.
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
@@ -368,9 +368,7 @@ def hop(self: Plottable,
     if resolved_output_min is not None and resolved_output_max is not None and resolved_output_min > resolved_output_max:
         raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed output_max_hops ({resolved_output_max})')
 
-    # Default output slice mirrors traversal unless overridden
-    if resolved_output_min is None:
-        resolved_output_min = resolved_min_hops if resolved_min_hops > 1 else None
+    # Default output slice: include all traversed hops unless explicitly post-filtered
     if resolved_output_max is None:
         resolved_output_max = resolved_max_hops
 
@@ -458,7 +456,6 @@ def hop(self: Plottable,
         label_node_hops
         or label_edge_hops
         or label_seeds
-        or resolved_min_hops > 1
         or output_min_hops is not None
         or output_max_hops is not None
     )
@@ -504,6 +501,7 @@ def hop(self: Plottable,
     first_iter = True
     combined_node_ids = None
     current_hop = 0
+    max_reached_hop = 0
     while True:
 
         if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
@@ -621,6 +619,9 @@ def hop(self: Plottable,
                 + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),  # noqa: W503
             ignore_index=True, sort=False).drop_duplicates()
 
+        if len(new_node_ids) > 0:
+            max_reached_hop = current_hop
+
         if track_edge_hops and edge_hop_col is not None:
             assert seen_edge_marker_col is not None
             edge_label_candidates : List[DataFrameT] = []
@@ -729,6 +730,14 @@ def hop(self: Plottable,
         logger.debug('nodes (self):\n%s', self._nodes)
         logger.debug('nodes (init):\n%s', nodes)
         logger.debug('target_wave_front:\n%s', target_wave_front)
+
+    if resolved_min_hops is not None and max_reached_hop < resolved_min_hops:
+        matches_nodes = starting_nodes[[g2._node]][:0]
+        matches_edges = edges_indexed[[EDGE_ID]][:0]
+        if node_hop_records is not None:
+            node_hop_records = node_hop_records[:0]
+        if edge_hop_records is not None:
+            edge_hop_records = edge_hop_records[:0]
 
     #hydrate edges
     if track_edge_hops and edge_hop_col is not None:

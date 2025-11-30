@@ -204,7 +204,7 @@ Performing Multi-Hop Traversals
 **Explanation**:
 
 - `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. If you set `label_node_hops`/`label_edge_hops`, those column names will store the hop step (nodes = first arrival, edges = traversal step); omit or `None` to skip labels.
-- `output_min_hops`/`output_max_hops` (optional) slice the displayed hops after traversal—for example, traverse 2..4 hops but only show hops 3..4 in the output.
+- `output_min_hops`/`output_max_hops` (optional) slice the displayed hops after traversal. By default, all traversed hops up to `max_hops` remain visible; set `output_min_hops` if you want to drop early hops (e.g., traverse 2..4 but only show 3..4). Invalid slices (e.g., `output_min_hops` > `max_hops` or `output_max_hops` < `min_hops`) raise a `ValueError`.
 
 **Explanation**:
 

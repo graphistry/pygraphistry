@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 import graphistry
 from common import NoAuthTestCase
 from functools import lru_cache
@@ -225,15 +226,29 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=3)
-        assert set(g2._nodes[g2._node].to_list()) == {'c', 'd'}
-        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
+        assert set(g2._nodes[g2._node].to_list()) == {'a', 'b', 'c', 'd'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c'), ('c', 'd')}
+
+    def test_hop_min_not_reached_returns_empty(self):
+        edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=4, max_hops=4)
+        assert g2._nodes.empty
+        assert g2._edges.empty
 
     def test_hop_exact_three_branch(self):
         g = branching_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=3, max_hops=3)
-        assert set(g2._nodes[g._node].to_list()) == {'d1'}
-        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('c1', 'd1')}
+        assert set(g2._nodes[g._node].to_list()) == {'a', 'b1', 'b2', 'c1', 'c2', 'd1'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {
+            ('a', 'b1'),
+            ('a', 'b2'),
+            ('b1', 'c1'),
+            ('b2', 'c2'),
+            ('c1', 'd1'),
+        }
 
     def test_hop_labels_nodes_edges(self):
         g = simple_chain_graph()
@@ -264,9 +279,27 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop')
-        assert set(g2._nodes[g._node].to_list()) == {'c'}
-        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
-        assert set(g2._edges['edge_hop'].to_list()) == {2}
+        assert set(g2._nodes[g._node].to_list()) == {'b', 'c'}
+        assert set(g2._nodes['hop'].to_list()) == {1, 2}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c')}
+        assert set(g2._edges['edge_hop'].to_list()) == {1, 2}
+
+    def test_hop_output_slice_below_min_keeps_path(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(
+            seeds,
+            min_hops=3,
+            max_hops=3,
+            output_min_hops=1,
+            label_node_hops='hop',
+            label_edge_hops='edge_hop',
+            label_seeds=True
+        )
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+        edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
+        assert edge_hops == {('a', 'b', 1), ('b', 'c', 2), ('c', 'd', 3)}
 
     def test_hop_output_slice_range(self):
         g = branching_chain_graph()
@@ -287,27 +320,63 @@ class TestComputeHopMixin(NoAuthTestCase):
             ('d1', 'e1', 4)
         }
 
+    def test_hop_output_slice_min_above_max_raises(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        with pytest.raises(ValueError, match='output_min_hops .* cannot exceed max_hops'):
+            g.hop(seeds, min_hops=2, max_hops=3, output_min_hops=4)
+
+    def test_hop_output_slice_max_below_min_raises(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        with pytest.raises(ValueError, match='output_max_hops .* cannot be below min_hops'):
+            g.hop(seeds, min_hops=2, max_hops=3, output_max_hops=1)
+
+    def test_hop_output_slice_max_above_traversal_allowed(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(seeds, min_hops=2, max_hops=2, output_max_hops=5, label_edge_hops='edge_hop')
+        # Output cap respects traversal; no extra hops are produced
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c')}
+        assert set(g2._edges['edge_hop']) == {1, 2}
+
+    def test_hop_output_slice_without_labels(self):
+        g = branching_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(
+            seeds,
+            min_hops=2,
+            max_hops=3,
+            output_min_hops=3,
+            output_max_hops=3
+        )
+        # Output slice applies even without explicit labels; label columns are dropped
+        assert set(g2._nodes[g._node].to_list()) == {'d1'}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('c1', 'd1')}
+        assert 'hop' not in g2._nodes.columns
+        assert 'edge_hop' not in g2._edges.columns
+
     def test_hop_cycle_min_gt_one(self):
         # Cycle a->b->c->a; ensure min>1 does not loop infinitely and labels stick to earliest hop
         edges = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
         g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=3, label_node_hops='hop', label_edge_hops='edge_hop')
-        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'a')}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c'), ('c', 'a')}
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
         assert node_hops['a'] == 3  # first return to seed at hop 3
-        assert node_hops.get('c') == 2
-        assert set(g2._edges['edge_hop']) == {2, 3}
+        assert node_hops['b'] == 1 and node_hops['c'] == 2
+        assert set(g2._edges['edge_hop']) == {1, 2, 3}
 
     def test_hop_undirected_min_gt_one(self):
         edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
         g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, direction='undirected', min_hops=2, max_hops=3, label_node_hops='hop', label_edge_hops='edge_hop')
-        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c')}
-        assert set(g2._edges['edge_hop']) == {2}
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c')}
+        assert set(g2._edges['edge_hop']) == {1, 2}
         node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
-        assert node_hops.get('c') == 2
+        assert node_hops.get('b') == 1 and node_hops.get('c') == 2
 
     def test_hop_label_collision_suffix(self):
         # Existing hop column should be preserved; new label suffixes
