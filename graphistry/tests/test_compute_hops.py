@@ -595,6 +595,31 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(zip(g2._edges[g._source], g2._edges[g._destination], g2._edges['edge_hop'])) == {('b', 'c', 2), ('c', 'd', 3)}
         assert set(g2._edges[g._source]).union(set(g2._edges[g._destination])) <= set(g2._nodes[g._node])
 
+    def test_gfql_chain_output_slice_monotonic_paths(self):
+        g = simple_chain_graph()
+        seeds = ['a']
+        chain = [
+            {'type': 'Node', 'filter_dict': {g._node: is_in(seeds)}},
+            {
+                'type': 'Edge',
+                'direction': 'forward',
+                'min_hops': 1,
+                'max_hops': 3,
+                'output_min_hops': 2,
+                'label_node_hops': 'hop',
+                'label_edge_hops': 'edge_hop',
+            },
+            {'type': 'Node'},  # keep reachable slice after traversal/slicing
+        ]
+        g2 = g.gfql(chain)
+        hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        labeled = {k: v for k, v in hops.items() if pd.notna(v)}
+        assert labeled == {'c': 2, 'd': 3}
+        # Edges should only be from the sliced hops; earlier hop edges excluded
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
+        # Edge endpoints remain present in nodes
+        assert set(g2._edges['s']).union(set(g2._edges['d'])) <= set(g2._nodes[g._node])
+
 class TestComputeHopMixinQuery(NoAuthTestCase):
 
     def test_hop_source_query(self):
