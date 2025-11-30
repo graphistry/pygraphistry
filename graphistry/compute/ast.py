@@ -584,7 +584,7 @@ class ASTEdge(ASTObject):
             nodes=prev_node_wavefront,
             hops=self.hops,
             min_hops=resolved_min_hops,
-            max_hops=self.max_hops,
+            max_hops=resolved_max_hops,
             output_min_hops=resolved_output_min,
             output_max_hops=resolved_output_max,
             label_node_hops=label_node_hops,
