@@ -303,7 +303,6 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install --upgrade torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
-        python -m pip install --upgrade dgl==2.1.0
         python -m pip install -e .[test,testai,umap-learn]
 
     - name: Warm HF cache (sentence-transformers)
@@ -515,7 +514,7 @@ jobs:
   test-dgl-cpu:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
       PIP_PREFER_BINARY: "1"
@@ -529,7 +528,7 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install DGL stack (CPU)
+    - name: Install DGL stack (CPU, legacy)
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
@@ -537,7 +536,7 @@ jobs:
         python -m pip install torch==2.1.0
         python -m pip install torchdata==0.6.1
         python -m pip install dgl==2.1.0
-        python -m pip install -e .[test,testai,ai]
+        python -m pip install -e .[test,testai,ai,dgl]
 
     - name: Run DGL tests
       env:

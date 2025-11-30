@@ -70,7 +70,9 @@ base_extras_heavy = {
   ],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+# Legacy DGL extra (CPU limited to torch~2.0/2.1)
+base_extras_heavy['dgl'] = ['dgl>=2.1.0,<2.2.0', 'torchdata>=0.6.0']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
