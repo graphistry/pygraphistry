@@ -153,6 +153,48 @@ CASES = [
         ],
         [n({"type": "account"}, name="root"), e_forward({"type": "txn"}, name="first_hop"), n({"type": "account"}, name="child")],
     ),
+    (
+        "forward_labels",
+        [
+            {"id": "acct1", "type": "account"},
+            {"id": "acct2", "type": "account"},
+            {"id": "acct3", "type": "account"},
+        ],
+        [
+            {"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"},
+            {"edge_id": "e2", "src": "acct2", "dst": "acct3", "type": "txn"},
+        ],
+        [
+            n({"type": "account"}, name="start"),
+            e_forward(
+                {"type": "txn"},
+                name="hop",
+                label_node_hops="node_hop",
+                label_edge_hops="edge_hop",
+                label_seeds=True,
+            ),
+            n({"type": "account"}, name="end"),
+        ],
+    ),
+    (
+        "reverse_two_hop",
+        [
+            {"id": "acct1", "type": "account"},
+            {"id": "acct2", "type": "account"},
+            {"id": "user1", "type": "user"},
+        ],
+        [
+            {"edge_id": "txn1", "src": "acct1", "dst": "acct2", "type": "txn"},
+            {"edge_id": "owns1", "src": "acct2", "dst": "user1", "type": "owns"},
+        ],
+        [
+            n({"type": "user"}, name="user_end"),
+            e_reverse({"type": "owns"}, name="owns_rev"),
+            n({"type": "account"}, name="acct_mid"),
+            e_reverse({"type": "txn"}, name="txn_rev"),
+            n({"type": "account"}, name="acct_start"),
+        ],
+    ),
 ]
 
 
