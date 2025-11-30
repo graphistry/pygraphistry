@@ -254,9 +254,6 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      HF_HOME: ${{ runner.temp }}/hf-cache
-      HF_HUB_CACHE: ${{ runner.temp }}/hf-cache
 
     strategy:
       matrix:
@@ -277,6 +274,11 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
 
     - name: Prepare HF cache directory
       run: |
@@ -362,9 +364,6 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      HF_HOME: ${{ runner.temp }}/hf-cache
-      HF_HUB_CACHE: ${{ runner.temp }}/hf-cache
 
     strategy:
       matrix:
@@ -388,6 +387,11 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
 
     - name: Prepare HF cache directory
       run: |
