@@ -564,6 +564,8 @@ class ASTEdge(ASTObject):
         # Avoid slicing during traversal but keep hop labels so the final combine step can filter.
         resolved_output_min = None if return_wavefront else self.output_min_hops
         resolved_output_max = None if return_wavefront else self.output_max_hops
+        # Loosen min bound during wavefront traversal to keep paths alive for backward/forward phases; final min is enforced later.
+        resolved_min_hops = 0 if return_wavefront else self.min_hops
 
         label_node_hops = self.label_node_hops
         label_edge_hops = self.label_edge_hops
@@ -575,7 +577,7 @@ class ASTEdge(ASTObject):
         out_g = g.hop(
             nodes=prev_node_wavefront,
             hops=self.hops,
-            min_hops=self.min_hops,
+            min_hops=resolved_min_hops,
             max_hops=self.max_hops,
             output_min_hops=resolved_output_min,
             output_max_hops=resolved_output_max,
