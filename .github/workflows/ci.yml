@@ -300,8 +300,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install --upgrade torch==2.7.1+cpu -f https://download.pytorch.org/whl/cpu
-        python -m pip install --upgrade dgl==2.1.0 -f https://data.dgl.ai/wheels/repo.html
+        python -m pip install --upgrade torch==2.9.1+cpu -f https://download.pytorch.org/whl/cpu
+        python -m pip install --upgrade dgl==2.4.0 -f https://data.dgl.ai/wheels/repo.html
         python -m pip install -e .[test,testai,umap-learn]
 
     - name: Warm HF cache (sentence-transformers)
@@ -419,8 +419,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install --upgrade torch==2.7.1+cpu -f https://download.pytorch.org/whl/cpu
-        python -m pip install --upgrade dgl==2.1.0 -f https://data.dgl.ai/wheels/repo.html
+        python -m pip install --upgrade torch==2.9.1+cpu -f https://download.pytorch.org/whl/cpu
+        python -m pip install --upgrade dgl==2.4.0 -f https://data.dgl.ai/wheels/repo.html
         python -m pip install -e .[test,testai,ai]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
