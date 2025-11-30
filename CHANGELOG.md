@@ -16,6 +16,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
+### Infra
+- **CI / HuggingFace cache**: Prewarm sentence-transformers models into a shared `HF_HOME` cache via Actions cache (per-OS key), then run `test-core-umap` and `test-full-ai` with `HF_HUB_OFFLINE=1` to avoid HF 429s in `feature_utils` tests; falls back gracefully when `HF_TOKEN` is unavailable (#853).
+
 ## [0.45.9 - 2025-11-10]
 
 ### Fixed
