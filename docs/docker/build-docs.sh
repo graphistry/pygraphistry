@@ -31,6 +31,9 @@ build_pdf() {
 
 # Build docs first
 case "$DOCS_FORMAT" in
+    latexpdf)
+        build_pdf
+        ;;
     html)
         build_html
         ;;
