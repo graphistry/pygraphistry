@@ -119,6 +119,50 @@ class Test_graphviz():
         svg = g_with_xy.plot_static(format='svg', reuse_layout=True, max_nodes=100, max_edges=200)
         assert b'<svg' in svg
 
+    def test_plot_static_dot(self, chain_g: Plottable, tmp_path) -> None:
+        dot_str = chain_g.plot_static(engine='graphviz-dot', reuse_layout=False)
+        assert isinstance(dot_str, str)
+        assert '->' in dot_str
+        dot_path = tmp_path / "graph.dot"
+        chain_g.plot_static(engine='graphviz-dot', reuse_layout=True, path=str(dot_path))
+        assert dot_path.exists()
+        with open(dot_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        assert 'pos' in text
+
+    def test_plot_static_mermaid(self, chain_g: Plottable, tmp_path) -> None:
+        mermaid = chain_g.plot_static(engine='mermaid-code', reuse_layout=False)
+        assert isinstance(mermaid, str)
+        assert 'graph LR' in mermaid
+        assert '-->' in mermaid
+        mmd_path = tmp_path / "graph.mmd"
+        chain_g.plot_static(engine='mermaid-code', reuse_layout=True, path=str(mmd_path))
+        assert mmd_path.exists()
+        with open(mmd_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        assert 'graph LR' in text
+    def test_plot_static_dot(self, chain_g: Plottable, tmp_path) -> None:
+        dot_str = chain_g.plot_static(engine='graphviz-dot', reuse_layout=False)
+        assert isinstance(dot_str, str)
+        assert '->' in dot_str
+        dot_path = tmp_path / "graph.dot"
+        chain_g.plot_static(engine='graphviz-dot', reuse_layout=True, path=str(dot_path))
+        assert dot_path.exists()
+        with open(dot_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        assert 'pos' in text
+
+    def test_plot_static_mermaid(self, chain_g: Plottable, tmp_path) -> None:
+        mermaid = chain_g.plot_static(engine='mermaid-code', reuse_layout=False)
+        assert isinstance(mermaid, str)
+        assert 'graph LR' in mermaid
+        assert '-->' in mermaid
+        mmd_path = tmp_path / "graph.mmd"
+        chain_g.plot_static(engine='mermaid-code', reuse_layout=True, path=str(mmd_path))
+        assert mmd_path.exists()
+        with open(mmd_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        assert 'graph LR' in text
     def test_render_graphviz_bytes(self, tree_g: Plottable) -> None:
 
         svg_bytes = render_graphviz(tree_g, "dot", format="svg", max_nodes=100, max_edges=200)

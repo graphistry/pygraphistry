@@ -23,7 +23,8 @@ def g_to_pgv(
     g: Plottable,
     directed: bool = True,
     strict: bool = False,
-    drop_unsanitary: bool = False
+    drop_unsanitary: bool = False,
+    include_positions: bool = False
 ) -> AGraph:
 
     import pygraphviz as pgv
@@ -43,10 +44,21 @@ def g_to_pgv(
             if c in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary node_attr {c} is not allowed")
 
+    pos_cols = None
+    if include_positions:
+        # prefer bound x/y; fallback to literal x/y columns
+        x_col = g._point_x or ('x' if 'x' in g._nodes.columns else None)
+        y_col = g._point_y or ('y' if 'y' in g._nodes.columns else None)
+        if x_col and y_col and x_col in g._nodes.columns and y_col in g._nodes.columns:
+            pos_cols = (x_col, y_col)
+
     for _, row in g._nodes.iterrows():
+        attrs = {c: row[c] for c in node_attr_cols if row[c] is not None}
+        if pos_cols is not None:
+            attrs['pos'] = f"{row[pos_cols[0]]},{row[pos_cols[1]]}"
         graph.add_node(
             row[g._node],
-            **{c: row[c] for c in node_attr_cols if row[c] is not None}
+            **attrs
         )
 
     edge_attr_cols: Set[EdgeAttr] = {
@@ -100,9 +112,10 @@ def layout_graphviz_core(
     node_attr: Optional[Dict[NodeAttr, Any]] = None,
     edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
     drop_unsanitary: bool = False,
+    include_positions: bool = False,
 ) -> AGraph:
 
-    graph = g_to_pgv(g, directed, strict, drop_unsanitary)
+    graph = g_to_pgv(g, directed, strict, drop_unsanitary, include_positions)
 
     if graph_attr is not None:
         for k, v in graph_attr.items():
@@ -313,6 +326,7 @@ def render_graphviz(
     max_nodes: Optional[int] = None,
     max_edges: Optional[int] = None,
     path: Optional[str] = None,
+    include_positions: bool = False,
 ) -> bytes:
     """
     Render a graph to an image via graphviz and return the rendered bytes.
@@ -372,7 +386,8 @@ def render_graphviz(
         graph_attr=graph_attr,
         node_attr=node_attr,
         edge_attr=edge_attr,
-        drop_unsanitary=drop_unsanitary
+        drop_unsanitary=drop_unsanitary,
+        include_positions=include_positions
     )
 
     target_path = path

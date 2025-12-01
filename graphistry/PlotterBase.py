@@ -2437,7 +2437,7 @@ class PlotterBase(Plottable):
         self,
         format: Format = 'svg',
         path: Optional[str] = None,
-        engine: str = 'graphviz',
+        engine: str = 'graphviz-svg',
         prog: Prog = 'dot',
         args: Optional[str] = None,
         reuse_layout: bool = True,
@@ -2449,17 +2449,22 @@ class PlotterBase(Plottable):
         drop_unsanitary: bool = False,
         max_nodes: Optional[int] = None,
         max_edges: Optional[int] = None,
-    ) -> bytes:
+    ) -> Union[bytes, str]:
         """
         Render a static image of the current graph (e.g., for notebooks/docs).
+
+        Engines:
+        - graphviz-svg (default) / graphviz-png: render image bytes (optionally write to path)
+        - graphviz-dot: return DOT string (optionally write to path)
+        - mermaid-code: return Mermaid DSL string (optionally write to path)
 
         If point x/y encodings are bound (or columns named x/y exist), reuse them for rendering.
         Otherwise, Graphviz lays out the graph. When positions are reused, Graphviz is invoked
         with ``neato -n2`` to respect them.
 
-        :param format: Output format, e.g., 'svg' or 'png'
-        :param path: Optional path to also write the image
-        :param engine: Rendering engine; currently supports 'graphviz'
+        :param format: Output format, e.g., 'svg' or 'png' (graphviz engines)
+        :param path: Optional path to also write the image/text
+        :param engine: Rendering engine; supports graphviz-svg/png, graphviz-dot, mermaid-code
         :param prog: Graphviz layout program when computing layout
         :param args: Optional args passed to graphviz (e.g., '-n2' when reusing positions)
         :param reuse_layout: If True and positions are bound/available, reuse them; else layout
@@ -2471,10 +2476,10 @@ class PlotterBase(Plottable):
         :param drop_unsanitary: Reject unsanitary attributes
         :param max_nodes: Optional cap on node count
         :param max_edges: Optional cap on edge count
-        :return: Rendered image bytes
+        :return: Rendered image bytes or DOT/Mermaid string, depending on engine
         """
 
-        if engine != 'graphviz':
+        if engine not in ('graphviz', 'graphviz-svg', 'graphviz-png', 'graphviz-dot', 'mermaid-code'):
             raise ValueError(f"Unsupported static engine {engine}")
 
         g: Plottable = self
@@ -2506,21 +2511,68 @@ class PlotterBase(Plottable):
             if render_args is None:
                 render_args = '-n2'
 
-        return render_graphviz(
-            g_render,
-            prog=render_prog,
-            args=render_args,
-            format=format,
-            directed=directed,
-            strict=strict,
-            graph_attr=graph_attr,
-            node_attr=node_attr,
-            edge_attr=edge_attr,
-            drop_unsanitary=drop_unsanitary,
-            max_nodes=max_nodes,
-            max_edges=max_edges,
-            path=path
-        )
+        # Engine routing
+        if engine in ('graphviz', 'graphviz-svg', 'graphviz-png'):
+            fmt = format
+            if engine == 'graphviz-png':
+                fmt = 'png'
+            elif engine in ('graphviz', 'graphviz-svg') and fmt not in ('svg', 'png'):
+                fmt = 'svg'
+            return render_graphviz(
+                g_render,
+                prog=render_prog,
+                args=render_args,
+                format=fmt,
+                directed=directed,
+                strict=strict,
+                graph_attr=graph_attr,
+                node_attr=node_attr,
+                edge_attr=edge_attr,
+                drop_unsanitary=drop_unsanitary,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                path=path
+            )
+
+        if engine == 'graphviz-dot':
+            from graphistry.plugins.graphviz import layout_graphviz_core
+            graph = layout_graphviz_core(
+                g_render,
+                prog=render_prog,
+                args=render_args,
+                directed=directed,
+                strict=strict,
+                graph_attr=graph_attr,
+                node_attr=node_attr,
+                edge_attr=edge_attr,
+                drop_unsanitary=drop_unsanitary,
+                include_positions=use_positions
+            )
+            dot = graph.to_string()
+            if path is not None:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(dot)
+            return dot
+
+        if engine == 'mermaid-code':
+            # Minimal Mermaid formatter: graph LR with edges; optional positions as comments
+            # Only supports directed graphs for now (Graphviz prog covers hierarchy)
+            lines = ["graph LR"]
+            nodes_df = g_render._nodes
+            edges_df = g_render._edges
+            # Add edges
+            for _, row in edges_df.iterrows():
+                lines.append(f"    {row[g_render._source]} --> {row[g_render._destination]}")
+            if use_positions and x_col and y_col:
+                for _, row in nodes_df.iterrows():
+                    lines.append(f"    %% pos {row[g_render._node]}: {row[x_col]},{row[y_col]}")
+            mermaid_text = "\n".join(lines)
+            if path is not None:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(mermaid_text)
+            return mermaid_text
+
+        raise ValueError(f"Unexpected engine {engine}")
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
