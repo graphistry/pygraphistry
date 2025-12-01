@@ -8,10 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-## [0.45.10 - 2025-11-19]
+## [0.46.0 - 2025-12-01]
 
 ### Added
-- **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
 - **Plot: Geographic visualization support with Kepler.gl integration** (#799)
   * New bindings: `point_longitude` and `point_latitude` for specifying geographic coordinates
   * Kepler.gl encoding methods: `encode_kepler()`, `encode_kepler_dataset()`, `encode_kepler_layer()`, `encode_kepler_options()`, `encode_kepler_config()`
@@ -19,6 +18,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `mercator_layout()` - Convert lat/lon to Mercator projection with GPU/CPU support
   * Comprehensive user guide and API documentation
   * Added 55 tests in `test_kepler.py` and 6 tests in `test_layout.py`
+
+## [0.45.10 - 2025-11-19]
+
+### Added
+- **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
 
 ### Fixed
 - **Auth:** Work around server issue [graphistry/graphistry#2933](https://github.com/graphistry/graphistry/issues/2933) by automatically calling `/api/v2/o/<slug>/switch/` in ArrowUploader logins, SSO, and token refresh paths so `org_name` is honored for entitlements. Track the last `(org, token)` we switched to in the session to avoid redundant calls. (PR [#832](https://github.com/graphistry/pygraphistry/pull/832))
