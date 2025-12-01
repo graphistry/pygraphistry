@@ -15,7 +15,8 @@ from graphistry.client_session import ClientSession, AuthManagerProtocol, Datase
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
-from .plugins.graphviz import layout_graphviz
+from .plugins.graphviz import layout_graphviz, render_graphviz
+from graphistry.plugins_types.graphviz_types import Format, Prog, GraphAttr, NodeAttr, EdgeAttr
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
@@ -2430,6 +2431,96 @@ class PlotterBase(Plottable):
     layout_cugraph = layout_cugraph
 
     layout_graphviz = layout_graphviz
+    render_graphviz = render_graphviz
+
+    def plot_static(
+        self,
+        format: Format = 'svg',
+        path: Optional[str] = None,
+        engine: str = 'graphviz',
+        prog: Prog = 'dot',
+        args: Optional[str] = None,
+        reuse_layout: bool = True,
+        directed: bool = True,
+        strict: bool = False,
+        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+        node_attr: Optional[Dict[NodeAttr, Any]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+        drop_unsanitary: bool = False,
+        max_nodes: Optional[int] = None,
+        max_edges: Optional[int] = None,
+    ) -> bytes:
+        """
+        Render a static image of the current graph (e.g., for notebooks/docs).
+
+        If point x/y encodings are bound (or columns named x/y exist), reuse them for rendering.
+        Otherwise, Graphviz lays out the graph. When positions are reused, Graphviz is invoked
+        with ``neato -n2`` to respect them.
+
+        :param format: Output format, e.g., 'svg' or 'png'
+        :param path: Optional path to also write the image
+        :param engine: Rendering engine; currently supports 'graphviz'
+        :param prog: Graphviz layout program when computing layout
+        :param args: Optional args passed to graphviz (e.g., '-n2' when reusing positions)
+        :param reuse_layout: If True and positions are bound/available, reuse them; else layout
+        :param directed: Graphviz directed flag
+        :param strict: Graphviz strict flag
+        :param graph_attr: Graphviz graph attributes
+        :param node_attr: Graphviz node attributes
+        :param edge_attr: Graphviz edge attributes
+        :param drop_unsanitary: Reject unsanitary attributes
+        :param max_nodes: Optional cap on node count
+        :param max_edges: Optional cap on edge count
+        :return: Rendered image bytes
+        """
+
+        if engine != 'graphviz':
+            raise ValueError(f"Unsupported static engine {engine}")
+
+        g: Plottable = self
+        if g._edges is None:
+            raise ValueError("plot_static requires edges to be set")
+        if g._nodes is None:
+            g = g.materialize_nodes()
+            assert g._nodes is not None
+
+        x_col: Optional[str] = g._point_x
+        y_col: Optional[str] = g._point_y
+
+        if reuse_layout and (x_col is None or y_col is None):
+            if 'x' in g._nodes.columns and 'y' in g._nodes.columns:
+                x_col, y_col = 'x', 'y'
+
+        use_positions = reuse_layout and x_col is not None and y_col is not None
+
+        g_render = g
+        render_prog = prog
+        render_args = args
+
+        if use_positions:
+            if x_col not in g._nodes or y_col not in g._nodes:
+                raise ValueError(f"Did not find position columns {x_col}/{y_col} in nodes")
+            pos_col = g._nodes[x_col].astype(str) + ',' + g._nodes[y_col].astype(str)
+            g_render = g_render.nodes(lambda gtmp: gtmp._nodes.assign(pos=pos_col))
+            render_prog = 'neato'
+            if render_args is None:
+                render_args = '-n2'
+
+        return render_graphviz(
+            g_render,
+            prog=render_prog,
+            args=render_args,
+            format=format,
+            directed=directed,
+            strict=strict,
+            graph_attr=graph_attr,
+            node_attr=node_attr,
+            edge_attr=edge_attr,
+            drop_unsanitary=drop_unsanitary,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+            path=path
+        )
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:

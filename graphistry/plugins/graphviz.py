@@ -1,5 +1,7 @@
 from typing import Any, Dict, Optional, Set
 import logging
+import os
+import tempfile
 import pandas as pd
   
 from graphistry.Plottable import Plottable
@@ -128,10 +130,9 @@ def layout_graphviz_core(
         raise ValueError(f"Unknown prog {prog}, expected one of {PROGS}")
 
     if args:
-        #TODO: Security reasoning
-        raise NotImplementedError("NotImplementedError: Passthrough of commandline arguments not implemented")
-
-    graph.layout(prog=prog)
+        graph.layout(prog=prog, args=args)
+    else:
+        graph.layout(prog=prog)
 
     return graph
 
@@ -296,3 +297,101 @@ def layout_graphviz(
         g3 = g2
 
     return g3
+
+
+def render_graphviz(
+    self: Plottable,
+    prog: Prog = 'dot',
+    format: Format = 'svg',
+    args: Optional[str] = None,
+    directed: bool = True,
+    strict: bool = False,
+    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
+    node_attr: Optional[Dict[NodeAttr, Any]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    drop_unsanitary: bool = False,
+    max_nodes: Optional[int] = None,
+    max_edges: Optional[int] = None,
+    path: Optional[str] = None,
+) -> bytes:
+    """
+    Render a graph to an image via graphviz and return the rendered bytes.
+
+    This wraps :func:`layout_graphviz_core` to compute positions, then draws with pygraphviz.
+    Optionally enforces caps to keep renders small/deterministic for docs/examples.
+
+    :param self: Base graph
+    :type self: Plottable
+    :param prog: Layout algorithm
+    :type prog: :py:data:`graphistry.plugins_types.graphviz_types.Prog`
+    :param format: Render format
+    :type format: :py:data:`graphistry.plugins_types.graphviz_types.Format`
+    :param directed: Whether the graph is directed
+    :type directed: bool
+    :param strict: Whether to treat the graph as strict
+    :type strict: bool
+    :param graph_attr: Graph-level attributes
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, Any]]
+    :param node_attr: Node-level attributes
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, Any]]
+    :param edge_attr: Edge-level attributes
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, Any]]
+    :param drop_unsanitary: Reject unsanitary attrs
+    :type drop_unsanitary: bool
+    :param max_nodes: Optional cap on nodes for rendering
+    :type max_nodes: Optional[int]
+    :param max_edges: Optional cap on edges for rendering
+    :type max_edges: Optional[int]
+    :param path: Optional path to also write the render
+    :type path: Optional[str]
+    :return: Rendered bytes (SVG/PNG/etc.)
+    :rtype: bytes
+    """
+
+    g = self
+    if g._edges is None:
+        raise ValueError("render_graphviz requires edges to be set")
+    if g._nodes is None:
+        g = g.materialize_nodes()
+        assert g._nodes is not None
+
+    if max_nodes is not None and len(g._nodes) > max_nodes:
+        raise ValueError(f"Graph has {len(g._nodes)} nodes; exceeds max_nodes={max_nodes}")
+    if max_edges is not None and len(g._edges) > max_edges:
+        raise ValueError(f"Graph has {len(g._edges)} edges; exceeds max_edges={max_edges}")
+
+    if format not in FORMATS:
+        raise ValueError(f"Unknown format {format}, expected one of {FORMATS}")
+
+    graph = layout_graphviz_core(
+        g,
+        prog,
+        args=args,
+        directed=directed,
+        strict=strict,
+        graph_attr=graph_attr,
+        node_attr=node_attr,
+        edge_attr=edge_attr,
+        drop_unsanitary=drop_unsanitary
+    )
+
+    target_path = path
+    cleanup_path: Optional[str] = None
+    if target_path is None:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f'.{format}')
+        tmp.close()
+        target_path = tmp.name
+        cleanup_path = target_path
+
+    graph.draw(path=target_path, format=format)
+
+    with open(target_path, 'rb') as f:
+        data = f.read()
+
+    if cleanup_path is not None:
+        try:
+            os.remove(cleanup_path)
+        except OSError:
+            logger.warning("Unable to remove temporary graphviz render at %s", cleanup_path)
+
+    return data
