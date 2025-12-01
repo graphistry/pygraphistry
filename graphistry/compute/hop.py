@@ -1040,9 +1040,9 @@ def hop(self: Plottable,
         else:
             seen_nodes = set(node_hop_records[g_out._node].dropna().tolist())
             seed_ids = starting_nodes[g_out._node].dropna().unique().tolist()
-            seeds_not_reached = set(seed_ids) - seen_nodes
-            if seeds_not_reached:
-                mask = g_out._nodes[g_out._node].isin(seeds_not_reached)
+            unreached_seed_ids = set(seed_ids) - seen_nodes
+            if unreached_seed_ids:
+                mask = g_out._nodes[g_out._node].isin(unreached_seed_ids)
                 g_out._nodes.loc[mask, node_hop_col] = pd.NA
 
     if g_out._nodes is not None and (final_output_min is not None or final_output_max is not None):
