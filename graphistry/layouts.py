@@ -7,6 +7,7 @@ from .layout import (
     circle_layout as circle_layout_base,
     fa2_layout,
     group_in_a_box_layout as group_in_a_box_layout_base,
+    mercator_layout as mercator_layout_base,
     modularity_weighted_layout as modularity_weighted_layout_base,
     ring_categorical as ring_categorical_base,
     ring_continuous as ring_continuous_base,
@@ -133,7 +134,7 @@ class LayoutsMixin(Plottable):
             raise ValueError("No points set yet")
         if g._point_x not in g._nodes or g._point_y not in g._nodes:
             raise ValueError(f'Did not find position columns {g._point_x} or {g._point_y} in nodes')
-        
+
         g2 = g.nodes(
             g._nodes.assign(
                 **{
@@ -143,6 +144,9 @@ class LayoutsMixin(Plottable):
             ))
         return g2
 
+    def mercator_layout(self, *args, **kwargs):
+        return mercator_layout_base(self, *args, **kwargs)
+    mercator_layout.__doc__ = mercator_layout_base.__doc__
 
     def label_components(self):
         """

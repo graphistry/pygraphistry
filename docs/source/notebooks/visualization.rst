@@ -15,6 +15,16 @@ Encodings
    Icons <../demos/more_examples/graphistry_features/encodings-icons.ipynb>
    Badges <../demos/more_examples/graphistry_features/encodings-badges.ipynb>
 
+Geographic (Kepler.gl)
+----------------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Geographic visualization with Kepler.gl
+   :titlesonly:
+
+   Geospatial Network Visualization <../demos/more_examples/graphistry_features/layout_map.ipynb>
+
 Layout
 -------
 

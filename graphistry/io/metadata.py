@@ -72,7 +72,9 @@ def serialize_node_bindings(g: 'Plottable') -> Dict[str, str]:
         ['_point_weight', 'node_weight'],
         ['_point_icon', 'node_icon'],
         ['_point_x', 'node_x'],
-        ['_point_y', 'node_y']
+        ['_point_y', 'node_y'],
+        ['_point_longitude', 'node_longitude'],
+        ['_point_latitude', 'node_latitude']
     ])
 
 
