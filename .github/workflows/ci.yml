@@ -24,6 +24,7 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
+      docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
     - uses: dorny/paths-filter@v3
@@ -58,10 +59,35 @@ jobs:
             - 'demos/**'
             - 'notebooks/**'
 
+    - name: Detect docs-only change on tip
+      id: docs_only_latest
+      run: |
+        # Compare the latest commit to its immediate predecessor (push)
+        # or to the PR base (pull_request) to see if ONLY docs files changed.
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          # Compare the tip commit to its immediate parent to see if the latest commit is docs-only.
+          base_ref=$(git rev-parse HEAD^ 2>/dev/null || true)
+          base_ref=${base_ref:-${{ github.event.pull_request.base.sha }}}
+        else
+          base_ref="${{ github.event.before }}"
+          base_ref=${base_ref:-HEAD^}
+        fi
+        changed_files=$(git diff --name-only "${base_ref}" HEAD || true)
+        docs_only=true
+        for f in $changed_files; do
+          if [[ "$f" == "README.md" || "$f" == "CHANGELOG.md" || "$f" == docs/* || "$f" == demos/* || "$f" == notebooks/* || "$f" == *.md || "$f" == *.rst ]]; then
+            continue
+          else
+            docs_only=false
+            break
+          fi
+        done
+        echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
+
   python-lint-types:
     needs: changes
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     
@@ -102,7 +128,7 @@ jobs:
   test-minimal-python:
     needs: [changes, python-lint-types]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
 
@@ -275,12 +301,83 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
+
+    - name: Prepare HF cache directory
+      run: |
+        mkdir -p "${HF_HOME}"
+
+    - name: Restore HF cache
+      id: hf-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.HF_HOME }}
+        key: hf-cache-${{ runner.os }}-v1
+        restore-keys: |
+          hf-cache-${{ runner.os }}-
+
     - name: Install test dependencies
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
+        python -m pip install --upgrade torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         python -m pip install -e .[test,testai,umap-learn]
+
+    - name: Warm HF cache (sentence-transformers)
+      id: warm-hf
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      run: |
+        mkdir -p "${HF_HOME}"
+        source pygraphistry/bin/activate
+        # Ensure sentence_transformers is available for warm step
+        python -m pip install --upgrade sentence-transformers
+        python - <<'PY'
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
+
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
+
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
+
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
+
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
+
+    - name: Enable HF offline for tests
+      run: |
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
+        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
+          echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
+          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
+        else
+          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
+          echo "HF cache not available; HF-dependent tests may skip or go online."
+        fi
 
     - name: Core feature tests (weak featurize)
       run: |
@@ -322,11 +419,32 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
+
+    - name: Prepare HF cache directory
+      run: |
+        mkdir -p "${HF_HOME}"
+
+    - name: Restore HF cache
+      id: hf-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.HF_HOME }}
+        key: hf-cache-${{ runner.os }}-v1
+        restore-keys: |
+          hf-cache-${{ runner.os }}-
+
     - name: Install test dependencies
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
+        python -m pip install --upgrade torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         python -m pip install -e .[test,testai,ai]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
@@ -334,6 +452,56 @@ jobs:
         echo "scikit-learn: `pip show scikit-learn | grep Version`"
         echo "scipy: `pip show scipy | grep Version`"
         echo "umap-learn: `pip show umap-learn | grep Version`"
+
+    - name: Warm HF cache (sentence-transformers)
+      id: warm-hf
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      run: |
+        mkdir -p "${HF_HOME}"
+        source pygraphistry/bin/activate
+        # Ensure sentence_transformers is available for warm step
+        python -m pip install --upgrade sentence-transformers
+        python - <<'PY'
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
+
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
+
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
+
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
+
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
+
+    - name: Enable HF offline for tests
+      run: |
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
+        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
+          echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
+          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
+        else
+          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
+          echo "HF cache not available; HF-dependent tests may skip or go online."
+        fi
 
     - name: Full dbscan tests (rich featurize)
       run: |
@@ -355,14 +523,49 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-umap-learn-core.sh
 
-    - name: Full embed tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-embed.sh
+  test-dgl-cpu:
+    needs: [changes, test-minimal-python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      PIP_PREFER_BINARY: "1"
+      DGLBACKEND: pytorch
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        lfs: true
 
-    - name: Full DGL tests (rich featurize)
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install DGL stack (CPU, legacy)
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        cat <<'EOF' > /tmp/dgl-constraints.txt
+        torch==2.0.1
+        torchdata==0.6.1
+        dgl==2.1.0
+        sentence-transformers==5.1.2
+        faiss-cpu
+        EOF
+        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
+        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
+
+    - name: Run DGL tests
+      env:
+        HF_HUB_OFFLINE: 1
+        HF_HOME: /tmp/hf-cache
+        HF_HUB_CACHE: /tmp/hf-cache
       run: |
         source pygraphistry/bin/activate
+        mkdir -p "${HF_HOME}"
+        pytest graphistry/tests/test_embed_utils.py graphistry/tests/test_dgl_utils.py -vv --disable-warnings -x
+        ./bin/test-embed.sh
         ./bin/test-dgl.sh
 
 

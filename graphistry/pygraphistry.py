@@ -141,7 +141,11 @@ class GraphistryClient(AuthManagerProtocol):
 
     def login(self, username: str, password: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
-        By default, must be reinvoked within 24hr."""
+        By default, must be reinvoked within 24hr.
+
+        Note: Hub keeps a separate “active organization” slot (defaulting to the personal org) that powers
+        `/api-token-verify()` and entitlement lookup. After the JWT login succeeds, ArrowUploader.login() still
+        needs to POST `/api/v2/o/<slug>/switch/` or the server continues enforcing the default org’s limits."""
         logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, self.org_name()))
 
         if not org_name:
@@ -237,6 +241,7 @@ class GraphistryClient(AuthManagerProtocol):
                 raise ValueError("ArrowUploader.sso_login returned no token")
             self.api_token(token)
             self.session._is_authenticated = True
+            self._maybe_switch_org(org_name or self.session.org_name)
             arrow_uploader.token = None  # type: ignore[assignment]
             return token
 
@@ -319,6 +324,7 @@ class GraphistryClient(AuthManagerProtocol):
                 # finish, set back to None
                 self.session.sso_state = None
                 print("Successfully logged in")
+                self._maybe_switch_org(org_name)
                 return self.api_token()
             else:
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
@@ -344,6 +350,7 @@ class GraphistryClient(AuthManagerProtocol):
         token, org_name = self._sso_get_token()
         # set org_name to sso org
         self.session.org_name = org_name
+        self._maybe_switch_org(org_name)
         return token
 
     def _sso_get_token(self) -> Tuple[Optional[str], Optional[str]]:
@@ -402,6 +409,7 @@ class GraphistryClient(AuthManagerProtocol):
             )
             self.api_token(token)
             self.session._is_authenticated = True
+            self._maybe_switch_org(self.session.org_name)
             return self.api_token()
         except Exception as e:
 
@@ -722,6 +730,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.login(username, password, org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif (username is None and not (password is None)):
             raise Exception(MSG_REGISTER_MISSING_USERNAME)
         elif not (username is None) and password is None:
@@ -730,6 +739,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif personal_key_id is None and not (personal_key_secret is None):
             raise Exception(MSG_REGISTER_MISSING_PKEY_ID)
         elif not (personal_key_id is None) and personal_key_secret is None:
@@ -753,11 +763,25 @@ class GraphistryClient(AuthManagerProtocol):
             # Track how the credentials entered the session for downstream diagnostics.
             self.session.login_type = "token"
             self.session._is_authenticated = True
+            self._maybe_switch_org(org_name)
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
             self.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
         
         return self
+
+    def _maybe_switch_org(self, org_name: Optional[str]) -> None:
+        """Ensure Hub session switches to requested org for entitlement checks."""
+        if not org_name:
+            return
+        token = self.api_token()
+        last = self.session._last_switched_org_token
+        if token and last == (org_name, token):
+            return
+        try:
+            self.switch_org(org_name)
+        except Exception as exc:  # pragma: no cover - best-effort switch should not fail register()
+            logger.warning("Failed to switch organization: %s", exc)
 
     def __check_login_type_to_reset_token_creds(self, 
             origin_login_type: str,

@@ -692,10 +692,10 @@ g2 = g.scene_settings(
   info=False,
   #tweak graph
   show_arrows=False,
-  point_size=1.0,
-  edge_curvature=0.0,
-  edge_opacity=0.5,
-  point_opacity=0.9
+  point_size=1.0,  # 0.1-10.0 range, log scale (1.0 → "50" in UI)
+  edge_curvature=0.0,  # 0.0-1.0 range
+  edge_opacity=0.5,  # 0.0-1.0 range
+  point_opacity=0.9  # 0.0-1.0 range
 ).plot()
 
 ```
@@ -1477,8 +1477,10 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
         'play': 2000,
         'menu': True, 'info': True,
         'showArrows': True,
-        'pointSize': 2.0, 'edgeCurvature': 0.5,
-        'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+        'pointSize': 1.0,  # Node size (0.1-10.0, log scale: 0.2→"15", 1.0→"50", 5.0→"85")
+        'edgeCurvature': 0.5,  # Edge curvature (0.0-1.0)
+        'edgeOpacity': 1.0,  # Edge transparency (0.0-1.0)
+        'pointOpacity': 1.0,  # Node transparency (0.0-1.0)
         'lockedX': False, 'lockedY': False, 'lockedR': False,
         'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
         'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
