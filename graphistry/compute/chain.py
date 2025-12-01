@@ -388,6 +388,7 @@ def combine_steps(
                     for hc in hop_cols:
                         if hc in step_df.columns:
                             hop_maps.append(step_df[[id, hc]])
+            hop_maps = [df for df in hop_maps if len(df) > 0]
             if hop_maps:
                 hop_map_df = df_to_engine(df_concat(engine)(hop_maps), resolve_engine(EngineAbstract.AUTO, hop_maps[0]))
                 for hc in hop_cols:
