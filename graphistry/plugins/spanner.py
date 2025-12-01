@@ -25,35 +25,31 @@ class SpannerMixin(Plottable):
 
     def configure_spanner(self, instance_id: str, database_id: str, project_id: Optional[str] = None, credentials_file: Optional[str] = None) -> Plottable:
         """Configure Google Cloud Spanner connection settings.
-        
+
         Sets up the connection parameters for accessing a Spanner database instance.
         Either project_id or credentials_file must be provided for authentication.
-        
+
         :param instance_id: The Spanner instance identifier
-        :param instance_id:
         :param database_id: The Spanner database identifier  
-        :param database_id:
         :param project_id: Google Cloud project ID (optional if using credentials_file)
-        :param project_id:
         :param credentials_file: Path to service account credentials JSON file
-        :param credentials_file:
         :returns: Self for method chaining
         :rtype: Plottable
         :raises ValueError: If neither credentials_file nor project_id is provided
-        
+
         **Example: Using project ID**
             ::
-            
+
                 import graphistry
                 g = graphistry.configure_spanner(
                     project_id="my-project",
                     instance_id="my-instance", 
                     database_id="my-database"
                 )
-                
+
         **Example: Using service account credentials**
             ::
-            
+
                 import graphistry
                 g = graphistry.configure_spanner(
                     instance_id="my-instance",
@@ -74,7 +70,6 @@ class SpannerMixin(Plottable):
         and want to reuse it with Graphistry.
         
         :param client: Pre-configured Spanner database connection
-        :param client:
         :returns: Self for method chaining
         :rtype: Plottable
         
