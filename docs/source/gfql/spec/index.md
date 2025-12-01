@@ -23,3 +23,19 @@ llm_guide
 - {ref}`gfql-spec-llm-guide` - LLM-optimized guide for generating valid GFQL JSON (Claude, GPT, etc.)
 
 These specifications are optimized for text-to-GFQL synthesis, Cypher-to-GFQL pipelines, query validation, and schema-aware code generation.
+
+### Tiny diagrams
+
+```{graphviz}
+digraph gfql_spec_toy {
+  rankdir=LR;
+  a -> b -> c -> d;
+  a [shape=box, style=filled, fillcolor=lightgray];
+}
+```
+
+```{mermaid}
+graph LR
+  a --> b --> c --> d
+  %% positions optional; see plot_static(engine="mermaid-code") for generated DSL
+```

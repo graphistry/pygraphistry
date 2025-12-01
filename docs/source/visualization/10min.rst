@@ -127,10 +127,20 @@ When you need a quick static image without an interactive client, render directl
 .. graphviz::
 
    digraph viz_static_demo {
-       rankdir=LR;
-       a -> b -> c -> d;
-       a [shape=box, style=filled, fillcolor=lightyellow];
+      rankdir=LR;
+      a -> b -> c -> d;
+      a [shape=box, style=filled, fillcolor=lightyellow];
    }
+
+Text-only outputs
+-----------------
+
+Emit DOT or Mermaid DSL for downstream rendering or embedding:
+
+.. code-block:: python
+
+   dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
+   mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
 
 - **External Layouts**: Pass in `x`, `y` columns, such as from your own edits, external data, or external ML/AI packages:
 

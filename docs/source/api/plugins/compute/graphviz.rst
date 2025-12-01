@@ -8,6 +8,12 @@ graphviz is a popular graph visualization library that PyGraphistry can interfac
 
 For static outputs in notebooks or docs, you can either call :py:meth:`graphistry.Plottable.plot_static` (preferred, auto-reuses x/y when present) or :py:meth:`graphistry.plugins.graphviz.render_graphviz` for lower-level control.
 
+``plot_static`` engines:
+
+- ``graphviz-svg`` / ``graphviz-png`` (default render to bytes, optional path)
+- ``graphviz-dot`` (DOT text, optional path)
+- ``mermaid-code`` (Mermaid DSL text, optional path)
+
 .. automodule:: graphistry.plugins.graphviz
    :members:
    :undoc-members:

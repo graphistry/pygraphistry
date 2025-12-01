@@ -220,10 +220,20 @@ When you need a quick static image (e.g., docs/notebooks), reuse the Graphviz la
 .. graphviz::
 
    digraph quickstart_static {
-       rankdir=LR;
-       0 -> 1 -> 2 -> 3 -> 4;
-       0 [shape=box, style=filled, fillcolor=lightgray];
+      rankdir=LR;
+      0 -> 1 -> 2 -> 3 -> 4;
+      0 [shape=box, style=filled, fillcolor=lightgray];
    }
+
+DOT / Mermaid text (layout later)
+---------------------------------
+
+If you only need the text form, emit DOT or Mermaid DSL:
+
+.. code-block:: python
+
+   dot_text = g1.plot_static(engine='graphviz-dot', reuse_layout=True)
+   mermaid_text = g1.plot_static(engine='mermaid-code', reuse_layout=False)
 
 Using UMAP for Dimensionality Reduction
 ---------------------------------------
