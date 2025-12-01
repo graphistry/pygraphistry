@@ -259,6 +259,25 @@ class TestComputeHopMixin(NoAuthTestCase):
         edge_hops = {(row['s'], row['d'], row['edge_hop']) for _, row in g2._edges.iterrows()}
         assert edge_hops == {('a', 'b', 1), ('b', 'c', 2), ('c', 'd', 3)}
 
+    def test_hop_slice_labels_seed_zero(self):
+        g = simple_chain_graph()
+        seeds = pd.DataFrame({g._node: ['a']})
+        g2 = g.hop(
+            seeds,
+            min_hops=2,
+            max_hops=4,
+            output_min_hops=3,
+            output_max_hops=4,
+            label_node_hops='hop',
+            label_edge_hops='edge_hop',
+            label_seeds=True,
+            return_as_wave_front=False
+        )
+        node_hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
+        assert node_hops.get('a') == 0  # seeds kept and labeled when label_seeds=True
+        assert node_hops.get('d') == 3
+        assert set(zip(g2._edges['s'], g2._edges['d'])) == {('c', 'd')}
+
     def test_hop_labels_seed_toggle(self):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})

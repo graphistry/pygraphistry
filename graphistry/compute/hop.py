@@ -416,7 +416,8 @@ def hop(self: Plottable,
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('Node column conflicts with destination column, using temp name: %s', TEMP_DST_COL)
 
-    starting_nodes = nodes if nodes is not None else g2._nodes
+    seeds_provided = nodes is not None
+    starting_nodes = nodes if seeds_provided else g2._nodes
 
     if g2._edge is None:
         # Get the pre-filtered edges
@@ -796,12 +797,20 @@ def hop(self: Plottable,
             if node_mask is not None:
                 node_labels_source = node_labels_source[node_mask]
 
-            if label_seeds and node_hop_records is not None:
-                seed_rows = node_hop_records[node_hop_col] == 0
-                if seed_rows.any():
-                    seeds_for_output = node_hop_records[seed_rows]
+            if label_seeds:
+                if node_hop_records is not None:
+                    seed_rows = node_hop_records[node_hop_col] == 0
+                    if seed_rows.any():
+                        seeds_for_output = node_hop_records[seed_rows]
+                        node_labels_source = concat(
+                            [node_labels_source, seeds_for_output],
+                            ignore_index=True,
+                            sort=False
+                        ).drop_duplicates(subset=[g2._node])
+                elif starting_nodes is not None and g2._node in starting_nodes.columns:
+                    seed_nodes = starting_nodes[[g2._node]].drop_duplicates()
                     node_labels_source = concat(
-                        [node_labels_source, seeds_for_output],
+                        [node_labels_source, seed_nodes.assign(**{node_hop_col: 0})],
                         ignore_index=True,
                         sort=False
                     ).drop_duplicates(subset=[g2._node])
@@ -858,5 +867,22 @@ def hop(self: Plottable,
         logger.debug('edges:\n%s', g_out._edges)
         logger.debug('======== /HOP =============')
         logger.debug('==========================')
+
+    if (
+        return_as_wave_front
+        and resolved_min_hops is not None
+        and resolved_min_hops >= 1
+        and seeds_provided
+        and not label_seeds
+        and g_out._nodes is not None
+        and starting_nodes is not None
+        and g_out._node in starting_nodes.columns
+    ):
+        seed_ids = starting_nodes[[g_out._node]].drop_duplicates()
+        seeds_not_reached = seed_ids
+        if matches_nodes is not None and g_out._node in matches_nodes.columns:
+            seeds_not_reached = seed_ids[~seed_ids[g_out._node].isin(matches_nodes[g_out._node])]
+        filtered_nodes = g_out._nodes[~g_out._nodes[g_out._node].isin(seeds_not_reached[g_out._node])]
+        g_out = g_out.nodes(filtered_nodes)
 
     return g_out
