@@ -403,13 +403,15 @@ def combine_steps(
             base = c[:-2]
             c_y = base + '_y'
             if c_y in out_df.columns:
-                out_df[base] = out_df[c].combine_first(out_df[c_y])
+                if len(out_df) > 0:
+                    out_df[base] = out_df[c].where(out_df[c].notna(), out_df[c_y])
                 out_df = out_df.drop(columns=[c, c_y])
         elif c.endswith('_y'):
             base = c[:-2]
             c_x = base + '_x'
             if c_x in out_df.columns:
-                out_df[base] = out_df[c_x].combine_first(out_df[c])
+                if len(out_df) > 0:
+                    out_df[base] = out_df[c_x].where(out_df[c_x].notna(), out_df[c])
                 out_df = out_df.drop(columns=[c, c_x])
 
     return out_df
