@@ -92,7 +92,8 @@ class ASTObject(ASTSerializable):
         engine: Engine
     ) -> Plottable:
         raise RuntimeError('__call__ not implemented')
-            @abstractmethod
+
+    @abstractmethod
     def reverse(self) -> 'ASTObject':
         raise RuntimeError('reverse not implemented')
 
