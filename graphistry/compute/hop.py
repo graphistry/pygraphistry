@@ -930,8 +930,12 @@ def hop(self: Plottable,
             if seeds_mask is not None:
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
                 g_out._nodes.loc[zero_seed_mask, node_hop_col] = pd.NA
-            if g_out._nodes[node_hop_col].notna().all():
-                g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].astype('int64')
+            try:
+                g_out._nodes[node_hop_col] = pd.to_numeric(g_out._nodes[node_hop_col], errors='coerce')
+                if pd.api.types.is_numeric_dtype(g_out._nodes[node_hop_col]):
+                    g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].astype('Int64')
+            except Exception:
+                pass
 
     if (
         not label_seeds

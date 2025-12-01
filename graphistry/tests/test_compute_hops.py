@@ -285,6 +285,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         node_hops_no_seed = dict(zip(g_no_seed._nodes[g._node], g_no_seed._nodes['hop']))
         assert pd.isna(node_hops_no_seed.get('a'))
         assert {k: v for k, v in node_hops_no_seed.items() if pd.notna(v)} == {'b': 1, 'c': 2}
+        assert str(g_no_seed._nodes['hop'].dtype) == 'Int64'
         edge_hops_no_seed = {(row['s'], row['d'], row['edge_hop']) for _, row in g_no_seed._edges.iterrows()}
         assert edge_hops_no_seed == {('a', 'b', 1), ('b', 'c', 2)}
 
