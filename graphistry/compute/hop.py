@@ -787,6 +787,7 @@ def hop(self: Plottable,
             if node_labels_source is None:
                 node_labels_source = base_nodes.assign(**{node_hop_col: []})
 
+            unfiltered_node_labels_source = node_labels_source
             node_mask = None
             if final_output_min is not None:
                 node_mask = node_labels_source[node_hop_col] >= final_output_min
@@ -832,6 +833,25 @@ def hop(self: Plottable,
                 node_labels_source,
                 on=g2._node,
                 how='left')
+
+            if node_hop_col in final_nodes and unfiltered_node_labels_source is not None:
+                fallback_map = (
+                    unfiltered_node_labels_source[[g2._node, node_hop_col]]
+                    .drop_duplicates(subset=[g2._node])
+                    .set_index(g2._node)[node_hop_col]
+                )
+                try:
+                    final_nodes[node_hop_col] = final_nodes[node_hop_col].combine_first(
+                        final_nodes[g2._node].map(fallback_map)
+                    )
+                except Exception:
+                    pass
+
+                try:
+                    if final_nodes[node_hop_col].notna().all():
+                        final_nodes[node_hop_col] = final_nodes[node_hop_col].astype('int64')
+                except Exception:
+                    pass
 
             if label_node_hops is None and node_hop_col in final_nodes:
                 final_nodes = final_nodes.drop(columns=[node_hop_col])
