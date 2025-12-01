@@ -1080,4 +1080,3 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     # Cast: At this point, all error paths have been handled, so g_out is guaranteed to be a Plottable
     return cast(Plottable, g_out)
-
