@@ -238,15 +238,20 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert g2._edges.empty
 
     def test_hop_exact_three_branch(self):
+        """Test that min_hops=max_hops=3 prunes branches that don't reach 3 hops.
+
+        On branching graph with paths a->b1->c1->d1->e1 (4 hops) and a->b2->c2 (2 hops),
+        requesting exactly 3 hops should return only paths that reach 3 hops.
+        The b2/c2 branch should be excluded since it only reaches 2 hops.
+        """
         g = branching_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=3, max_hops=3)
-        assert set(g2._nodes[g._node].to_list()) == {'a', 'b1', 'b2', 'c1', 'c2', 'd1'}
+        # Only nodes/edges on paths reaching 3 hops; b2/c2 branch excluded
+        assert set(g2._nodes[g._node].to_list()) == {'a', 'b1', 'c1', 'd1'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {
             ('a', 'b1'),
-            ('a', 'b2'),
             ('b1', 'c1'),
-            ('b2', 'c2'),
             ('c1', 'd1'),
         }
 
@@ -763,6 +768,12 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('b', 'c'), ('c', 'd')}
 
     def test_gfql_edge_exact_branching(self):
+        """Test that min_hops=max_hops=3 prunes branches that don't reach 3 hops.
+
+        On a branching graph with paths a->b1->c1->d1->e1 (4 hops) and a->b2->c2 (2 hops),
+        requesting exactly 3 hops should return only the edges/nodes on paths that reach 3 hops.
+        The b2/c2 branch (only 2 hops from a) should be excluded.
+        """
         g = branching_chain_graph()
         seeds = ['a']
         chain = [
@@ -777,13 +788,14 @@ class TestComputeHopMixin(NoAuthTestCase):
             },
         ]
         g2 = g.gfql(chain)
+        # Only edges on the 3-hop path should be included; b2/c2 branch excluded
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {
             ('a', 'b1'),
             ('b1', 'c1'),
             ('c1', 'd1'),
-            ('a', 'b2'),
-            ('b2', 'c2')
         }
+        # Only nodes on the 3-hop path should be included
+        assert set(g2._nodes[g._node]) == {'a', 'b1', 'c1', 'd1'}
         hops = dict(zip(g2._nodes[g._node], g2._nodes['hop']))
         assert hops.get('d1') == 3
 

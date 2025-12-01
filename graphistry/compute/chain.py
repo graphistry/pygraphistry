@@ -177,30 +177,39 @@ def combine_steps(
         logger.debug('EDGES << recompute forwards given reduced set')
         node_id = getattr(g, '_node')
         full_nodes = getattr(g, '_nodes', None)
-        steps = [
-            (
+
+        # For edges, we need to re-run forward ops but use the PREVIOUS forward step's nodes
+        # as prev_node_wavefront (not the current reverse step's nodes which include
+        # nodes reached during reverse traversal).
+        new_steps = []
+        for idx, (op, g_step) in enumerate(steps):
+            # Get prev_node_wavefront from the previous forward step (label_steps), not reverse result
+            if label_steps is not None and idx > 0:
+                prev_fwd_step = label_steps[idx - 1][1]
+                prev_wavefront_source = prev_fwd_step._nodes
+            else:
+                prev_wavefront_source = g_step._nodes
+
+            prev_node_wavefront = (
+                safe_merge(
+                    full_nodes,
+                    prev_wavefront_source[[node_id]],
+                    on=node_id,
+                    how='inner',
+                    engine=engine,
+                ) if full_nodes is not None and node_id is not None and prev_wavefront_source is not None else prev_wavefront_source
+            )
+
+            new_steps.append((
                 op,  # forward op
                 op(
                     g=g.edges(g_step._edges),  # transition via any found edge
-
-                    # restore node attributes for matching by rejoining against the original nodes
-                    prev_node_wavefront=(
-                        safe_merge(
-                            full_nodes,
-                            g_step._nodes[[node_id]],
-                            on=node_id,
-                            how='inner',
-                            engine=engine,
-                        ) if full_nodes is not None and node_id is not None and g_step._nodes is not None else g_step._nodes
-                    ),
-
-                    #target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
-                    target_wave_front=None,  # ^^^ optimization: valid transitions already limit to known-good ones
+                    prev_node_wavefront=prev_node_wavefront,
+                    target_wave_front=None,
                     engine=engine
                 )
-            )
-            for (op, g_step) in steps
-        ]
+            ))
+        steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
 

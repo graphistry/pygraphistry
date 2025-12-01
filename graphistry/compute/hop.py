@@ -460,12 +460,15 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
+    # Track hops when needed for labels, output slices, or min_hops pruning
+    needs_min_hop_pruning = resolved_min_hops is not None and resolved_min_hops > 1
     track_hops = bool(
         label_node_hops
         or label_edge_hops
         or label_seeds
         or output_min_hops is not None
         or output_max_hops is not None
+        or needs_min_hop_pruning
     )
     track_node_hops = track_hops or bool(label_node_hops or label_seeds)
     track_edge_hops = track_hops or label_edge_hops is not None
@@ -747,6 +750,73 @@ def hop(self: Plottable,
         if edge_hop_records is not None:
             edge_hop_records = edge_hop_records[:0]
 
+    # Prune dead-end branches that don't reach min_hops
+    # When min_hops > 1, only keep edges/nodes on paths that reach at least min_hops
+    if (
+        resolved_min_hops is not None
+        and resolved_min_hops > 1
+        and node_hop_records is not None
+        and edge_hop_records is not None
+        and node_hop_col is not None
+        and edge_hop_col is not None
+        and max_reached_hop >= resolved_min_hops
+    ):
+        # Find goal nodes (nodes at hop >= min_hops)
+        goal_nodes = set(
+            node_hop_records[node_hop_records[node_hop_col] >= resolved_min_hops][g2._node].tolist()
+        )
+
+        if goal_nodes:
+            # Backtrack from goal nodes to find all edges/nodes on valid paths
+            # We need to traverse backwards through the edge records to find which edges lead to goals
+            edge_records_with_endpoints = safe_merge(
+                edge_hop_records,
+                edges_indexed[[EDGE_ID, g2._source, g2._destination]],
+                on=EDGE_ID,
+                how='inner'
+            )
+
+            # Build sets of valid nodes and edges by backtracking from goal nodes
+            valid_nodes = set(goal_nodes)
+            valid_edges = set()
+
+            # Start with edges that lead TO goal nodes
+            current_targets = goal_nodes
+
+            # Backtrack through hops from max edge hop down to 1
+            # Use actual max edge hop, not max_reached_hop which may include extra traversal steps
+            max_edge_hop = int(edge_hop_records[edge_hop_col].max()) if len(edge_hop_records) > 0 else max_reached_hop
+            for hop_level in range(max_edge_hop, 0, -1):
+                # Find edges at this hop level that reach current targets
+                hop_edges = edge_records_with_endpoints[
+                    edge_records_with_endpoints[edge_hop_col] == hop_level
+                ]
+
+                if direction == 'forward':
+                    # Forward: edges go src->dst, so dst should be in targets
+                    reaching_edges = hop_edges[hop_edges[g2._destination].isin(current_targets)]
+                    new_sources = set(reaching_edges[g2._source].tolist())
+                elif direction == 'reverse':
+                    # Reverse: edges go dst->src conceptually, so src should be in targets
+                    reaching_edges = hop_edges[hop_edges[g2._source].isin(current_targets)]
+                    new_sources = set(reaching_edges[g2._destination].tolist())
+                else:
+                    # Undirected: either endpoint could be in targets
+                    reaching_fwd = hop_edges[hop_edges[g2._destination].isin(current_targets)]
+                    reaching_rev = hop_edges[hop_edges[g2._source].isin(current_targets)]
+                    reaching_edges = concat([reaching_fwd, reaching_rev], ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
+                    new_sources = set(reaching_fwd[g2._source].tolist()) | set(reaching_rev[g2._destination].tolist())
+
+                valid_edges.update(reaching_edges[EDGE_ID].tolist())
+                valid_nodes.update(new_sources)
+                current_targets = new_sources
+            # Filter records to only valid paths
+            edge_hop_records = edge_hop_records[edge_hop_records[EDGE_ID].isin(valid_edges)]
+            node_hop_records = node_hop_records[node_hop_records[g2._node].isin(valid_nodes)]
+            matches_edges = matches_edges[matches_edges[EDGE_ID].isin(valid_edges)]
+            if matches_nodes is not None:
+                matches_nodes = matches_nodes[matches_nodes[g2._node].isin(valid_nodes)]
+
     #hydrate edges
     if track_edge_hops and edge_hop_col is not None:
         edge_labels_source = edge_hop_records
@@ -955,6 +1025,7 @@ def hop(self: Plottable,
         not label_seeds
         and seeds_provided
         and g_out._nodes is not None
+        and len(g_out._nodes) > 0
         and node_hop_records is not None
         and g_out._node in g_out._nodes.columns
         and starting_nodes is not None
