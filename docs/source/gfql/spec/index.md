@@ -34,7 +34,7 @@ digraph gfql_spec_toy {
 }
 ```
 
-```{mermaid}
+```{code-block} mermaid
 graph LR
   a --> b --> c --> d
   %% positions optional; see plot_static(engine="mermaid-code") for generated DSL
