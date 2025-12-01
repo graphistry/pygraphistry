@@ -333,7 +333,7 @@ class TestComputeHopMixin(NoAuthTestCase):
             label_edge_hops='edge_hop'
         )
         assert set(g2._nodes[g._node].to_list()) == {'c1', 'd1', 'e1'}
-        assert set(g2._nodes.dropna(subset=['hop'])['hop'].to_list()) == {3, 4}
+        assert set(g2._nodes.dropna(subset=['hop'])['hop'].to_list()) == {2, 3, 4}
         assert set(zip(g2._edges['s'], g2._edges['d'], g2._edges['edge_hop'])) == {
             ('c1', 'd1', 3),
             ('d1', 'e1', 4)

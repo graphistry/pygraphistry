@@ -248,11 +248,10 @@ def combine_steps(
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
 
-    for idx, (op, g_step) in enumerate(label_steps):
-        step_df = apply_output_slice(op, op, getattr(g_step, df_fld))
+    for _, (_, g_step) in enumerate(label_steps):
+        step_df = getattr(g_step, df_fld)
         if id not in step_df.columns:
             continue
-        # Keep only non-base columns (e.g., hop labels) so we don't duplicate core graph fields
         extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
@@ -379,6 +378,22 @@ def combine_steps(
                     for col in label_cols:
                         if col in out_df.columns:
                             out_df.loc[mask, col] = pd.NA
+        # Backfill missing hop labels from forward label steps
+        hop_cols = [c for c in out_df.columns if 'hop' in c]
+        if hop_cols:
+            hop_maps = []
+            for _, g_step in label_steps:
+                step_df = getattr(g_step, df_fld)
+                if id in step_df.columns:
+                    for hc in hop_cols:
+                        if hc in step_df.columns:
+                            hop_maps.append(step_df[[id, hc]])
+            if hop_maps:
+                hop_map_df = df_to_engine(df_concat(engine)(hop_maps), resolve_engine(EngineAbstract.AUTO, hop_maps[0]))
+                for hc in hop_cols:
+                    if hc in hop_map_df.columns:
+                        hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
+                        out_df[hc] = out_df[hc].combine_first(out_df[id].map(hop_map))
 
     # Collapse merge suffixes (_x/_y) into a single column
     cols = list(out_df.columns)
