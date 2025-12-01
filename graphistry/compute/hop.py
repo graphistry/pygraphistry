@@ -297,6 +297,12 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    def _combine_first_no_warn(target, fill):
+        """Avoid pandas concat warning when combine_first sees empty inputs."""
+        if target is None or len(target) == 0:
+            return target
+        return target.where(target.notna(), fill)
+
     engine_concrete = resolve_engine(engine, self)
     if not TYPE_CHECKING:
         DataFrameT = df_cons(engine_concrete)
@@ -843,7 +849,8 @@ def hop(self: Plottable,
                     .set_index(g2._node)[node_hop_col]
                 )
                 try:
-                    final_nodes[node_hop_col] = final_nodes[node_hop_col].combine_first(
+                    final_nodes[node_hop_col] = _combine_first_no_warn(
+                        final_nodes[node_hop_col],
                         final_nodes[g2._node].map(fallback_map)
                     )
                 except Exception:
@@ -898,8 +905,10 @@ def hop(self: Plottable,
         )
         if g_out._node in g_out._nodes.columns and node_hop_col in g_out._nodes.columns:
             try:
-                g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].combine_first(
-                    g_out._nodes[g_out._node].map(hop_map)
+                mapped = g_out._nodes[g_out._node].map(hop_map)
+                g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].where(
+                    g_out._nodes[node_hop_col].notna(),
+                    mapped
                 )
             except Exception:
                 pass
@@ -911,18 +920,23 @@ def hop(self: Plottable,
             if seeds_mask is not None:
                 missing_mask = missing_mask & ~seeds_mask
             if g_out._edges is not None and edge_hop_col is not None and edge_hop_col in g_out._edges.columns:
-                edge_map = concat(
+                edge_map_df = concat(
                     [
                         g_out._edges[[g_out._source, edge_hop_col]].rename(columns={g_out._source: g_out._node}),
                         g_out._edges[[g_out._destination, edge_hop_col]].rename(columns={g_out._destination: g_out._node}),
                     ],
                     ignore_index=True,
                     sort=False,
-                ).groupby(g_out._node)[edge_hop_col].min()
+                )
+                if len(edge_map_df) > 0:
+                    edge_map = edge_map_df.groupby(g_out._node)[edge_hop_col].min()
+                else:
+                    edge_map = pd.Series([], dtype='float64')
                 mapped_edge_hops = g_out._nodes[g_out._node].map(edge_map)
                 if seeds_mask is not None:
                     mapped_edge_hops = mapped_edge_hops.mask(seeds_mask)
-                g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].combine_first(
+                g_out._nodes[node_hop_col] = _combine_first_no_warn(
+                    g_out._nodes[node_hop_col],
                     mapped_edge_hops
                 )
             if missing_mask.any():
