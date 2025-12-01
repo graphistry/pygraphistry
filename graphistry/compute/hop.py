@@ -425,6 +425,8 @@ def hop(self: Plottable,
 
     seeds_provided = nodes is not None
     starting_nodes = nodes if seeds_provided else g2._nodes
+    if starting_nodes is None:
+        raise ValueError('hop requires a node DataFrame; starting_nodes is None')
 
     if g2._edge is None:
         # Get the pre-filtered edges
