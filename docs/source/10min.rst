@@ -202,8 +202,28 @@ For example, GraphViz layouts is known for its high quality for laying out small
 .. code-block:: python
 
     # pygraphistry handles format conversions behind-the-scenes
-    g2 = g1.layout_graphviz('dot')
-    g2.plot()
+   g2 = g1.layout_graphviz('dot')
+   g2.plot()
+
+Static Graphviz render
+----------------------
+
+When you need a quick static image (e.g., docs/notebooks), reuse the Graphviz layout. ``plot_static`` returns bytes you can embed or save:
+
+.. code-block:: python
+
+   # Reuse bound x/y if present; otherwise Graphviz lays out the graph
+   svg = g1.plot_static(format='svg', max_nodes=200, max_edges=400)
+   from IPython.display import SVG
+   SVG(svg)
+
+.. graphviz::
+
+   digraph quickstart_static {
+       rankdir=LR;
+       0 -> 1 -> 2 -> 3 -> 4;
+       0 [shape=box, style=filled, fillcolor=lightgray];
+   }
 
 Using UMAP for Dimensionality Reduction
 ---------------------------------------

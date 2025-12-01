@@ -48,6 +48,7 @@ extensions = [
     'myst_parser',
     'nbsphinx',
     "sphinx.ext.autodoc",
+    "sphinx.ext.graphviz",
     #'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
     "sphinx.ext.ifconfig",
@@ -797,4 +798,3 @@ def setup(app: Sphinx):
         print('No custom handling for app.builder.name=', app.builder.name)
 
     app.connect('builder-inited', on_builder)
-
