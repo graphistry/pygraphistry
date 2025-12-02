@@ -2017,6 +2017,32 @@ class GraphistryClient(AuthManagerProtocol):
         return cast(Plotter, self._plotter().kusto_graph(graph_name, snap_name))
     kusto_graph.__doc__ = Plotter.kusto_graph.__doc__
 
+    # ---- Sentinel / Log Analytics API ---------------------------------------------------- #
+
+    def configure_sentinel(
+        self,
+        workspace_id: str,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        credential: Optional[Any] = None,
+        default_timespan: Optional[Any] = None,
+        use_device_auth: bool = False,
+    ) -> Plotter:
+        return cast(Plotter, self._plotter().configure_sentinel(
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            credential=credential,
+            default_timespan=default_timespan,
+            use_device_auth=use_device_auth
+        ))
+    configure_sentinel.__doc__ = Plotter.configure_sentinel.__doc__
+
+    def sentinel_from_client(self, client: Any, workspace_id: str, default_timespan: Optional[Any] = None) -> Plotter:
+        return cast(Plotter, self._plotter().sentinel_from_client(client, workspace_id, default_timespan))
+    sentinel_from_client.__doc__ = Plotter.sentinel_from_client.__doc__
 
 
     def gsql_endpoint(self, 
@@ -2659,6 +2685,8 @@ configure_kusto = PyGraphistry.configure_kusto
 kusto_from_client = PyGraphistry.kusto_from_client
 kql = PyGraphistry.kql
 kusto_graph = PyGraphistry.kusto_graph
+configure_sentinel = PyGraphistry.configure_sentinel
+sentinel_from_client = PyGraphistry.sentinel_from_client
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

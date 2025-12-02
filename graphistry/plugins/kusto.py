@@ -1,6 +1,7 @@
 import time
 import pandas as pd
-from typing import Any, List, Optional, TYPE_CHECKING, Union, overload, Literal
+from typing import Any, List, Optional, TYPE_CHECKING, Union, overload, Literal, Tuple
+from datetime import datetime, timedelta
 
 if TYPE_CHECKING:
     from azure.kusto.data import KustoClient
@@ -176,18 +177,10 @@ class KustoMixin(Plottable):
         self,
         query: str,
         *,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
-        single_table: Literal[True] = True
-    ) -> List[pd.DataFrame]:
-        ...
-    
-    @overload
-    def kql(
-        self,
-        query: str,
-        *,
-        unwrap_nested: Optional[bool] = None,
-        single_table: Literal[False]
+        single_table: Literal[True] = True,
+        include_statistics: bool = False
     ) -> pd.DataFrame:
         ...
     
@@ -196,8 +189,22 @@ class KustoMixin(Plottable):
         self,
         query: str,
         *,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
-        single_table: bool = True
+        single_table: Literal[False],
+        include_statistics: bool = False
+    ) -> List[pd.DataFrame]:
+        ...
+    
+    @overload
+    def kql(
+        self,
+        query: str,
+        *,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
+        unwrap_nested: Optional[bool] = None,
+        single_table: bool = True,
+        include_statistics: bool = False
     ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
         ...
     
@@ -205,8 +212,10 @@ class KustoMixin(Plottable):
         self,
         query: str,
         *,
+        timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]] = None,
         unwrap_nested: Optional[bool] = None,
-        single_table: bool = True
+        single_table: bool = True,
+        include_statistics: bool = False
     ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
         """Execute KQL query and return result tables as DataFrames.
         
@@ -217,10 +226,14 @@ class KustoMixin(Plottable):
         
         :param query: KQL query string to execute
         :type query: str
+        :param timespan: Time range for the query (ignored by Kusto, for compatibility with Sentinel)
+        :type timespan: Optional[Union[timedelta, Tuple[datetime, datetime]]]
         :param unwrap_nested: Strategy for handling nested/dynamic columns
         :type unwrap_nested: Optional[bool]
         :param single_table: If True, return single DataFrame (first table if multiple); if False, return list
         :type single_table: bool
+        :param include_statistics: Include query statistics (ignored by Kusto, for compatibility with Sentinel)
+        :type include_statistics: bool
         :returns: Single DataFrame if single_table=True, else list of DataFrames
         :rtype: Union[pd.DataFrame, List[pd.DataFrame]]
         

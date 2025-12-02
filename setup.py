@@ -55,6 +55,7 @@ base_extras_light = {
     'nodexl': ['openpyxl==3.1.0', 'xlrd'],
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
+    'sentinel': ['azure-monitor-query>=1.2.0', 'azure-identity>=1.12.0'],
     'kusto': ['azure-kusto-data', 'azure-identity']
 }
 
@@ -165,5 +166,5 @@ setup(
         "Code of Conduct": "https://github.com/graphistry/pygraphistry/blob/main/CODE_OF_CONDUCT.md",
         "Support": "https://www.graphistry.com/support",
     },
-    keywords=['cugraph', 'cudf', 'cuml', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'graphviz', 'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'RAPIDS', 'RDF', 'Splunk', 'Spark', 'SQL', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
+    keywords=['cugraph', 'cudf', 'cuml', 'dask', 'Databricks', 'GFQL', 'GPU', 'Graph',  'graphviz', 'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Neptune', 'Network', 'NetworkX',  'Notebook', 'OpenSearch', 'Pandas', 'Plot', 'RAPIDS', 'RDF', 'Sentinel', 'Splunk', 'Spark', 'SQL', 'Tinkerpop', 'UMAP', 'Visualization', 'Torch', 'DGL', 'GNN']
 )
