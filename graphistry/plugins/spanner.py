@@ -207,16 +207,13 @@ class SpannerMixin(Plottable):
 
     @staticmethod
     def add_type_from_label_to_df(df: pd.DataFrame) -> pd.DataFrame:
-        """Add 'type' column from 'label' for Graphistry type handling.
-        
-        Creates a 'type' column from the 'label' column for proper visualization
-        in Graphistry. If a 'type' column already exists, it is renamed to 'type_'
-        before creating the new 'type' column.
-        
-        :param df: DataFrame containing node or edge data with 'label' column
-        :param df:
-        :returns: Modified DataFrame with the updated 'type' column
-        :rtype: pd.DataFrame
+        """Add a Graphistry-friendly ``type`` column based on ``label``.
+
+        If ``type`` already exists, it is renamed to ``type_`` before copying
+        ``label`` into the new ``type`` column. When ``label`` is missing, the
+        added ``type`` column is filled with ``None``.
+
+        Returns the modified dataframe to ease chaining.
         """
 
         # rename 'type' to 'type_' if it exists
