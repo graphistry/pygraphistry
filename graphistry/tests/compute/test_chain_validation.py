@@ -22,7 +22,23 @@ class TestChainValidation:
         # With collect_all
         errors = chain.validate(collect_all=True)
         assert errors == []
-    
+
+    def test_constructor_auto_validates(self):
+        """Chain constructor should validate by default."""
+        with pytest.raises(GFQLTypeError) as exc_info:
+            Chain([n(), e_forward(hops=-1), n()])
+
+        assert exc_info.value.code == ErrorCode.E103
+
+    def test_constructor_validate_opt_out(self):
+        """Allow skipping validation when explicitly requested."""
+        chain = Chain([n(), e_forward(hops=-1), n()], validate=False)
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            chain.validate()
+
+        assert exc_info.value.code == ErrorCode.E103
+
     def test_chain_not_list(self):
         """Chain must be a list."""
         chain = Chain.__new__(Chain)  # Skip __init__
