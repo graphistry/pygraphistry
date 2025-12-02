@@ -662,22 +662,26 @@ e = ASTEdgeUndirected  # noqa: E305
 
 class ASTLet(ASTObject):
     """Let-bindings for named graph operations in a DAG.
-    
-    Allows defining reusable graph operations that can reference each other,
-    forming a directed acyclic graph (DAG) of computations.
-    
-    :param bindings: Dictionary mapping names to graph operations
-    :type bindings: Dict[str, Union[ASTObject, Chain, Plottable]]
-    
-    :raises GFQLTypeError: If bindings is not a dict or contains invalid keys/values
-    
-    **Example::**
 
-        # Matchers now supported directly (operate on root graph)
-        dag = ASTLet({
-            'persons': n({'type': 'person'}),
-            'friends': ASTRef('persons', [e_forward({'rel': 'friend'})])
-        })
+    Lets you define reusable graph operations that can reference each other,
+    forming a directed acyclic graph (DAG) of computations.
+
+    Parameters
+    ----------
+    bindings : Dict[str, Union[ASTObject, Chain, Plottable]]
+        Mapping from binding names to graph operations (AST objects or Plottables).
+
+    Raises
+    ------
+    GFQLTypeError
+        If ``bindings`` is not a dict or contains invalid keys/values.
+
+    Example
+    -------
+    >>> dag = ASTLet({
+    ...     "persons": n({"type": "person"}),
+    ...     "friends": ASTRef("persons", [e_forward({"rel": "friend"})])
+    ... })
     """
     bindings: Dict[str, Union['ASTObject', 'Chain', Plottable]]
     

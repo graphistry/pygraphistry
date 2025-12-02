@@ -25,7 +25,7 @@
 - [Graph Algorithms](#graph-algorithms) - PageRank, Louvain, UMAP, Hypergraph
 - [Visualization](#visualization) - Colors, icons, sizes
 - [Layouts](#layouts) - FA2 default, ring layouts
-- [Multi-Step (Let/Ref)](#multi-step-letref) - DAG composition
+- [Multi-Step (Let/Ref)](#let-multi-step) - DAG composition
 
 **Domain Guidance:**
 - [Icons & Palettes](#domain-guidance) - By vertical (Cyber, Fraud, Gov, Social, Supply Chain, Events)
