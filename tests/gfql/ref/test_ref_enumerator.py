@@ -203,6 +203,38 @@ def test_paths_are_deterministically_sorted():
     assert tuples == sorted(tuples)
 
 
+def test_enumerator_min_max_three_branch_unlabeled():
+    nodes = pd.DataFrame(
+        [
+            {"id": "a"},
+            {"id": "b1"},
+            {"id": "c1"},
+            {"id": "d1"},
+            {"id": "e1"},
+            {"id": "b2"},
+            {"id": "c2"},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"edge_id": "e1", "src": "a", "dst": "b1"},
+            {"edge_id": "e2", "src": "b1", "dst": "c1"},
+            {"edge_id": "e3", "src": "c1", "dst": "d1"},
+            {"edge_id": "e4", "src": "d1", "dst": "e1"},
+            {"edge_id": "e5", "src": "a", "dst": "b2"},
+            {"edge_id": "e6", "src": "b2", "dst": "c2"},
+        ]
+    )
+    g = _plottable(nodes, edges)
+    result = enumerate_chain(
+        g,
+        [n({"id": "a"}), e_forward(min_hops=3, max_hops=3), n()],
+        caps=OracleCaps(max_nodes=20, max_edges=20),
+    )
+    assert _col_set(result.nodes, "id") == {"a", "b1", "c1", "d1"}
+    assert _col_set(result.edges, "edge_id") == {"e1", "e2", "e3"}
+
+
 NODE_POOL = [f"n{i}" for i in range(6)]
 EDGE_POOL = [f"e{i}" for i in range(8)]
 

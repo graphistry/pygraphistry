@@ -98,25 +98,59 @@ def enumerate_chain(
         edge_frame = _build_edge_frame(
             edges_df, edge_id, edge_src, edge_dst, edge_step, alias_requirements
         )
-        paths = paths.merge(
-            edge_frame,
-            left_on=current,
-            right_on=edge_step["src_col"],
-            how="inner",
-            validate="m:m",
-        ).drop(columns=[edge_step["src_col"]])
-        current = edge_step["dst_col"]
-
         node_frame = _build_node_frame(nodes_df, node_id, node_step, alias_requirements)
-        paths = paths.merge(
-            node_frame,
-            left_on=current,
-            right_on=node_step["id_col"],
-            how="inner",
-            validate="m:1",
-        )
-        paths = paths.drop(columns=[current])
-        current = node_step["id_col"]
+
+        min_hops = edge_step["min_hops"]
+        max_hops = edge_step["max_hops"]
+        if min_hops == 1 and max_hops == 1:
+            paths = paths.merge(
+                edge_frame,
+                left_on=current,
+                right_on=edge_step["src_col"],
+                how="inner",
+                validate="m:m",
+            ).drop(columns=[edge_step["src_col"]])
+            current = edge_step["dst_col"]
+
+            paths = paths.merge(
+                node_frame,
+                left_on=current,
+                right_on=node_step["id_col"],
+                how="inner",
+                validate="m:1",
+            )
+            paths = paths.drop(columns=[current])
+            current = node_step["id_col"]
+        else:
+            if where:
+                raise ValueError("WHERE clauses not supported for multi-hop edges in enumerator")
+            if edge_step["alias"] or node_step["alias"]:
+                # Alias tagging for multi-hop not yet supported in enumerator
+                raise ValueError("Aliases not supported for multi-hop edges in enumerator")
+
+            dest_allowed: Optional[Set[Any]] = None
+            if not node_frame.empty:
+                dest_allowed = set(node_frame[node_step["id_col"]])
+
+            seeds = paths[current].dropna().tolist()
+            seed_to_nodes, edges_used, nodes_used = _bounded_paths(
+                seeds, edge_frame, edge_step, dest_allowed, caps
+            )
+
+            # Build new path rows preserving prior columns
+            new_rows: List[List[Any]] = []
+            base_cols = list(paths.columns)
+            for row in paths.itertuples(index=False, name=None):
+                row_dict = dict(zip(base_cols, row))
+                seed_id = row_dict[current]
+                for dst in seed_to_nodes.get(seed_id, set()):
+                    new_rows.append([*row, dst])
+            paths = pd.DataFrame(new_rows, columns=[*base_cols, node_step["id_col"]])
+            current = node_step["id_col"]
+
+            # Stash edges/nodes for final selection
+            edge_step["collected_edges"] = edges_used
+            node_step["collected_nodes"] = nodes_used
 
         if where:
             ready = _ready_where_clauses(paths, where)
@@ -142,6 +176,8 @@ def enumerate_chain(
     node_ids: Set[Any] = set()
     for node_step in node_steps:
         node_ids.update(paths[node_step["id_col"]].tolist())
+        if "collected_nodes" in node_step:
+            node_ids.update(node_step["collected_nodes"])
     nodes_out = nodes_df[nodes_df[node_id].isin(node_ids)].reset_index(drop=True)
 
     edge_ids: Set[Any] = set()
@@ -149,6 +185,8 @@ def enumerate_chain(
         col = edge_step["id_col"]
         if col in paths:
             edge_ids.update(paths[col].tolist())
+        if "collected_edges" in edge_step:
+            edge_ids.update(edge_step["collected_edges"])
     edges_out = edges_df[edges_df[edge_id].isin(edge_ids)].reset_index(drop=True)
 
     tags = _build_tags(paths, node_steps, edge_steps)
@@ -195,8 +233,17 @@ def _prepare_steps(
                 }
             )
         else:
-            if not isinstance(op, ASTEdge) or op.hops not in (None, 1):
-                raise ValueError("Enumerator only supports single-hop ASTEdge steps")
+            if not isinstance(op, ASTEdge):
+                raise ValueError("Chain must alternate ASTNode and ASTEdge")
+            if op.to_fixed_point:
+                raise ValueError("Enumerator does not support to_fixed_point edges")
+            # Normalize hop bounds (supports min/max hops for small graphs)
+            hop_min = op.min_hops if op.min_hops is not None else (op.hops if isinstance(op.hops, int) else 1)
+            hop_max = op.max_hops if op.max_hops is not None else (op.hops if isinstance(op.hops, int) else hop_min)
+            if hop_min is None or hop_max is None:
+                raise ValueError("Enumerator requires finite hop bounds")
+            if hop_min < 0 or hop_max < 0 or hop_min > hop_max:
+                raise ValueError(f"Invalid hop bounds min={hop_min}, max={hop_max}")
             edges.append(
                 {
                     "alias": op._name,
@@ -206,6 +253,8 @@ def _prepare_steps(
                     "id_col": f"edge_{len(edges)}",
                     "src_col": f"edge_{len(edges)}_src",
                     "dst_col": f"edge_{len(edges)}_dst",
+                    "min_hops": hop_min,
+                    "max_hops": hop_max,
                 }
             )
         expect_node = not expect_node
@@ -391,6 +440,52 @@ def _compare(lhs: pd.Series, rhs: pd.Series, op: ComparisonOp) -> pd.Series:
     if op == ">=":
         return lhs >= rhs
     raise ValueError(f"Unsupported comparison operator '{op}'")
+
+
+def _bounded_paths(
+    seeds: Sequence[Any],
+    edges_df: pd.DataFrame,
+    step: Dict[str, Any],
+    dest_allowed: Optional[Set[Any]],
+    caps: OracleCaps,
+) -> Tuple[Dict[Any, Set[Any]], Set[Any], Set[Any]]:
+    """
+    Enumerate bounded-hop paths for a single Edge step (direction already normalized in edges_df).
+    Returns (seed -> reachable_nodes), edges_used, nodes_used.
+    """
+    src_col, dst_col, edge_id_col = step["src_col"], step["dst_col"], step["id_col"]
+    min_hops, max_hops = step["min_hops"], step["max_hops"]
+
+    adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
+    for _, row in edges_df.iterrows():
+        adjacency.setdefault(row[src_col], []).append((row[edge_id_col], row[dst_col]))
+
+    seed_to_nodes: Dict[Any, Set[Any]] = {}
+    edges_used: Set[Any] = set()
+    nodes_used: Set[Any] = set()
+
+    for seed in seeds:
+        stack: List[Tuple[Any, int, List[Any], List[Any]]] = [(seed, 0, [], [seed])]
+        while stack:
+            node, depth, path_edges, path_nodes = stack.pop()
+            if depth >= max_hops:
+                continue
+            for edge_id, dst in adjacency.get(node, []):
+                new_depth = depth + 1
+                new_path = path_edges + [edge_id]
+                new_nodes = path_nodes + [dst]
+                if new_depth >= min_hops:
+                    if dest_allowed is not None and dst not in dest_allowed:
+                        # Destination filtered out; do not record or continue
+                        continue
+                    seed_to_nodes.setdefault(seed, set()).add(dst)
+                    edges_used.update(new_path)
+                    nodes_used.update(new_nodes)
+                if new_depth < max_hops:
+                    stack.append((dst, new_depth, new_path, new_nodes))
+                if len(edges_used) > caps.max_edges or len(nodes_used) > caps.max_nodes:
+                    raise ValueError("Enumerator caps exceeded during bounded hop traversal")
+    return seed_to_nodes, edges_used, nodes_used
 
 
 def _build_tags(

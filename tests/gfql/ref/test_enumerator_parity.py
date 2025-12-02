@@ -201,3 +201,29 @@ CASES = [
 @pytest.mark.parametrize("_, nodes, edges, ops", CASES, ids=[case[0] for case in CASES])
 def test_enumerator_matches_gfql(_, nodes, edges, ops):
     _run_parity_case(nodes, edges, ops)
+
+
+def test_enumerator_min_max_three_branch_unlabeled():
+    nodes = [
+        {"id": "a"},
+        {"id": "b1"},
+        {"id": "c1"},
+        {"id": "d1"},
+        {"id": "e1"},
+        {"id": "b2"},
+        {"id": "c2"},
+    ]
+    edges = [
+        {"edge_id": "e1", "src": "a", "dst": "b1"},
+        {"edge_id": "e2", "src": "b1", "dst": "c1"},
+        {"edge_id": "e3", "src": "c1", "dst": "d1"},
+        {"edge_id": "e4", "src": "d1", "dst": "e1"},
+        {"edge_id": "e5", "src": "a", "dst": "b2"},
+        {"edge_id": "e6", "src": "b2", "dst": "c2"},
+    ]
+    ops = [
+        n({"id": "a"}),
+        e_forward(min_hops=3, max_hops=3),
+        n(),
+    ]
+    _run_parity_case(nodes, edges, ops)
