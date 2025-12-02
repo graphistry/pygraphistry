@@ -74,6 +74,7 @@ demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
 
 # Ignore local Python virtualenv folders (used by Jenkins when running tests, etc.)
 /.pyenv*/
+.venv/
 
 # Ignore IDE stuff
 .idea
