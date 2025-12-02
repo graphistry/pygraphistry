@@ -457,7 +457,7 @@ def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
             df = df.drop(columns=[col])
 
     # Replace pandas/NA with Python None for consistency; ignore pandas typing mismatch on None
-    df = df.astype(object).where(pd.notna(df), None)  # type: ignore[arg-type]
+    df = df.astype(object).where(pd.notna(df), None)  # type: ignore[arg-type,call-overload]
     return df.reset_index(drop=True)
 
 
