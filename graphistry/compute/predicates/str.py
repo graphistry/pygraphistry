@@ -179,7 +179,8 @@ class Startswith(ASTPredicate):
                         if has_na:
                             # Convert to object dtype to preserve None values
                             result_pd = result.to_pandas().astype('object')
-                            result_pd[s.to_pandas().isna()] = None
+                            na_mask = s.to_pandas().isna()
+                            result_pd.loc[na_mask] = None
                             result = cudf.from_pandas(result_pd)
                 else:
                     if not self.case:
