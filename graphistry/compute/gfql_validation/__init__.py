@@ -1,13 +1,12 @@
 """
-DEPRECATED: This module is deprecated and will be removed in a future version.
+DEPRECATED: Use ``graphistry.compute.gfql`` instead.
 
-All functionality has been moved to graphistry.compute.gfql.
-Please update your imports:
-  FROM: graphistry.compute.gfql_validation
-  TO:   graphistry.compute.gfql
+All functionality moved to ``graphistry.compute.gfql``. Update imports:
 
-This duplicate module was created accidentally during code extraction and
-provides no additional functionality.
+- From: ``graphistry.compute.gfql_validation``
+- To:   ``graphistry.compute.gfql``
+
+This duplicate module was created during code extraction and provides no additional functionality.
 """
 
 import warnings

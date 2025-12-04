@@ -2,7 +2,7 @@
 
 import pytest
 from graphistry.compute.chain import Chain
-from graphistry.compute.ast import n, e_forward, ASTNode, ASTEdge
+from graphistry.compute.ast import n, e_forward, ASTNode, ASTEdge, ASTLet
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError, GFQLSyntaxError, GFQLTypeError
 
 
@@ -22,7 +22,23 @@ class TestChainValidation:
         # With collect_all
         errors = chain.validate(collect_all=True)
         assert errors == []
-    
+
+    def test_constructor_auto_validates(self):
+        """Chain constructor should validate by default."""
+        with pytest.raises(GFQLTypeError) as exc_info:
+            Chain([n(), e_forward(hops=-1), n()])
+
+        assert exc_info.value.code == ErrorCode.E103
+
+    def test_constructor_validate_opt_out(self):
+        """Allow skipping validation when explicitly requested."""
+        chain = Chain([n(), e_forward(hops=-1), n()], validate=False)
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            chain.validate()
+
+        assert exc_info.value.code == ErrorCode.E103
+
     def test_chain_not_list(self):
         """Chain must be a list."""
         chain = Chain.__new__(Chain)  # Skip __init__
@@ -128,6 +144,57 @@ class TestChainValidation:
         with pytest.raises(GFQLTypeError) as exc_info:
             chain.validate()
         # Should fail on invalid hops
+        assert exc_info.value.code == ErrorCode.E103
+    
+    def test_chain_from_json_validate_true_invalid_hops(self):
+        """from_json validate=True should fail on invalid hops."""
+        data = {
+            'type': 'Chain',
+            'chain': [
+                {'type': 'Edge', 'direction': 'forward', 'hops': -1},
+            ]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            Chain.from_json(data, validate=True)
+
+        assert exc_info.value.code == ErrorCode.E103
+
+    def test_nested_chain_validation_via_let(self):
+        """Let should validate nested chains by default."""
+        bad_chain = Chain([n(), e_forward(hops=-1), n()], validate=False)
+        with pytest.raises(GFQLTypeError) as exc_info:
+            ASTLet({'bad': bad_chain})  # validate=True default
+
+        assert exc_info.value.code == ErrorCode.E103
+
+    def test_nested_chain_validation_deferred_then_explicit(self):
+        """Nested deferred validation should fail when validate() is called."""
+        bad_chain = Chain([n(), e_forward(hops=-1), n()], validate=False)
+        let = ASTLet({'bad': bad_chain}, validate=False)
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            let.validate()
+
+        assert exc_info.value.code == ErrorCode.E103
+
+    def test_nested_chain_from_json_validate_true_invalid_hops(self):
+        """Let.from_json validate=True should fail on nested invalid hops."""
+        data = {
+            'type': 'Let',
+            'bindings': {
+                'bad': {
+                    'type': 'Chain',
+                    'chain': [
+                        {'type': 'Edge', 'direction': 'forward', 'hops': -1}
+                    ]
+                }
+            }
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            ASTLet.from_json(data, validate=True)
+
         assert exc_info.value.code == ErrorCode.E103
     
     def test_chain_collect_all_errors(self):

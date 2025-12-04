@@ -25,8 +25,11 @@ logger = setup_logger(__name__)
 
 class Chain(ASTSerializable):
 
-    def __init__(self, chain: List[ASTObject]) -> None:
+    def __init__(self, chain: List[ASTObject], validate: bool = True) -> None:
         self.chain = chain
+        if validate:
+            # Fail fast on invalid chains; matches documented automatic validation behavior
+            self.validate(collect_all=False)
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         """Override to collect all chain validation errors."""
@@ -116,9 +119,7 @@ class Chain(ASTSerializable):
                 f"Chain field must be a list, got {type(d['chain']).__name__}"
             )
         
-        out = cls([ASTObject_from_json(op, validate=validate) for op in d['chain']])
-        if validate:
-            out.validate()
+        out = cls([ASTObject_from_json(op, validate=validate) for op in d['chain']], validate=validate)
         return out
 
     def to_json(self, validate=True) -> Dict[str, JSONVal]:

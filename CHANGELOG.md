@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
+
+### Docs
+- **GFQL validation:** Clarified `Chain` constructor validation defaults, `validate=False` defer option, validation phases, and guidance for large/nested ASTs to reduce redundant validation (issue #860).
+
 ## [0.46.0 - 2025-12-01]
 
 ### Added

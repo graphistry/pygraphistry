@@ -268,28 +268,20 @@ def startswith(
     na: Optional[bool] = None
 ) -> Startswith:
     """
-    Return whether a given pattern or tuple of patterns is at the
-    start of a string
+    Return whether a given pattern or tuple of patterns is at the start of a string.
 
-    Args:
-        pat: Pattern (str) or tuple of patterns to match at start of
-             string. When tuple, returns True if string starts with ANY
-             pattern (OR logic)
-        case: If True, case-sensitive matching (default: True)
-        na: Fill value for missing values (default: None)
+    :param pat: Pattern (str) or tuple of patterns to match at start of string. When tuple,
+        returns True if the string starts with ANY pattern (OR logic).
+    :param case: If True, case-sensitive matching (default: True).
+    :param na: Fill value for missing values (default: None).
+    :returns: Startswith predicate.
 
-    Returns:
-        Startswith predicate
-
-    Examples:
-        >>> # Single pattern, case-sensitive (default)
-        >>> n({"name": startswith("John")})
-        >>> # Single pattern, case-insensitive
-        >>> n({"name": startswith("john", case=False)})
-        >>> # Multiple patterns (OR logic)
-        >>> n({"filename": startswith(("test_", "demo_"))})
-        >>> # Multiple patterns, case-insensitive
-        >>> n({"filename": startswith(("TEST", "DEMO"), case=False)})
+    Examples
+    --------
+    >>> n({"name": startswith("John")})
+    >>> n({"name": startswith("john", case=False)})
+    >>> n({"filename": startswith(("test_", "demo_"))})
+    >>> n({"filename": startswith(("TEST", "DEMO"), case=False)})
     """
     return Startswith(pat, case, na)
 
@@ -446,28 +438,20 @@ def endswith(
     na: Optional[bool] = None
 ) -> Endswith:
     """
-    Return whether a given pattern or tuple of patterns is at the
-    end of a string
+    Return whether a given pattern or tuple of patterns is at the end of a string.
 
-    Args:
-        pat: Pattern (str) or tuple of patterns to match at end of
-             string. When tuple, returns True if string ends with ANY
-             pattern (OR logic)
-        case: If True, case-sensitive matching (default: True)
-        na: Fill value for missing values (default: None)
+    :param pat: Pattern (str) or tuple of patterns to match at end of string. When tuple,
+        returns True if the string ends with ANY pattern (OR logic).
+    :param case: If True, case-sensitive matching (default: True).
+    :param na: Fill value for missing values (default: None).
+    :returns: Endswith predicate.
 
-    Returns:
-        Endswith predicate
-
-    Examples:
-        >>> # Single pattern, case-sensitive (default)
-        >>> n({"email": endswith(".com")})
-        >>> # Single pattern, case-insensitive
-        >>> n({"email": endswith(".COM", case=False)})
-        >>> # Multiple patterns (OR logic)
-        >>> n({"filename": endswith((".txt", ".csv"))})
-        >>> # Multiple patterns, case-insensitive
-        >>> n({"filename": endswith((".TXT", ".CSV"), case=False)})
+    Examples
+    --------
+    >>> n({"email": endswith(".com")})
+    >>> n({"email": endswith(".COM", case=False)})
+    >>> n({"filename": endswith((".txt", ".csv"))})
+    >>> n({"filename": endswith((".TXT", ".CSV"), case=False)})
     """
     return Endswith(pat, case, na)
 

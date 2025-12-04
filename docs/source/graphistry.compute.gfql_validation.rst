@@ -1,27 +1,10 @@
 graphistry.compute.gfql\_validation package
 ===========================================
 
-Submodules
-----------
+.. note::
 
-graphistry.compute.gfql\_validation.exceptions module
------------------------------------------------------
-
-.. automodule:: graphistry.compute.gfql_validation.exceptions
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-graphistry.compute.gfql\_validation.validate module
----------------------------------------------------
-
-.. automodule:: graphistry.compute.gfql_validation.validate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Module contents
----------------
+   Deprecated. Use :mod:`graphistry.compute.gfql` instead. This module only re-exports
+   the GFQL validation APIs for backward compatibility.
 
 .. automodule:: graphistry.compute.gfql_validation
    :members:

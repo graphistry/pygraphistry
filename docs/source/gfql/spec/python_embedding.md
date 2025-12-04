@@ -105,7 +105,7 @@ GFQL provides comprehensive validation to catch errors early:
 
 ### Syntax Validation
 
-Operations are automatically validated during construction:
+Chains validate on construction by default. Nodes, edges, predicates, refs, calls, and remote graphs are validated when a parent `Chain`/`Let` validates them or when you call `.validate()` directly. Schema validation is a separate, data-aware pass.
 
 ```python
 from graphistry.compute.chain import Chain
@@ -117,6 +117,28 @@ chain = Chain([
     e_forward({'hops': -1})  # Raises GFQLTypeError: hops must be positive
 ])
 ```
+
+For advanced flows (large/nested ASTs or staged assembly), you can defer structural validation and run it once after assembly:
+
+```python
+# Defer validation while building
+chain = Chain([
+    n({'type': 'person'}),
+    e_forward({'hops': -1})
+], validate=False)  # No validation yet
+
+# Later, validate once (or let g.gfql validate it)
+chain.validate()  # Raises GFQLTypeError: hops must be positive
+```
+
+Use deferred validation to avoid re-validating nested `Chain`/`Let` wrappers during assembly; keep the defaults for typical workflows so mistakes surface immediately.
+
+### Validation Phases
+
+- **Constructor defaults:** `Chain([...])` and `Let(...)` validate immediately; pass `validate=False` to defer.
+- **Parent-driven checks:** AST operations (`Node`, `Edge`, predicates, `Ref`, `Call`, `RemoteGraph`) validate when their parent validates, or via explicit `.validate()`.
+- **JSON defaults:** `to_json` / `from_json` default to `validate=True`, which runs structural validation during serialization/deserialization.
+- **Schema validation:** Use `validate_chain_schema(g, chain)` or `g.gfql(..., validate_schema=True)` to verify column/type compatibility before execution.
 
 ### Schema Validation
 

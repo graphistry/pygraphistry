@@ -61,14 +61,6 @@ graphistry.compute.chain\_remote module
    :undoc-members:
    :show-inheritance:
 
-graphistry.compute.chain\_validate module
------------------------------------------
-
-.. automodule:: graphistry.compute.chain_validate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 graphistry.compute.cluster module
 ---------------------------------
 
