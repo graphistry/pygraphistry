@@ -177,10 +177,9 @@ class Startswith(ASTPredicate):
                         # cuDF bool dtype can't hold None, so check if we need object dtype
                         has_na: bool = bool(s.isna().any())
                         if has_na:
-                            # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')
+                            # Convert to object dtype and apply mask to preserve None values
                             na_mask = s.to_pandas().isna()
-                            result_pd.loc[na_mask] = None
+                            result_pd = result.to_pandas().astype('object').mask(na_mask, None)
                             result = cudf.from_pandas(result_pd)
                 else:
                     if not self.case:
@@ -346,9 +345,9 @@ class Endswith(ASTPredicate):
                         # cuDF bool dtype can't hold None, so check if we need object dtype
                         has_na: bool = bool(s.isna().any())
                         if has_na:
-                            # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')
-                            result_pd[s.to_pandas().isna()] = None
+                            # Convert to object dtype and apply mask to preserve None values
+                            na_mask = s.to_pandas().isna()
+                            result_pd = result.to_pandas().astype('object').mask(na_mask, None)
                             result = cudf.from_pandas(result_pd)
                 else:
                     if not self.case:
