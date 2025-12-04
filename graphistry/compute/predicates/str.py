@@ -1,6 +1,12 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
+
+
+def _cudf_mask_none(result: Any, mask: Any) -> Any:
+    result_pd = result.to_pandas().astype('object')
+    result_pd.iloc[mask] = None
+    return result_pd
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
@@ -178,9 +184,8 @@ class Startswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype and apply mask to preserve None values
-                            na_mask: pd.Series = s.to_pandas().isna()
-                            result_pd = result.to_pandas().astype('object').where(~na_mask, None)
-                            result = cudf.from_pandas(result_pd)
+                            na_mask_arr = s.to_pandas().isna().to_numpy()
+                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
@@ -346,9 +351,8 @@ class Endswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype and apply mask to preserve None values
-                            na_mask: pd.Series = s.to_pandas().isna()
-                            result_pd = result.to_pandas().astype('object').where(~na_mask, None)
-                            result = cudf.from_pandas(result_pd)
+                            na_mask_arr = s.to_pandas().isna().to_numpy()
+                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
