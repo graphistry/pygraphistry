@@ -178,7 +178,7 @@ class Startswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype and apply mask to preserve None values
-                            na_mask = s.to_pandas().isna()
+                            na_mask: pd.Series = s.to_pandas().isna()
                             result_pd = result.to_pandas().astype('object').where(~na_mask, None)
                             result = cudf.from_pandas(result_pd)
                 else:
@@ -346,7 +346,7 @@ class Endswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype and apply mask to preserve None values
-                            na_mask = s.to_pandas().isna()
+                            na_mask: pd.Series = s.to_pandas().isna()
                             result_pd = result.to_pandas().astype('object').where(~na_mask, None)
                             result = cudf.from_pandas(result_pd)
                 else:
