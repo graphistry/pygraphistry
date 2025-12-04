@@ -74,9 +74,9 @@ typehints_document_rtype = True
 #    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
 #]
 
-# Use SVG for graphviz outputs (HTML) and guard PR builds (RTD PRs may skip
-# apt packages so dot may be missing) with a tiny placeholder to keep builds
-# green.
+# Use SVG for graphviz outputs generally, but switch latex to PNG so pdflatex
+# can embed images even when dot is missing. Guard missing dot with tiny
+# placeholders to keep builds green.
 graphviz_output_format = "svg"
 _graphviz_placeholder_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
 _graphviz_placeholder_png = base64.b64decode(
@@ -103,6 +103,13 @@ def _render_dot_with_placeholder(self, code, options, format, prefix="graphviz",
 
 
 sphinx_graphviz.render_dot = _render_dot_with_placeholder
+
+# Align builder-specific graphviz output
+def _set_graphviz_format(app):
+    if app.builder.name == "latex":
+        app.config.graphviz_output_format = "png"
+    else:
+        app.config.graphviz_output_format = "svg"
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -832,3 +839,4 @@ def setup(app: Sphinx):
         print('No custom handling for app.builder.name=', app.builder.name)
 
     app.connect('builder-inited', on_builder)
+    app.connect('builder-inited', _set_graphviz_format)
