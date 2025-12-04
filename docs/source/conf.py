@@ -10,10 +10,14 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import docutils.nodes, os, logging, re, sys
+import base64
+import docutils.nodes, os, logging, re, sys, shutil, posixpath
 from docutils import nodes
 from packaging.version import Version
 from sphinx.application import Sphinx
+from sphinx.ext import graphviz as sphinx_graphviz
+from sphinx.util.osutil import ensuredir
+from pathlib import Path
 
 
 sys.path.insert(0, os.path.abspath("../.."))
@@ -69,6 +73,30 @@ typehints_document_rtype = True
 #suppress_warnings = [
 #    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
 #]
+
+# Use PNG for graphviz outputs across builders and guard PR builds (RTD PRs
+# skip apt packages, so dot may be missing) with a tiny placeholder to keep
+# builds green.
+graphviz_output_format = "png"
+_graphviz_placeholder_png = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+)
+_orig_render_dot = sphinx_graphviz.render_dot
+
+
+def _render_dot_with_placeholder(self, code, options, format, prefix="graphviz", filename=None):
+    relfn, outfn = _orig_render_dot(self, code, options, format, prefix, filename)
+    if relfn is None:
+        fname = f"{prefix}-placeholder.{format}"
+        relfn = posixpath.join(self.builder.imgpath, fname)
+        outfn = os.path.join(self.builder.outdir, self.builder.imagedir, fname)
+        ensuredir(os.path.dirname(outfn))
+        if not os.path.isfile(outfn):
+            Path(outfn).write_bytes(_graphviz_placeholder_png)
+    return relfn, outfn
+
+
+sphinx_graphviz.render_dot = _render_dot_with_placeholder
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
