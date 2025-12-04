@@ -1063,6 +1063,19 @@ g2c = g2.hop(
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
 
+# Bounded hops with labels and sliced outputs
+g4 = g2.hop(
+  pd.DataFrame({g2._node: ['a']}),
+  min_hops=2,
+  max_hops=3,
+  output_min_hops=2,
+  output_max_hops=3,
+  label_node_hops='hop',
+  label_edge_hops='edge_hop',
+  label_seeds=True
+)
+g4._nodes[['node', 'hop']]
+
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: is_in(['a', 'b'])}), hops=8)
 
