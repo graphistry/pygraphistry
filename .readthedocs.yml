@@ -49,6 +49,10 @@ formats:
   - epub
   - htmlzip
 
+# sphinx key triggers RTD's Sphinx support for environment/install steps
+sphinx:
+  configuration: docs/source/conf.py
+
 python:
   install:
     - method: pip
