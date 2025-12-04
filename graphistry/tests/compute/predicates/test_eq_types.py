@@ -1,5 +1,7 @@
 import pandas as pd
 import pytest
+from datetime import datetime, date, time
+import numpy as np
 
 from graphistry.compute.chain import Chain
 from graphistry.compute.ast import ASTNode
@@ -8,7 +10,7 @@ from graphistry.compute.predicates.comparison import EQ, eq
 from graphistry.compute.gfql_unified import gfql
 
 
-@pytest.mark.parametrize('val', ['a', 1, 1.5, True])
+@pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0), pd.Timestamp('2024-01-01'), date(2024, 1, 2), time(3, 4, 5)])
 def test_eq_multi_type_validate_and_apply(val):
     s = pd.Series([val, None])
     predicate = eq(val)
@@ -18,7 +20,7 @@ def test_eq_multi_type_validate_and_apply(val):
     assert bool(result.iloc[1]) is False
 
 
-@pytest.mark.parametrize('val', ['a', 1, 1.5, True])
+@pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0), pd.Timestamp('2024-01-01'), date(2024, 1, 2), time(3, 4, 5)])
 def test_eq_multi_type_chain_validation_and_execution(val):
     nodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'label': [val, val, 'other']})
     edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
@@ -31,7 +33,7 @@ def test_eq_multi_type_chain_validation_and_execution(val):
     # Runtime execution is exercised indirectly via predicate on series below
 
 
-@pytest.mark.parametrize('val', ['a', 1, 1.5, True])
+@pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0), pd.Timestamp('2024-01-01'), date(2024, 1, 2), time(3, 4, 5)])
 def test_eq_multi_type_schema_validation(val):
     nodes = pd.DataFrame({'id': ['a'], 'label': [val]})
     edges = pd.DataFrame({'s': ['a'], 'd': ['a']})
@@ -48,20 +50,25 @@ def test_eq_multi_type_schema_validation(val):
     validate_chain_schema(dummy, chain, collect_all=False)
 
 
-@pytest.mark.parametrize('val', ['a', 1, 1.5, True])
+@pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0), pd.Timestamp('2024-01-01'), date(2024, 1, 2), time(3, 4, 5)])
 def test_eq_multi_type_json_roundtrip(val):
     predicate = eq(val)
     payload = predicate.to_json(validate=False)
     assert payload['type'] == 'EQ'
-    assert payload['val'] == val
+    if isinstance(val, (pd.Timestamp, date, time)):
+        assert isinstance(payload['val'], dict)
+        restored = EQ.from_json(payload, validate=False)
+        restored.validate()
+        s = pd.Series([val, val])
+        pd.testing.assert_series_equal(restored(s).reset_index(drop=True), pd.Series([True, True]))
+    else:
+        assert payload['val'] == val
+        restored = EQ.from_json(payload, validate=False)
+        restored.validate()
+        s = pd.Series([val, 'other'])
+        pd.testing.assert_series_equal(restored(s).reset_index(drop=True), pd.Series([True, False]))
 
-    restored = EQ.from_json(payload, validate=False)
-    restored.validate()
-    s = pd.Series([val, 'other'])
-    pd.testing.assert_series_equal(restored(s).reset_index(drop=True), pd.Series([True, False]))
-
-
-@pytest.mark.parametrize('val', ['a', 1, 1.5, True])
+@pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0)])
 def test_eq_multi_type_gfql_runtime(val):
     nodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'label': [val, val, 'other']})
     edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
@@ -73,3 +80,8 @@ def test_eq_multi_type_gfql_runtime(val):
     result = gfql(g_obj, chain)
     filtered_nodes = result._nodes
     assert set(filtered_nodes['id']) == {'a', 'b'}
+
+
+def test_eq_rejects_none():
+    with pytest.raises(TypeError):
+        eq(None)
