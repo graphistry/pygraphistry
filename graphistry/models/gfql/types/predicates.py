@@ -25,12 +25,14 @@ BasicScalar = Union[int, float, str, np.number, None]
 # ============= Predicate Input Types =============
 # What users can provide to each predicate type
 
-# Comparison predicates (GT, LT, GE, LE, EQ, NE) - strict, no strings
+# Comparison predicates (GT, LT, GE, LE, EQ, NE)
+# EQ additionally permits strings (handled in predicate implementation)
 ComparisonInput = Union[
     NativeNumeric,      # Python int, float, np.number
     NativeTemporal,     # Python datetime, date, time, pd.Timestamp
     TemporalWire,       # Wire format: {"type": "datetime", ...}
     "TemporalValue",    # AST temporal values
+    str,                # Strings (primarily for EQ)
 ]
 
 # IsIn predicate - permissive, allows strings and arbitrary values
