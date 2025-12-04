@@ -75,9 +75,11 @@ typehints_document_rtype = True
 #]
 
 # Use SVG for graphviz outputs generally, but switch latex to PNG so pdflatex
-# can embed images even when dot is missing. Guard missing dot with tiny
-# placeholders to keep builds green.
+# can embed images. Guard missing dot with tiny placeholders as safety net.
+# NOTE: With RTD using build.jobs + apt_packages, dot SHOULD be available.
+# This shim is kept only as a fallback for local builds missing graphviz.
 graphviz_output_format = "svg"
+_graphviz_placeholder_warned = False
 _graphviz_placeholder_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
 _graphviz_placeholder_png = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
@@ -93,11 +95,20 @@ trailer<</Root 1 0 R>>
 %%EOF
 """
 _orig_render_dot = sphinx_graphviz.render_dot
+_graphviz_logger = logging.getLogger(__name__)
 
 
 def _render_dot_with_placeholder(self, code, options, format, prefix="graphviz", filename=None):
+    global _graphviz_placeholder_warned
     relfn, outfn = _orig_render_dot(self, code, options, format, prefix, filename)
     if relfn is None:
+        # Warn loudly (once) that we're using placeholders
+        if not _graphviz_placeholder_warned:
+            _graphviz_logger.warning(
+                "Graphviz 'dot' command not available - using placeholder images. "
+                "Install graphviz to render real diagrams: apt-get install graphviz"
+            )
+            _graphviz_placeholder_warned = True
         fname = f"{prefix}-placeholder.{format}"
         relfn = posixpath.join(self.builder.imgpath, fname)
         outfn = os.path.join(self.builder.outdir, self.builder.imagedir, fname)
