@@ -219,7 +219,14 @@ class EQ(ComparisonPredicate):
 
 def eq(val: ComparisonInput) -> EQ:
     """
-    Return whether a given value is equal to a threshold
+    Return whether a given value is equal to a threshold.
+
+    Accepts:
+    - Numeric values (int, float, np.number, bool)
+    - Temporal values (datetime/date/time/pd.Timestamp, temporal wire dicts, TemporalValue)
+    - Strings (e.g., eq("active"))
+
+    For null checks, use `isna()` / `notna()` instead.
     """
     return EQ(val)
 
