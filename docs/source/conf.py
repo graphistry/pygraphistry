@@ -82,6 +82,16 @@ _graphviz_placeholder_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" 
 _graphviz_placeholder_png = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 )
+_graphviz_placeholder_pdf = b"""%PDF-1.1
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 1 1]/Contents 4 0 R/Resources<<>> >>endobj
+4 0 obj<</Length 0>>stream
+endstream
+endobj
+trailer<</Root 1 0 R>>
+%%EOF
+"""
 _orig_render_dot = sphinx_graphviz.render_dot
 
 
@@ -95,6 +105,8 @@ def _render_dot_with_placeholder(self, code, options, format, prefix="graphviz",
         if not os.path.isfile(outfn):
             if format == "svg":
                 Path(outfn).write_bytes(_graphviz_placeholder_svg)
+            elif format == "pdf":
+                Path(outfn).write_bytes(_graphviz_placeholder_pdf)
             else:
                 Path(outfn).write_bytes(_graphviz_placeholder_png)
                 # HTML png builds expect a .map; provide an empty one so Sphinx doesn't crash
