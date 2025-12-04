@@ -74,10 +74,11 @@ typehints_document_rtype = True
 #    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
 #]
 
-# Use PNG for graphviz outputs across builders and guard PR builds (RTD PRs
-# skip apt packages, so dot may be missing) with a tiny placeholder to keep
-# builds green.
-graphviz_output_format = "png"
+# Use SVG for graphviz outputs (HTML) and guard PR builds (RTD PRs may skip
+# apt packages so dot may be missing) with a tiny placeholder to keep builds
+# green.
+graphviz_output_format = "svg"
+_graphviz_placeholder_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
 _graphviz_placeholder_png = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 )
@@ -92,7 +93,12 @@ def _render_dot_with_placeholder(self, code, options, format, prefix="graphviz",
         outfn = os.path.join(self.builder.outdir, self.builder.imagedir, fname)
         ensuredir(os.path.dirname(outfn))
         if not os.path.isfile(outfn):
-            Path(outfn).write_bytes(_graphviz_placeholder_png)
+            if format == "svg":
+                Path(outfn).write_bytes(_graphviz_placeholder_svg)
+            else:
+                Path(outfn).write_bytes(_graphviz_placeholder_png)
+                # HTML png builds expect a .map; provide an empty one so Sphinx doesn't crash
+                Path(outfn + ".map").write_text("", encoding="utf-8")
     return relfn, outfn
 
 
