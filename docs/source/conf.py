@@ -70,8 +70,8 @@ typehints_document_rtype = True
 #    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
 #]
 
-# Use SVG embedded as <img> for HTML (more reliable rendering than <object>),
-# and PNG for LaTeX/PDF. Fail hard if dot is missing - no silent degradation.
+# Use SVG for HTML graphviz, PNG for LaTeX/PDF.
+# Fail hard if dot is missing - no silent degradation.
 graphviz_output_format = "svg"
 
 # Check for graphviz at startup and fail fast if missing
@@ -87,8 +87,7 @@ def _set_graphviz_format(app):
     if app.builder.name == "latex":
         app.config.graphviz_output_format = "png"
     else:
-        # Use "svg:img" to embed as <img> tag instead of <object> for better rendering
-        app.config.graphviz_output_format = "svg:img"
+        app.config.graphviz_output_format = "svg"
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
