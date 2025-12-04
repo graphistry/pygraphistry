@@ -2,14 +2,14 @@ from typing import Any, Optional, Union
 
 import pandas as pd
 
+from .ASTPredicate import ASTPredicate
+from graphistry.compute.typing import SeriesT
+
 
 def _cudf_mask_none(result: Any, mask: Any) -> Any:
     result_pd = result.to_pandas().astype('object')
     result_pd.iloc[mask] = None
     return result_pd
-
-from .ASTPredicate import ASTPredicate
-from graphistry.compute.typing import SeriesT
 
 
 class Contains(ASTPredicate):
