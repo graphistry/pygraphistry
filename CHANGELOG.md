@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
+- **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).
 
 ### Docs
 - **GFQL validation:** Clarified `Chain` constructor validation defaults, `validate=False` defer option, validation phases, and guidance for large/nested ASTs to reduce redundant validation (issue #860).

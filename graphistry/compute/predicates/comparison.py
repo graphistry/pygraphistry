@@ -22,7 +22,7 @@ class ComparisonPredicate(ASTPredicate):
     def __init__(self, val: ComparisonInput) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
         """Convert various input types to internal representation"""
         # Comparison predicates need:
         # - Numerics as-is
