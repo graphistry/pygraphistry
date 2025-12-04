@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from datetime import datetime, date, time
+from datetime import date, time
 import numpy as np
 
 from graphistry.compute.chain import Chain
@@ -22,9 +22,6 @@ def test_eq_multi_type_validate_and_apply(val):
 
 @pytest.mark.parametrize('val', ['a', 1, 1.5, True, np.float64(2.0), pd.Timestamp('2024-01-01'), date(2024, 1, 2), time(3, 4, 5)])
 def test_eq_multi_type_chain_validation_and_execution(val):
-    nodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'label': [val, val, 'other']})
-    edges = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-
     chain = Chain([
         ASTNode(filter_dict={'label': eq(val)})
     ])
