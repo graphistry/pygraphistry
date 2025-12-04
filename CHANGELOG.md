@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 - **Graphviz**: Enabled `sphinx.ext.graphviz`, allowed rstcheck `graphviz` directive, and added static Graphviz + DOT/Mermaid examples across 10min, visualization 10min, GFQL spec (MyST), and the Graphviz demo notebook (uses `plot_static` inline). Docs Docker image now installs graphviz/pygraphviz/gcc and `docs/ci.sh` builds only the sphinx service.
+- **RTD**: Fixed graphviz on Read the Docs by switching from `build.commands` to `build.jobs` (RTD's `apt_packages` is incompatible with `commands`). Docs now fail fast with clear error if `dot` is missing.
 
 ### Tests
 - **Graphviz**: Added coverage for `plot_static` DOT/Mermaid engines and position reuse.
