@@ -138,9 +138,9 @@ class ASTNode(ASTObject):
 
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
-        def _validate_fields(self) -> None:
+
+    def _validate_fields(self) -> None:
         """Validate node fields."""
-        # Validate filter_dict
         if self.filter_dict is not None:
             if not isinstance(self.filter_dict, dict):
                 raise GFQLTypeError(
