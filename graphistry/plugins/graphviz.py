@@ -334,6 +334,9 @@ def render_graphviz(
     This wraps :func:`layout_graphviz_core` to compute positions, then draws with pygraphviz.
     Optionally enforces caps to keep renders small/deterministic for docs/examples.
 
+    When ``include_positions`` is True and the plot has bound x/y values, the existing layout
+    is preserved rather than recomputed by Graphviz.
+
     :param self: Base graph
     :type self: Plottable
     :param prog: Layout algorithm
