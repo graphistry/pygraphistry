@@ -30,9 +30,9 @@ The following table lists the available operators, their descriptions, and examp
    * - ``le(value)``
      - Less than or equal to ``value``.
      - ``n({ "score": le(70) })``
-   * - ``eq(value)``
-     - Equal to ``value``.
-     - ``n({ "status": eq("active") })``
+  * - ``eq(value)``
+    - Equal to ``value``.
+    - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
    * - ``ne(value)``
      - Not equal to ``value``.
      - ``n({ "status": ne("inactive") })``
@@ -242,4 +242,3 @@ Additional Notes
       n({ "age": lambda x: (x > 18) & (x < 65) })
 
 - **Predicates Module**: Operators are available in the `graphistry.predicates` module.
-

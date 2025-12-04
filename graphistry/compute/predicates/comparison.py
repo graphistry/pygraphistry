@@ -1,5 +1,5 @@
-from typing import Dict, Literal, TYPE_CHECKING, Union, cast, overload
-from datetime import date, datetime, time
+from typing import Dict, TYPE_CHECKING, Union, cast
+from datetime import date, time
 import numpy as np
 import pandas as pd
 
@@ -22,7 +22,7 @@ class ComparisonPredicate(ASTPredicate):
     def __init__(self, val: ComparisonInput) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
         """Convert various input types to internal representation"""
         # Comparison predicates need:
         # - Numerics as-is
@@ -187,9 +187,28 @@ def le(val: ComparisonInput) -> LE:
     return LE(val)
 
 class EQ(ComparisonPredicate):
+    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
+        """Allow strings in addition to the base numeric/temporal types."""
+        if is_string(val):
+            return val
+        return super()._normalize_value(val)
+
+    def _validate_fields(self) -> None:
+        """Validate predicate fields (allow str in addition to base types)."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+        if not isinstance(self.val, (int, float, TemporalValue, str)):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "val must be numeric, temporal, or string",
+                field="val",
+                value=type(self.val).__name__,
+                suggestion="Use numeric/temporal values or strings"
+            )
+
     def __call__(self, s: SeriesT) -> SeriesT:
         """Equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s == self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s = self._prepare_temporal_series(s, self.val)
@@ -200,7 +219,14 @@ class EQ(ComparisonPredicate):
 
 def eq(val: ComparisonInput) -> EQ:
     """
-    Return whether a given value is equal to a threshold
+    Return whether a given value is equal to a threshold.
+
+    Accepts:
+    - Numeric values (int, float, np.number, bool)
+    - Temporal values (datetime/date/time/pd.Timestamp, temporal wire dicts, TemporalValue)
+    - Strings (e.g., eq("active"))
+
+    For null checks, use `isna()` / `notna()` instead.
     """
     return EQ(val)
 
