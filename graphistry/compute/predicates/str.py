@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Optional, Union
 
 import pandas as pd
 
@@ -153,10 +153,10 @@ class Startswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    result = cast(pd.Series, pd.Series([False] * len(s), index=s.index))
+                    result = pd.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = cast(pd.Series, result.astype(object))
+                        result = result.astype(object)
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
@@ -178,7 +178,7 @@ class Startswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
-                            result_pd = cast(pd.Series, result.to_pandas().astype('object'))
+                            result_pd = result.to_pandas().astype('object')
                             result_pd[s.to_pandas().isna()] = None
                             result = cudf.from_pandas(result_pd)
                 else:
@@ -321,10 +321,10 @@ class Endswith(ASTPredicate):
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     # Create False for all values
-                    result = cast(pd.Series, pd.Series([False] * len(s), index=s.index))
+                    result = pd.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = cast(pd.Series, result.astype(object))
+                        result = result.astype(object)
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
@@ -346,7 +346,7 @@ class Endswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
-                            result_pd = cast(pd.Series, result.to_pandas().astype('object'))
+                            result_pd = result.to_pandas().astype('object')
                             result_pd[s.to_pandas().isna()] = None
                             result = cudf.from_pandas(result_pd)
                 else:
