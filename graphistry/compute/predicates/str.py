@@ -1,4 +1,6 @@
-from typing import Optional, Union
+from typing import Optional, Union, cast
+
+import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
@@ -151,12 +153,10 @@ class Startswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    import pandas as pd
-                    # Create False for all values
-                    result = pd.Series([False] * len(s), index=s.index)  # type: ignore[assignment]
+                    result = cast(pd.Series, pd.Series([False] * len(s), index=s.index))
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = result.astype(object)  # type: ignore[assignment]
+                        result = cast(pd.Series, result.astype(object))
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
@@ -170,7 +170,6 @@ class Startswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    import pandas as pd
                     # Create False for all values
                     result = cudf.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
@@ -179,7 +178,7 @@ class Startswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')  # type: ignore[operator]
+                            result_pd = cast(pd.Series, result.to_pandas().astype('object'))
                             result_pd[s.to_pandas().isna()] = None
                             result = cudf.from_pandas(result_pd)
                 else:
@@ -321,12 +320,11 @@ class Endswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    import pandas as pd
                     # Create False for all values
-                    result = pd.Series([False] * len(s), index=s.index)  # type: ignore[assignment]
+                    result = cast(pd.Series, pd.Series([False] * len(s), index=s.index))
                     # Preserve NA values when na=None (default)
                     if self.na is None:
-                        result = result.astype(object)  # type: ignore[assignment]
+                        result = cast(pd.Series, result.astype(object))
                         result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
@@ -340,7 +338,6 @@ class Endswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    import pandas as pd
                     # Create False for all values
                     result = cudf.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
@@ -349,7 +346,7 @@ class Endswith(ASTPredicate):
                         has_na: bool = bool(s.isna().any())
                         if has_na:
                             # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')  # type: ignore[operator]
+                            result_pd = cast(pd.Series, result.to_pandas().astype('object'))
                             result_pd[s.to_pandas().isna()] = None
                             result = cudf.from_pandas(result_pd)
                 else:
