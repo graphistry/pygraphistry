@@ -125,14 +125,6 @@ When you need a quick static image without an interactive client, render directl
    svg = g.plot_static(format='svg', max_nodes=200, max_edges=400)
    SVG(svg)
 
-.. graphviz::
-
-   digraph viz_static_demo {
-      rankdir=LR;
-      a -> b -> c -> d;
-      a [shape=box, style=filled, fillcolor=lightyellow];
-   }
-
 Text-only outputs
 -----------------
 
