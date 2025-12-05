@@ -2433,6 +2433,27 @@ class PlotterBase(Plottable):
     layout_graphviz = layout_graphviz
     render_graphviz = render_graphviz
 
+    def _auto_display_static(self, data: Union[bytes, str], format: str) -> None:
+        """
+        Auto-display static render output in Jupyter notebook environments.
+
+        Does nothing if not in an interactive IPython/Jupyter context.
+        """
+        from graphistry.util import in_ipython
+        if not in_ipython():
+            return
+
+        try:
+            from IPython.display import display, SVG, Image
+            if format == 'svg':
+                display(SVG(data))
+            elif format == 'png':
+                display(Image(data))
+            # For 'dot' or 'mermaid-code' text output, we don't auto-display
+            # (user can print() or use display(Code(...)) themselves)
+        except ImportError:
+            pass  # No IPython available, skip display
+
     def plot_static(
         self,
         format: Format = 'svg',
@@ -2477,6 +2498,9 @@ class PlotterBase(Plottable):
         :param max_nodes: Optional cap on node count
         :param max_edges: Optional cap on edge count
         :return: Rendered image bytes or DOT/Mermaid string, depending on engine
+
+        **Auto-display**: When running in a Jupyter notebook, the output is automatically
+        displayed inline. The result is still returned for programmatic use (e.g., saving to disk).
         """
 
         if engine not in ('graphviz', 'graphviz-svg', 'graphviz-png', 'graphviz-dot', 'mermaid-code'):
@@ -2518,7 +2542,7 @@ class PlotterBase(Plottable):
                 fmt = 'png'
             elif engine in ('graphviz', 'graphviz-svg') and fmt not in ('svg', 'png'):
                 fmt = 'svg'
-            return render_graphviz(
+            result = render_graphviz(
                 g_render,
                 prog=render_prog,
                 args=render_args,
@@ -2533,6 +2557,8 @@ class PlotterBase(Plottable):
                 max_edges=max_edges,
                 path=path
             )
+            self._auto_display_static(result, fmt)
+            return result
 
         if engine == 'graphviz-dot':
             from graphistry.plugins.graphviz import layout_graphviz_core
