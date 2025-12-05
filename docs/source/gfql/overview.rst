@@ -10,16 +10,6 @@ Why GFQL?
 
 GFQL addresses a critical gap in the data community by providing an in-process graph query language that operates at the compute tier. This means you can:
 
-- **Tiny reachability map**:
-
-  .. graphviz::
-
-     digraph gfql_overview_toy {
-         rankdir=LR;
-         a -> b -> c -> d;
-         a [shape=box, style=filled, fillcolor=lightblue];
-     }
-
 - **Graph search**: Easily and efficiently query and filter nodes and edges using a familiar syntax.
 - **Avoid External Infrastructure**: Avoid calls to external infrastructures and eliminate the need for extra databases.
 - **Leverage Existing Workflows**: Integrate with your current Python data science tools and libraries.
@@ -338,3 +328,4 @@ Access detailed documentation of GFQL's API:
 - **Predicates**: Apply advanced filtering using predicates.
 
   - :doc:`../api/gfql/predicates`
+
