@@ -27,6 +27,50 @@ GFQL fills a critical gap in the data community by providing an in-process, high
 - **Ease of Use:** No need for external databases or new infrastructure.
 - **Interoperability:** Integrates with the Python data science ecosystem, including PyGraphistry for visualization.
 
+Sample Dataset
+--------------
+
+Throughout this guide, we'll work with a graph representing people, companies, and transactions with risk indicators:
+
+.. graphviz::
+
+   digraph sample_graph {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style=filled, fillcolor=lightblue];
+       b [label="b\nperson", style=filled, fillcolor=lightblue];
+       c [label="c\ncompany", shape=box, style=filled, fillcolor=lightyellow];
+       tx1 [label="tx1\ntransaction\nrisk1=True", shape=diamond, style=filled, fillcolor=lightcoral];
+       tx2 [label="tx2\ntransaction\nrisk2=True", shape=diamond, style=filled, fillcolor=lightcoral];
+
+       a -> b [label="knows\ninteresting"];
+       b -> c [label="works_at\ninteresting"];
+       a -> tx1 [label="sent"];
+       tx1 -> tx2 [label="transfer"];
+       tx2 -> c [label="received"];
+   }
+
+::
+
+    import pandas as pd
+    import graphistry
+
+    nodes_df = pd.DataFrame({
+        'id': ['a', 'b', 'c', 'tx1', 'tx2'],
+        'type': ['person', 'person', 'company', 'transaction', 'transaction'],
+        'risk1': [False, False, False, True, False],
+        'risk2': [False, False, False, False, True],
+    })
+    edges_df = pd.DataFrame({
+        'src': ['a', 'b', 'a', 'tx1', 'tx2'],
+        'dst': ['b', 'c', 'tx1', 'tx2', 'c'],
+        'e_type': ['knows', 'works_at', 'sent', 'transfer', 'received'],
+        'interesting': [True, True, False, False, False],
+    })
+
+    g = graphistry.edges(edges_df, 'src', 'dst').nodes(nodes_df, 'id')
+
 Setting Up GFQL
 ---------------
 
@@ -62,7 +106,7 @@ You can filter nodes based on their properties using the ``n()`` function.
     from graphistry import n
 
     people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
-    print('Number of person nodes:', len(people_nodes_df))
+    # people_nodes_df: DataFrame with 'a' and 'b' (the person nodes)
 
 **Explanation:**
 
@@ -82,7 +126,7 @@ Traverse multiple hops and filter edges based on attributes using ``e_forward()`
     from graphistry import e_forward
 
     g_2_hops = g.gfql([ e_forward({"interesting": True}, hops=2) ])
-    print('Number of edges in 2-hop paths:', len(g_2_hops._edges))
+    # g_2_hops._edges: edges a->b->c (both marked interesting)
     g_2_hops.plot()
 
 **Explanation:**
@@ -117,7 +161,7 @@ Label hops in your traversal to analyze specific relationships.
         e_undirected(name="hop2")
     ])
     first_hop_edges = g_2_hops._edges[ g_2_hops._edges.hop1 == True ]
-    print('Number of first-hop edges:', len(first_hop_edges))
+    # first_hop_edges: edges directly connected to 'a' (hop1=True)
 
 **Explanation:**
 
@@ -154,7 +198,7 @@ Chain multiple traversals to find patterns between nodes.
         n({"risk2": True})
     ])
     hits = g_risky._nodes[ g_risky._nodes["hit"] == True ]
-    print('Number of transaction hits:', len(hits))
+    # hits: transaction nodes reachable from risk1 nodes and reaching risk2 nodes
 
 **Explanation:**
 
@@ -194,7 +238,7 @@ Use the ``is_in`` predicate to filter nodes or edges by multiple values.
         n({"risk2": True})
     ])
     hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
-    print('Number of filtered hits:', len(hits))
+    # hits: transaction/account nodes matching the traversal pattern
 
 **Explanation:**
 
@@ -227,7 +271,6 @@ GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using
 
     # Run GFQL query (executes on GPU)
     g_result = g_gpu.gfql([ ... ])
-    print('Number of resulting edges:', len(g_result._edges))
 
 **Explanation:**
 
@@ -270,8 +313,7 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 
     # View top nodes by PageRank
     top_nodes = g_enriched._nodes.sort_values('pagerank', ascending=False).head(5)
-    print('Top nodes by PageRank:')
-    print(top_nodes[['id', 'pagerank']])
+    # top_nodes[['id', 'pagerank']]: DataFrame with highest PageRank nodes
 
 **Explanation:**
 
@@ -342,8 +384,8 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
     # Access results from each stage
     suspicious = result._nodes[result._nodes['suspicious_accounts']]
     clusters = result._nodes[result._nodes['high_risk_clusters']]
-    print(f'Found {len(suspicious)} suspicious accounts')
-    print(f'Identified {clusters["community"].nunique()} high-risk clusters')
+    # suspicious: nodes flagged in stage 1
+    # clusters['community']: community assignments from stage 4
 
 **Key benefits of Let bindings:**
 
@@ -415,7 +457,8 @@ Additional parameters enable controlling options such as the execution ``engine`
         }
 
     g = graphistry.bind(dataset_id='my-dataset-id')
-    print(g.python_remote_json(compute_shape))
+    shape_info = g.python_remote_json(compute_shape)
+    # shape_info: {'nodes': (1000, 5), 'edges': (5000, 3)}
 
 **Example: Run Python on remote GPUs and return a graph**
 
@@ -427,7 +470,7 @@ Additional parameters enable controlling options such as the execution ``engine`
 
     g = graphistry.bind(dataset_id='my-dataset-id')
     g2 = g.python_remote_g(compute_shape)
-    print(g2._nodes)
+    # g2._nodes: DataFrame returned from remote execution
 
 Conclusion and Next Steps
 -------------------------
