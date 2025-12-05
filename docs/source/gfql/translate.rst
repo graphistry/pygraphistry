@@ -82,7 +82,7 @@ Finding Nodes with Specific Properties
 Exploring Relationships Between Nodes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Objective**: Find all edges connecting nodes of type `"person"` to nodes of type `"company"`.
+**Objective**: Find all edges connecting nodes of type ``"person"`` to nodes of type ``"company"``.
 
 **SQL**
 
@@ -145,7 +145,7 @@ Exploring Relationships Between Nodes
 Performing Multi-Hop Traversals
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Objective**: Find nodes that are two hops away from node `"Alice"`.
+**Objective**: Find nodes that are two hops away from node ``"Alice"``.
 
 **SQL**
 
@@ -444,7 +444,7 @@ Community Detection and Clustering
 Time-Windowed Graph Analytics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Objective**: Find all edges between nodes `"Alice"` and `"Bob"` that occurred in the last 7 days.
+**Objective**: Find all edges between nodes ``"Alice"`` and ``"Bob"`` that occurred in the last 7 days.
 
 **SQL**
 
