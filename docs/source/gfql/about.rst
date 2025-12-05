@@ -38,17 +38,17 @@ Throughout this guide, we'll work with a graph representing people, companies, a
        rankdir=LR;
        node [shape=ellipse];
 
-       a [label="a\nperson", style=filled, fillcolor=lightblue];
-       b [label="b\nperson", style=filled, fillcolor=lightblue];
-       c [label="c\ncompany", shape=box, style=filled, fillcolor=lightyellow];
-       tx1 [label="tx1\ntransaction\nrisk1=True", shape=diamond, style=filled, fillcolor=lightcoral];
-       tx2 [label="tx2\ntransaction\nrisk2=True", shape=diamond, style=filled, fillcolor=lightcoral];
+       a [label="a\nperson", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       b [label="b\nperson", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       c [label="c\ncompany", shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
+       tx1 [label="tx1\ntransaction\nrisk1=True", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
+       tx2 [label="tx2\ntransaction\nrisk2=True", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
 
-       a -> b [label="knows\ninteresting"];
-       b -> c [label="works_at\ninteresting"];
-       a -> tx1 [label="sent"];
-       tx1 -> tx2 [label="transfer"];
-       tx2 -> c [label="received"];
+       a -> b [label="knows\ninteresting", penwidth=2];
+       b -> c [label="works_at\ninteresting", penwidth=2];
+       a -> tx1 [label="sent", penwidth=2];
+       tx1 -> tx2 [label="transfer", penwidth=2];
+       tx2 -> c [label="received", penwidth=2];
    }
 
 ::
@@ -120,17 +120,17 @@ You can filter nodes based on their properties using the ``n()`` function.
        rankdir=LR;
        node [shape=ellipse];
 
-       a [label="a\nperson", style=filled, fillcolor=lightgreen];
-       b [label="b\nperson", style=filled, fillcolor=lightgreen];
-       c [label="c\ncompany", style=dashed, color=gray, fontcolor=gray];
-       tx1 [label="tx1\ntransaction", style=dashed, color=gray, fontcolor=gray];
-       tx2 [label="tx2\ntransaction", style=dashed, color=gray, fontcolor=gray];
+       a [label="a\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\ncompany", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
 
-       a -> b [style=dashed, color=gray];
-       b -> c [style=dashed, color=gray];
-       a -> tx1 [style=dashed, color=gray];
-       tx1 -> tx2 [style=dashed, color=gray];
-       tx2 -> c [style=dashed, color=gray];
+       a -> b [color="#A9A9A9"];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
    }
 
 2. Find 2-Hop Edge Sequences with an Attribute
@@ -157,10 +157,19 @@ Traverse multiple hops and filter edges based on attributes using ``e_forward()`
 
    digraph two_hop {
        rankdir=LR;
-       node [shape=circle];
-       start [style=filled, fillcolor=lightblue, label="start"];
-       start -> hop1 [label="interesting"];
-       hop1 -> hop2 [label="interesting"];
+       node [shape=ellipse];
+
+       a [label="a\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\ncompany", shape=box, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx1 [label="tx1\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+
+       a -> b [label="interesting", style=bold, color="#228B22", penwidth=2];
+       b -> c [label="interesting", style=bold, color="#228B22", penwidth=2];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
    }
 
 3. Find Nodes 1-2 Hops Away and Label Each Hop
@@ -193,9 +202,19 @@ Label hops in your traversal to analyze specific relationships.
 
    digraph labeled_hops {
        rankdir=LR;
-       a [style=filled, fillcolor=lightblue, label="a (start)"];
-       a -> b [label="hop1"];
-       b -> c [label="hop2"];
+       node [shape=ellipse];
+
+       a [label="a (start)", style="filled,bold", fillcolor="#87CEEB", penwidth=3, color="#4682B4"];
+       b [label="b\nhop1", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\nhop2", shape=box, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx1 [label="tx1\nhop1", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx2 [label="tx2\nhop2", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+
+       a -> b [label="hop1", style=bold, color="#228B22", penwidth=2];
+       b -> c [label="hop2", style=bold, color="#228B22", penwidth=2];
+       a -> tx1 [label="hop1", style=bold, color="#228B22", penwidth=2];
+       tx1 -> tx2 [label="hop2", color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
    }
 
 4. Query for Transaction Nodes Between Risky Nodes
@@ -230,12 +249,19 @@ Chain multiple traversals to find patterns between nodes.
 
    digraph risk_pattern {
        rankdir=LR;
-       risk1 [style=filled, fillcolor=lightcoral, label="risk1=True"];
-       risk2 [style=filled, fillcolor=lightcoral, label="risk2=True"];
-       tx1 [shape=box, label="transaction"];
-       tx2 [shape=box, label="transaction"];
-       risk1 -> tx1 -> risk2;
-       risk1 -> tx2 -> risk2;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       b [label="b\nperson", style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       c [label="c\ncompany", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1\nrisk1=True\n(start)", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=3, color="#DC143C"];
+       tx2 [label="tx2\nrisk2=True\n(end)", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=3, color="#DC143C"];
+
+       a -> b [color="#A9A9A9"];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [label="path", style=bold, color="#DC143C", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
    }
 
 5. Filter by Multiple Node Types Using ``is_in``
@@ -274,26 +300,29 @@ Use the ``is_in`` predicate to filter nodes or edges by multiple values.
 
        subgraph cluster_start {
            label="n(type ∈ [person, company])";
-           style=dashed;
-           person [label="person", style=filled, fillcolor=lightblue];
-           company [label="company", style=filled, fillcolor=lightblue];
+           style=rounded;
+           bgcolor="#E6F3FF";
+           person [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+           company [label="company", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
        }
 
        subgraph cluster_hit {
            label="n(type ∈ [transaction, account])\nname='hit'";
-           style=dashed;
-           tx [label="transaction\nor account", shape=box, style=filled, fillcolor=lightyellow];
+           style=rounded;
+           bgcolor="#FFFDE7";
+           tx [label="transaction\nor account", shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
        }
 
        subgraph cluster_end {
            label="n(risk2=True)";
-           style=dashed;
-           risk2 [label="risk2=True", style=filled, fillcolor=lightcoral];
+           style=rounded;
+           bgcolor="#FFEBEE";
+           risk2 [label="risk2=True", style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
        }
 
-       person -> tx [label="e_forward\nowns|reviews", color=blue];
-       company -> tx [label="e_forward\nowns|reviews", color=blue];
-       tx -> risk2 [label="e_reverse\n*", color=red, dir=back];
+       person -> tx [label="e_forward\nowns|reviews", color="#4682B4", penwidth=2, style=bold];
+       company -> tx [label="e_forward\nowns|reviews", color="#4682B4", penwidth=2, style=bold];
+       tx -> risk2 [label="e_reverse\n*", color="#DC143C", penwidth=2, style=bold, dir=back];
    }
 
 Leveraging GPU Acceleration
@@ -447,14 +476,16 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
 
    digraph let_dag {
        rankdir=TB;
-       node [shape=box, style=filled, fillcolor=lightyellow];
-       suspicious [label="suspicious_accounts"];
-       flows [label="money_flows"];
-       ranked [label="ranked"];
-       clusters [label="high_risk_clusters"];
-       suspicious -> flows [label="ref"];
-       flows -> ranked [label="ref"];
-       ranked -> clusters [label="ref"];
+       node [shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
+
+       suspicious [label="suspicious_accounts\n(stage 1)"];
+       flows [label="money_flows\n(stage 2)"];
+       ranked [label="ranked\n(stage 3)"];
+       clusters [label="high_risk_clusters\n(stage 4)", fillcolor="#90EE90", color="#228B22"];
+
+       suspicious -> flows [label="ref", style=bold, color="#4682B4", penwidth=2];
+       flows -> ranked [label="ref", style=bold, color="#4682B4", penwidth=2];
+       ranked -> clusters [label="ref", style=bold, color="#4682B4", penwidth=2];
    }
 
 11. Run remotely
