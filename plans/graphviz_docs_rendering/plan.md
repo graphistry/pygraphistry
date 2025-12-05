@@ -714,3 +714,73 @@ curl -s "https://readthedocs.org/api/v3/projects/pygraphistry/builds/?limit=5" |
 git tag backup/graphviz-docs-full-$(date +%Y%m%d)
 git push origin backup/graphviz-docs-full-$(date +%Y%m%d)
 ```
+
+---
+
+## Phase 6: plot_static() Auto-Display Enhancement (COMPLETED)
+
+**Background (2025-12-05):**
+User noted that `plot_static()` required manual import of `SVG`/`IPython.display` to display inline.
+Now it auto-displays like `plot()` does.
+
+### Phase 6.A: Implement auto-display in plot_static()
+**Status:** ✅ DONE
+**Branch:** feat/graphviz-docs-rendering (base PR #859)
+**Commit:** `15f8cb5f`
+**Description:** Added `_auto_display_static()` helper with IPython environment detection.
+
+**Implementation:**
+- Added `_auto_display_static(data, format)` method to PlotterBase
+- Uses `in_ipython()` from `graphistry.util` for environment detection
+- Auto-displays SVG via `IPython.display.SVG()` or PNG via `IPython.display.Image()`
+- Still returns bytes for programmatic use
+
+### Phase 6.B-C: Update docs and notebook examples
+**Status:** ✅ DONE
+**Description:** Simplified examples to use auto-display.
+
+**Files updated:**
+- `docs/source/api/plugins/compute/graphviz.rst` - Added auto-display documentation
+- `demos/demos_databases_apis/graphviz/graphviz.ipynb` - Simplified plot_static cell
+
+### Phase 6.D-E: Push and rebase
+**Status:** ✅ DONE
+**Description:** Pushed base PR, rebased stacked PR #864.
+
+**Result:**
+- Base PR #859: Commit `15f8cb5f` pushed, CI green (graphviz tests pass)
+- Stacked PR #864: Rebased and pushed with simplified examples (`d778373d`)
+- RTD builds in progress
+
+### Phase 6.F: Audit for other notebook opportunities
+**Status:** ✅ DONE
+**Description:** Audited demos notebooks for plot_static opportunities.
+
+**Findings:**
+- The graphviz demo notebook is the primary candidate - already updated
+- Other notebooks use `plot()` for interactive visualizations
+- `plot_static()` is mainly useful for static documentation purposes
+
+---
+
+## Final Summary (2025-12-05)
+
+### Completed Work
+1. **Base PR #859** - Infrastructure for graphviz docs rendering:
+   - RTD config fix (build.jobs + apt_packages)
+   - sphinx.ext.graphviz integration
+   - plot_static() API with auto-display
+   - Graphviz demo notebook with plot_static
+
+2. **Stacked PR #864** - Rich graphviz documentation:
+   - 8 graphviz diagrams in GFQL docs (about.rst, translate.rst)
+   - Simplified plot_static examples using auto-display
+
+### Key Features Delivered
+- `plot_static()` auto-displays inline in Jupyter notebooks
+- No more need for manual `SVG()` or `Image()` wrappers
+- Still returns bytes for programmatic use (saving to disk)
+
+### PR Status
+- **#859 (base)**: CI green, RTD building
+- **#864 (stacked)**: Rebased on updated base, CI/RTD building
