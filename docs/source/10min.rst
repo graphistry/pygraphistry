@@ -208,14 +208,12 @@ For example, GraphViz layouts is known for its high quality for laying out small
 Static Graphviz render
 ----------------------
 
-When you need a quick static image (e.g., docs/notebooks), reuse the Graphviz layout. ``plot_static`` returns bytes you can embed or save:
+When you need a quick static image (e.g., docs/notebooks), reuse the Graphviz layout. ``plot_static`` auto-displays in Jupyter and returns bytes you can save:
 
 .. code-block:: python
 
-   # Reuse bound x/y if present; otherwise Graphviz lays out the graph
-   svg = g1.plot_static(format='svg', max_nodes=200, max_edges=400)
-   from IPython.display import SVG
-   SVG(svg)
+   # Auto-displays inline in Jupyter; reuses x/y if present
+   g1.plot_static(format='svg', max_nodes=200, max_edges=400)
 
 .. graphviz::
 

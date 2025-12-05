@@ -116,14 +116,12 @@ PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, cov
 Static Graphviz render (for docs/notebooks)
 -------------------------------------------
 
-When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` emits bytes that you can save or embed inline:
+When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` auto-displays in Jupyter and returns bytes that you can save:
 
 .. code-block:: python
 
-   from IPython.display import SVG
-
-   svg = g.plot_static(format='svg', max_nodes=200, max_edges=400)
-   SVG(svg)
+   # Auto-displays inline in Jupyter notebooks
+   g.plot_static(format='svg', max_nodes=200, max_edges=400)
 
 Text-only outputs
 -----------------
