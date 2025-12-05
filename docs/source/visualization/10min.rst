@@ -120,8 +120,9 @@ When you need a quick static image without an interactive client, render directl
 
 .. code-block:: python
 
-   svg = g.plot_static(format='svg', max_nodes=200, max_edges=400)
    from IPython.display import SVG
+
+   svg = g.plot_static(format='svg', max_nodes=200, max_edges=400)
    SVG(svg)
 
 .. graphviz::
