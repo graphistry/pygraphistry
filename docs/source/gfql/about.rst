@@ -114,6 +114,25 @@ You can filter nodes based on their properties using the ``n()`` function.
 - ``g.gfql([...])`` applies the chain of operations to the graph ``g``.
 - ``._nodes`` retrieves the resulting nodes dataframe.
 
+.. graphviz::
+
+   digraph filter_nodes {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style=filled, fillcolor=lightgreen];
+       b [label="b\nperson", style=filled, fillcolor=lightgreen];
+       c [label="c\ncompany", style=dashed, color=gray, fontcolor=gray];
+       tx1 [label="tx1\ntransaction", style=dashed, color=gray, fontcolor=gray];
+       tx2 [label="tx2\ntransaction", style=dashed, color=gray, fontcolor=gray];
+
+       a -> b [style=dashed, color=gray];
+       b -> c [style=dashed, color=gray];
+       a -> tx1 [style=dashed, color=gray];
+       tx1 -> tx2 [style=dashed, color=gray];
+       tx2 -> c [style=dashed, color=gray];
+   }
+
 2. Find 2-Hop Edge Sequences with an Attribute
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -246,6 +265,36 @@ Use the ``is_in`` predicate to filter nodes or edges by multiple values.
 - Traverses forward edges of type ``"owns"`` or ``"reviews"``.
 - Filters nodes of type ``"transaction"`` or ``"account"``, labeling them as ``hit``.
 - Traverses backward to nodes with ``risk2 == True``.
+
+.. graphviz::
+
+   digraph is_in_filter {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       subgraph cluster_start {
+           label="n(type ∈ [person, company])";
+           style=dashed;
+           person [label="person", style=filled, fillcolor=lightblue];
+           company [label="company", style=filled, fillcolor=lightblue];
+       }
+
+       subgraph cluster_hit {
+           label="n(type ∈ [transaction, account])\nname='hit'";
+           style=dashed;
+           tx [label="transaction\nor account", shape=box, style=filled, fillcolor=lightyellow];
+       }
+
+       subgraph cluster_end {
+           label="n(risk2=True)";
+           style=dashed;
+           risk2 [label="risk2=True", style=filled, fillcolor=lightcoral];
+       }
+
+       person -> tx [label="e_forward\nowns|reviews", color=blue];
+       company -> tx [label="e_forward\nowns|reviews", color=blue];
+       tx -> risk2 [label="e_reverse\n*", color=red, dir=back];
+   }
 
 Leveraging GPU Acceleration
 ---------------------------
