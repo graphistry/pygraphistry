@@ -13,6 +13,7 @@ build:
     # System dependencies - now works because we use jobs instead of commands
     # More closely mirror https://github.com/sphinx-doc/sphinx-docker-images
     - graphviz
+    - graphviz-dev  # Headers for pygraphviz compilation
     - imagemagick
     - make
     - pandoc
@@ -59,3 +60,4 @@ python:
       path: .
       extra_requirements:
         - docs
+        - pygraphviz  # For plot_static() notebook execution
