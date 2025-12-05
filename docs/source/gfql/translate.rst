@@ -32,7 +32,7 @@ We'll cover a range of common graph and query tasks:
 Finding Nodes with Specific Properties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Objective**: Find all nodes where the `type` is `"person"`.
+**Objective**: Find all nodes where the ``type`` is ``"person"``.
 
 **SQL**
 
@@ -65,7 +65,7 @@ Finding Nodes with Specific Properties
 
 **Explanation**:
 
-- **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.gfql([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
+- **GFQL**: ``n({"type": "person"})`` filters nodes where ``type`` is ``"person"``. ``g.gfql([...])`` applies this filter to the graph ``g``, and ``._nodes`` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
 
 .. graphviz::
 
@@ -129,7 +129,7 @@ Exploring Relationships Between Nodes
 
 **Explanation**:
 
-- **GFQL**: Starts from nodes of type `"person"`, traverses forward edges, and reaches nodes of type `"company"`. The resulting edges are stored in `edges_df`. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
+- **GFQL**: Starts from nodes of type ``"person"``, traverses forward edges, and reaches nodes of type ``"company"``. The resulting edges are stored in ``edges_df``. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
 
 .. graphviz::
 
@@ -192,7 +192,7 @@ Performing Multi-Hop Traversals
 
 **Explanation**:
 
-- **GFQL**: Starts at node `"Alice"`, performs two forward hops, and obtains nodes two steps away. Results are in `nodes_df`. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
+- **GFQL**: Starts at node ``"Alice"``, performs two forward hops, and obtains nodes two steps away. Results are in ``nodes_df``. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
 
 .. graphviz::
 
@@ -244,7 +244,7 @@ Filtering Edges and Nodes with Conditions
 
 **Explanation**:
 
-- **GFQL**: Uses `e_forward(edge_query='weight > 0.5')` to filter edges where `weight > 0.5`. This version introduces the string query form that can be convenient. Underneath, it still benefits from the vectorized execution of Pandas and cuDF.
+- **GFQL**: Uses ``e_forward(edge_query='weight > 0.5')`` to filter edges where ``weight > 0.5``. This version introduces the string query form that can be convenient. Underneath, it still benefits from the vectorized execution of Pandas and cuDF.
 
 ---
 
@@ -283,7 +283,7 @@ Aggregations and Grouping
 
 **Explanation**:
 
-- **GFQL**: Performs aggregation directly on `g._edges` using standard dataframe operations. Or even shorter, call `g.get_degrees()` to enrich each node with in, out, and total degrees. This version benefits from the hardware-accelerated columnar analytics execution of Pandas and cuDF, and the simplicity of dataframe operations.
+- **GFQL**: Performs aggregation directly on ``g._edges`` using standard dataframe operations. Or even shorter, call ``g.get_degrees()`` to enrich each node with in, out, and total degrees. This version benefits from the hardware-accelerated columnar analytics execution of Pandas and cuDF, and the simplicity of dataframe operations.
 
 ---
 
@@ -393,7 +393,7 @@ All Paths and Connectivity
 
 **Explanation**:
 
-- **GFQL**: Uses `e(to_fixed_point=True)` to find edge sequences of arbitrary length between nodes `"Alice"` and `"Bob"`. The SQL and Pandas version suffer from syntactic and semantic imepedance mismatch with graph tasks on this example.
+- **GFQL**: Uses ``e(to_fixed_point=True)`` to find edge sequences of arbitrary length between nodes ``"Alice"`` and ``"Bob"``. The SQL and Pandas version suffer from syntactic and semantic imepedance mismatch with graph tasks on this example.
 
 .. graphviz::
 
@@ -495,7 +495,7 @@ Time-Windowed Graph Analytics
 
 - **SQL** and **Pandas**: These versions incorrectly simplify to a two-hop relationships; for multihop scenarios, refer to :ref:`all-paths`.
 
-- **GFQL**: Utilizes the `chain` method to filter edges between `"Alice"` and `"Bob"` based on a timestamp within the last 7 days. This approach allows for multihop relationships as it leverages the graph's structure, and further using cuDF for GPU acceleration when available.
+- **GFQL**: Utilizes the ``chain`` method to filter edges between ``"Alice"`` and ``"Bob"`` based on a timestamp within the last 7 days. This approach allows for multihop relationships as it leverages the graph's structure, and further using cuDF for GPU acceleration when available.
 
 
 ---
@@ -504,7 +504,7 @@ Parallel Pathfinding
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-**Objective**: Find all paths from `"Alice"` to `"Bob"` and `"Charlie"` in parallel. Parallel pathfinding is particularly interesting because it allows for efficient querying of multiple target nodes at the same time, reducing the time and complexity required to compute multiple independent paths, especially in large graphs.
+**Objective**: Find all paths from ``"Alice"`` to ``"Bob"`` and ``"Charlie"`` in parallel. Parallel pathfinding is particularly interesting because it allows for efficient querying of multiple target nodes at the same time, reducing the time and complexity required to compute multiple independent paths, especially in large graphs.
 
 **SQL**
 
@@ -554,7 +554,7 @@ Parallel Pathfinding
 GPU Execution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*Objective**: Execute pathfinding queries on the GPU, computing all paths from `"Alice"` to `"Bob"` and `"Charlie"` simultaneously across hardware resources.
+*Objective**: Execute pathfinding queries on the GPU, computing all paths from ``"Alice"`` to ``"Bob"`` and ``"Charlie"`` simultaneously across hardware resources.
 
 **SQL**
 

@@ -30,13 +30,13 @@ GFQL fills a critical gap in the data community by providing an in-process, high
 Setting Up GFQL
 ---------------
 
-GFQL is part of the open-source `graphistry` library. Install it using pip:
+GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
 ::
 
     pip install graphistry
 
-Ensure you have `pandas` or `cudf` installed, depending on whether you want to run on CPU or GPU.
+Ensure you have ``pandas`` or ``cudf`` installed, depending on whether you want to run on CPU or GPU.
 
 Basic Concepts
 --------------
@@ -53,7 +53,7 @@ Examples
 1. Find Nodes of a Certain Type
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can filter nodes based on their properties using the `n()` function.
+You can filter nodes based on their properties using the ``n()`` function.
 
 **Example: Find all nodes of type "person"**
 
@@ -66,14 +66,14 @@ You can filter nodes based on their properties using the `n()` function.
 
 **Explanation:**
 
-- `n({"type": "person"})` filters nodes where the `type` property is `"person"`.
-- `g.gfql([...])` applies the chain of operations to the graph `g`.
-- `._nodes` retrieves the resulting nodes dataframe.
+- ``n({"type": "person"})`` filters nodes where the ``type`` property is ``"person"``.
+- ``g.gfql([...])`` applies the chain of operations to the graph ``g``.
+- ``._nodes`` retrieves the resulting nodes dataframe.
 
 2. Find 2-Hop Edge Sequences with an Attribute
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Traverse multiple hops and filter edges based on attributes using `e_forward()`.
+Traverse multiple hops and filter edges based on attributes using ``e_forward()``.
 
 **Example: Find 2-hop paths where edges are marked as "interesting"**
 
@@ -87,8 +87,8 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 
 **Explanation:**
 
-- `e_forward({"interesting": True}, hops=2)` traverses forward edges with `interesting == True` for 2 hops.
-- `g_2_hops.plot()` visualizes the resulting subgraph.
+- ``e_forward({"interesting": True}, hops=2)`` traverses forward edges with ``interesting == True`` for 2 hops.
+- ``g_2_hops.plot()`` visualizes the resulting subgraph.
 
 .. graphviz::
 
@@ -121,9 +121,9 @@ Label hops in your traversal to analyze specific relationships.
 
 **Explanation:**
 
-- `n({g._node: "a"})` starts the traversal from node `"a"` where `g._node` is the identifying column name.
-- `e_undirected(name="hop1")` traverses undirected edges and labels them as `hop1`.
-- `e_undirected(name="hop2")` continues traversal and labels edges as `hop2`.
+- ``n({g._node: "a"})`` starts the traversal from node ``"a"`` where ``g._node`` is the identifying column name.
+- ``e_undirected(name="hop1")`` traverses undirected edges and labels them as ``hop1``.
+- ``e_undirected(name="hop2")`` continues traversal and labels edges as ``hop2``.
 - The labels allow you to filter and analyze edges from specific hops.
 
 .. graphviz::
@@ -158,9 +158,9 @@ Chain multiple traversals to find patterns between nodes.
 
 **Explanation:**
 
-- Starts from nodes with `risk1 == True`.
-- Traverses forward to transaction nodes, labeling them as `hit`.
-- Traverses backward to nodes with `risk2 == True`.
+- Starts from nodes with ``risk1 == True``.
+- Traverses forward to transaction nodes, labeling them as ``hit``.
+- Traverses backward to nodes with ``risk2 == True``.
 - Identifies transaction nodes connected between two risky nodes.
 
 .. graphviz::
@@ -175,10 +175,10 @@ Chain multiple traversals to find patterns between nodes.
        risk1 -> tx2 -> risk2;
    }
 
-5. Filter by Multiple Node Types Using `is_in`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+5. Filter by Multiple Node Types Using ``is_in``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Use the `is_in` predicate to filter nodes or edges by multiple values.
+Use the ``is_in`` predicate to filter nodes or edges by multiple values.
 
 **Example: Filter nodes and edges by multiple types**
 
@@ -198,15 +198,15 @@ Use the `is_in` predicate to filter nodes or edges by multiple values.
 
 **Explanation:**
 
-- Filters nodes of type `"person"` or `"company"`.
-- Traverses forward edges of type `"owns"` or `"reviews"`.
-- Filters nodes of type `"transaction"` or `"account"`, labeling them as `hit`.
-- Traverses backward to nodes with `risk2 == True`.
+- Filters nodes of type ``"person"`` or ``"company"``.
+- Traverses forward edges of type ``"owns"`` or ``"reviews"``.
+- Filters nodes of type ``"transaction"`` or ``"account"``, labeling them as ``hit``.
+- Traverses backward to nodes with ``risk2 == True``.
 
 Leveraging GPU Acceleration
 ---------------------------
 
-GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
+GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
 
 6. Automatic GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -231,8 +231,8 @@ GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU
 
 **Explanation:**
 
-- `cudf.read_parquet()` loads data directly into GPU memory.
-- GFQL detects `cudf` dataframes and runs the query on the GPU.
+- ``cudf.read_parquet()`` loads data directly into GPU memory.
+- GFQL detects ``cudf`` dataframes and runs the query on the GPU.
 - Achieves significant performance improvements on large datasets.
 
 7. Forcing GPU Mode
@@ -248,13 +248,13 @@ You can explicitly set the engine to ensure GPU execution.
 
 **Explanation:**
 
-- `engine='cudf'` forces the use of the GPU-accelerated engine.
+- ``engine='cudf'`` forces the use of the GPU-accelerated engine.
 - Useful when you want to ensure the query runs on the GPU.
 
 Integration with PyData Ecosystem
 ---------------------------------
 
-GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`.
+GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like ``pandas``, ``networkx``, ``igraph``, and ``PyTorch``.
 
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -275,8 +275,8 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 
 **Explanation:**
 
-- `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
-- The enriched graph now contains a `pagerank` column in the nodes dataframe.
+- ``compute_cugraph('pagerank')`` computes the PageRank of nodes using GPU acceleration.
+- The enriched graph now contains a ``pagerank`` column in the nodes dataframe.
 
 9. Visualizing the Graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -301,7 +301,7 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 
 **Explanation:**
 
-- Filters nodes where `pagerank > 0.1`.
+- Filters nodes where ``pagerank > 0.1``.
 - Visualizes the subgraph consisting of high PageRank nodes.
 
 10. Sequencing Programs with Let
@@ -386,10 +386,10 @@ You may want to run GFQL remotely because the data is remote or a GPU is availab
     from graphistry import n, e
 
     g2 = g1.upload()
-    assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
+    assert g2._dataset_id is not None, "Uploading sets ``dataset_id`` for subsequent calls"
     g3 = g2.gfql_remote([n(), e(), n()])
 
-Additional parameters enable controlling options such as the execution `engine` and what is returned 
+Additional parameters enable controlling options such as the execution ``engine`` and what is returned 
 
 **Example: Bind to existing remote data and fetch it**
 

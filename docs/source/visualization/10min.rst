@@ -109,7 +109,7 @@ PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, cov
 
 - **Plugin Layouts**: Integrated use of external libraries for specific layouts:
 
-  - :ref:`Graphviz <graphviz>` for hierarchical and directed layouts such as the `"dot"` engine
+  - :ref:`Graphviz <graphviz>` for hierarchical and directed layouts such as the ``"dot"`` engine
   - :ref:`cuGraph <cugraph>` for GPU-accelerated FA2, a weaker version of Graphistry's live layout
   - :ref:`igraph <igraph>` for CPU-based layouts, similar to GraphViz and with layouts that focus more on medium-sized social networks
 
@@ -142,7 +142,7 @@ Emit DOT or Mermaid DSL for downstream rendering or embedding:
    dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
    mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
 
-- **External Layouts**: Pass in `x`, `y` columns, such as from your own edits, external data, or external ML/AI packages:
+- **External Layouts**: Pass in ``x``, ``y`` columns, such as from your own edits, external data, or external ML/AI packages:
 
    .. code-block:: python
 
@@ -223,7 +223,7 @@ For a complete list of parameters, refer to the `official REST URL params page <
 Plotting: Inline and URL Rendering
 ----------------------------------
 
-Once you're ready to visualize, use `.plot()` to render:
+Once you're ready to visualize, use ``.plot()`` to render:
 
 - **Inline Plotting**: Directly embed interactive visualizations in your notebook or Python environment:
 
