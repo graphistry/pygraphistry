@@ -579,12 +579,13 @@ git push origin feat/graphviz-docs-rendering
 - The fix is complete and PR #859 docs status is now green
 
 ## Phase 4: PR Split Strategy
-**Status:** 📝 TODO
+**Status:** ✅ DONE
 **Description:** Split the current PR #859 into a minimal base infrastructure PR and a stacked usage/docs PR.
 
 ### Phase 4.A: Create base infrastructure branch
-**Status:** 📝 TODO
-**Branch:** feat/graphviz-docs-base (new, from current)
+**Status:** ✅ DONE
+**Branch:** feat/graphviz-docs-rendering (trimmed)
+**Completed:** 2025-12-04
 **Description:** Trim PR #859 to minimal proof-of-work: infrastructure + 1 example each of RST, MyST, and notebook.
 
 **What stays in base PR:**
@@ -654,9 +655,15 @@ git push origin feat/graphviz-docs-rendering
 gh pr checks 859
 ```
 
+**Result:**
+- Created stacked branch `feat/graphviz-docs-usage` preserving all work
+- Trimmed base branch by reverting extra doc pages to master versions
+- NOTE: Backup tags with non-semver names break setuptools_scm - don't use tags for backups
+- CI/RTD green on trimmed base (build 30575875)
+
 ### Phase 4.B: Create stacked usage PR
-**Status:** 📝 TODO
-**Branch:** feat/graphviz-docs-usage (already created in 4.A step 3)
+**Status:** 📝 TODO (after base PR merges)
+**Branch:** feat/graphviz-docs-usage (created, contains full work)
 **Base:** feat/graphviz-docs-rendering (or master after base merges)
 **Description:** New PR with all the rich graphviz examples across docs.
 
@@ -689,6 +696,7 @@ gh pr create --base master --title "docs: Add graphviz examples across documenta
 - **RTD commands vs jobs**: `build.commands` and `apt_packages` are **mutually exclusive** per RTD docs. This is not obvious from error messages - graphviz just doesn't get installed.
 - **RTD install ordering**: When using `build.jobs.build`, you need `sphinx.configuration` or similar key to trigger RTD's default environment setup and pip install ordering.
 - **Sphinx 8.0 svg:img**: The `svg:img` format is not supported in Sphinx 8.0.2 (RTD's version) - must use plain `svg` which renders via `<object>` tags.
+- **Backup tags break builds**: Don't use git tags for backups - setuptools_scm picks them up and generates invalid version strings. Use branches instead.
 
 ### Important Commands
 ```bash
