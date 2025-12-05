@@ -71,10 +71,10 @@ Finding Nodes with Specific Properties
 
    digraph find_nodes {
        node [shape=ellipse];
-       person1 [style=filled, fillcolor=lightgreen, label="person"];
-       person2 [style=filled, fillcolor=lightgreen, label="person"];
-       company1 [label="company"];
-       person1 -> company1 [style=dashed, color=gray];
+       person1 [label="person", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       person2 [label="person", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       company1 [label="company", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       person1 -> company1 [color="#A9A9A9"];
    }
 
 ---
@@ -135,9 +135,9 @@ Exploring Relationships Between Nodes
 
    digraph relationships {
        rankdir=LR;
-       person [style=filled, fillcolor=lightblue, label="person"];
-       company [style=filled, fillcolor=lightyellow, label="company"];
-       person -> company [label="works_at", color=blue, penwidth=2];
+       person [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=3, color="#4682B4"];
+       company [label="company", shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=3, color="#DAA520"];
+       person -> company [label="works_at", style=bold, color="#228B22", penwidth=2];
    }
 
 ---
@@ -198,11 +198,11 @@ Performing Multi-Hop Traversals
 
    digraph multi_hop {
        rankdir=LR;
-       Alice [style=filled, fillcolor=lightblue, label="Alice"];
-       n1 [label="?"];
-       n2 [style=filled, fillcolor=lightgreen, label="m"];
-       Alice -> n1 [label="hop 1"];
-       n1 -> n2 [label="hop 2"];
+       Alice [label="Alice\n(start)", style="filled,bold", fillcolor="#87CEEB", penwidth=3, color="#4682B4"];
+       n1 [label="?\n(hop 1)", style="filled,bold", fillcolor="#D3D3D3", penwidth=2, color="#A9A9A9"];
+       n2 [label="m\n(result)", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       Alice -> n1 [label="hop 1", style=bold, color="#4682B4", penwidth=2];
+       n1 -> n2 [label="hop 2", style=bold, color="#228B22", penwidth=2];
    }
 
 ---
@@ -399,16 +399,16 @@ All Paths and Connectivity
 
    digraph all_paths {
        rankdir=LR;
-       Alice [style=filled, fillcolor=lightblue, label="Alice"];
-       Bob [style=filled, fillcolor=lightgreen, label="Bob"];
-       m1 [label="person"];
-       m2 [label="person"];
-       n1 [label="person"];
-       Alice -> m1 [label="friend"];
-       m1 -> m2 [label="friend"];
-       m2 -> Bob [label="friend"];
-       Alice -> n1 [label="friend"];
-       n1 -> Bob [label="friend"];
+       Alice [label="Alice\n(start)", style="filled,bold", fillcolor="#87CEEB", penwidth=3, color="#4682B4"];
+       Bob [label="Bob\n(end)", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       m1 [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       m2 [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       n1 [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       Alice -> m1 [label="friend", style=bold, color="#228B22", penwidth=2];
+       m1 -> m2 [label="friend", style=bold, color="#228B22", penwidth=2];
+       m2 -> Bob [label="friend", style=bold, color="#228B22", penwidth=2];
+       Alice -> n1 [label="friend", style=bold, color="#228B22", penwidth=2];
+       n1 -> Bob [label="friend", style=bold, color="#228B22", penwidth=2];
    }
 
 ---
