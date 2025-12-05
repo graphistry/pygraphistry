@@ -47,6 +47,9 @@ class OracleResult:
     edges: pd.DataFrame
     tags: Dict[str, Set[Any]]
     paths: Optional[List[Dict[str, Any]]] = None
+    # Hop labels: node_id -> hop_distance, edge_id -> hop_distance
+    node_hop_labels: Optional[Dict[Any, int]] = None
+    edge_hop_labels: Optional[Dict[Any, int]] = None
 
 
 def col(alias: str, column: str) -> StepColumnRef:
@@ -133,7 +136,7 @@ def enumerate_chain(
                 dest_allowed = set(node_frame[node_step["id_col"]])
 
             seeds = paths[current].dropna().tolist()
-            seed_to_nodes, edges_used, nodes_used = _bounded_paths(
+            bp_result = _bounded_paths(
                 seeds, edge_frame, edge_step, dest_allowed, caps
             )
 
@@ -143,14 +146,16 @@ def enumerate_chain(
             for row in paths.itertuples(index=False, name=None):
                 row_dict = dict(zip(base_cols, row))
                 seed_id = row_dict[current]
-                for dst in seed_to_nodes.get(seed_id, set()):
+                for dst in bp_result.seed_to_nodes.get(seed_id, set()):
                     new_rows.append([*row, dst])
             paths = pd.DataFrame(new_rows, columns=[*base_cols, node_step["id_col"]])
             current = node_step["id_col"]
 
-            # Stash edges/nodes for final selection
-            edge_step["collected_edges"] = edges_used
-            node_step["collected_nodes"] = nodes_used
+            # Stash edges/nodes and hop labels for final selection
+            edge_step["collected_edges"] = bp_result.edges_used
+            edge_step["collected_nodes"] = bp_result.nodes_used
+            edge_step["collected_edge_hops"] = bp_result.edge_hops
+            edge_step["collected_node_hops"] = bp_result.node_hops
 
         if where:
             ready = _ready_where_clauses(paths, where)
@@ -173,13 +178,52 @@ def enumerate_chain(
     else:
         paths = paths.reset_index(drop=True)
 
-    node_ids: Set[Any] = set()
-    for node_step in node_steps:
-        node_ids.update(paths[node_step["id_col"]].tolist())
-        if "collected_nodes" in node_step:
-            node_ids.update(node_step["collected_nodes"])
-    nodes_out = nodes_df[nodes_df[node_id].isin(node_ids)].reset_index(drop=True)
+    # Collect hop labels from all edge steps
+    all_node_hops: Dict[Any, int] = {}
+    all_edge_hops: Dict[Any, int] = {}
+    for edge_step in edge_steps:
+        if "collected_node_hops" in edge_step:
+            for nid, hop in edge_step["collected_node_hops"].items():
+                if nid not in all_node_hops or all_node_hops[nid] > hop:
+                    all_node_hops[nid] = hop
+        if "collected_edge_hops" in edge_step:
+            for eid, hop in edge_step["collected_edge_hops"].items():
+                if eid not in all_edge_hops or all_edge_hops[eid] > hop:
+                    all_edge_hops[eid] = hop
 
+    # Apply output slicing if specified
+    output_node_hops = dict(all_node_hops)
+    output_edge_hops = dict(all_edge_hops)
+    for edge_step in edge_steps:
+        out_min = edge_step.get("output_min_hops")
+        out_max = edge_step.get("output_max_hops")
+        if out_min is not None or out_max is not None:
+            # Filter node hops by output bounds
+            output_node_hops = {
+                nid: hop for nid, hop in output_node_hops.items()
+                if (out_min is None or hop >= out_min) and (out_max is None or hop <= out_max)
+            }
+            # Filter edge hops by output bounds
+            output_edge_hops = {
+                eid: hop for eid, hop in output_edge_hops.items()
+                if (out_min is None or hop >= out_min) and (out_max is None or hop <= out_max)
+            }
+            # Also filter collected_edges/collected_nodes for output
+            if "collected_edges" in edge_step:
+                edge_step["collected_edges"] = {
+                    eid for eid in edge_step["collected_edges"]
+                    if eid in output_edge_hops
+                }
+            if "collected_nodes" in edge_step:
+                # For node slicing, we need to look at the associated node_step
+                pass  # Node filtering handled via output_node_hops
+
+    has_output_slice = any(
+        edge_step.get("output_min_hops") is not None or edge_step.get("output_max_hops") is not None
+        for edge_step in edge_steps
+    )
+
+    # First, collect edges
     edge_ids: Set[Any] = set()
     for edge_step in edge_steps:
         col = edge_step["id_col"]
@@ -187,12 +231,48 @@ def enumerate_chain(
             edge_ids.update(paths[col].tolist())
         if "collected_edges" in edge_step:
             edge_ids.update(edge_step["collected_edges"])
+    # If output slicing was applied, filter to edges within output bounds
+    if has_output_slice and output_edge_hops:
+        edge_ids = edge_ids & set(output_edge_hops.keys())
     edges_out = edges_df[edges_df[edge_id].isin(edge_ids)].reset_index(drop=True)
+
+    # Collect nodes: include endpoints of kept edges (like GFQL does)
+    node_ids: Set[Any] = set()
+    for node_step in node_steps:
+        node_ids.update(paths[node_step["id_col"]].tolist())
+    for edge_step in edge_steps:
+        if "collected_nodes" in edge_step:
+            node_ids.update(edge_step["collected_nodes"])
+
+    # If output slicing, nodes must be endpoints of kept edges (not just within hop range)
+    if has_output_slice and not edges_out.empty:
+        # Nodes that are endpoints of kept edges
+        edge_endpoint_nodes: Set[Any] = set()
+        edge_endpoint_nodes.update(edges_out[edge_src].tolist())
+        edge_endpoint_nodes.update(edges_out[edge_dst].tolist())
+        node_ids = node_ids & edge_endpoint_nodes
+    elif has_output_slice:
+        # No edges kept, so only nodes within output bounds
+        if output_node_hops:
+            node_ids = node_ids & set(output_node_hops.keys())
+    nodes_out = nodes_df[nodes_df[node_id].isin(node_ids)].reset_index(drop=True)
 
     tags = _build_tags(paths, node_steps, edge_steps)
     tags = {alias: set(values) for alias, values in tags.items()}
     path_bindings = _extract_paths(paths, node_steps, edge_steps) if include_paths else None
-    return OracleResult(nodes_out, edges_out, tags, path_bindings)
+
+    # Return hop labels (use output-filtered versions if slicing was applied)
+    final_node_hops = output_node_hops if has_output_slice else all_node_hops
+    final_edge_hops = output_edge_hops if has_output_slice else all_edge_hops
+
+    return OracleResult(
+        nodes_out,
+        edges_out,
+        tags,
+        path_bindings,
+        node_hop_labels=final_node_hops if final_node_hops else None,
+        edge_hop_labels=final_edge_hops if final_edge_hops else None,
+    )
 
 
 def _coerce_ops(ops: Sequence[ASTObject]) -> List[ASTObject]:
@@ -255,6 +335,14 @@ def _prepare_steps(
                     "dst_col": f"edge_{len(edges)}_dst",
                     "min_hops": hop_min,
                     "max_hops": hop_max,
+                    # New hop label/slice params
+                    "output_min_hops": op.output_min_hops,
+                    "output_max_hops": op.output_max_hops,
+                    "label_node_hops": op.label_node_hops,
+                    "label_edge_hops": op.label_edge_hops,
+                    "label_seeds": getattr(op, 'label_seeds', False),
+                    "source_node_match": op.source_node_match,
+                    "destination_node_match": op.destination_node_match,
                 }
             )
         expect_node = not expect_node
@@ -442,19 +530,31 @@ def _compare(lhs: pd.Series, rhs: pd.Series, op: ComparisonOp) -> pd.Series:
     raise ValueError(f"Unsupported comparison operator '{op}'")
 
 
+@dataclass
+class BoundedPathResult:
+    """Result from bounded path enumeration with hop tracking."""
+    seed_to_nodes: Dict[Any, Set[Any]]
+    edges_used: Set[Any]
+    nodes_used: Set[Any]
+    # Hop labels: entity_id -> minimum hop distance from any seed
+    node_hops: Dict[Any, int]
+    edge_hops: Dict[Any, int]
+
+
 def _bounded_paths(
     seeds: Sequence[Any],
     edges_df: pd.DataFrame,
     step: Dict[str, Any],
     dest_allowed: Optional[Set[Any]],
     caps: OracleCaps,
-) -> Tuple[Dict[Any, Set[Any]], Set[Any], Set[Any]]:
+) -> BoundedPathResult:
     """
     Enumerate bounded-hop paths for a single Edge step (direction already normalized in edges_df).
-    Returns (seed -> reachable_nodes), edges_used, nodes_used.
+    Returns BoundedPathResult with reachable nodes, edges used, and hop labels.
     """
     src_col, dst_col, edge_id_col = step["src_col"], step["dst_col"], step["id_col"]
     min_hops, max_hops = step["min_hops"], step["max_hops"]
+    label_seeds = step.get("label_seeds", False)
 
     adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
     for _, row in edges_df.iterrows():
@@ -463,8 +563,16 @@ def _bounded_paths(
     seed_to_nodes: Dict[Any, Set[Any]] = {}
     edges_used: Set[Any] = set()
     nodes_used: Set[Any] = set()
+    # Track minimum hop distance for each node/edge
+    node_hops: Dict[Any, int] = {}
+    edge_hops: Dict[Any, int] = {}
 
     for seed in seeds:
+        # Phase 1: Explore all paths and find valid destinations (reachable within [min_hops, max_hops])
+        # Also collect ALL paths to ALL nodes (will filter in phase 2)
+        all_paths: List[Tuple[Any, List[Any], List[Any]]] = []  # (destination, edge_ids, node_ids)
+        valid_destinations: Set[Any] = set()
+
         stack: List[Tuple[Any, int, List[Any], List[Any]]] = [(seed, 0, [], [seed])]
         while stack:
             node, depth, path_edges, path_nodes = stack.pop()
@@ -474,18 +582,51 @@ def _bounded_paths(
                 new_depth = depth + 1
                 new_path = path_edges + [edge_id]
                 new_nodes = path_nodes + [dst]
+
+                # Save every path
+                all_paths.append((dst, list(new_path), list(new_nodes)))
+
                 if new_depth >= min_hops:
-                    if dest_allowed is not None and dst not in dest_allowed:
-                        # Destination filtered out; do not record or continue
-                        continue
-                    seed_to_nodes.setdefault(seed, set()).add(dst)
-                    edges_used.update(new_path)
-                    nodes_used.update(new_nodes)
+                    if dest_allowed is None or dst in dest_allowed:
+                        valid_destinations.add(dst)
+                        seed_to_nodes.setdefault(seed, set()).add(dst)
+
                 if new_depth < max_hops:
                     stack.append((dst, new_depth, new_path, new_nodes))
-                if len(edges_used) > caps.max_edges or len(nodes_used) > caps.max_nodes:
-                    raise ValueError("Enumerator caps exceeded during bounded hop traversal")
-    return seed_to_nodes, edges_used, nodes_used
+
+        # Phase 2: Include nodes/edges from paths that lead to valid destinations
+        if valid_destinations:
+            # Include seed in output since we have valid paths
+            nodes_used.add(seed)
+            if label_seeds and seed not in node_hops:
+                node_hops[seed] = 0
+
+            for dst, path_edges, path_nodes in all_paths:
+                if dst in valid_destinations:
+                    edges_used.update(path_edges)
+                    nodes_used.update(path_nodes)
+                    # Track hop distances
+                    for i, eid in enumerate(path_edges):
+                        hop_dist = i + 1
+                        if eid not in edge_hops or edge_hops[eid] > hop_dist:
+                            edge_hops[eid] = hop_dist
+                    for i, nid in enumerate(path_nodes):
+                        hop_dist = i
+                        if hop_dist == 0 and not label_seeds:
+                            continue
+                        if nid not in node_hops or node_hops[nid] > hop_dist:
+                            node_hops[nid] = hop_dist
+
+        if len(edges_used) > caps.max_edges or len(nodes_used) > caps.max_nodes:
+            raise ValueError("Enumerator caps exceeded during bounded hop traversal")
+
+    return BoundedPathResult(
+        seed_to_nodes=seed_to_nodes,
+        edges_used=edges_used,
+        nodes_used=nodes_used,
+        node_hops=node_hops,
+        edge_hops=edge_hops,
+    )
 
 
 def _build_tags(
