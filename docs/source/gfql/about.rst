@@ -90,6 +90,16 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
 - `e_forward({"interesting": True}, hops=2)` traverses forward edges with `interesting == True` for 2 hops.
 - `g_2_hops.plot()` visualizes the resulting subgraph.
 
+.. graphviz::
+
+   digraph two_hop {
+       rankdir=LR;
+       node [shape=circle];
+       start [style=filled, fillcolor=lightblue, label="start"];
+       start -> hop1 [label="interesting"];
+       hop1 -> hop2 [label="interesting"];
+   }
+
 3. Find Nodes 1-2 Hops Away and Label Each Hop
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -115,6 +125,15 @@ Label hops in your traversal to analyze specific relationships.
 - `e_undirected(name="hop1")` traverses undirected edges and labels them as `hop1`.
 - `e_undirected(name="hop2")` continues traversal and labels edges as `hop2`.
 - The labels allow you to filter and analyze edges from specific hops.
+
+.. graphviz::
+
+   digraph labeled_hops {
+       rankdir=LR;
+       a [style=filled, fillcolor=lightblue, label="a (start)"];
+       a -> b [label="hop1"];
+       b -> c [label="hop2"];
+   }
 
 4. Query for Transaction Nodes Between Risky Nodes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -143,6 +162,18 @@ Chain multiple traversals to find patterns between nodes.
 - Traverses forward to transaction nodes, labeling them as `hit`.
 - Traverses backward to nodes with `risk2 == True`.
 - Identifies transaction nodes connected between two risky nodes.
+
+.. graphviz::
+
+   digraph risk_pattern {
+       rankdir=LR;
+       risk1 [style=filled, fillcolor=lightcoral, label="risk1=True"];
+       risk2 [style=filled, fillcolor=lightcoral, label="risk2=True"];
+       tx1 [shape=box, label="transaction"];
+       tx2 [shape=box, label="transaction"];
+       risk1 -> tx1 -> risk2;
+       risk1 -> tx2 -> risk2;
+   }
 
 5. Filter by Multiple Node Types Using `is_in`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -320,6 +351,20 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
 - **Efficient execution**: All stages execute in a single optimized pass
 - **Named results**: Access intermediate results by name for detailed analysis
 - **Composability**: Build complex patterns from simpler named operations
+
+.. graphviz::
+
+   digraph let_dag {
+       rankdir=TB;
+       node [shape=box, style=filled, fillcolor=lightyellow];
+       suspicious [label="suspicious_accounts"];
+       flows [label="money_flows"];
+       ranked [label="ranked"];
+       clusters [label="high_risk_clusters"];
+       suspicious -> flows [label="ref"];
+       flows -> ranked [label="ref"];
+       ranked -> clusters [label="ref"];
+   }
 
 11. Run remotely
 ~~~~~~~~~~~~~~~~

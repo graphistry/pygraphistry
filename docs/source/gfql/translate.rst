@@ -67,6 +67,16 @@ Finding Nodes with Specific Properties
 
 - **GFQL**: `n({"type": "person"})` filters nodes where `type` is `"person"`. `g.gfql([...])` applies this filter to the graph `g`, and `._nodes` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
 
+.. graphviz::
+
+   digraph find_nodes {
+       node [shape=ellipse];
+       person1 [style=filled, fillcolor=lightgreen, label="person"];
+       person2 [style=filled, fillcolor=lightgreen, label="person"];
+       company1 [label="company"];
+       person1 -> company1 [style=dashed, color=gray];
+   }
+
 ---
 
 Exploring Relationships Between Nodes
@@ -121,6 +131,15 @@ Exploring Relationships Between Nodes
 
 - **GFQL**: Starts from nodes of type `"person"`, traverses forward edges, and reaches nodes of type `"company"`. The resulting edges are stored in `edges_df`. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
 
+.. graphviz::
+
+   digraph relationships {
+       rankdir=LR;
+       person [style=filled, fillcolor=lightblue, label="person"];
+       company [style=filled, fillcolor=lightyellow, label="company"];
+       person -> company [label="works_at", color=blue, penwidth=2];
+   }
+
 ---
 
 Performing Multi-Hop Traversals
@@ -174,6 +193,17 @@ Performing Multi-Hop Traversals
 **Explanation**:
 
 - **GFQL**: Starts at node `"Alice"`, performs two forward hops, and obtains nodes two steps away. Results are in `nodes_df`. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.
+
+.. graphviz::
+
+   digraph multi_hop {
+       rankdir=LR;
+       Alice [style=filled, fillcolor=lightblue, label="Alice"];
+       n1 [label="?"];
+       n2 [style=filled, fillcolor=lightgreen, label="m"];
+       Alice -> n1 [label="hop 1"];
+       n1 -> n2 [label="hop 2"];
+   }
 
 ---
 
@@ -364,6 +394,22 @@ All Paths and Connectivity
 **Explanation**:
 
 - **GFQL**: Uses `e(to_fixed_point=True)` to find edge sequences of arbitrary length between nodes `"Alice"` and `"Bob"`. The SQL and Pandas version suffer from syntactic and semantic imepedance mismatch with graph tasks on this example.
+
+.. graphviz::
+
+   digraph all_paths {
+       rankdir=LR;
+       Alice [style=filled, fillcolor=lightblue, label="Alice"];
+       Bob [style=filled, fillcolor=lightgreen, label="Bob"];
+       m1 [label="person"];
+       m2 [label="person"];
+       n1 [label="person"];
+       Alice -> m1 [label="friend"];
+       m1 -> m2 [label="friend"];
+       m2 -> Bob [label="friend"];
+       Alice -> n1 [label="friend"];
+       n1 -> Bob [label="friend"];
+   }
 
 ---
 
