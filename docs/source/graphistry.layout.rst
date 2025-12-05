@@ -1,6 +1,16 @@
 graphistry.layout package
 =========================
 
+.. graphviz::
+
+   digraph layout_toy {
+       rankdir=LR;
+       data [label="Data (nodes/edges)"];
+       layout [label="Layout (x,y)"];
+       render [label="Render (Graphviz/Graphistry)"];
+       data -> layout -> render;
+   }
+
 Subpackages
 -----------
 

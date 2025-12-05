@@ -3,6 +3,17 @@ Graphistry Ecosystem and Louie.AI
 
 The Graphistry community of projects, open source, and partners has grown over the years:
 
+.. graphviz::
+
+   digraph graphistry_ecosystem_toy {
+       rankdir=LR;
+       data [label="Dataframes", shape=box, style=filled, fillcolor=lightgray];
+       gfql [label="GFQL"];
+       viz [label="Graphistry Viz"];
+       ai [label="Louie.AI"];
+       data -> gfql -> viz -> ai;
+   }
+
 Graphistry Core
 ---------------
 
@@ -77,5 +88,4 @@ Graphistry works with a variety of partners and projects, some of which include:
 * `Jupyter <https://jupyter.org/>`_
 * `Pandas <https://pandas.pydata.org/>`_
 * `Dask <https://www.dask.org/>`_
-
 

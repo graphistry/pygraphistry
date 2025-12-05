@@ -113,6 +113,35 @@ PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, cov
   - :ref:`cuGraph <cugraph>` for GPU-accelerated FA2, a weaker version of Graphistry's live layout
   - :ref:`igraph <igraph>` for CPU-based layouts, similar to GraphViz and with layouts that focus more on medium-sized social networks
 
+Static Graphviz render (for docs/notebooks)
+-------------------------------------------
+
+When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` emits bytes that you can save or embed inline:
+
+.. code-block:: python
+
+   svg = g.plot_static(format='svg', max_nodes=200, max_edges=400)
+   from IPython.display import SVG
+   SVG(svg)
+
+.. graphviz::
+
+   digraph viz_static_demo {
+      rankdir=LR;
+      a -> b -> c -> d;
+      a [shape=box, style=filled, fillcolor=lightyellow];
+   }
+
+Text-only outputs
+-----------------
+
+Emit DOT or Mermaid DSL for downstream rendering or embedding:
+
+.. code-block:: python
+
+   dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
+   mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
+
 - **External Layouts**: Pass in `x`, `y` columns, such as from your own edits, external data, or external ML/AI packages:
 
    .. code-block:: python
