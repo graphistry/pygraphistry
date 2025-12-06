@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Breaking 🔥
+- **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of Apache Arrow API v3.
+  * Removed `_etl1()`, `_etl_url()`, `_check_url()` methods from `pygraphistry.py`
+  * Removed API v1 dispatch path from `PlotterBase.py`
+  * Changed `register(api=...)` parameter type from `Literal[1, 3]` to `Literal[3]`
+  * Updated `client_session.py` type from `Literal["arrow", "vgraph"]` to `Literal["arrow"]`
+  * **Migration**: Users calling `graphistry.register(api=1)` must switch to `graphistry.register(api=3)` or omit the parameter (defaults to v3)
+
 ### Fixed
 - **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
 - **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).

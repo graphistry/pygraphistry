@@ -104,26 +104,16 @@ class GraphistryClient(AuthManagerProtocol):
         self.session._is_authenticated = value
 
     def authenticate(self) -> None:
-        """Authenticate via already provided configuration (api=1,2).
+        """Authenticate via already provided configuration.
         This is called once automatically per session when uploading and rendering a visualization.
-        In api=3, if token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
-        In that case, note that a manual .login() is still required every 24hr by default.
+        If token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
+        Note that a manual .login() is still required every 24hr by default.
         """
 
-        if self.api_version() == 3:
-            if not (self.api_token() is None):
-                self.refresh()
-        else:
-            key = self.api_key()
-            # Mocks may set to True, so bypass in that case
-            if (key is None) and (self.session._is_authenticated is False):
-                util.error(
-                    "In api=1 mode, API key not set explicitly in `register()` or available at "
-                    + ENV_GRAPHISTRY_API_KEY
-                )
-            if not self.session._is_authenticated:
-                self._check_key_and_version()
-                self.session._is_authenticated = True
+        if not (self.api_token() is None):
+            self.refresh()
+        elif not self.session._is_authenticated:
+            self.session._is_authenticated = True
 
     def __reset_token_creds_in_memory(self) -> None:
         """Reset the token and creds in memory, used when switching hosts, switching register method"""
@@ -578,7 +568,7 @@ class GraphistryClient(AuthManagerProtocol):
         personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[1, 3]] = None,
+        api: Optional[Literal[3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         store_token_creds_in_memory: Optional[bool] = None,
@@ -594,15 +584,15 @@ class GraphistryClient(AuthManagerProtocol):
 
         Changing the key effects all derived Plotter instances.
 
-        Provide one of key (deprecated api=1), username/password (api=3) or temporary token (api=3).
+        Provide username/password or temporary token for authentication.
 
-        :param key: API key (deprecated 1.0 API)
+        :param key: API key (deprecated, ignored)
         :type key: Optional[str]
-        :param username: Account username (2.0 API).
+        :param username: Account username.
         :type username: Optional[str]
-        :param password: Account password (2.0 API).
+        :param password: Account password.
         :type password: Optional[str]
-        :param token: Valid Account JWT token (2.0). Provide token, or username/password, but not both.
+        :param token: Valid Account JWT token. Provide token, or username/password, but not both.
         :type token: Optional[str]
         :param personal_key_id: Personal Key id for service account.
         :type personal_key_id: Optional[str]
@@ -612,8 +602,8 @@ class GraphistryClient(AuthManagerProtocol):
         :type server: Optional[str]
         :param protocol: Protocol to use for server uploaders, defaults to "https".
         :type protocol: Optional[str]
-        :param api: API version to use, defaults to 1 (deprecated slow json 1.0 API), prefer 3 (2.0 API with Arrow+JWT)
-        :type api: Optional[Literal[1, 3]]
+        :param api: API version (only 3 is supported, uses Arrow+JWT)
+        :type api: Optional[Literal[3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -2290,16 +2280,6 @@ class GraphistryClient(AuthManagerProtocol):
 
         return self._plotter().settings(height, url_params, render)
 
-    def _etl_url(self):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "%s://%s/etl" % (protocol, hostname)
-
-    def _check_url(self):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "%s://%s/api/check" % (protocol, hostname)
-
     def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = "&".join([k + "=" + str(v) for k, v in list(url_params.items())])
@@ -2320,125 +2300,6 @@ class GraphistryClient(AuthManagerProtocol):
         protocol = self.session.protocol
         return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
 
-
-    def _coerce_str(self, v):
-        try:
-            return str(v)
-        except UnicodeDecodeError:
-            print("UnicodeDecodeError")
-            print("=", v, "=")
-            x = v.decode("utf-8")
-            print("x", x)
-            return x
-
-    def _get_data_file(self, dataset, mode):
-        out_file = io.BytesIO()
-        if mode == "json":
-            json_dataset = None
-            try:
-                json_dataset = json.dumps(
-                    dataset, ensure_ascii=False, cls=NumpyJSONEncoder
-                )
-            except TypeError:
-                warnings.warn("JSON: Switching from NumpyJSONEncoder to str()")
-                json_dataset = json.dumps(dataset, default=self._coerce_str)
-
-            with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
-                if sys.version_info < (3, 0) and isinstance(json_dataset, bytes):
-                    f.write(json_dataset)
-                else:
-                    f.write(json_dataset.encode("utf8"))
-        else:
-            raise ValueError("Unknown mode:", mode)
-
-        kb_size = len(out_file.getvalue()) // 1024
-        if kb_size >= 5 * 1024:
-            print("Uploading %d kB. This may take a while..." % kb_size)
-            sys.stdout.flush()
-
-        return out_file
-
-    def _etl1(self, dataset: Any) -> DatasetInfo:
-        self.authenticate()
-
-        headers = {"Content-Encoding": "gzip", "Content-Type": "application/json"}
-        params = {
-            "usertag": self.session._tag,
-            "agent": "pygraphistry",
-            "apiversion": "1",
-            "agentversion": sys.modules["graphistry"].__version__,
-            "key": self.session.api_key,
-        }
-
-        out_file = self._get_data_file(dataset, "json")
-        response = requests.post(
-            self._etl_url(),
-            out_file.getvalue(),
-            headers=headers,
-            params=params,
-            verify=self.session.certificate_validation,
-        )
-        log_requests_error(response)
-        response.raise_for_status()
-
-        try:
-            jres = response.json()
-        except Exception:
-            raise ValueError("Unexpected server response", response)
-
-        if jres["success"] is not True:
-            raise ValueError("Server reported error:", jres["msg"])
-        else:
-            return {
-                "name": jres["dataset"],
-                "viztoken": jres["viztoken"],
-                "type": "vgraph",
-            }
-
-
-    def _check_key_and_version(self):
-        params = {"text": self.session.api_key}
-        try:
-            response = requests.get(
-                self._check_url(),
-                params=params,
-                timeout=(3, 3),
-                verify=self.session.certificate_validation,
-            )
-            log_requests_error(response)
-            response.raise_for_status()
-            jres = response.json()
-
-            cver = sys.modules["graphistry"].__version__
-            if (
-                "pygraphistry" in jres
-                and "minVersion" in jres["pygraphistry"]     # noqa: W503
-                and "latestVersion" in jres["pygraphistry"]  # noqa: W503
-            ):
-                mver = jres["pygraphistry"]["minVersion"]
-                lver = jres["pygraphistry"]["latestVersion"]
-
-                from packaging.version import parse
-                try:
-                    if parse(mver) > parse(cver):
-                        util.warn(
-                            "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
-                            % (cver, lver)
-                        )
-                    elif parse(lver) > parse(cver):
-                        print(
-                            "A new version of PyGraphistry is available (installed=%s latest=%s)."
-                            % (cver, lver)
-                        )
-                except:
-                    raise ValueError(f'Unexpected version value format when comparing {mver}, {cver}, and {lver}')
-            if jres["success"] is not True:
-                util.warn(jres["error"])
-        except Exception:
-            util.warn(
-                "Could not contact %s. Are you connected to the Internet?"
-                % self.session.hostname
-            )
 
     def layout_settings(self, 
         play: Optional[int] = None,
