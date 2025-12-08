@@ -526,7 +526,7 @@ class KeplerConfig:
     :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
     :param tile_style: Base map tile style configuration
     :type tile_style: Optional[Dict[str, Any]]
-    :param auto_graph_renderer_switching: Enable automatic graph renderer switching
+    :param auto_graph_renderer_switching: Enable automatic graph renderer switching, which allows Graphistry to hide Kepler node and edge layers depending on the mode (default: True)
     :type auto_graph_renderer_switching: Optional[bool]
 
     **Example: Structured parameters**
