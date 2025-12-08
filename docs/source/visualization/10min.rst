@@ -229,7 +229,30 @@ Once you're ready to visualize, use ``.plot()`` to render:
       url = g.plot(render=False)
       print(f"View your graph at: {url}")
 
-  You can further control the embeded visualization using URL parameters and JavaScript 
+  You can further control the embeded visualization using URL parameters and JavaScript
+
+Static Image Export
+~~~~~~~~~~~~~~~~~~~
+
+For non-interactive outputs (documentation, reports, presentations), use ``plot_static()``:
+
+.. code-block:: python
+
+    # Quick static SVG (auto-displays in Jupyter)
+    g.plot_static()
+
+    # With styling
+    g.plot_static(
+        graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
+        node_attr={'style': 'filled', 'fillcolor': 'lightblue'}
+    )
+
+    # Save to file
+    g.plot_static(format='png', path='graph.png')
+
+Works with any layout source (UMAP, ring, graphviz, or manual x/y positions).
+
+See the `static rendering tutorial <../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_ for styling options, output formats, and complete examples.
 
 .. _extra:
 

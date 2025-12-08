@@ -25,6 +25,20 @@ For static outputs in notebooks or docs, you can either call :py:meth:`graphistr
 - ``graphviz-dot`` (DOT text, optional path)
 - ``mermaid-code`` (Mermaid DSL text, optional path)
 
+**Styling**: Use ``graph_attr``, ``node_attr``, and ``edge_attr`` dictionaries:
+
+.. code-block:: python
+
+   g.plot_static(
+       graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
+       node_attr={'style': 'filled', 'fillcolor': 'lightblue'},
+       edge_attr={'color': 'gray'}
+   )
+
+``plot_static()`` works with any layout source—it will use existing x/y positions if available (``reuse_layout=True``), or compute layout via graphviz if not.
+
+See the `static rendering tutorial <../../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_ for complete examples.
+
 .. automodule:: graphistry.plugins.graphviz
    :members:
    :undoc-members:

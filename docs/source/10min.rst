@@ -205,33 +205,33 @@ For example, GraphViz layouts is known for its high quality for laying out small
    g2 = g1.layout_graphviz('dot')
    g2.plot()
 
-Static Graphviz render
-----------------------
+Static Image Export
+-------------------
 
-When you need a quick static image (e.g., docs/notebooks), reuse the Graphviz layout. ``plot_static`` auto-displays in Jupyter and returns bytes you can save:
-
-.. code-block:: python
-
-   # Auto-displays inline in Jupyter; reuses x/y if present
-   g1.plot_static(format='svg', max_nodes=200, max_edges=400)
-
-.. graphviz::
-
-   digraph quickstart_static {
-      rankdir=LR;
-      0 -> 1 -> 2 -> 3 -> 4;
-      0 [shape=box, style=filled, fillcolor=lightgray];
-   }
-
-DOT / Mermaid text (layout later)
----------------------------------
-
-If you only need the text form, emit DOT or Mermaid DSL:
+For documentation, reports, or non-interactive use cases, export to static images with ``plot_static()``:
 
 .. code-block:: python
 
-   dot_text = g1.plot_static(engine='graphviz-dot', reuse_layout=True)
-   mermaid_text = g1.plot_static(engine='mermaid-code', reuse_layout=False)
+   # Auto-displays inline in Jupyter, returns SVG bytes
+   g.plot_static()
+
+   # Save to file
+   g.plot_static(format='png', path='graph.png')
+
+   # With styling
+   g.plot_static(
+       graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
+       node_attr={'style': 'filled', 'fillcolor': 'lightblue'}
+   )
+
+Works with any layout source (UMAP, ring, graphviz, manual x/y). For DOT or Mermaid text output:
+
+.. code-block:: python
+
+   dot_text = g.plot_static(engine='graphviz-dot')
+   mermaid_text = g.plot_static(engine='mermaid-code')
+
+See the `static rendering tutorial <../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_ for styling options and complete examples.
 
 Using UMAP for Dimensionality Reduction
 ---------------------------------------
