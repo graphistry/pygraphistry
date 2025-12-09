@@ -57,7 +57,7 @@ class ClientSession:
         if env_api_version is None:
             env_api_version = 3
         elif env_api_version != 3:
-            raise ValueError("Expected API version to be 3 (Arrow format). Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
+            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
         self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
