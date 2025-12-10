@@ -12,4 +12,4 @@ GFQL Graph queries
    GPU Benchmarking <../demos/gfql/benchmark_hops_cpu_gpu.ipynb>
    GFQL Remote mode <../demos/gfql/gfql_remote.ipynb>
    Python Remote mode <../demos/gfql/python_remote.ipynb>
-
+   # ICIJ FinCEN Files Visualization <../demos/demos_by_user_case/icij_fincen_viz.ipynb>

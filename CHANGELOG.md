@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.46.1 - 2025-12-10]
+
+### Added
+- **GFQL**: Added auto_graph_renderer_switching config option for Kepler maps.
+
 ### Fixed
 - **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
 - **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).
