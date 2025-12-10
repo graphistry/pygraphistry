@@ -135,3 +135,68 @@ class Test_categorical_ring(NoAuthTestCase):
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i
             assert row['label'] == ['a', 'bb', 'cc', 'dd'][i]
+
+    def test_play_ms_preserves_url_param(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .settings(url_params={'play': 6000})
+            .ring_categorical_layout('t')
+        )
+        assert g._url_params.get('play') == 6000
+
+    def test_play_ms_explicit_zero(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .settings(url_params={'play': 6000})
+            .ring_categorical_layout('t', play_ms=0)
+        )
+        assert g._url_params.get('play') == 0
+
+    def test_play_ms_explicit_value(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .settings(url_params={'play': 6000})
+            .ring_categorical_layout('t', play_ms=3000)
+        )
+        assert g._url_params.get('play') == 3000
+
+    def test_play_ms_default_when_no_url_param(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .ring_categorical_layout('t')
+        )
+        assert g._url_params.get('play') == 0
+
+    def test_play_ms_invalid_url_param_fallback(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .settings(url_params={'play': 'invalid'})
+            .ring_categorical_layout('t')
+        )
+        assert g._url_params.get('play') == 0
+
+    def test_play_ms_string_number_parsed(self):
+        lg = LGFull()
+        g = (
+            lg
+            .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 't': ['x', 'y', 'z']}))
+            .settings(url_params={'play': '5000'})
+            .ring_categorical_layout('t')
+        )
+        assert g._url_params.get('play') == 5000
