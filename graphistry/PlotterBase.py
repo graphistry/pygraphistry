@@ -2601,6 +2601,41 @@ class PlotterBase(Plottable):
 
         return df_fixed
 
+    def _coerce_mixed_type_columns_cudf(self, gdf: Any) -> Any:
+        """
+        Coerce cuDF DataFrame columns with mixed types to string to allow Arrow conversion.
+
+        Similar to _coerce_mixed_type_columns but for cuDF DataFrames.
+        cuDF can fail with ArrowInvalid on mixed boolean/numeric or other edge cases.
+
+        :param gdf: cuDF DataFrame that failed Arrow conversion
+        :returns: cuDF DataFrame with problematic columns coerced to string
+        """
+        cudf = maybe_cudf()
+        if cudf is None:
+            return gdf
+
+        gdf_fixed = gdf.copy()
+        coerced_cols = []
+
+        for col in gdf.columns:
+            # cuDF uses 'object' dtype for mixed types similar to pandas
+            if gdf[col].dtype == object:
+                try:
+                    # Test if this column can convert to Arrow
+                    gdf[[col]].to_arrow()
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    gdf_fixed[col] = gdf[col].astype(str)
+                    coerced_cols.append(col)
+
+        if coerced_cols:
+            warn(
+                f'Coerced mixed-type columns to string for Arrow conversion (cuDF): {coerced_cols}. '
+                f'For better control, convert these columns explicitly before calling plot().'
+            )
+
+        return gdf_fixed
+
     def _table_to_arrow(self, table: Any, memoize: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
@@ -2673,7 +2708,13 @@ class PlotterBase(Plottable):
                     logger.debug('Failed to hash cudf', exc_info=True)
                     1
 
-            out = table.to_arrow()
+            try:
+                out = table.to_arrow()
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                # Auto-coerce mixed-type columns to string and retry
+                logger.debug('cuDF Arrow conversion failed, attempting auto-coercion: %s', e)
+                table_fixed = self._coerce_mixed_type_columns_cudf(table)
+                out = table_fixed.to_arrow()
 
             if memoize:
                 w = WeakValueWrapper(out)
@@ -2681,7 +2722,7 @@ class PlotterBase(Plottable):
                 PlotterBase._cudf_hash_to_arrow[hashed] = w
 
             return out
-        
+
         # TODO: per-gdf hashing? 
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
