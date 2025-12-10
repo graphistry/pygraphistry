@@ -2569,6 +2569,38 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
+    def _coerce_mixed_type_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Coerce columns with mixed types to string to allow Arrow conversion.
+
+        When a DataFrame contains columns with mixed types (e.g., bytes and floats,
+        or lists and scalars), PyArrow's from_pandas() will fail with ArrowTypeError
+        or ArrowInvalid. This method identifies such columns and converts them to
+        strings, emitting a warning about which columns were coerced.
+
+        :param df: DataFrame that failed Arrow conversion
+        :returns: DataFrame with problematic columns coerced to string
+        """
+        df_fixed = df.copy()
+        coerced_cols = []
+
+        for col in df.columns:
+            if df[col].dtype == object:
+                # Try converting this specific column to Arrow
+                try:
+                    pa.array(df[col], from_pandas=True)
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    df_fixed[col] = df[col].astype(str)
+                    coerced_cols.append(col)
+
+        if coerced_cols:
+            warn(
+                f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
+                f'For better control, convert these columns explicitly before calling plot().'
+            )
+
+        return df_fixed
+
     def _table_to_arrow(self, table: Any, memoize: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
@@ -2607,7 +2639,13 @@ class PlotterBase(Plottable):
                     logger.debug('Failed to hash pdf', exc_info=True)
                     1
 
-            out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+            try:
+                out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                # Auto-coerce mixed-type columns to string and retry
+                logger.debug('Arrow conversion failed, attempting auto-coercion: %s', e)
+                table_fixed = self._coerce_mixed_type_columns(table)
+                out = pa.Table.from_pandas(table_fixed, preserve_index=False).replace_schema_metadata({})
 
             if memoize and (hashed is not None):
                 w = WeakValueWrapper(out)
@@ -2665,6 +2703,44 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
+    def to_arrow(self, table: Optional[Any] = None) -> Optional[pa.Table]:
+        """
+        Convert a DataFrame to Arrow format.
+
+        This method is useful for debugging Arrow conversion issues.
+        If the DataFrame contains mixed-type columns that would cause Arrow
+        conversion to fail, they will be automatically coerced to strings
+        with a warning.
+
+        :param table: DataFrame to convert. If None, converts the bound edges.
+        :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
+
+        :returns: PyArrow Table, or None if table is None
+        :rtype: Optional[pyarrow.Table]
+
+        **Example: Debug Arrow conversion**
+            ::
+
+                import graphistry
+                import pandas as pd
+
+                df = pd.DataFrame({
+                    'src': [1, 2, 3],
+                    'dst': [2, 3, 1],
+                    'mixed': [b'bytes', 1.5, 'string']  # Mixed types
+                })
+                g = graphistry.edges(df, 'src', 'dst')
+
+                # Debug: see what Arrow conversion produces
+                arr = g.to_arrow(df)
+                print(arr.schema)
+
+                # Or convert bound edges
+                arr2 = g.to_arrow()
+        """
+        if table is None:
+            table = self._edges
+        return self._table_to_arrow(table, memoize=False)
 
     def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 

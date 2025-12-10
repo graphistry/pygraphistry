@@ -779,8 +779,11 @@ class Plottable(Protocol):
 
     def to_cudf(self) -> 'Plottable':
         ...
-    
+
     def to_pandas(self) -> 'Plottable':
+        ...
+
+    def to_arrow(self, table: Optional[Any] = None) -> Optional[Any]:
         ...
 
     def protocol(self, v: Optional[str] = None) -> str:

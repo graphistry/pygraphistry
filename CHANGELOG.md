@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Arrow:** New `to_arrow()` public method for debugging DataFrame->Arrow conversion issues (#867).
+- **Validation:** New `validate` parameter for `plot()` and `upload()` with modes:
+  - `'autofix'` (default): Auto-coerce mixed-type columns to string + emit warning
+  - `'strict'`: Raise `ArrowConversionError` on mixed types; may do data-level inspection
+  - `'strict-fast'`: Same as strict but stays at metadata/schema level only (for high-throughput pipelines)
+
+  Backward compatible: `validate=True` maps to `'strict'`, `validate=False` maps to `'autofix'` with `warn=False`. New `warn` parameter controls warning emission in autofix mode. Encoding validation errors are also controlled by these modes. Works with pandas, cuDF, dask, dask_cudf, and Spark/Databricks DataFrames (#867).
+
+### Fixed
+- **Arrow:** Auto-coerce mixed-type columns to string during Arrow conversion, preventing `ArrowTypeError` and `ArrowInvalid` exceptions when DataFrames contain columns with mixed types (e.g., bytes/float/string or list/scalar). Emits `RuntimeWarning` listing coerced columns. Applies to pandas, cuDF, and distributed DataFrames (dask, Spark) after collection (#867).
+
 ## [0.47.0 - 2025-12-15]
 
 ### Breaking 🔥
@@ -23,7 +35,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     - Personal keys (recommended for scripts): `graphistry.register(api=3, personal_key_id="...", personal_key_secret="...")`
     - SSO: `graphistry.register(api=3, org_name="...", idp_name="...")`
     - See [authentication docs](https://pygraphistry.readthedocs.io/en/latest/server/register.html) for full options
-
 ## [0.46.1 - 2025-12-10]
 
 ### Added

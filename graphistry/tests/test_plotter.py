@@ -390,6 +390,134 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         assert not (arr1 is plotter._table_to_arrow(df))
 
+    # ==========================================================================
+    # Auto-coerce mixed-type columns tests (Issue #867)
+    # ==========================================================================
+
+    def test_table_to_arrow_mixed_bytes_float_string(self):
+        """Test that mixed bytes/float/string columns are auto-coerced to string."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 1],
+            'amount': [b'bytes_value', 1.5, 'string_value']  # Mixed: bytes, float, string
+        })
+        # Should not raise, should succeed with coercion
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns to string'):
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+        # amount column should be coerced to string type
+        assert pa.types.is_string(arr.schema.field('amount').type) or pa.types.is_large_string(arr.schema.field('amount').type)
+
+    def test_table_to_arrow_mixed_datetime_int_string(self):
+        """Test that mixed datetime/int/string columns are auto-coerced to string."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'x': [1, 2, 3],
+            'timestamp': [dt.datetime(2020, 10, 20), 1, 'string_value']  # Mixed: datetime, int, string
+        })
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns to string'):
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+        assert pa.types.is_string(arr.schema.field('timestamp').type) or pa.types.is_large_string(arr.schema.field('timestamp').type)
+
+    def test_table_to_arrow_mixed_list_scalar(self):
+        """Test that mixed list/scalar columns are auto-coerced to string (ArrowInvalid)."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'x': [1, 2, 3],
+            'roles': [['admin', 'user'], 'not_a_list', None]  # Mixed: list, string, None
+        })
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns to string'):
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+        assert pa.types.is_string(arr.schema.field('roles').type) or pa.types.is_large_string(arr.schema.field('roles').type)
+
+    def test_table_to_arrow_mixed_dict_scalar(self):
+        """Test that mixed dict/scalar columns are auto-coerced to string (ArrowInvalid)."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'x': [1, 2, 3],
+            'attrs': [{'a': 1}, 'not_a_dict', None]  # Mixed: dict, string, None
+        })
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns to string'):
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+        assert pa.types.is_string(arr.schema.field('attrs').type) or pa.types.is_large_string(arr.schema.field('attrs').type)
+
+    def test_table_to_arrow_clean_data_no_warning(self):
+        """Test that clean data does not emit warnings."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 1],
+            'weight': [1.0, 2.0, 3.0]
+        })
+        # Should not warn for clean data
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # Turn warnings into errors
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
+    def test_table_to_arrow_multiple_bad_columns(self):
+        """Test that multiple bad columns are all coerced and reported."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'good': [1, 2, 3],
+            'bad1': [b'bytes', 1.5, 'str'],  # Mixed types
+            'bad2': [['list'], 'scalar', None],  # Mixed list/scalar
+        })
+        with pytest.warns(RuntimeWarning, match='bad1.*bad2|bad2.*bad1'):
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
+    def test_table_to_arrow_memoization_with_coercion(self):
+        """Test that memoization works correctly with coerced data."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'x': [1, 2],
+            'mixed': [b'bytes', 1.5]  # Will be coerced
+        })
+        # First call - coerces and caches
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr1 = plotter._table_to_arrow(df)
+
+        # Second call with same data - should hit cache, no warning
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            arr2 = plotter._table_to_arrow(df)
+
+        # Should be same cached object
+        assert arr1 is arr2
+
+    def test_to_arrow_public_method(self):
+        """Test public to_arrow() helper method."""
+        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1]})
+        g = graphistry.edges(df, 'src', 'dst')
+
+        # Convert explicit dataframe
+        arr = g.to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
+        # Convert bound edges (default)
+        arr2 = g.to_arrow()
+        assert isinstance(arr2, pa.Table)
+
+    def test_to_arrow_with_mixed_types(self):
+        """Test that to_arrow() also handles mixed types."""
+        df = pd.DataFrame({
+            'src': [1, 2],
+            'dst': [2, 1],
+            'mixed': [b'bytes', 1.5]
+        })
+        g = graphistry.edges(df, 'src', 'dst')
+
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = g.to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",
