@@ -10,14 +10,6 @@ Basic Usage
 
 **Chaining Operations**
 
-.. graphviz::
-
-   digraph gfql_quick_toy {
-       rankdir=LR;
-       a -> b -> c -> d;
-       a [shape=box, style=filled, fillcolor=lightblue];
-   }
-
 .. code-block:: python
 
     g.gfql(ops=[...], engine=EngineAbstract.AUTO)

@@ -51,12 +51,6 @@ Throughout this guide, we'll work with a graph representing people, companies, a
        tx2 -> c [label="received", penwidth=2];
    }
 
-.. note::
-   Diagrams in this documentation use Graphviz DOT syntax rendered by Sphinx at build time.
-   To create similar diagrams programmatically in Python, use
-   :py:meth:`~graphistry.PlotterBase.PlotterBase.plot_static` with styling options.
-   See the `static rendering tutorial <../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_.
-
 ::
 
     import pandas as pd
