@@ -7,13 +7,13 @@ from typing_extensions import Literal
 from enum import Enum
 
 
-class Engine(Enum):
+class Engine(str, Enum):
     PANDAS = 'pandas'
     CUDF = 'cudf'
     DASK = 'dask'
     DASK_CUDF = 'dask_cudf'
 
-class EngineAbstract(Enum):
+class EngineAbstract(str, Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
     DASK = Engine.DASK.value
