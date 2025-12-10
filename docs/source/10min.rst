@@ -212,7 +212,7 @@ For documentation, reports, or non-interactive use cases, export to static image
 
 .. code-block:: python
 
-   # Auto-displays inline in Jupyter, returns SVG bytes
+   # Auto-displays inline in Jupyter, returns SVG object (.data for bytes)
    g.plot_static()
 
    # Save to file

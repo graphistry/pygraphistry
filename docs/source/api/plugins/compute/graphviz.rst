@@ -8,7 +8,7 @@ graphviz is a popular graph visualization library that PyGraphistry can interfac
 
 For static outputs in notebooks or docs, you can either call :py:meth:`graphistry.Plottable.plot_static` (preferred, auto-reuses x/y when present) or :py:meth:`graphistry.plugins.graphviz.render_graphviz` for lower-level control.
 
-**Auto-display**: When called in a Jupyter notebook, ``plot_static`` automatically displays the rendered output inline. It still returns the bytes/text for programmatic use.
+**Auto-display**: When called in a Jupyter notebook, ``plot_static`` automatically displays the rendered output inline. It returns an SVG or Image object (use ``.data`` for raw bytes).
 
 .. code-block:: python
 
@@ -16,7 +16,7 @@ For static outputs in notebooks or docs, you can either call :py:meth:`graphistr
    g.plot_static()
 
    # Save to file while also displaying
-   svg_bytes = g.plot_static(format='svg', path='graph.svg')
+   svg_obj = g.plot_static(path='graph.svg')  # saves file AND returns SVG object
 
 ``plot_static`` engines:
 

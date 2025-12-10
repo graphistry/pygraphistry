@@ -116,7 +116,7 @@ PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, cov
 Static Graphviz render (for docs/notebooks)
 -------------------------------------------
 
-When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` auto-displays in Jupyter and returns bytes that you can save:
+When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` auto-displays in Jupyter and returns an SVG/Image object (use ``.data`` for raw bytes):
 
 .. code-block:: python
 
