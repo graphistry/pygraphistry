@@ -28,7 +28,7 @@ class NoAuthTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Register once per test class to set up the session
-        graphistry.register(api=1)
+        graphistry.register(api=3, verify_token=False)
         # HACK: Set _is_authenticated after register() to bypass auth
         # This is reset by register(), so we set it after
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True

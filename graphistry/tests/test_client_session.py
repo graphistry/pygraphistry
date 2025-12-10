@@ -23,7 +23,7 @@ class TestClientSession:
         Reset global state at the start of every test.  Calling register()
         without credentials clears the in-memory session cleanly.
         """
-        graphistry.register(api=1)
+        graphistry.register(api=3, verify_token=False)
 
     # --------------------------------------------------------------------- #
     # Basic config proxy                                                    #

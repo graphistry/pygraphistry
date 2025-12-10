@@ -525,15 +525,15 @@ class GraphistryClient(AuthManagerProtocol):
         return value
 
     def api_version(self, value: Optional[ApiVersion] = None) -> ApiVersion:
-        """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
-        Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
+        """Set or get the API version. Only api=3 is supported.
+        Legacy API versions 1 and 2 are no longer supported.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
 
         if value is None:
             value = self.session.api_version
 
-        if value not in [1, 3]:
-            raise ValueError("Expected API version to be 1, 3, instead got: %s" % value)
+        if value != 3:
+            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % value)
 
         # setter
         self.session.api_version = value
@@ -678,12 +678,6 @@ class GraphistryClient(AuthManagerProtocol):
 
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
-
-        **Example: Standard (1.0)**
-                ::
-
-                    import graphistry
-                    graphistry.register(api=1, key="my api key")
 
         """
         global _is_client_mode_warned

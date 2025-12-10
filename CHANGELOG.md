@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Breaking 🔥
-- **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of Apache Arrow API v3.
+- **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of API v3.
   * Removed `_etl1()`, `_etl_url()`, `_check_url()` methods from `pygraphistry.py`
   * Removed API v1 dispatch path from `PlotterBase.py`
   * Changed `register(api=...)` parameter type from `Literal[1, 3]` to `Literal[3]`
