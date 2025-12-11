@@ -43,6 +43,9 @@ class CudfSeriesLike(Protocol):
     def dtype(self) -> np.dtype:
         ...
 
+    def astype(self, dtype: type) -> 'CudfSeriesLike':
+        ...
+
 
 class CudfDataFrameLike(Protocol):
     """Protocol for cudf DataFrame-like objects that support Arrow conversion."""
@@ -59,6 +62,12 @@ class CudfDataFrameLike(Protocol):
         ...
 
     def __getitem__(self, key: Union[str, List[str]]) -> Union[CudfSeriesLike, 'CudfDataFrameLike']:
+        ...
+
+    def __setitem__(self, key: str, value: CudfSeriesLike) -> None:
+        ...
+
+    def copy(self) -> 'CudfDataFrameLike':
         ...
 
     def to_arrow(self) -> pa.Table:
@@ -2686,7 +2695,7 @@ class PlotterBase(Plottable):
 
         return df_fixed
 
-    def _coerce_mixed_type_columns_cudf(self, gdf: Any) -> Any:
+    def _coerce_mixed_type_columns_cudf(self, gdf: CudfDataFrameLike) -> CudfDataFrameLike:
         """
         Coerce cuDF DataFrame columns with mixed types to string to allow Arrow conversion.
 
@@ -2701,17 +2710,18 @@ class PlotterBase(Plottable):
             return gdf
 
         gdf_fixed = gdf.copy()
-        coerced_cols = []
+        coerced_cols: List[str] = []
 
         for col in gdf.columns:
+            col_str = str(col)
             # cuDF uses 'object' dtype for mixed types similar to pandas
-            if gdf[col].dtype == object:
+            if gdf[col_str].dtype == object:
                 try:
                     # Test if this column can convert to Arrow
-                    gdf[[col]].to_arrow()
+                    gdf[[col_str]].to_arrow()
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    gdf_fixed[col] = gdf[col].astype(str)
-                    coerced_cols.append(col)
+                    gdf_fixed[col_str] = gdf[col_str].astype(str)
+                    coerced_cols.append(col_str)
 
         if coerced_cols:
             warn(
