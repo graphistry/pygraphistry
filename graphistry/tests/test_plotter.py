@@ -628,6 +628,177 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         # Should mention the problematic column(s)
         assert 'amount' in error_msg or 'columns' in error_msg
 
+    # ==========================================================================
+    # Phase 8: Comprehensive validation scenario tests (Issue #867)
+    # Tests the full matrix of (validate x warn x data_state x encoding_state)
+    # ==========================================================================
+
+    # --- Arrow validation through plot() entrypoint ---
+
+    def test_plot_strict_clean_data_passes(self):
+        """Scenario 1: strict + clean data should pass without errors."""
+        g = graphistry.edges(pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 1],
+            'weight': [1.0, 2.0, 3.0]  # Clean data
+        }), 'src', 'dst')
+        # Should not raise
+        result = g.plot(skip_upload=True, validate='strict')
+        assert result is not None
+
+    def test_plot_strict_mixed_data_raises(self):
+        """Scenario 3: strict + mixed data should raise ArrowConversionError."""
+        from graphistry.exceptions import ArrowConversionError
+        g = graphistry.edges(pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 1],
+            'mixed': [b'bytes', 1.5, 'string']  # Mixed types
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate='strict')
+
+    def test_plot_autofix_warn_true_clean_no_warning(self):
+        """Scenario 10: autofix + warn=True + clean data should pass without warning."""
+        import warnings
+        g = graphistry.edges(pd.DataFrame({
+            'src': [100, 200, 300],
+            'dst': [200, 300, 100],
+            'weight': [1.0, 2.0, 3.0]  # Clean data - unique values to avoid cache
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate='autofix', warn=True)
+            # Filter for our specific warnings
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no coercion warnings, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_autofix_warn_true_mixed_warns_and_coerces(self):
+        """Scenario 12: autofix + warn=True + mixed data should warn and coerce."""
+        g = graphistry.edges(pd.DataFrame({
+            'src': [101, 201, 301],
+            'dst': [201, 301, 101],
+            'mixed': [b'warn_bytes', 1.5, 'warn_string']  # Mixed types
+        }), 'src', 'dst')
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            result = g.plot(skip_upload=True, validate='autofix', warn=True)
+        assert result is not None
+
+    def test_plot_autofix_warn_false_mixed_coerces_silently(self):
+        """Scenario 16: autofix + warn=False + mixed data should coerce silently."""
+        import warnings
+        g = graphistry.edges(pd.DataFrame({
+            'src': [102, 202, 302],
+            'dst': [202, 302, 102],
+            'mixed': [b'silent_bytes', 2.5, 'silent_string']  # Mixed types
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate='autofix', warn=False)
+            # Filter for coercion warnings
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with warn=False, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_validate_false_coerces_silently(self):
+        """Scenario 19: validate=False should coerce silently (maps to autofix+warn=False)."""
+        import warnings
+        g = graphistry.edges(pd.DataFrame({
+            'src': [103, 203, 303],
+            'dst': [203, 303, 103],
+            'mixed': [b'false_bytes', 3.5, 'false_string']  # Mixed types
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with validate=False, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_validate_true_raises_on_mixed(self):
+        """Scenario 18: validate=True should raise (maps to strict)."""
+        from graphistry.exceptions import ArrowConversionError
+        g = graphistry.edges(pd.DataFrame({
+            'src': [104, 204, 304],
+            'dst': [204, 304, 104],
+            'mixed': [b'true_bytes', 4.5, 'true_string']  # Mixed types
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate=True)
+
+    # --- Encoding validation tests (Phase 8.B) ---
+    # Note: These test encoding validation at the validate_encodings level.
+    # Full integration with upload() would require server mocking.
+
+    def test_encoding_validation_strict_invalid_raises(self):
+        """Scenario 2: strict + invalid encoding should raise ValueError."""
+        from graphistry.validate.validate_encodings import validate_encodings
+
+        # Encoding references a column that doesn't exist
+        node_enc = {
+            "bindings": {"node": "n"},
+            "complex": {
+                "default": {
+                    "pointColorEncoding": {
+                        "graphType": "point",
+                        "encodingType": "color",
+                        "attribute": "nonexistent_column",  # Invalid!
+                        "variation": "categorical",
+                        "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}
+                    }
+                }
+            }
+        }
+        edge_enc = {"bindings": {"source": "s", "destination": "d"}}
+
+        # With node_attributes specified, validation should fail
+        with pytest.raises(ValueError):
+            validate_encodings(node_enc, edge_enc, node_attributes=['n', 'real_column'])
+
+    def test_encoding_validation_valid_passes(self):
+        """Encoding validation with valid attributes should pass."""
+        from graphistry.validate.validate_encodings import validate_encodings
+
+        node_enc = {
+            "bindings": {"node": "n"},
+            "complex": {
+                "default": {
+                    "pointColorEncoding": {
+                        "graphType": "point",
+                        "encodingType": "color",
+                        "attribute": "type",  # Valid - in attributes list
+                        "variation": "categorical",
+                        "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}
+                    }
+                }
+            }
+        }
+        edge_enc = {"bindings": {"source": "s", "destination": "d"}}
+
+        # Should not raise
+        result = validate_encodings(node_enc, edge_enc, node_attributes=['n', 'type'])
+        assert result is not None
+
+    # --- Combined scenario tests (Phase 8.C) ---
+
+    def test_strict_mixed_data_fails_before_encoding_check(self):
+        """Scenario 4: With mixed data, Arrow conversion fails before encoding validation."""
+        from graphistry.exceptions import ArrowConversionError
+
+        # Both mixed data AND invalid encoding - Arrow should fail first
+        g = graphistry.edges(pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 1],
+            'mixed': [b'bytes', 1.5, 'string']  # Mixed types cause Arrow failure
+        }), 'src', 'dst')
+
+        # Add an invalid encoding
+        g = g.encode_point_color('nonexistent_column', categorical_mapping={'a': 'red'})
+
+        # Should raise ArrowConversionError, not encoding ValueError
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate='strict')
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",
