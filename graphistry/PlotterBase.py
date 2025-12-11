@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload
-from typing_extensions import Literal
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
+from typing_extensions import Literal, Protocol
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
@@ -35,6 +35,34 @@ from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+
+class CudfSeriesLike(Protocol):
+    """Protocol for cudf Series-like objects with dtype attribute."""
+    @property
+    def dtype(self) -> np.dtype:
+        ...
+
+
+class CudfDataFrameLike(Protocol):
+    """Protocol for cudf DataFrame-like objects that support Arrow conversion."""
+    @property
+    def columns(self) -> pd.Index:
+        ...
+
+    @overload
+    def __getitem__(self, key: str) -> CudfSeriesLike:
+        ...
+
+    @overload
+    def __getitem__(self, key: List[str]) -> 'CudfDataFrameLike':
+        ...
+
+    def __getitem__(self, key: Union[str, List[str]]) -> Union[CudfSeriesLike, 'CudfDataFrameLike']:
+        ...
+
+    def to_arrow(self) -> pa.Table:
+        ...
 
 
 # #####################################
@@ -2609,22 +2637,21 @@ class PlotterBase(Plottable):
                     bad_cols.append(str(col))
         return bad_cols
 
-    def _find_bad_arrow_columns_cudf(self, gdf: pd.DataFrame) -> List[str]:
+    def _find_bad_arrow_columns_cudf(self, gdf: CudfDataFrameLike) -> List[str]:
         """
         Find columns in a cuDF DataFrame that fail Arrow conversion.
-
-        Note: typed as pd.DataFrame for mypy since cudf.DataFrame is not available at type-check time.
 
         :param gdf: cuDF DataFrame to check
         :returns: List of column names that fail Arrow conversion
         """
         bad_cols: List[str] = []
         for col in gdf.columns:
-            if gdf[col].dtype == object:
+            col_str = str(col)
+            if gdf[col_str].dtype == object:
                 try:
-                    gdf[[col]].to_arrow()
+                    gdf[[col_str]].to_arrow()
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    bad_cols.append(str(col))
+                    bad_cols.append(col_str)
         return bad_cols
 
     def _coerce_mixed_type_columns(self, df: pd.DataFrame) -> pd.DataFrame:
