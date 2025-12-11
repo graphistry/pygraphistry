@@ -2825,8 +2825,8 @@ class PlotterBase(Plottable):
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
                 logger.debug('cuDF Arrow conversion failed, attempting auto-coercion: %s', e)
-                table_fixed = self._coerce_mixed_type_columns_cudf(cudf_table)
-                out = table_fixed.to_arrow()
+                cudf_fixed: CudfDataFrameLike = self._coerce_mixed_type_columns_cudf(cudf_table)
+                out = cudf_fixed.to_arrow()
 
             if memoize:
                 w = WeakValueWrapper(out)
