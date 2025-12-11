@@ -2006,8 +2006,9 @@ class PlotterBase(Plottable):
     def upload(
         self,
         memoize: bool = True,
-        erase_files_on_fail=True,
-        validate: bool = True
+        erase_files_on_fail: bool = True,
+        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        warn: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
 
@@ -2022,8 +2023,11 @@ class PlotterBase(Plottable):
         :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
         :type erase_files_on_fail: bool
 
-        :param validate: Controls validations, including those for encodings. Default true.
-        :type validate: bool
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
+        :type validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool]
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
+        :type warn: bool
 
         **Example: Simple**
             ::
@@ -2041,7 +2045,8 @@ class PlotterBase(Plottable):
             as_files=True,
             memoize=memoize,
             erase_files_on_fail=erase_files_on_fail,
-            validate=validate
+            validate=validate,
+            warn=warn
         )
 
     def plot(
@@ -2057,7 +2062,8 @@ class PlotterBase(Plottable):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: bool = True
+        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        warn: bool = True
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -2099,8 +2105,11 @@ class PlotterBase(Plottable):
         :param override_html_style: Set fully custom style tag.
         :type override_html_style: Optional[str]
 
-        :param validate: Controls validations, including those for encodings.
-        :type validate: Optional[bool]
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
+        :type validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool]
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
+        :type warn: bool
 
         **Example: Simple**
             ::
@@ -2124,6 +2133,15 @@ class PlotterBase(Plottable):
         """
         logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
 
+        # Normalize validate param for backward compatibility
+        if validate is True:
+            validate_mode = 'strict'
+        elif validate is False:
+            validate_mode = 'autofix'
+            warn = False  # validate=False means "don't bother me"
+        else:
+            validate_mode = validate
+
         if graph is None:
             if self._edges is None:
                 error('Graph/edges must be specified.')
@@ -2143,12 +2161,18 @@ class PlotterBase(Plottable):
         self._pygraphistry.refresh()
         logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
+        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize, validate_mode, warn)
         assert uploader is not None
         if skip_upload:
             return uploader
         uploader.token = self.session.api_token  # type: ignore[assignment]
-        uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
+        uploader.post(
+            as_files=as_files,
+            memoize=memoize,
+            validate=validate_mode,
+            warn=warn,
+            erase_files_on_fail=erase_files_on_fail
+        )
         uploader.maybe_post_share_link(self)
         info: DatasetInfo = {
             'name': uploader.dataset_id,
@@ -2419,12 +2443,12 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True):
-        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize)
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode='autofix'):
+        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode)
         assert isinstance(out, ArrowUploader)
         return out
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True) -> Union[ArrowUploader, Dict[str, Any]] :
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode='autofix') -> Union[ArrowUploader, Dict[str, Any]]:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2439,13 +2463,13 @@ class PlotterBase(Plottable):
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
                 or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ):
-            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
+            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 g2 = g.from_igraph(graph)
-                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode)
         except ImportError:
             pass
 
@@ -2456,7 +2480,7 @@ class PlotterBase(Plottable):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = g.networkx2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
+                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode)
         except ImportError:
             pass
 
@@ -2636,14 +2660,17 @@ class PlotterBase(Plottable):
 
         return gdf_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True) -> Optional[pa.Table]:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: str = 'autofix') -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
 
             dask/dask_cudf convert to pandas/cudf
+
+            :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
+                                  'strict' or 'strict-fast' raises ArrowConversionError on mixed types
         """
 
-        logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
+        logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
 
         if table is None:
             return None
@@ -2678,7 +2705,6 @@ class PlotterBase(Plottable):
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
                 # Check validate mode - strict modes should fail, autofix should coerce
-                validate_mode = getattr(self, '_validate_mode', 'autofix')
                 if validate_mode in ('strict', 'strict-fast'):
                     # Identify problematic columns for error message
                     bad_cols = []
@@ -2725,7 +2751,6 @@ class PlotterBase(Plottable):
                 out = table.to_arrow()
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
                 # Check validate mode - strict modes should fail, autofix should coerce
-                validate_mode = getattr(self, '_validate_mode', 'autofix')
                 if validate_mode in ('strict', 'strict-fast'):
                     # Identify problematic columns for error message
                     bad_cols = []
@@ -2749,24 +2774,24 @@ class PlotterBase(Plottable):
 
             return out
 
-        # TODO: per-gdf hashing? 
+        # TODO: per-gdf hashing?
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize)
+            return self._table_to_arrow(gdf, memoize, validate_mode)
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize)
+            return self._table_to_arrow(df, memoize, validate_mode)
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize)
+            return self._table_to_arrow(df, memoize, validate_mode)
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
@@ -2807,12 +2832,12 @@ class PlotterBase(Plottable):
         """
         if table is None:
             table = self._edges
-        return self._table_to_arrow(table, memoize=False)
+        return self._table_to_arrow(table, memoize=False, validate_mode='autofix')
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: str = 'autofix') -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 
-        logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
-            mode, memoize, name, description, type(edges), type(nodes))
+        logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
+            mode, memoize, validate_mode, name, description, type(edges), type(nodes))
 
         try:
             if len(edges) == 0:
@@ -2835,8 +2860,8 @@ class PlotterBase(Plottable):
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
         elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges, memoize)
-            nodes_arr = self._table_to_arrow(nodes, memoize)
+            edges_arr = self._table_to_arrow(edges, memoize, validate_mode)
+            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode)
             return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
             #token=None, dataset_id=None, url_params = None)
         else:

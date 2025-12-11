@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -808,8 +808,9 @@ class Plottable(Protocol):
     def upload(
         self,
         memoize: bool = True,
-        erase_files_on_fail=True,
-        validate: bool = True
+        erase_files_on_fail: bool = True,
+        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 
@@ -826,7 +827,8 @@ class Plottable(Protocol):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: bool = True
+        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        warn: bool = True
     ) -> Any:
         ...
 

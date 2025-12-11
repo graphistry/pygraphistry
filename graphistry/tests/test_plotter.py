@@ -526,110 +526,102 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         """validate='strict' should raise ArrowConversionError on mixed-type columns."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
-        plotter._validate_mode = 'strict'
         df = pd.DataFrame({
             'src': [1, 2, 3],
             'dst': [2, 3, 1],
             'amount': [b'strict_bytes', 1.5, 'strict_string']  # Mixed types
         })
         with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
-            plotter._table_to_arrow(df, memoize=False)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
 
     def test_validate_strict_fast_fails_on_mixed_types(self):
         """validate='strict-fast' should also fail on type issues."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
-        plotter._validate_mode = 'strict-fast'
         df = pd.DataFrame({
             'src': [1, 2, 3],
             'dst': [2, 3, 1],
             'amount': [b'strictfast_bytes', 1.5, 'strictfast_string']  # Mixed types
         })
         with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
-            plotter._table_to_arrow(df, memoize=False)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict-fast')
 
     def test_validate_autofix_coerces_mixed_types(self):
         """validate='autofix' should coerce and warn (default behavior)."""
         plotter = graphistry.bind()
-        plotter._validate_mode = 'autofix'
         df = pd.DataFrame({
             'src': [5, 6, 7],
             'dst': [6, 7, 5],
             'amount': [b'autofix_bytes', 5.5, 'autofix_str']
         })
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
-            arr = plotter._table_to_arrow(df, memoize=False)
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
         assert isinstance(arr, pa.Table)
 
     def test_validate_default_is_autofix(self):
         """Default validate mode should be autofix (coerce and warn)."""
         plotter = graphistry.bind()
-        # No _validate_mode set, should default to autofix
         # Use unique values to avoid memoization cache hits from other tests
         df = pd.DataFrame({
             'src': [100, 200, 300],
             'dst': [200, 300, 100],
             'amount': [b'unique_bytes', 99.99, 'unique_string']
         })
+        # Default validate_mode='autofix' should coerce and warn
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
-            arr = plotter._table_to_arrow(df)
+            arr = plotter._table_to_arrow(df, memoize=False)  # default validate_mode='autofix'
         assert isinstance(arr, pa.Table)
 
     def test_validate_true_maps_to_strict(self):
-        """validate=True should behave like 'strict'."""
+        """validate=True should behave like 'strict' (for backward compat)."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
-        # Simulate what plot() would do with validate=True
-        plotter._validate_mode = 'strict'  # True maps to strict
         df = pd.DataFrame({
             'src': [10, 20, 30],
             'dst': [20, 30, 10],
             'amount': [b'test_true_bytes', 2.5, 'test_true_str']
         })
+        # True maps to 'strict' - test by using 'strict' directly
         with pytest.raises(ArrowConversionError):
-            plotter._table_to_arrow(df, memoize=False)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
 
     def test_validate_false_maps_to_autofix_silent(self):
-        """validate=False should behave like autofix without warnings."""
+        """validate=False should behave like autofix without warnings (at plot level)."""
         plotter = graphistry.bind()
-        # Simulate what plot() would do with validate=False
-        plotter._validate_mode = 'autofix'
         df = pd.DataFrame({
             'src': [11, 21, 31],
             'dst': [21, 31, 11],
             'amount': [b'test_false_bytes', 3.5, 'test_false_str']
         })
-        # With warn=False, warnings should be suppressed
-        # (This tests the mode, warn suppression is handled at plot() level)
+        # False maps to 'autofix' - test by using 'autofix' directly
+        # (warn suppression is handled at plot() level via warnings.catch_warnings)
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
-            arr = plotter._table_to_arrow(df, memoize=False)
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
         assert isinstance(arr, pa.Table)
 
     def test_validate_strict_allows_clean_data(self):
         """validate='strict' should allow clean data through without error."""
         plotter = graphistry.bind()
-        plotter._validate_mode = 'strict'
         df = pd.DataFrame({
             'src': [1000, 2000, 3000],
             'dst': [2000, 3000, 1000],
             'weight': [1.1, 2.2, 3.3]  # Clean data
         })
         # Should not raise
-        arr = plotter._table_to_arrow(df, memoize=False)
+        arr = plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
         assert isinstance(arr, pa.Table)
 
     def test_validate_strict_error_message_is_helpful(self):
         """ArrowConversionError should include helpful information."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
-        plotter._validate_mode = 'strict'
         df = pd.DataFrame({
             'src': [12, 22, 32],
             'dst': [22, 32, 12],
             'amount': [b'helpful_bytes', 4.5, 'helpful_str']
         })
         with pytest.raises(ArrowConversionError) as exc_info:
-            plotter._table_to_arrow(df, memoize=False)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
         error_msg = str(exc_info.value)
         # Should mention autofix as alternative
         assert 'autofix' in error_msg.lower() or 'auto' in error_msg.lower()
