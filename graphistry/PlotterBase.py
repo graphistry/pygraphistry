@@ -2677,6 +2677,19 @@ class PlotterBase(Plottable):
             try:
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                # Check validate mode - strict modes should fail, autofix should coerce
+                validate_mode = getattr(self, '_validate_mode', 'autofix')
+                if validate_mode in ('strict', 'strict-fast'):
+                    # Identify problematic columns for error message
+                    bad_cols = []
+                    for col in table.columns:
+                        if table[col].dtype == object:
+                            try:
+                                pa.array(table[col], from_pandas=True)
+                            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                                bad_cols.append(col)
+                    from graphistry.exceptions import ArrowConversionError
+                    raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
                 logger.debug('Arrow conversion failed, attempting auto-coercion: %s', e)
                 table_fixed = self._coerce_mixed_type_columns(table)
@@ -2711,6 +2724,19 @@ class PlotterBase(Plottable):
             try:
                 out = table.to_arrow()
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                # Check validate mode - strict modes should fail, autofix should coerce
+                validate_mode = getattr(self, '_validate_mode', 'autofix')
+                if validate_mode in ('strict', 'strict-fast'):
+                    # Identify problematic columns for error message
+                    bad_cols = []
+                    for col in table.columns:
+                        if table[col].dtype == object:
+                            try:
+                                table[[col]].to_arrow()
+                            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                                bad_cols.append(col)
+                    from graphistry.exceptions import ArrowConversionError
+                    raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
                 logger.debug('cuDF Arrow conversion failed, attempting auto-coercion: %s', e)
                 table_fixed = self._coerce_mixed_type_columns_cudf(table)
