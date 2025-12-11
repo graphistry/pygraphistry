@@ -779,6 +779,115 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         result = validate_encodings(node_enc, edge_enc, node_attributes=['n', 'type'])
         assert result is not None
 
+    # --- Encoding validation warn mode tests (Phase 8.D) ---
+
+    def test_encoding_validation_warn_mode_emits_warning(self):
+        """Scenario 11: autofix + warn=True + invalid encoding should warn, not raise."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+
+        # Create a minimal uploader with nodes that have columns - this enables attribute validation
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'real_column': ['a', 'b']})  # Only has 'n' and 'real_column'
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+
+        invalid_json = {
+            "node_encodings": {
+                "bindings": {"node": "n"},
+                "complex": {
+                    "default": {
+                        "pointColorEncoding": {
+                            "graphType": "point",
+                            "encodingType": "color",
+                            "attribute": "nonexistent",  # Invalid - not in node columns!
+                            "variation": "categorical",
+                            "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}
+                        }
+                    }
+                }
+            },
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+
+        # With strict=False, warn=True: should emit warning, not raise
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            # This will fail at the network call, but encoding validation should warn first
+            try:
+                uploader.create_dataset(invalid_json, validate=True, strict=False, warn=True)
+            except Exception:
+                pass  # Expected to fail at network call
+            # Check for encoding validation warning
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) > 0, f"Expected encoding warning, got: {[str(x.message) for x in w]}"
+
+    def test_encoding_validation_strict_mode_raises(self):
+        """Scenario 2/6: strict mode + invalid encoding should raise."""
+        from graphistry.arrow_uploader import ArrowUploader
+
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'real_column': ['a', 'b']})  # Only has 'n' and 'real_column'
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+
+        invalid_json = {
+            "node_encodings": {
+                "bindings": {"node": "n"},
+                "complex": {
+                    "default": {
+                        "pointColorEncoding": {
+                            "graphType": "point",
+                            "encodingType": "color",
+                            "attribute": "nonexistent",  # Invalid - not in node columns!
+                            "variation": "categorical",
+                            "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}
+                        }
+                    }
+                }
+            },
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+
+        # With strict=True: should raise ValueError
+        with pytest.raises(ValueError):
+            uploader.create_dataset(invalid_json, validate=True, strict=True, warn=True)
+
+    def test_encoding_validation_silent_mode(self):
+        """Scenario 15/17: warn=False should be silent on invalid encoding."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'real_column': ['a', 'b']})  # Only has 'n' and 'real_column'
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+
+        invalid_json = {
+            "node_encodings": {
+                "bindings": {"node": "n"},
+                "complex": {
+                    "default": {
+                        "pointColorEncoding": {
+                            "graphType": "point",
+                            "encodingType": "color",
+                            "attribute": "nonexistent",  # Invalid - not in node columns!
+                            "variation": "categorical",
+                            "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}
+                        }
+                    }
+                }
+            },
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+
+        # With warn=False: should NOT emit warning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                uploader.create_dataset(invalid_json, validate=True, strict=False, warn=False)
+            except Exception:
+                pass  # Expected to fail at network call
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) == 0, f"Expected no encoding warnings with warn=False, got: {encoding_warnings}"
+
     # --- Combined scenario tests (Phase 8.C) ---
 
     def test_strict_mixed_data_fails_before_encoding_check(self):
