@@ -2593,6 +2593,40 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
+    def _find_bad_arrow_columns_pandas(self, df: pd.DataFrame) -> List[str]:
+        """
+        Find columns in a pandas DataFrame that fail Arrow conversion.
+
+        :param df: DataFrame to check
+        :returns: List of column names that fail Arrow conversion
+        """
+        bad_cols: List[str] = []
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    pa.array(df[col], from_pandas=True)
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    bad_cols.append(str(col))
+        return bad_cols
+
+    def _find_bad_arrow_columns_cudf(self, gdf: pd.DataFrame) -> List[str]:
+        """
+        Find columns in a cuDF DataFrame that fail Arrow conversion.
+
+        Note: typed as pd.DataFrame for mypy since cudf.DataFrame is not available at type-check time.
+
+        :param gdf: cuDF DataFrame to check
+        :returns: List of column names that fail Arrow conversion
+        """
+        bad_cols: List[str] = []
+        for col in gdf.columns:
+            if gdf[col].dtype == object:
+                try:
+                    gdf[[col]].to_arrow()
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    bad_cols.append(str(col))
+        return bad_cols
+
     def _coerce_mixed_type_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Coerce columns with mixed types to string to allow Arrow conversion.
@@ -2706,14 +2740,8 @@ class PlotterBase(Plottable):
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
                 # Check validate mode - strict modes should fail, autofix should coerce
                 if validate_mode in ('strict', 'strict-fast'):
-                    # Identify problematic columns for error message
-                    bad_cols = []
-                    for col in table.columns:
-                        if table[col].dtype == object:
-                            try:
-                                pa.array(table[col], from_pandas=True)
-                            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                                bad_cols.append(col)
+                    # Identify problematic columns for error message (use helper to avoid type narrowing)
+                    bad_cols = self._find_bad_arrow_columns_pandas(table)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
@@ -2752,14 +2780,8 @@ class PlotterBase(Plottable):
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
                 # Check validate mode - strict modes should fail, autofix should coerce
                 if validate_mode in ('strict', 'strict-fast'):
-                    # Identify problematic columns for error message
-                    bad_cols = []
-                    for col in table.columns:
-                        if table[col].dtype == object:
-                            try:
-                                table[[col]].to_arrow()
-                            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                                bad_cols.append(col)
+                    # Identify problematic columns for error message (use helper to avoid type narrowing)
+                    bad_cols = self._find_bad_arrow_columns_cudf(table)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
