@@ -2794,6 +2794,8 @@ class PlotterBase(Plottable):
             return out
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
+            # Create typed binding for cudf operations
+            cudf_table: CudfDataFrameLike = table
 
             hashed = None
             if memoize:
@@ -2813,17 +2815,17 @@ class PlotterBase(Plottable):
                     1
 
             try:
-                out = table.to_arrow()
+                out = cudf_table.to_arrow()
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
                 # Check validate mode - strict modes should fail, autofix should coerce
                 if validate_mode in ('strict', 'strict-fast'):
                     # Identify problematic columns for error message (use helper to avoid type narrowing)
-                    bad_cols = self._find_bad_arrow_columns_cudf(table)
+                    bad_cols = self._find_bad_arrow_columns_cudf(cudf_table)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 # Auto-coerce mixed-type columns to string and retry
                 logger.debug('cuDF Arrow conversion failed, attempting auto-coercion: %s', e)
-                table_fixed = self._coerce_mixed_type_columns_cudf(table)
+                table_fixed = self._coerce_mixed_type_columns_cudf(cudf_table)
                 out = table_fixed.to_arrow()
 
             if memoize:
