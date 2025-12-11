@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
