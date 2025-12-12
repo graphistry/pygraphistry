@@ -535,7 +535,7 @@ class TestPlotterArrowConversions(NoAuthTestCase):
             "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
         }
         with pytest.raises(ValueError):
-            uploader.create_dataset(invalid_json, validate=True, strict=True, warn=True)
+            uploader.create_dataset(invalid_json, validate='strict', warn=True)
 
     def test_encoding_validation_warn_mode(self):
         """Non-strict encoding validation warns instead of raising."""
@@ -554,7 +554,7 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             try:
-                uploader.create_dataset(invalid_json, validate=True, strict=False, warn=True)
+                uploader.create_dataset(invalid_json, validate='autofix', warn=True)
             except Exception:
                 pass
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
@@ -577,7 +577,7 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             try:
-                uploader.create_dataset(invalid_json, validate=True, strict=False, warn=False)
+                uploader.create_dataset(invalid_json, validate='autofix', warn=False)
             except Exception:
                 pass
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]

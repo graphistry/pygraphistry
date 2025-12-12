@@ -478,16 +478,21 @@ class ArrowUploader:
         log_requests_error(out)
         return 200 <= out.status_code < 300
 
-    def create_dataset(self, json, validate: bool = True, strict: bool = False, warn: bool = True):  # noqa: F811
+    def create_dataset(self, json, validate: str = 'autofix', warn: bool = True):  # noqa: F811
         """Create dataset with optional encoding validation.
 
         Args:
             json: Dataset JSON payload
-            validate: Whether to run encoding validation (default True)
-            strict: If True, raise on validation errors. If False, warn or silent based on `warn`.
-            warn: If True and not strict, emit warnings on validation errors. If False, silent.
+            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise), 'none'/False (skip)
+            warn: If True and validate='autofix', emit warnings on validation errors.
         """
-        if validate:
+        # Normalize validate parameter
+        if validate is False or validate == 'none':
+            validate = 'none'
+        elif validate is True:
+            validate = 'strict'
+
+        if validate != 'none':
             try:
                 validate_encodings(
                     json.get('node_encodings', {}),
@@ -495,7 +500,7 @@ class ArrowUploader:
                     self.nodes.column_names if self.nodes is not None else None,
                     self.edges.column_names if self.edges is not None else None)
             except ValueError as e:
-                if strict:
+                if validate in ('strict', 'strict-fast'):
                     # Strict mode: re-raise the exception
                     raise
                 elif warn:
@@ -552,8 +557,7 @@ class ArrowUploader:
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: bool = True,
-        strict: bool = False,
+        validate: str = 'autofix',
         warn: bool = True,
         erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
@@ -564,9 +568,8 @@ class ArrowUploader:
         Args:
             as_files: Upload as separate files (default True)
             memoize: Memoize conversions (default True)
-            validate: Run encoding validation (default True)
-            strict: If True, raise on validation errors. If False, behavior depends on `warn`.
-            warn: If True and not strict, emit warnings on validation errors. If False, silent.
+            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise), 'none'/False (skip)
+            warn: If True and validate='autofix', emit warnings on validation errors.
             erase_files_on_fail: Clean up files on failure (default True)
         """
         logger.debug("@ArrowUploader.post, self.org_name : %s", self.org_name)
@@ -595,7 +598,7 @@ class ArrowUploader:
                 "description": self.description,
                 "edge_files": [ e_file_id ],
                 **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
-            }, validate=validate, strict=strict, warn=warn)
+            }, validate=validate, warn=warn)
 
         else:
 
@@ -605,7 +608,7 @@ class ArrowUploader:
                 "metadata": self.metadata,
                 "name": self.name,
                 "description": self.description
-            }, validate=validate, strict=strict, warn=warn)
+            }, validate=validate, warn=warn)
 
             self.post_edges_arrow()
 
