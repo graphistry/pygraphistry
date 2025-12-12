@@ -327,10 +327,16 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
-
-        self.build_index()
-        search = self.search_index
-        del self.search_index  # can't pickle Annoy
+        try:
+            self.build_index()
+            search = self.search_index
+            del self.search_index  # can't pickle Annoy
+        except Exception as e:
+            logger.exception(e)
+            logger.warn(
+                "Could not build index, saving without it. Run g.build_index() to build it later"
+            )
+            search = None
         dump(self, savepath)
         self.search_index = search  # add it back
         logger.info(f"Saved: {savepath}")
@@ -340,5 +346,9 @@ class SearchToGraphMixin(MIXIN_BASE):
         from joblib import load  # type: ignore   # need to make this onnx or similar
 
         cls = load(savepath)
-        cls.build_index()
+        try:
+            cls.build_index()
+        except Exception as e:
+            logger.exception(e)
+            logger.warn("Could not build index, run g.build_index() to build it later")
         return cls
