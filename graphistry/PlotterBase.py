@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
-from typing_extensions import Literal, Protocol
+from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
@@ -35,43 +35,6 @@ from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
-
-
-class CudfSeriesLike(Protocol):
-    """Protocol for cudf Series-like objects with dtype attribute."""
-    @property
-    def dtype(self) -> np.dtype:
-        ...
-
-    def astype(self, dtype: type) -> 'CudfSeriesLike':
-        ...
-
-
-class CudfDataFrameLike(Protocol):
-    """Protocol for cudf DataFrame-like objects that support Arrow conversion."""
-    @property
-    def columns(self) -> pd.Index:
-        ...
-
-    @overload
-    def __getitem__(self, key: str) -> CudfSeriesLike:
-        ...
-
-    @overload
-    def __getitem__(self, key: List[str]) -> 'CudfDataFrameLike':
-        ...
-
-    def __getitem__(self, key: Union[str, List[str]]) -> Union[CudfSeriesLike, 'CudfDataFrameLike']:
-        ...
-
-    def __setitem__(self, key: str, value: CudfSeriesLike) -> None:
-        ...
-
-    def copy(self) -> 'CudfDataFrameLike':
-        ...
-
-    def to_arrow(self) -> pa.Table:
-        ...
 
 
 # #####################################
@@ -2630,106 +2593,40 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _find_bad_arrow_columns_pandas(self, df: pd.DataFrame) -> List[str]:
-        """
-        Find columns in a pandas DataFrame that fail Arrow conversion.
-
-        :param df: DataFrame to check
-        :returns: List of column names that fail Arrow conversion
-        """
+    def _find_bad_arrow_columns(self, df: Any, is_cudf: bool = False) -> List[str]:
+        """Find columns that fail Arrow conversion due to mixed types."""
         bad_cols: List[str] = []
         for col in df.columns:
-            if df[col].dtype == object:
-                try:
-                    pa.array(df[col], from_pandas=True)
-                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    bad_cols.append(str(col))
-        return bad_cols
-
-    def _find_bad_arrow_columns_cudf(self, gdf: CudfDataFrameLike) -> List[str]:
-        """
-        Find columns in a cuDF DataFrame that fail Arrow conversion.
-
-        :param gdf: cuDF DataFrame to check
-        :returns: List of column names that fail Arrow conversion
-        """
-        bad_cols: List[str] = []
-        for col in gdf.columns:
             col_str = str(col)
-            if gdf[col_str].dtype == object:
+            if df[col_str].dtype == object:
                 try:
-                    gdf[[col_str]].to_arrow()
+                    if is_cudf:
+                        df[[col_str]].to_arrow()  # type: ignore[union-attr]
+                    else:
+                        pa.array(df[col_str], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
                     bad_cols.append(col_str)
         return bad_cols
 
-    def _coerce_mixed_type_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Coerce columns with mixed types to string to allow Arrow conversion.
-
-        When a DataFrame contains columns with mixed types (e.g., bytes and floats,
-        or lists and scalars), PyArrow's from_pandas() will fail with ArrowTypeError
-        or ArrowInvalid. This method identifies such columns and converts them to
-        strings, emitting a warning about which columns were coerced.
-
-        :param df: DataFrame that failed Arrow conversion
-        :returns: DataFrame with problematic columns coerced to string
-        """
+    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False) -> Any:
+        """Coerce mixed-type columns to string for Arrow conversion. Emits warning."""
         df_fixed = df.copy()
-        coerced_cols = []
-
-        for col in df.columns:
-            if df[col].dtype == object:
-                # Try converting this specific column to Arrow
-                try:
-                    pa.array(df[col], from_pandas=True)
-                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    df_fixed[col] = df[col].astype(str)
-                    coerced_cols.append(col)
-
-        if coerced_cols:
-            warn(
-                f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
-                f'For better control, convert these columns explicitly before calling plot().'
-            )
-
-        return df_fixed
-
-    def _coerce_mixed_type_columns_cudf(self, gdf: CudfDataFrameLike) -> CudfDataFrameLike:
-        """
-        Coerce cuDF DataFrame columns with mixed types to string to allow Arrow conversion.
-
-        Similar to _coerce_mixed_type_columns but for cuDF DataFrames.
-        cuDF can fail with ArrowInvalid on mixed boolean/numeric or other edge cases.
-
-        :param gdf: cuDF DataFrame that failed Arrow conversion
-        :returns: cuDF DataFrame with problematic columns coerced to string
-        """
-        cudf = maybe_cudf()
-        if cudf is None:
-            return gdf
-
-        gdf_fixed = gdf.copy()
         coerced_cols: List[str] = []
-
-        for col in gdf.columns:
+        for col in df.columns:
             col_str = str(col)
-            # cuDF uses 'object' dtype for mixed types similar to pandas
-            if gdf[col_str].dtype == object:
+            if df[col_str].dtype == object:
                 try:
-                    # Test if this column can convert to Arrow
-                    gdf[[col_str]].to_arrow()
+                    if is_cudf:
+                        df[[col_str]].to_arrow()  # type: ignore[union-attr]
+                    else:
+                        pa.array(df[col_str], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    gdf_fixed[col_str] = gdf[col_str].astype(str)
+                    df_fixed[col_str] = df[col_str].astype(str)
                     coerced_cols.append(col_str)
-
         if coerced_cols:
-            warn(
-                f'Coerced mixed-type columns to string for Arrow conversion (cuDF): {coerced_cols}. '
-                f'For better control, convert these columns explicitly before calling plot().'
-            )
-
-        return gdf_fixed
+            warn(f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
+                 f'Convert explicitly before plot() for better control.')
+        return df_fixed
 
     def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: str = 'autofix') -> Optional[pa.Table]:  # noqa: C901
         """
@@ -2775,15 +2672,12 @@ class PlotterBase(Plottable):
             try:
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
-                # Check validate mode - strict modes should fail, autofix should coerce
                 if validate_mode in ('strict', 'strict-fast'):
-                    # Identify problematic columns for error message (use helper to avoid type narrowing)
-                    bad_cols = self._find_bad_arrow_columns_pandas(table)
+                    bad_cols = self._find_bad_arrow_columns(table, is_cudf=False)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
-                # Auto-coerce mixed-type columns to string and retry
-                logger.debug('Arrow conversion failed, attempting auto-coercion: %s', e)
-                table_fixed = self._coerce_mixed_type_columns(table)
+                logger.debug('Arrow conversion failed, auto-coercing: %s', e)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False)
                 out = pa.Table.from_pandas(table_fixed, preserve_index=False).replace_schema_metadata({})
 
             if memoize and (hashed is not None):
@@ -2794,12 +2688,8 @@ class PlotterBase(Plottable):
             return out
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
-            # Create typed binding for cudf operations
-            cudf_table: CudfDataFrameLike = table
-
             hashed = None
             if memoize:
-                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = (
                     hashlib.sha256(table.hash_values().to_numpy().tobytes()).hexdigest()
                     + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
@@ -2815,18 +2705,15 @@ class PlotterBase(Plottable):
                     1
 
             try:
-                out = cudf_table.to_arrow()
+                out = table.to_arrow()
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
-                # Check validate mode - strict modes should fail, autofix should coerce
                 if validate_mode in ('strict', 'strict-fast'):
-                    # Identify problematic columns for error message (use helper to avoid type narrowing)
-                    bad_cols = self._find_bad_arrow_columns_cudf(cudf_table)
+                    bad_cols = self._find_bad_arrow_columns(table, is_cudf=True)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
-                # Auto-coerce mixed-type columns to string and retry
-                logger.debug('cuDF Arrow conversion failed, attempting auto-coercion: %s', e)
-                cudf_fixed: CudfDataFrameLike = self._coerce_mixed_type_columns_cudf(cudf_table)
-                out = cudf_fixed.to_arrow()
+                logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True)
+                out = table_fixed.to_arrow()  # type: ignore[union-attr]
 
             if memoize:
                 w = WeakValueWrapper(out)
