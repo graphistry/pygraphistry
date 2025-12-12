@@ -2443,12 +2443,12 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode='autofix'):
-        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode)
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode='autofix', warn=True):
+        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode, warn)
         assert isinstance(out, ArrowUploader)
         return out
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode='autofix') -> Union[ArrowUploader, Dict[str, Any]]:
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode='autofix', warn=True) -> Union[ArrowUploader, Dict[str, Any]]:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2463,13 +2463,13 @@ class PlotterBase(Plottable):
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
                 or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ):
-            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode)
+            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode, warn)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 g2 = g.from_igraph(graph)
-                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode, warn)
         except ImportError:
             pass
 
@@ -2480,7 +2480,7 @@ class PlotterBase(Plottable):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = g.networkx2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode)
+                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode, warn)
         except ImportError:
             pass
 
@@ -2608,8 +2608,8 @@ class PlotterBase(Plottable):
                     bad_cols.append(col_str)
         return bad_cols
 
-    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False) -> Any:
-        """Coerce mixed-type columns to string for Arrow conversion. Emits warning."""
+    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False, emit_warning: bool = True) -> Any:
+        """Coerce mixed-type columns to string for Arrow conversion."""
         df_fixed = df.copy()
         coerced_cols: List[str] = []
         for col in df.columns:
@@ -2623,12 +2623,12 @@ class PlotterBase(Plottable):
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
                     df_fixed[col_str] = df[col_str].astype(str)
                     coerced_cols.append(col_str)
-        if coerced_cols:
+        if coerced_cols and emit_warning:
             warn(f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
                  f'Convert explicitly before plot() for better control.')
         return df_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: str = 'autofix') -> Optional[pa.Table]:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: str = 'autofix', warn: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
 
@@ -2636,6 +2636,7 @@ class PlotterBase(Plottable):
 
             :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
                                   'strict' or 'strict-fast' raises ArrowConversionError on mixed types
+            :param warn: Whether to emit warnings when auto-coercing (only applies to autofix mode)
         """
 
         logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
@@ -2677,7 +2678,7 @@ class PlotterBase(Plottable):
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('Arrow conversion failed, auto-coercing: %s', e)
-                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False, emit_warning=warn)
                 out = pa.Table.from_pandas(table_fixed, preserve_index=False).replace_schema_metadata({})
 
             if memoize and (hashed is not None):
@@ -2712,7 +2713,7 @@ class PlotterBase(Plottable):
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
-                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True, emit_warning=warn)
                 out = table_fixed.to_arrow()  # type: ignore[union-attr]
 
             if memoize:
@@ -2727,19 +2728,19 @@ class PlotterBase(Plottable):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize, validate_mode)
+            return self._table_to_arrow(gdf, memoize, validate_mode, warn)
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize, validate_mode)
+            return self._table_to_arrow(df, memoize, validate_mode, warn)
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize, validate_mode)
+            return self._table_to_arrow(df, memoize, validate_mode, warn)
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
@@ -2782,7 +2783,7 @@ class PlotterBase(Plottable):
             table = self._edges
         return self._table_to_arrow(table, memoize=False, validate_mode='autofix')
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: str = 'autofix') -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: str = 'autofix', warn: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 
         logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
             mode, memoize, validate_mode, name, description, type(edges), type(nodes))
@@ -2808,8 +2809,8 @@ class PlotterBase(Plottable):
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
         elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges, memoize, validate_mode)
-            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode)
+            edges_arr = self._table_to_arrow(edges, memoize, validate_mode, warn)
+            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode, warn)
             return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
             #token=None, dataset_id=None, url_params = None)
         else:
