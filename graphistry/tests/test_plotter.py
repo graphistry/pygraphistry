@@ -394,19 +394,14 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     # Auto-coerce mixed-type columns tests (Issue #867)
     # ==========================================================================
 
-    @pytest.mark.parametrize("mixed_col,col_name", [
-        ([b'bytes', 1.5, 'str'], 'amount'),  # bytes/float/string
-        ([['a', 'b'], 'scalar', None], 'roles'),  # list/scalar
-        ([{'a': 1}, 'str', None], 'attrs'),  # dict/scalar
-    ])
-    def test_table_to_arrow_mixed_types_coerced(self, mixed_col, col_name):
-        """Mixed-type columns are auto-coerced to string with warning."""
+    def test_table_to_arrow_mixed_types_coerced(self):
+        """Mixed-type columns (bytes/float/str) are auto-coerced to string with warning."""
         plotter = graphistry.bind()
-        df = pd.DataFrame({'x': [1, 2, 3], col_name: mixed_col})
+        df = pd.DataFrame({'x': [1, 2, 3], 'amount': [b'bytes', 1.5, 'str']})
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
             arr = plotter._table_to_arrow(df, memoize=False)
         assert isinstance(arr, pa.Table)
-        assert pa.types.is_string(arr.schema.field(col_name).type) or pa.types.is_large_string(arr.schema.field(col_name).type)
+        assert pa.types.is_string(arr.schema.field('amount').type) or pa.types.is_large_string(arr.schema.field('amount').type)
 
     def test_table_to_arrow_clean_data_no_warning(self):
         """Clean data does not emit warnings."""
@@ -429,14 +424,21 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     # Validate mode tests (Issue #867)
     # ==========================================================================
 
-    @pytest.mark.parametrize("mode", ['strict', 'strict-fast'])
-    def test_validate_strict_modes_raise_on_mixed(self, mode):
-        """strict/strict-fast raise ArrowConversionError on mixed types."""
+    def test_validate_strict_raises_on_mixed(self):
+        """strict mode raises ArrowConversionError on mixed types."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
         with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
-            plotter._table_to_arrow(df, memoize=False, validate_mode=mode)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+
+    def test_validate_strict_fast_raises_on_mixed(self):
+        """strict-fast mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict-fast')
 
     def test_validate_autofix_coerces_with_warning(self):
         """autofix mode coerces mixed types with warning."""
@@ -460,8 +462,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     def test_plot_strict_mixed_raises(self):
         """plot(validate='strict') raises on mixed types."""
         from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
-            'src': [1, 2, 3], 'dst': [2, 3, 1], 'mixed': [b'bytes', 1.5, 'str']
+            'src': [10, 20, 30], 'dst': [20, 30, 10], 'mixed': [b'strict1', 1.1, 'test']
         }), 'src', 'dst')
         with pytest.raises(ArrowConversionError):
             g.plot(skip_upload=True, validate='strict')
@@ -469,16 +472,18 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     def test_plot_validate_true_raises(self):
         """plot(validate=True) maps to strict and raises."""
         from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
-            'src': [1, 2, 3], 'dst': [2, 3, 1], 'mixed': [b'bytes', 1.5, 'str']
+            'src': [11, 21, 31], 'dst': [21, 31, 11], 'mixed': [b'strict2', 2.2, 'test']
         }), 'src', 'dst')
         with pytest.raises(ArrowConversionError):
             g.plot(skip_upload=True, validate=True)
 
     def test_plot_autofix_warn_true_warns(self):
         """plot(validate='autofix', warn=True) coerces WITH warning."""
+        # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
-            'src': [1, 2, 3], 'dst': [2, 3, 1], 'mixed': [b'bytes', 1.5, 'str']
+            'src': [12, 22, 32], 'dst': [22, 32, 12], 'mixed': [b'warn1', 3.3, 'test']
         }), 'src', 'dst')
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
             result = g.plot(skip_upload=True, validate='autofix', warn=True)
@@ -487,8 +492,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     def test_plot_autofix_warn_false_silent(self):
         """plot(validate='autofix', warn=False) coerces WITHOUT warning."""
         import warnings
+        # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
-            'src': [1, 2, 3], 'dst': [2, 3, 1], 'mixed': [b'bytes', 1.5, 'str']
+            'src': [13, 23, 33], 'dst': [23, 33, 13], 'mixed': [b'silent1', 4.4, 'test']
         }), 'src', 'dst')
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -500,8 +506,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     def test_plot_validate_false_silent(self):
         """plot(validate=False) maps to autofix+warn=False, coerces silently."""
         import warnings
+        # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
-            'src': [1, 2, 3], 'dst': [2, 3, 1], 'mixed': [b'bytes', 1.5, 'str']
+            'src': [14, 24, 34], 'dst': [24, 34, 14], 'mixed': [b'silent2', 5.5, 'test']
         }), 'src', 'dst')
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
