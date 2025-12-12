@@ -35,6 +35,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     - Personal keys (recommended for scripts): `graphistry.register(api=3, personal_key_id="...", personal_key_secret="...")`
     - SSO: `graphistry.register(api=3, org_name="...", idp_name="...")`
     - See [authentication docs](https://pygraphistry.readthedocs.io/en/latest/server/register.html) for full options
+
 ## [0.46.1 - 2025-12-10]
 
 ### Added
