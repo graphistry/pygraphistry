@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.46.2 - 2025-12-15]
+
 ### Breaking 🔥
 - **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of API v3.
   * Removed `_etl1()`, `_etl_url()`, `_check_url()` methods from `pygraphistry.py`
