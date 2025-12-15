@@ -526,6 +526,8 @@ class KeplerConfig:
     :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
     :param tile_style: Base map tile style configuration
     :type tile_style: Optional[Dict[str, Any]]
+    :param auto_graph_renderer_switching: Enable automatic graph renderer switching, which allows Graphistry to hide Kepler node and edge layers depending on the mode (default: True)
+    :type auto_graph_renderer_switching: Optional[bool]
 
     **Example: Structured parameters**
         ::
@@ -576,7 +578,8 @@ class KeplerConfig:
         *,
         cull_unused_columns: Optional[bool] = None,
         overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
-        tile_style: Optional[Dict[str, Any]] = None
+        tile_style: Optional[Dict[str, Any]] = None,
+        auto_graph_renderer_switching: Optional[bool] = None
     ) -> None:
         ...
 
@@ -762,7 +765,8 @@ class KeplerEncoding:
         *,
         cull_unused_columns: Optional[bool] = None,
         overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
-        tile_style: Optional[Dict[str, Any]] = None
+        tile_style: Optional[Dict[str, Any]] = None,
+        auto_graph_renderer_switching: Optional[bool] = None
     ) -> 'KeplerEncoding':
         ...
 
@@ -777,6 +781,8 @@ class KeplerEncoding:
         :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
         :param tile_style: Base map tile style configuration
         :type tile_style: Optional[Dict[str, Any]]
+        :param auto_graph_renderer_switching: Enable automatic graph renderer switching
+        :type auto_graph_renderer_switching: Optional[bool]
         :return: New KeplerEncoding instance with updated config
         :rtype: KeplerEncoding
         """
