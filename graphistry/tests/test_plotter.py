@@ -102,9 +102,20 @@ class Fake_Response(object):
         pass
 
     def json(self):
-        return {"success": True, "dataset": "fakedatasetname", "viztoken": "faketoken"}
+        # Include all fields needed by different endpoints:
+        # - 'token': for refresh endpoint
+        # - 'data': for create_dataset endpoint (api=3)
+        # - 'dataset', 'viztoken': for legacy compatibility
+        return {
+            "success": True,
+            "token": "faketoken",
+            "dataset": "fakedatasetname",
+            "viztoken": "faketoken",
+            "data": {"dataset_id": "fakedatasetname", "viztoken": "faketoken"}
+        }
 
     status_code = 200
+    text = '{"success": true}'  # Required for error handling in arrow_uploader
 
 def assertFrameEqual(df1, df2, **kwds):
     """Assert that two dataframes are equal, ignoring ordering of columns"""
