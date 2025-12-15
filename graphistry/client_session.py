@@ -12,7 +12,7 @@ from .plugins_types.kusto_types import KustoConfig
 
 
 
-ApiVersion = Literal[1, 3]
+ApiVersion = Literal[3]
 
 ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
@@ -55,9 +55,9 @@ class ClientSession:
 
         env_api_version = get_from_env("GRAPHISTRY_API_VERSION", int)
         if env_api_version is None:
-            env_api_version = 1
-        elif env_api_version not in [1, 3]:
-            raise ValueError("Expected API version to be 1, 3, instead got (likely from API_VERSION): %s" % env_api_version)
+            env_api_version = 3
+        elif env_api_version != 3:
+            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
         self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
@@ -125,15 +125,12 @@ class ClientSession:
 class DatasetInfo(TypedDict):
     name: str
     viztoken: str
-    type: Literal["arrow", "vgraph"]
+    type: Literal["arrow"]
 
 
 
 class AuthManagerProtocol(Protocol):
     session: ClientSession
-
-    def _etl1(self, dataset: Any) -> DatasetInfo:
-        ...
 
     def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         ...

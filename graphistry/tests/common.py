@@ -27,14 +27,18 @@ class NoAuthTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Register once per test class to set up the session
-        graphistry.register(api=1)
+        # Register with a fake token to bypass auth for api=3
+        # verify_token=False prevents actual token verification
+        # store_token_creds_in_memory=True ensures relogin() is called on refresh failure
+        graphistry.register(api=3, token="faketoken", verify_token=False, store_token_creds_in_memory=True)
         # HACK: Set _is_authenticated after register() to bypass auth
         # This is reset by register(), so we set it after
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        # HACK: Mock relogin to prevent "Must call login() first" error
+        # when token refresh fails and tries to relogin (api=3 flow)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: "faketoken"
 
     def setUp(self):
-        # Reset _is_authenticated before each test method
-        # This handles cases where other tests might have called register()
-        # or otherwise reset the authentication state
+        # Reset auth state before each test method
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: "faketoken"

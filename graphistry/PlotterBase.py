@@ -10,7 +10,7 @@ from functools import lru_cache
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
-from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.client_session import ClientSession, AuthManagerProtocol, DatasetInfo
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
@@ -2137,36 +2137,24 @@ class PlotterBase(Plottable):
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
         logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
-        dataset: Union[ArrowUploader, Dict[str, Any], None] = None
-        uploader = None  # Initialize to avoid UnboundLocalError when api_version != 3
-        if self.session.api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
-            if skip_upload:
-                return dataset
-            info = self._pygraphistry._etl1(dataset)
-        elif self.session.api_version == 3:
-            logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
-            self._pygraphistry.refresh()
-            logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+        uploader = None
 
-            uploader = dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
-            assert uploader is not None
-            if skip_upload:
-                return uploader
-            uploader.token = self.session.api_token  # type: ignore[assignment]
-            uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
-            uploader.maybe_post_share_link(self)
-            info = {
-                'name': uploader.dataset_id,
-                'type': 'arrow',
-                'viztoken': str(uuid.uuid4())
-            }
-        else:
-            raise ValueError(
-                f"Unsupported API version: {self.session.api_version}. "
-                f"Supported versions are 1 and 3. "
-                f"Please check your graphistry configuration or contact support."
-            )
+        logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+        self._pygraphistry.refresh()
+        logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+
+        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
+        assert uploader is not None
+        if skip_upload:
+            return uploader
+        uploader.token = self.session.api_token  # type: ignore[assignment]
+        uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
+        uploader.maybe_post_share_link(self)
+        info: DatasetInfo = {
+            'name': uploader.dataset_id,
+            'type': 'arrow',
+            'viztoken': str(uuid.uuid4())
+        }
 
         viz_url = self._pygraphistry._viz_url(info, self._url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
