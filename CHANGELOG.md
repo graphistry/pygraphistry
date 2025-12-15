@@ -8,7 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-## [0.46.2 - 2025-12-15]
+## [0.47.0 - 2025-12-15]
 
 ### Breaking 🔥
 - **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of API v3.
@@ -16,7 +16,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * Removed API v1 dispatch path from `PlotterBase.py`
   * Changed `register(api=...)` parameter type from `Literal[1, 3]` to `Literal[3]`
   * Updated `client_session.py` type from `Literal["arrow", "vgraph"]` to `Literal["arrow"]`
+  * **Server Compatibility**: Graphistry server v2.45.7+ no longer supports api=1/2 uploads
   * **Migration**: Users calling `graphistry.register(api=1)` must switch to `graphistry.register(api=3)` or omit the parameter (defaults to v3)
+  * **Auth Migration**: Users previously using `register(api=1, key="...")` must switch to JWT-based auth:
+    - Username/password: `graphistry.register(api=3, username="...", password="...")`
+    - Personal keys (recommended for scripts): `graphistry.register(api=3, personal_key_id="...", personal_key_secret="...")`
+    - SSO: `graphistry.register(api=3, org_name="...", idp_name="...")`
+    - See [authentication docs](https://pygraphistry.readthedocs.io/en/latest/server/register.html) for full options
 
 ## [0.46.1 - 2025-12-10]
 
