@@ -1961,7 +1961,62 @@ class GraphistryClient(AuthManagerProtocol):
         return cast(Plotter, self._plotter().kusto_graph(graph_name, snap_name))
     kusto_graph.__doc__ = Plotter.kusto_graph.__doc__
 
+    # ---- Sentinel Graph API ----------------------------------------------- #
 
+    def configure_sentinel_graph(
+        self,
+        graph_instance: str,
+        credential: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        use_device_auth: bool = False,
+        api_endpoint: str = "api.securityplatform.microsoft.com",
+        auth_scope: str = "73c2949e-da2d-457a-9607-fcc665198967/.default",
+        timeout: int = 60,
+        max_retries: int = 3,
+        retry_backoff_factor: float = 2.0,
+        verify_ssl: bool = True
+    ) -> "GraphistryClient":
+        self._plotter().configure_sentinel_graph(
+            graph_instance=graph_instance,
+            credential=credential,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            use_device_auth=use_device_auth,
+            api_endpoint=api_endpoint,
+            auth_scope=auth_scope,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_backoff_factor=retry_backoff_factor,
+            verify_ssl=verify_ssl
+        )
+        return self
+    configure_sentinel_graph.__doc__ = Plotter.configure_sentinel_graph.__doc__
+
+    def sentinel_graph_from_credential(
+        self,
+        credential: Any,
+        graph_instance: str,
+        **kwargs
+    ) -> Plotter:
+        return cast(Plotter, self._plotter().sentinel_graph_from_credential(
+            credential, graph_instance, **kwargs
+        ))
+    sentinel_graph_from_credential.__doc__ = Plotter.sentinel_graph_from_credential.__doc__
+
+    def sentinel_graph(
+        self,
+        query: str,
+        language: str = 'GQL'
+    ) -> Plotter:
+        return cast(Plotter, self._plotter().sentinel_graph(query, language))
+    sentinel_graph.__doc__ = Plotter.sentinel_graph.__doc__
+
+    def sentinel_graph_close(self) -> None:
+        self._plotter().sentinel_graph_close()
+    sentinel_graph_close.__doc__ = Plotter.sentinel_graph_close.__doc__
 
     def gsql_endpoint(self, 
         method_name, args={}, bindings=None, db=None, dry_run=False
@@ -2603,6 +2658,10 @@ configure_kusto = PyGraphistry.configure_kusto
 kusto_from_client = PyGraphistry.kusto_from_client
 kql = PyGraphistry.kql
 kusto_graph = PyGraphistry.kusto_graph
+configure_sentinel_graph = PyGraphistry.configure_sentinel_graph
+sentinel_graph_from_credential = PyGraphistry.sentinel_graph_from_credential
+sentinel_graph = PyGraphistry.sentinel_graph
+sentinel_graph_close = PyGraphistry.sentinel_graph_close
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

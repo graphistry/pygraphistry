@@ -226,9 +226,10 @@ class SentinelGraphMixin(Plottable):
             ::
 
                 import graphistry
-                g = graphistry.configure_sentinel_graph(...)
+
+                graphistry.configure_sentinel_graph(...)
                 # ... perform queries ...
-                g.sentinel_graph_close()
+                graphistry.sentinel_graph_close()
         """
         if self.session.sentinel_graph is not None:
             self.session.sentinel_graph._token = None
@@ -254,9 +255,10 @@ class SentinelGraphMixin(Plottable):
             ::
 
                 import graphistry
-                g = graphistry.configure_sentinel_graph('YourGraphInstance')
 
-                viz = g.sentinel_graph('''
+                graphistry.configure_sentinel_graph('YourGraphInstance')
+
+                viz = graphistry.sentinel_graph('''
                     MATCH (n)-[e]->(m)
                     RETURN *
                     LIMIT 100
@@ -267,13 +269,15 @@ class SentinelGraphMixin(Plottable):
         **Example: Multiple queries**
             ::
 
-                g = graphistry.configure_sentinel_graph('YourGraphInstance')
+                import graphistry
+
+                graphistry.configure_sentinel_graph('YourGraphInstance')
 
                 # Query 1
-                result1 = g.sentinel_graph('MATCH (n) RETURN * LIMIT 10')
+                result1 = graphistry.sentinel_graph('MATCH (n) RETURN * LIMIT 10')
 
                 # Query 2
-                result2 = g.sentinel_graph('MATCH (a)-[r]->(b) RETURN * LIMIT 20')
+                result2 = graphistry.sentinel_graph('MATCH (a)-[r]->(b) RETURN * LIMIT 20')
         """
         # Execute query
         response_bytes = self._sentinel_graph_query(query, language)
