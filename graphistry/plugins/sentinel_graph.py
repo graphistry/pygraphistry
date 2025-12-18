@@ -26,13 +26,11 @@ def retry_on_request_exception(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         cfg = self._sentinel_graph_config
-        last_exception = None
 
         for attempt in range(cfg.max_retries):
             try:
                 return func(self, *args, **kwargs)
             except requests.exceptions.RequestException as e:
-                last_exception = e
                 if attempt < cfg.max_retries - 1:
                     wait_time = cfg.retry_backoff_factor ** attempt
                     # Security: Log exception type but not details (might contain URLs with sensitive data)
