@@ -301,3 +301,100 @@ def get_response_with_null_properties() -> Dict[str, Any]:
         })
     ]
     return _wrap_response(cols)
+
+
+def _create_sys_node_json(
+    node_id: str,
+    label: str,
+    sys_label: str,
+    properties: Dict[str, Any]
+) -> str:
+    """Helper to create a JSON-encoded node with sys_* fields (Sentinel Graph API format)."""
+    node = {
+        "id": node_id,
+        "sys_id": node_id,
+        "label": label,
+        "sys_label": sys_label,
+        **properties
+    }
+    return json.dumps(node)
+
+
+def _create_sys_edge_json(
+    source_id: str,
+    target_id: str,
+    edge_type: str,
+    source_label: str,
+    target_label: str,
+    properties: Dict[str, Any]
+) -> str:
+    """Helper to create a JSON-encoded edge with sys_* fields (Sentinel Graph API format)."""
+    edge = {
+        "type": edge_type,
+        "sys_label": edge_type,
+        "sys_sourceId": source_id,
+        "sys_sourceLabel": source_label,
+        "sys_targetId": target_id,
+        "sys_targetLabel": target_label,
+        "sys_edge_id": edge_type,
+        **properties
+    }
+    return json.dumps(edge)
+
+
+def get_sentinel_graph_api_response() -> Dict[str, Any]:
+    """
+    Response using Sentinel Graph API field naming (sys_* prefix).
+    Tests compatibility with actual Microsoft Sentinel Graph API responses.
+
+    Mimics authentication events: User -> AUTH_ATTEMPT_FROM -> IPAddress
+    """
+    cols = [
+        # User node
+        _create_sys_node_json("user1@example.com", "trusted-service-user", "User", {
+            "displayName": "Alice User",
+            "z_processed_at": "2025-01-15T10:00:00.0000000Z",
+            "TimeGenerated": "2025-01-15T09:59:00.0000000Z"
+        }),
+        # Auth edge
+        _create_sys_edge_json(
+            "user1@example.com", "192.168.1.100",
+            "AUTH_ATTEMPT_FROM", "User", "IPAddress",
+            {"failureCount": 5, "successCount": 100}
+        ),
+        # IP node
+        _create_sys_node_json("192.168.1.100", "192.168.1.100", "IPAddress", {
+            "title": "192.168.1.100",
+            "z_processed_at": "2025-01-15T10:00:00.0000000Z"
+        }),
+        # Another user
+        _create_sys_node_json("user2@example.com", "trusted-service-user", "User", {
+            "displayName": "Bob User"
+        }),
+        # Auth edge from second user
+        _create_sys_edge_json(
+            "user2@example.com", "10.0.0.50",
+            "AUTH_ATTEMPT_FROM", "User", "IPAddress",
+            {"failureCount": 0, "successCount": 50}
+        ),
+        # Second IP
+        _create_sys_node_json("10.0.0.50", "10.0.0.50", "IPAddress", {
+            "title": "10.0.0.50"
+        })
+    ]
+
+    # Wrap in response structure - note sys_* format doesn't use Graph.Nodes typically
+    return {
+        "Graph": {
+            "Nodes": [],
+            "Edges": []
+        },
+        "RawData": {
+            "Rows": [
+                {
+                    "Cols": [{"Value": val, "Metadata": {}, "Path": None} for val in cols]
+                }
+            ],
+            "ColumnNames": ["n", "e", "m"]
+        }
+    }

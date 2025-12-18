@@ -436,22 +436,24 @@ class SentinelGraphMixin(Plottable):
                         value_str = col.get('Value', '{}')
                         value = json.loads(value_str) if isinstance(value_str, str) else value_str
 
-                        # Node detection: has _label but not _sourceId/_targetId
-                        if isinstance(value, dict) and '_label' in value:
-                            if '_sourceId' not in value and '_targetId' not in value:
-                                node_data = {
-                                    'id': value.get('_id') or value.get('id'),
-                                    'label': value.get('_label'),
-                                    'displayValue': value.get('displayValue'),
-                                    'name': value.get('name'),
-                                    'description': value.get('description'),
-                                    'aliases': value.get('aliases'),
-                                    'sectors': value.get('sectors'),
-                                }
-                                # Remove None values
-                                node_data = {k: v for k, v in node_data.items() if v is not None}
-                                if node_data.get('id'):  # Must have ID
-                                    nodes_list.append(node_data)
+                        # Node detection: has label/sys_label but not source/target edge fields
+                        # Support both _label (original) and label/sys_label (Sentinel Graph API)
+                        has_label = isinstance(value, dict) and (
+                            '_label' in value or 'label' in value or 'sys_label' in value
+                        )
+                        is_edge = (
+                            '_sourceId' in value or 'sys_sourceId' in value or
+                            '_targetId' in value or 'sys_targetId' in value
+                        ) if isinstance(value, dict) else False
+
+                        if has_label and not is_edge:
+                            # Start with all properties from the value
+                            node_data = {k: v for k, v in value.items() if v is not None}
+                            # Normalize key fields
+                            node_data['id'] = value.get('_id') or value.get('id') or value.get('sys_id')
+                            node_data['label'] = value.get('_label') or value.get('label')
+                            if node_data.get('id'):  # Must have ID
+                                nodes_list.append(node_data)
                     except (json.JSONDecodeError, TypeError, AttributeError) as e:
                         logger.debug(f"Skipping unparseable column value: {e}")
                         continue
@@ -496,18 +498,22 @@ class SentinelGraphMixin(Plottable):
                         value_str = col.get('Value', '{}')
                         value = json.loads(value_str) if isinstance(value_str, str) else value_str
 
-                        # Edge detection: has _sourceId and _targetId
-                        if isinstance(value, dict) and '_sourceId' in value and '_targetId' in value:
-                            edge_data = {
-                                'source': value.get('_sourceId'),
-                                'target': value.get('_targetId'),
-                                'edge': value.get('_label'),
-                                'source_label': value.get('_sourceLabel'),
-                                'target_label': value.get('_targetLabel'),
-                                'count': value.get('count'),
-                            }
-                            # Remove None values
-                            edge_data = {k: v for k, v in edge_data.items() if v is not None}
+                        # Edge detection: has source/target IDs
+                        # Support both _sourceId/_targetId (original) and sys_sourceId/sys_targetId (Sentinel Graph API)
+                        has_source = isinstance(value, dict) and (
+                            '_sourceId' in value or 'sys_sourceId' in value
+                        )
+                        has_target = isinstance(value, dict) and (
+                            '_targetId' in value or 'sys_targetId' in value
+                        )
+
+                        if has_source and has_target:
+                            # Start with all properties from the value
+                            edge_data = {k: v for k, v in value.items() if v is not None}
+                            # Normalize key fields
+                            edge_data['source'] = value.get('_sourceId') or value.get('sys_sourceId')
+                            edge_data['target'] = value.get('_targetId') or value.get('sys_targetId')
+                            edge_data['edge'] = value.get('_label') or value.get('type') or value.get('sys_label')
                             if edge_data.get('source') and edge_data.get('target'):  # Must have source/target
                                 edges_list.append(edge_data)
                     except (json.JSONDecodeError, TypeError, AttributeError) as e:
