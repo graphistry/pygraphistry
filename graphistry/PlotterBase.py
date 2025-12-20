@@ -2597,32 +2597,34 @@ class PlotterBase(Plottable):
         """Find columns that fail Arrow conversion due to mixed types."""
         bad_cols: List[str] = []
         for col in df.columns:
-            col_str = str(col)
-            if df[col_str].dtype == object:
+            if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col_str]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()  # type: ignore[union-attr]
                     else:
-                        pa.array(df[col_str], from_pandas=True)
+                        pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    bad_cols.append(col_str)
+                    bad_cols.append(str(col))
         return bad_cols
 
     def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False, emit_warning: bool = True) -> Any:
         """Coerce mixed-type columns to string for Arrow conversion."""
-        df_fixed = df.copy()
         coerced_cols: List[str] = []
+        coerce_cols: List[Any] = []
         for col in df.columns:
-            col_str = str(col)
-            if df[col_str].dtype == object:
+            if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col_str]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()  # type: ignore[union-attr]
                     else:
-                        pa.array(df[col_str], from_pandas=True)
+                        pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
-                    df_fixed[col_str] = df[col_str].astype(str)
-                    coerced_cols.append(col_str)
+                    coerce_cols.append(col)
+                    coerced_cols.append(str(col))
+        if coerce_cols:
+            df_fixed = df.astype({col: str for col in coerce_cols})
+        else:
+            df_fixed = df
         if coerced_cols and emit_warning:
             warn(f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
                  f'Convert explicitly before plot() for better control.')
