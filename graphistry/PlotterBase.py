@@ -2142,7 +2142,7 @@ class PlotterBase(Plottable):
             validate_mode = 'autofix'
             warn = False  # validate=False means "don't bother me"
         else:
-            validate_mode = cast(ValidationMode, validate)
+            validate_mode = validate
 
         if graph is None:
             if self._edges is None:
