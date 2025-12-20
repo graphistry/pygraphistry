@@ -2135,13 +2135,14 @@ class PlotterBase(Plottable):
         logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
 
         # Normalize validate param for backward compatibility
+        validate_mode: ValidationMode
         if validate is True:
             validate_mode = 'strict'
         elif validate is False:
             validate_mode = 'autofix'
             warn = False  # validate=False means "don't bother me"
         else:
-            validate_mode = validate
+            validate_mode = cast(ValidationMode, validate)
 
         if graph is None:
             if self._edges is None:
