@@ -17,7 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
   Backward compatible: `validate=True` maps to `'strict'`, `validate=False` maps to `'autofix'` with `warn=False`. New `warn` parameter controls warning emission in autofix mode. Encoding validation errors are also controlled by these modes. Works with pandas, cuDF, dask, dask_cudf, and Spark/Databricks DataFrames (#867).
 
-### Fixed
+### Changed
 - **Arrow:** Auto-coerce mixed-type columns to string during Arrow conversion, preventing `ArrowTypeError` and `ArrowInvalid` exceptions when DataFrames contain columns with mixed types (e.g., bytes/float/string or list/scalar). Emits `RuntimeWarning` listing coerced columns. Applies to pandas, cuDF, and distributed DataFrames (dask, Spark) after collection (#867).
 
 ## [0.47.0 - 2025-12-15]
