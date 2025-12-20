@@ -17,7 +17,7 @@ from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error
 from .util import setup_logger
-from graphistry.models.gfql.types.validation import ValidationParamOrNone
+from graphistry.models.types import ValidationParamOrNone
 logger = setup_logger(__name__)
 
 class ArrowUploader:

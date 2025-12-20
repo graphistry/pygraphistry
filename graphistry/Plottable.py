@@ -17,7 +17,7 @@ from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
-from graphistry.models.gfql.types.validation import ValidationParam
+from graphistry.models.types import ValidationParam
 
 if TYPE_CHECKING:
     try:
