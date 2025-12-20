@@ -17,6 +17,7 @@ from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.models.gfql.types.validation import ValidationParam
 
 if TYPE_CHECKING:
     try:
@@ -809,7 +810,7 @@ class Plottable(Protocol):
         self,
         memoize: bool = True,
         erase_files_on_fail: bool = True,
-        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        validate: ValidationParam = 'autofix',
         warn: bool = True
     ) -> 'Plottable':
         ...
@@ -827,7 +828,7 @@ class Plottable(Protocol):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        validate: ValidationParam = 'autofix',
         warn: bool = True
     ) -> Any:
         ...

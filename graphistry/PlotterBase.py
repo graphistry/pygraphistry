@@ -2,6 +2,7 @@ from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
+from graphistry.models.gfql.types.validation import ValidationMode, ValidationParam
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
@@ -2007,7 +2008,7 @@ class PlotterBase(Plottable):
         self,
         memoize: bool = True,
         erase_files_on_fail: bool = True,
-        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        validate: ValidationParam = 'autofix',
         warn: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
@@ -2024,7 +2025,7 @@ class PlotterBase(Plottable):
         :type erase_files_on_fail: bool
 
         :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
-        :type validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool]
+        :type validate: ValidationParam
 
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
         :type warn: bool
@@ -2062,7 +2063,7 @@ class PlotterBase(Plottable):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool] = 'autofix',
+        validate: ValidationParam = 'autofix',
         warn: bool = True
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
@@ -2106,7 +2107,7 @@ class PlotterBase(Plottable):
         :type override_html_style: Optional[str]
 
         :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
-        :type validate: Union[Literal['strict', 'strict-fast', 'autofix'], bool]
+        :type validate: ValidationParam
 
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
         :type warn: bool
@@ -2443,12 +2444,12 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode='autofix', emit_warnings=True):
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True):
         out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode, emit_warnings)
         assert isinstance(out, ArrowUploader)
         return out
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode='autofix', emit_warnings=True) -> Union[ArrowUploader, Dict[str, Any]]:
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> Union[ArrowUploader, Dict[str, Any]]:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2630,7 +2631,7 @@ class PlotterBase(Plottable):
                  f'Convert explicitly before plot() for better control.')
         return df_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: str = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf => arrow
 
@@ -2785,7 +2786,7 @@ class PlotterBase(Plottable):
             table = self._edges
         return self._table_to_arrow(table, memoize=False, validate_mode='autofix')
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: str = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 
         logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
             mode, memoize, validate_mode, name, description, type(edges), type(nodes))

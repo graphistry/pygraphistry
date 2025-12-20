@@ -17,6 +17,7 @@ from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error
 from .util import setup_logger
+from graphistry.models.gfql.types.validation import ValidationParamOrNone
 logger = setup_logger(__name__)
 
 class ArrowUploader:
@@ -478,7 +479,7 @@ class ArrowUploader:
         log_requests_error(out)
         return 200 <= out.status_code < 300
 
-    def create_dataset(self, json, validate: str = 'autofix', warn: bool = True):  # noqa: F811
+    def create_dataset(self, json, validate: ValidationParamOrNone = 'autofix', warn: bool = True):  # noqa: F811
         """Create dataset with optional encoding validation.
 
         Args:
@@ -557,7 +558,7 @@ class ArrowUploader:
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: str = 'autofix',
+        validate: ValidationParamOrNone = 'autofix',
         warn: bool = True,
         erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
