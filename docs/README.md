@@ -13,9 +13,7 @@ It is volume-mounted to emit `docs/_build/html/index.html`
 For generating all types used in production, e.g., epub and pdf as well, mimic the CI runner:
 
 ```bash
- docs $ ./ci.sh
- # or from repo root with an explicit format:
- DOCS_FORMAT=html ./docs/ci.sh
+docs $ ./ci.sh
 ```
 
 ## Architecture
@@ -73,3 +71,4 @@ Notebook validation is enabled by default. To disable: `VALIDATE_NOTEBOOK_EXECUT
 - Rerun `cd docs && ./ci.sh` to see the changes, with the benefit of docker & sphinx incremental builds
 
 - Check your results in `docs/_build/html/index.html` or the equivalent epub and pdf files
+

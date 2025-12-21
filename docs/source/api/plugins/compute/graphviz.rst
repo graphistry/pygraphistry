@@ -21,6 +21,7 @@ For static outputs in notebooks or docs, you can either call :py:meth:`graphistr
 ``plot_static`` engines:
 
 - ``graphviz-svg`` / ``graphviz-png`` (default render to bytes, optional path)
+- ``graphviz`` (render to any Graphviz format, e.g., pdf)
 - ``graphviz-dot`` (DOT text, optional path)
 - ``mermaid-code`` (Mermaid DSL text, optional path)
 
@@ -32,6 +33,9 @@ For static outputs in notebooks or docs, you can either call :py:meth:`graphistr
 .. rubric:: Constants
 
 .. autodata:: graphistry.plugins_types.graphviz_types.EdgeAttr
+   :noindex:
+
+.. autodata:: graphistry.plugins_types.graphviz_types.GraphvizAttrValue
    :noindex:
 
 .. autodata:: graphistry.plugins_types.graphviz_types.Format

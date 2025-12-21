@@ -25,31 +25,35 @@ class SpannerMixin(Plottable):
 
     def configure_spanner(self, instance_id: str, database_id: str, project_id: Optional[str] = None, credentials_file: Optional[str] = None) -> Plottable:
         """Configure Google Cloud Spanner connection settings.
-
+        
         Sets up the connection parameters for accessing a Spanner database instance.
         Either project_id or credentials_file must be provided for authentication.
-
+        
         :param instance_id: The Spanner instance identifier
+        :type instance_id: str
         :param database_id: The Spanner database identifier  
+        :type database_id: str
         :param project_id: Google Cloud project ID (optional if using credentials_file)
+        :type project_id: Optional[str]
         :param credentials_file: Path to service account credentials JSON file
+        :type credentials_file: Optional[str]
         :returns: Self for method chaining
         :rtype: Plottable
         :raises ValueError: If neither credentials_file nor project_id is provided
-
+        
         **Example: Using project ID**
             ::
-
+            
                 import graphistry
                 g = graphistry.configure_spanner(
                     project_id="my-project",
                     instance_id="my-instance", 
                     database_id="my-database"
                 )
-
+                
         **Example: Using service account credentials**
             ::
-
+            
                 import graphistry
                 g = graphistry.configure_spanner(
                     instance_id="my-instance",
@@ -70,6 +74,7 @@ class SpannerMixin(Plottable):
         and want to reuse it with Graphistry.
         
         :param client: Pre-configured Spanner database connection
+        :type client: google.cloud.spanner_dbapi.connection.Connection
         :returns: Self for method chaining
         :rtype: Plottable
         
@@ -138,7 +143,7 @@ class SpannerMixin(Plottable):
         the configured Spanner database. Returns raw query results.
         
         :param query: The GQL query to execute
-        :param query:
+        :type query: str
         :returns: The results of the query execution
         :rtype: SpannerQueryResult
         :raises RuntimeError: If the query execution fails
@@ -169,7 +174,7 @@ class SpannerMixin(Plottable):
         with separate nodes and edges arrays for graph processing.
         
         :param data: Raw JSON data from Spanner query results
-        :param data:
+        :type data: List[Any]
         :returns: Structured graph data with 'nodes' and 'edges' arrays
         :rtype: List[Dict[str, Any]]
         """
@@ -207,13 +212,16 @@ class SpannerMixin(Plottable):
 
     @staticmethod
     def add_type_from_label_to_df(df: pd.DataFrame) -> pd.DataFrame:
-        """Add a Graphistry-friendly ``type`` column based on ``label``.
-
-        If ``type`` already exists, it is renamed to ``type_`` before copying
-        ``label`` into the new ``type`` column. When ``label`` is missing, the
-        added ``type`` column is filled with ``None``.
-
-        Returns the modified dataframe to ease chaining.
+        """Add 'type' column from 'label' for Graphistry type handling.
+        
+        Creates a 'type' column from the 'label' column for proper visualization
+        in Graphistry. If a 'type' column already exists, it is renamed to 'type_'
+        before creating the new 'type' column.
+        
+        :param df: DataFrame containing node or edge data with 'label' column
+        :type df: pd.DataFrame
+        :returns: Modified DataFrame with the updated 'type' column
+        :rtype: pd.DataFrame
         """
 
         # rename 'type' to 'type_' if it exists
@@ -239,7 +247,7 @@ class SpannerMixin(Plottable):
         with columns for label, identifier, and all node properties.
         
         :param json_data: Structured JSON data containing graph nodes
-        :param json_data:
+        :type json_data: list
         :returns: DataFrame containing node data with properties as columns
         :rtype: pd.DataFrame
         """
@@ -264,7 +272,7 @@ class SpannerMixin(Plottable):
         with columns for label, identifier, source, destination, and all edge properties.
         
         :param json_data: Structured JSON data containing graph edges
-        :param json_data:
+        :type json_data: list
         :returns: DataFrame containing edge data with properties as columns
         :rtype: pd.DataFrame
         """
@@ -294,7 +302,7 @@ class SpannerMixin(Plottable):
         must return path data using SAFE_TO_JSON(p) format.
         
         :param query: GQL path query string with SAFE_TO_JSON(path) format
-        :param query:
+        :type query: str
         :returns: Plottable object with nodes and edges populated from query results
         :rtype: Plottable
         
@@ -339,7 +347,7 @@ class SpannerMixin(Plottable):
         for tabular queries that don't require graph visualization.
         
         :param query: GQL or SQL query string
-        :param query:
+        :type query: str
         :returns: DataFrame containing query results with column names
         :rtype: pd.DataFrame
         

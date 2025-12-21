@@ -53,11 +53,11 @@ logger = setup_logger(name=__name__)
 
 def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # type: ignore
     """
-    Convert encoded features/targets to torch tensors for ndata/edata.
-
-    :param X_enc: Encoded feature matrix
-    :param y_enc: Encoded target matrix (may be empty)
-    :return: Dict with feature (and optional target) tensors
+        Converts X, y to torch tensors compatible with ndata/edata of DGL graph
+    _________________________________________________________________________
+    :param X_enc: DataFrame Matrix of Values for Model Matrix
+    :param y_enc: DataFrame Matrix of Values for Target
+    :return: Dictionary of torch encoded arrays
     """
     _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
@@ -98,17 +98,18 @@ def get_available_devices():
 
 
 def reindex_edgelist(df, src, dst):
-    """
-    Relabel edges to contiguous integer node IDs (required by DGL).
+    """Since DGL needs integer contiguous node labels, this relabels as pre-processing step
 
-    Example:
-      df, ordered_nodes_dict = reindex_edgelist(df, 'to_node', 'from_node')
-      # creates new columns config.SRC/config.DST
+    :eg
+        df, ordered_nodes_dict = reindex_edgelist(df, 'to_node', 'from_node')
+        creates new columns given by config.SRC and config.DST
+    :param df: edge dataFrame
+    :param src: source column of dataframe
+    :param dst: destination column of dataframe
 
-    :param df: Edge DataFrame
-    :param src: Source column name
-    :param dst: Destination column name
-    :return: (DataFrame with new columns, dict of node->index)
+    :returns
+        df, pandas DataFrame with new edges.
+        ordered_nodes_dict, dict ordered from most common src and dst nodes.
     """
     srclist = df[src]
     dstlist = df[dst]
@@ -137,13 +138,13 @@ def reindex_edgelist(df, src, dst):
 
 def pandas_to_sparse_adjacency(df, src, dst, weight_col):
     """
-    Convert edges to a COO sparse adjacency matrix.
-
-    :param df: Edge DataFrame
-    :param src: Source column name
-    :param dst: Destination column name
-    :param weight_col: Optional weight column
-    :return: (COO sparse matrix, dict of node->index)
+        Takes a Pandas Dataframe and named src and dst columns into a sparse adjacency matrix in COO format
+        Needed for DGL utils
+    :param df: edges dataframe
+    :param src: source column
+    :param dst: destination column
+    :param weight_col: optional weight column
+    :return: COO sparse matrix, dictionary of src, dst nodes to index
     """
     # use scipy sparse to encode matrix
     from scipy.sparse import coo_matrix
@@ -171,18 +172,18 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: Optional[str] = None, device: str = "cpu"
 ) -> Tuple["dgl.DGLGraph", "scipy.sparse.coo_matrix", Dict]:
-    """
-    Build a DGL graph from an edge DataFrame.
-
-    Example:
-      g, sp_mat, ordered_nodes_dict = pandas_to_dgl_graph(df, 'src', 'dst')
-
-    :param df: Edge DataFrame (optionally with weight column)
-    :param src: Source column name
-    :param dst: Destination column name
-    :param weight_col: Optional weight column
-    :param device: Device for the DGL graph ('cpu' or 'cuda')
-    :return: (dgl graph, scipy COO matrix, node->index dict)
+    """Turns an edge DataFrame with named src and dst nodes, to DGL graph
+    :eg
+        g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')
+    :param df: DataFrame with source and destination and optionally weight column
+    :param src: source column of DataFrame for coo matrix
+    :param dst: destination column of DataFrame for coo matrix
+    :param weight_col: optional weight column when constructing coo matrix
+    :param device: whether to put dgl graph on cpu or gpu
+    :return
+        g: dgl graph
+        sp_mat: sparse scipy matrix
+        ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
     _, _, dgl = lazy_dgl_import()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
@@ -194,11 +195,10 @@ def pandas_to_dgl_graph(
 
 def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     """
-    Generate random torch boolean masks for train/test split.
-
-    :param n: Length of mask
-    :param ratio: Fraction of True entries (train)
-    :return: (train_mask, test_mask)
+        Generates random torch tensor mask
+    :param n: size of mask
+    :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
+    :return: train and test torch tensor masks
     """
     _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 

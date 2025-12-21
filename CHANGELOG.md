@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-- **Layouts / Graphviz**: `plot_static` now supports engines `graphviz-svg/png`, `graphviz-dot`, and `mermaid-code`, honoring `reuse_layout` for bound positions and optional file outputs; Graphviz render accepts passthrough args/positions for consistent layouts.
+- **Layouts / Graphviz**: `plot_static` now supports engines `graphviz-svg/png`, `graphviz` (any Graphviz format), `graphviz-dot`, and `mermaid-code`, honoring `reuse_layout` for bound positions and optional file outputs; Graphviz render accepts passthrough args/positions for consistent layouts.
 
 ### Docs
 - **Graphviz**: Enabled `sphinx.ext.graphviz`, allowed rstcheck `graphviz` directive, and added static Graphviz + DOT/Mermaid examples across 10min, visualization 10min, GFQL spec (MyST), and the Graphviz demo notebook (uses `plot_static` inline). Docs Docker image now installs graphviz/pygraphviz/gcc and `docs/ci.sh` builds only the sphinx service.

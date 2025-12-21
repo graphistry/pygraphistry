@@ -1,14 +1,13 @@
-
-from typing import Any, List, Set, Union, TYPE_CHECKING
+from typing import List, Set, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
 if TYPE_CHECKING:
-    try:
-        from pygraphviz import AGraph
-    except:
-        AGraph: Any = None  # type: ignore
+    from pygraphviz import AGraph
 else:
-    AGraph: Any = None
+    class AGraph:
+        pass
+
+GraphvizAttrValue = Union[str, int, float, bool]
 
 
 Prog = Literal[

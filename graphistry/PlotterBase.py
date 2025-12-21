@@ -16,7 +16,14 @@ from graphistry.client_session import ClientSession, AuthManagerProtocol, Datase
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
 from .plugins.graphviz import layout_graphviz, render_graphviz
-from graphistry.plugins_types.graphviz_types import Format, Prog, GraphAttr, NodeAttr, EdgeAttr
+from graphistry.plugins_types.graphviz_types import (
+    Format,
+    Prog,
+    GraphAttr,
+    NodeAttr,
+    EdgeAttr,
+    GraphvizAttrValue,
+)
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
@@ -2464,9 +2471,9 @@ class PlotterBase(Plottable):
         reuse_layout: bool = True,
         directed: bool = True,
         strict: bool = False,
-        graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-        node_attr: Optional[Dict[NodeAttr, Any]] = None,
-        edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+        graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+        node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
         drop_unsanitary: bool = False,
         max_nodes: Optional[int] = None,
         max_edges: Optional[int] = None,
@@ -2476,6 +2483,7 @@ class PlotterBase(Plottable):
 
         Engines:
         - graphviz-svg (default) / graphviz-png: render image bytes (optionally write to path)
+        - graphviz: render to any Graphviz format (see Format), e.g., pdf
         - graphviz-dot: return DOT string (optionally write to path)
         - mermaid-code: return Mermaid DSL string (optionally write to path)
 
@@ -2483,9 +2491,9 @@ class PlotterBase(Plottable):
         Otherwise, Graphviz lays out the graph. When positions are reused, Graphviz is invoked
         with ``neato -n2`` to respect them.
 
-        :param format: Output format, e.g., 'svg' or 'png' (graphviz engines)
+        :param format: Output format, e.g., 'svg', 'png', 'pdf' (graphviz engines)
         :param path: Optional path to also write the image/text
-        :param engine: Rendering engine; supports graphviz-svg/png, graphviz-dot, mermaid-code
+        :param engine: Rendering engine; supports graphviz, graphviz-svg/png, graphviz-dot, mermaid-code
         :param prog: Graphviz layout program when computing layout
         :param args: Optional args passed to graphviz (e.g., '-n2' when reusing positions)
         :param reuse_layout: If True and positions are bound/available, reuse them; else layout
@@ -2522,6 +2530,11 @@ class PlotterBase(Plottable):
 
         use_positions = reuse_layout and x_col is not None and y_col is not None
 
+        if max_nodes is not None and len(g._nodes) > max_nodes:
+            raise ValueError(f"Graph has {len(g._nodes)} nodes; exceeds max_nodes={max_nodes}")
+        if max_edges is not None and len(g._edges) > max_edges:
+            raise ValueError(f"Graph has {len(g._edges)} edges; exceeds max_edges={max_edges}")
+
         g_render = g
         render_prog = prog
         render_args = args
@@ -2537,11 +2550,13 @@ class PlotterBase(Plottable):
 
         # Engine routing
         if engine in ('graphviz', 'graphviz-svg', 'graphviz-png'):
-            fmt = format
+            fmt: Format
             if engine == 'graphviz-png':
                 fmt = 'png'
-            elif engine in ('graphviz', 'graphviz-svg') and fmt not in ('svg', 'png'):
+            elif engine == 'graphviz-svg':
                 fmt = 'svg'
+            else:
+                fmt = format
             result = render_graphviz(
                 g_render,
                 prog=render_prog,

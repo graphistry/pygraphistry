@@ -1,14 +1,13 @@
-from typing import Any, Dict, Optional, Set
-import logging
+from typing import Dict, Optional, Set
 import os
 import tempfile
 import pandas as pd
-  
+
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.graphviz_types import (
     AGraph,
     EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
-    EdgeAttr, Format, GraphAttr, NodeAttr, Prog
+    EdgeAttr, Format, GraphAttr, NodeAttr, Prog, GraphvizAttrValue
 )
 from graphistry.util import setup_logger
 
@@ -88,7 +87,7 @@ def g_with_pgv_layout(g: Plottable, graph: AGraph) -> Plottable:
         # Get the position of the node
         pos = node.attr['pos'].split(',')
         x, y = float(pos[0]), float(pos[1])
-        node_positions.append({g._node: node, 'x': x, 'y': y})
+        node_positions.append({g._node: str(node), 'x': x, 'y': y})
     positions_df = pd.DataFrame(node_positions)
     nodes_df = positions_df.merge(g._nodes, on=g._node, how='left')
 
@@ -108,9 +107,9 @@ def layout_graphviz_core(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-    node_attr: Optional[Dict[NodeAttr, Any]] = None,
-    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
     drop_unsanitary: bool = False,
     include_positions: bool = False,
 ) -> AGraph:
@@ -128,7 +127,7 @@ def layout_graphviz_core(
         for k2, v in node_attr.items():
             if k2 not in NODE_ATTRS:
                 raise ValueError(f"Unknown node_attr {k2}, expected one of {NODE_ATTRS}")
-            if drop_unsanitary and k in UNSANITARY_ATTRS:
+            if drop_unsanitary and k2 in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary node_attr {k2} is not allowed")
             graph.node_attr[k2] = v
     if edge_attr is not None:
@@ -156,9 +155,9 @@ def layout_graphviz(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-    node_attr: Optional[Dict[NodeAttr, Any]] = None,
-    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
     skip_styling: bool = False,
     render_to_disk: bool = False,  # unsafe in server settings
     path: Optional[str] = None,
@@ -191,13 +190,13 @@ def layout_graphviz(
     :type strict: bool
 
     :param graph_attr: Graphviz graph attributes, see https://graphviz.org/docs/graph/
-    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, Any]]
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param node_attr: Graphviz node attributes, see https://graphviz.org/docs/nodes/
-    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, Any]]
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param edge_attr: Graphviz edge attributes, see https://graphviz.org/docs/edges/
-    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, Any]]
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param skip_styling: Whether to skip applying default styling (False, default) or not (True)
     :type skip_styling: bool
@@ -319,9 +318,9 @@ def render_graphviz(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-    node_attr: Optional[Dict[NodeAttr, Any]] = None,
-    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
     drop_unsanitary: bool = False,
     max_nodes: Optional[int] = None,
     max_edges: Optional[int] = None,
@@ -348,11 +347,11 @@ def render_graphviz(
     :param strict: Whether to treat the graph as strict
     :type strict: bool
     :param graph_attr: Graph-level attributes
-    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, Any]]
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
     :param node_attr: Node-level attributes
-    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, Any]]
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
     :param edge_attr: Edge-level attributes
-    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, Any]]
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
     :param drop_unsanitary: Reject unsanitary attrs
     :type drop_unsanitary: bool
     :param max_nodes: Optional cap on nodes for rendering

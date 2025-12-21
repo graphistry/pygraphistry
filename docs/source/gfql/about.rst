@@ -27,20 +27,6 @@ GFQL fills a critical gap in the data community by providing an in-process, high
 - **Ease of Use:** No need for external databases or new infrastructure.
 - **Interoperability:** Integrates with the Python data science ecosystem, including PyGraphistry for visualization.
 
-Static Graphviz example
------------------------
-
-The snippet below renders a tiny GFQL-style toy graph with Graphviz (``dot``) during docs build:
-
-.. graphviz::
-
-   digraph gfql_toy {
-       rankdir=LR;
-       a -> b1 -> c1 -> d1 -> e1;
-       a -> b2 -> c2;
-       a [shape=box, style=filled, fillcolor=lightblue];
-   }
-
 Setting Up GFQL
 ---------------
 

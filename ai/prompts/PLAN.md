@@ -78,7 +78,7 @@
 **Branch Strategy**: [How branches will be organized]
 **PR/Branch Stack**: [If stacked PRs, list order: PR#123 (branch-1) → PR#124 (branch-2)]
 **Merge Order**: [Order to merge if multiple PRs]
-**Note**: Track branch/PR per phase as they may change (e.g., rebase flows). Do **not** work on `main`/`master`; create/use a branch that follows this repo’s naming convention and fits the task (e.g., `feat/...`, `fix/...`, or repo-specific dev/staging patterns).
+**Note**: Track branch/PR per phase as they may change (e.g., rebase flows)
 
 ## Status Legend
 - 📝 **TODO**: Not started
