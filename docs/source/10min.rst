@@ -114,6 +114,12 @@ Let's create a simple graph visualization using the honeypot data:
     g = graphistry.edges(df, 'attackerIP', 'victimIP')
     g.plot()  # Make sure you called graphistry.register() above
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=f8639167fb544a179015bd8c7133e654&type=arrow&viztoken=c4c7ac15-9d0b-4116-9574-11b054f491fa&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353918&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 This will render an interactive graph where nodes represent IP addresses, and edges represent attacks.
 
 Automatic GPU Acceleration
@@ -147,6 +153,12 @@ Let's add color encodings based on the vulnerability exploited.
 
     g2.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=736bca96a08a4143883d429d3c1d45be&type=arrow&viztoken=4876d362-c766-47e5-9352-99cfbe45a7f1&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353920&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 Now, edges are colored based on the type of vulnerability, helping you distinguish different attack types.
 
 Adjusting Sizes, Labels, Icons, Badges, and More
@@ -178,6 +190,12 @@ If your data includes temporal information, you can add a timebar to visualize c
     # Plot with time encoding: Graphistry automatically detects Arrow/Parquet native types
     g.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=3df15f5272b1466d89cf8f87f2a676c0&type=arrow&viztoken=d419b964-d8d7-4829-b1c9-6e54ba7f3a20&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353921&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 The timebar appears as soon as the UI detects datetime values, and enables you to interactively explore the graph as it evolves over time.
 
 
@@ -192,6 +210,12 @@ By default, PyGraphistry uses a force-directed layout. You can adjust its parame
     g2 = g1.settings(url_params={'play': 7000, 'strongGravity': True, 'edgeInfluence': 2})
     g2.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=39dc615d03194756a0dca5a4ff87cb76&type=arrow&viztoken=fac86791-521a-4090-b9ce-91e147d4507a&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353923&info=true&play=7000&strongGravity=True&edgeInfluence=2" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 More Layout Algorithms
 ----------------------
 
@@ -204,6 +228,12 @@ For example, GraphViz layouts is known for its high quality for laying out small
     # pygraphistry handles format conversions behind-the-scenes
     g2 = g1.layout_graphviz('dot')
     g2.plot()
+
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=cd7c0cfa53174e0b81bf7959ee1c74b9&type=arrow&viztoken=c5564f0a-5f22-4087-b56c-f1c2b4d824ce&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353925&info=true&play=0&edgeCurvature=0" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 Static Image Export
 -------------------
@@ -247,6 +277,12 @@ Special to PyGraphistry, PyGraphistry records and renders the similarity edges b
     print('# similarity edges', len(g1._edges))
     g1.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=ecada95bde3d4c03b8145244407f0bcf&type=arrow&viztoken=c5e19343-a80c-45bf-8180-9ae11779e2b9&usertag=8a6d667e-pygraphistry-0.28.6+135.g2bf5581.dirty&splashAfter=1674276769&info=true&play=0" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 
 Query graphs with GFQL
 ----------------------------------
@@ -266,6 +302,12 @@ Suppose you want to focus on attacks that started with the "MS08067 (NetAPI)" vu
 
     g2.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=a47a171e0fed42a4b338975eeceb9c6f&type=arrow&viztoken=992f9782-e3d9-4593-8094-83fdca1a96c0&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353949&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 This GFQL query filters the edges based on the vulnerability name and time, then returns the matching nodes and edges for visualization.
 
 
@@ -281,6 +323,12 @@ PyGraphistry supports hypergraphs, which allow you to quickly visualize complex 
     hg = graphistry.hypergraph(df, ['attackerIP', 'victimIP', 'vulnName', 'victimPort'])
 
     hg['graph'].plot()
+
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=07befef8ef5249a6b66366cd3e798710&type=arrow&viztoken=dfe19e70-bb67-4f57-8a8c-5a956d32e947&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353928&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 This will represent each attack as a hyperedge connecting the attacker IP, victim IP, vulnerability name, and port nodes.
 
@@ -306,6 +354,12 @@ In Jupyter notebooks, you can render the visualization inline.
 
     g.plot()
 
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=f8639167fb544a179015bd8c7133e654&type=arrow&viztoken=c4c7ac15-9d0b-4116-9574-11b054f491fa&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353918&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 URL Rendering
 ~~~~~~~~~~~~~
 
@@ -315,6 +369,12 @@ Alternatively, you can generate a URL to view the visualization in a separate br
 
     url = g.plot(render=False)
     print(f"View your visualization at: {url}")
+
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=f8639167fb544a179015bd8c7133e654&type=arrow&viztoken=c4c7ac15-9d0b-4116-9574-11b054f491fa&usertag=ef9e6f8d-pygraphistry-0.48.0+72.g90897bc0&splashAfter=1766353918&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 Next Steps
 ----------
