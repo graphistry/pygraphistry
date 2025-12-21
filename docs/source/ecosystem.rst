@@ -24,7 +24,7 @@ Graphistry Core
 GFQL: Dataframe-native Graph Query Language
 ---------------------------------------------
 
-Our `open-source graph query language GFQL <10min-gfql>`_ with optional GPU support
+Our :ref:`open-source graph query language GFQL <10min-gfql>` with optional GPU support
 
 The Graphistry team created GFQL to fill the gap between pandas/cudf and cypher. This project has been years in the making, and is built out of need from our experiences in working with graphs of all sizes in the compute and visualization tiers.
 
