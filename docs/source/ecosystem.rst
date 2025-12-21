@@ -18,7 +18,7 @@ Graphistry Core
 ---------------
 
 * `REST API <https://hub.graphistry.com/docs/api/>`_
-* `JS APIs (github) <https://github.com/graphistry/graphistry-js>_`: Node, React, and vanilla JS
+* `JS APIs (github) <https://github.com/graphistry/graphistry-js>`_: Node, React, and vanilla JS
 * `graph-app-kit (github) <https://github.com/graphistry/graph-app-kit>`_: Python dashboarding with Graphistry and Streamlit
 
 GFQL: Dataframe-native Graph Query Language
