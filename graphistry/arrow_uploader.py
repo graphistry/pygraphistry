@@ -17,7 +17,7 @@ from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error
 from .util import setup_logger
-from graphistry.models.types import ValidationParamOrNone
+from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
 
 class ArrowUploader:
@@ -479,21 +479,22 @@ class ArrowUploader:
         log_requests_error(out)
         return 200 <= out.status_code < 300
 
-    def create_dataset(self, json, validate: ValidationParamOrNone = 'autofix', warn: bool = True):  # noqa: F811
+    def create_dataset(self, json, validate: ValidationParam = 'autofix', warn: bool = True):  # noqa: F811
         """Create dataset with optional encoding validation.
 
         Args:
             json: Dataset JSON payload
-            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise), 'none'/False (skip)
+            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix' with warn=False
             warn: If True and validate='autofix', emit warnings on validation errors.
         """
         # Normalize validate parameter
-        if validate is False or validate == 'none':
-            validate = 'none'
-        elif validate is True:
+        if validate is True:
             validate = 'strict'
+        elif validate is False:
+            validate = 'autofix'
+            warn = False
 
-        if validate != 'none':
+        if validate in ('strict', 'strict-fast', 'autofix'):
             try:
                 validate_encodings(
                     json.get('node_encodings', {}),
@@ -558,7 +559,7 @@ class ArrowUploader:
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: ValidationParamOrNone = 'autofix',
+        validate: ValidationParam = 'autofix',
         warn: bool = True,
         erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
@@ -569,7 +570,7 @@ class ArrowUploader:
         Args:
             as_files: Upload as separate files (default True)
             memoize: Memoize conversions (default True)
-            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise), 'none'/False (skip)
+            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix' with warn=False
             warn: If True and validate='autofix', emit warnings on validation errors.
             erase_files_on_fail: Clean up files on failure (default True)
         """
