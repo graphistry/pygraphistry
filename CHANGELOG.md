@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.48.0 - 2025-12-20]
+
 ### Added
 - **Arrow:** New `to_arrow()` public method for debugging DataFrame->Arrow conversion issues (#867).
 - **Validation:** New `validate` parameter for `plot()` and `upload()` with modes:
