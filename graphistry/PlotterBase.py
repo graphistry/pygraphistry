@@ -2549,7 +2549,7 @@ class PlotterBase(Plottable):
             if engine == 'graphviz-png':
                 fmt = 'png'
             elif engine == 'graphviz-svg':
-                fmt = 'svg'
+                fmt = format if format != 'svg' else 'svg'
             else:
                 fmt = format
             result = render_graphviz(

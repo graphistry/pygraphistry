@@ -108,17 +108,25 @@ class Test_graphviz():
         assert os.path.getsize(f'{base_path}graph.png') > 0
 
     def test_plot_static_layout(self, chain_g: Plottable) -> None:
-        from IPython.display import Image
         png = chain_g.plot_static(format='png', max_nodes=100, max_edges=200)
+        try:
+            from IPython.display import Image
+        except ImportError:
+            assert len(png) > 0
+            return
         assert isinstance(png, Image)
         assert len(png.data) > 0
 
     def test_plot_static_reuse_positions(self, chain_g: Plottable) -> None:
-        from IPython.display import SVG
         g_with_xy = chain_g.materialize_nodes()
         g_with_xy = g_with_xy.nodes(lambda g: g._nodes.assign(x=range(len(g._nodes)), y=range(len(g._nodes))))
         g_with_xy = g_with_xy.bind(point_x='x', point_y='y')
         svg = g_with_xy.plot_static(format='svg', reuse_layout=True, max_nodes=100, max_edges=200)
+        try:
+            from IPython.display import SVG
+        except ImportError:
+            assert len(svg) > 0
+            return
         assert isinstance(svg, SVG)
         assert '<svg' in svg.data
 
