@@ -23,6 +23,7 @@ from graphistry.plugins_types.graphviz_types import (
     NodeAttr,
     EdgeAttr,
     GraphvizAttrValue,
+    PlotStaticResult,
 )
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
 from .util import (
@@ -2440,27 +2441,6 @@ class PlotterBase(Plottable):
     layout_graphviz = layout_graphviz
     render_graphviz = render_graphviz
 
-    def _auto_display_static(self, data: Union[bytes, str], format: str) -> None:
-        """
-        Auto-display static render output in Jupyter notebook environments.
-
-        Does nothing if not in an interactive IPython/Jupyter context.
-        """
-        from graphistry.util import in_ipython
-        if not in_ipython():
-            return
-
-        try:
-            from IPython.display import display, SVG, Image
-            if format == 'svg':
-                display(SVG(data))
-            elif format == 'png':
-                display(Image(data))
-            # For 'dot' or 'mermaid-code' text output, we don't auto-display
-            # (user can print() or use display(Code(...)) themselves)
-        except ImportError:
-            pass  # No IPython available, skip display
-
     def plot_static(
         self,
         format: Format = 'svg',
@@ -2477,12 +2457,15 @@ class PlotterBase(Plottable):
         drop_unsanitary: bool = False,
         max_nodes: Optional[int] = None,
         max_edges: Optional[int] = None,
-    ) -> Union[bytes, str]:
+    ) -> PlotStaticResult:
         """
         Render a static image of the current graph (e.g., for notebooks/docs).
 
+        Returns an IPython display object (SVG or Image) that auto-displays in notebooks.
+        Use ``.data`` to access raw bytes for programmatic use.
+
         Engines:
-        - graphviz-svg (default) / graphviz-png: render image bytes (optionally write to path)
+        - graphviz-svg (default) / graphviz-png: render image (optionally write to path)
         - graphviz: render to any Graphviz format (see Format), e.g., pdf
         - graphviz-dot: return DOT string (optionally write to path)
         - mermaid-code: return Mermaid DSL string (optionally write to path)
@@ -2505,10 +2488,22 @@ class PlotterBase(Plottable):
         :param drop_unsanitary: Reject unsanitary attributes
         :param max_nodes: Optional cap on node count
         :param max_edges: Optional cap on edge count
-        :return: Rendered image bytes or DOT/Mermaid string, depending on engine
+        :return: SVG or Image display object (use .data for bytes), or DOT/Mermaid string
 
-        **Auto-display**: When running in a Jupyter notebook, the output is automatically
-        displayed inline. The result is still returned for programmatic use (e.g., saving to disk).
+        **Example: Basic usage**
+            ::
+
+                g.plot_static()  # Returns SVG, auto-displays in notebook
+
+        **Example: Save to file**
+            ::
+
+                g.plot_static(path='graph.svg')  # Writes file AND returns SVG
+
+        **Example: Get raw bytes**
+            ::
+
+                svg_bytes = g.plot_static().data
         """
 
         if engine not in ('graphviz', 'graphviz-svg', 'graphviz-png', 'graphviz-dot', 'mermaid-code'):
@@ -2572,7 +2567,16 @@ class PlotterBase(Plottable):
                 max_edges=max_edges,
                 path=path
             )
-            self._auto_display_static(result, fmt)
+            # Return IPython display objects for auto-display in notebooks
+            # Falls back to raw bytes if IPython not available
+            try:
+                from IPython.display import SVG, Image
+                if fmt == 'svg':
+                    return SVG(result)
+                if fmt == 'png':
+                    return Image(result)
+            except ImportError:
+                pass
             return result
 
         if engine == 'graphviz-dot':

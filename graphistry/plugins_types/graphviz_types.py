@@ -2,10 +2,13 @@ from typing import List, Set, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
 if TYPE_CHECKING:
+    from IPython.display import SVG, Image
     from pygraphviz import AGraph
+    PlotStaticResult = Union[bytes, str, SVG, Image]
 else:
     class AGraph:
         pass
+    PlotStaticResult = Union[bytes, str]
 
 GraphvizAttrValue = Union[str, int, float, bool]
 
