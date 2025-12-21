@@ -17,6 +17,7 @@ from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error
 from .util import setup_logger
+from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
 
 class ArrowUploader:
@@ -478,13 +479,37 @@ class ArrowUploader:
         log_requests_error(out)
         return 200 <= out.status_code < 300
 
-    def create_dataset(self, json, validate: bool = True):  # noqa: F811
-        if validate:
-            validate_encodings(
-                json.get('node_encodings', {}),
-                json.get('edge_encodings', {}),
-                self.nodes.column_names if self.nodes is not None else None,
-                self.edges.column_names if self.edges is not None else None)
+    def create_dataset(self, json, validate: ValidationParam = 'autofix', warn: bool = True):  # noqa: F811
+        """Create dataset with optional encoding validation.
+
+        Args:
+            json: Dataset JSON payload
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
+        """
+        # Normalize validate parameter
+        if validate is True:
+            validate = 'strict'
+        elif validate is False:
+            validate = 'autofix'
+            warn = False
+
+        if validate in ('strict', 'strict-fast', 'autofix'):
+            try:
+                validate_encodings(
+                    json.get('node_encodings', {}),
+                    json.get('edge_encodings', {}),
+                    self.nodes.column_names if self.nodes is not None else None,
+                    self.edges.column_names if self.edges is not None else None)
+            except ValueError as e:
+                if validate in ('strict', 'strict-fast'):
+                    # Strict mode: re-raise the exception
+                    raise
+                elif warn:
+                    # Autofix + warn=True: emit warning, continue
+                    from graphistry.util import warn as emit_warn
+                    emit_warn(f"Encoding validation warning: {e}")
+                # else: warn=False means silent, continue anyway
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
@@ -534,11 +559,20 @@ class ArrowUploader:
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True,
         erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
-        """
+        """Upload data to Graphistry server.
+
         Note: likely want to pair with self.maybe_post_share_link(g)
+
+        Args:
+            as_files: Upload as separate files (default True)
+            memoize: Memoize conversions (default True)
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
+            erase_files_on_fail: Clean up files on failure (default True)
         """
         logger.debug("@ArrowUploader.post, self.org_name : %s", self.org_name)
         if as_files:
@@ -566,7 +600,7 @@ class ArrowUploader:
                 "description": self.description,
                 "edge_files": [ e_file_id ],
                 **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
-            }, validate)
+            }, validate=validate, warn=warn)
 
         else:
 
@@ -576,7 +610,7 @@ class ArrowUploader:
                 "metadata": self.metadata,
                 "name": self.name,
                 "description": self.description
-            }, validate)
+            }, validate=validate, warn=warn)
 
             self.post_edges_arrow()
 

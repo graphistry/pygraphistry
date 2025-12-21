@@ -390,6 +390,199 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         assert not (arr1 is plotter._table_to_arrow(df))
 
+    # ==========================================================================
+    # Auto-coerce mixed-type columns tests (Issue #867)
+    # ==========================================================================
+
+    def test_table_to_arrow_mixed_types_coerced(self):
+        """Mixed-type columns (bytes/float/str) are auto-coerced to string with warning."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'amount': [b'bytes', 1.5, 'str']})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False)
+        assert isinstance(arr, pa.Table)
+        assert pa.types.is_string(arr.schema.field('amount').type) or pa.types.is_large_string(arr.schema.field('amount').type)
+
+    def test_table_to_arrow_clean_data_no_warning(self):
+        """Clean data does not emit warnings."""
+        import warnings
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1], 'weight': [1.0, 2.0, 3.0]})
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
+    def test_to_arrow_public_method(self):
+        """Public to_arrow() method works for debugging."""
+        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1]})
+        g = graphistry.edges(df, 'src', 'dst')
+        assert isinstance(g.to_arrow(df), pa.Table)
+        assert isinstance(g.to_arrow(), pa.Table)
+
+    # ==========================================================================
+    # Validate mode tests (Issue #867)
+    # ==========================================================================
+
+    def test_validate_strict_raises_on_mixed(self):
+        """strict mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+
+    def test_validate_strict_fast_raises_on_mixed(self):
+        """strict-fast mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict-fast')
+
+    def test_validate_autofix_coerces_with_warning(self):
+        """autofix mode coerces mixed types with warning."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
+        assert isinstance(arr, pa.Table)
+
+    def test_validate_strict_allows_clean_data(self):
+        """strict mode allows clean data through."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'weight': [1.1, 2.2, 3.3]})
+        arr = plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+        assert isinstance(arr, pa.Table)
+
+    # ==========================================================================
+    # plot() entrypoint validation tests (Issue #867)
+    # ==========================================================================
+
+    def test_plot_strict_mixed_raises(self):
+        """plot(validate='strict') raises on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [10, 20, 30], 'dst': [20, 30, 10], 'mixed': [b'strict1', 1.1, 'test']
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate='strict')
+
+    def test_plot_validate_true_raises(self):
+        """plot(validate=True) maps to strict and raises."""
+        from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [11, 21, 31], 'dst': [21, 31, 11], 'mixed': [b'strict2', 2.2, 'test']
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate=True)
+
+    def test_plot_autofix_warn_true_warns(self):
+        """plot(validate='autofix', warn=True) coerces WITH warning."""
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [12, 22, 32], 'dst': [22, 32, 12], 'mixed': [b'warn1', 3.3, 'test']
+        }), 'src', 'dst')
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            result = g.plot(skip_upload=True, validate='autofix', warn=True)
+        assert result is not None
+
+    def test_plot_autofix_warn_false_silent(self):
+        """plot(validate='autofix', warn=False) coerces WITHOUT warning."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [13, 23, 33], 'dst': [23, 33, 13], 'mixed': [b'silent1', 4.4, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate='autofix', warn=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with warn=False, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_validate_false_silent(self):
+        """plot(validate=False) maps to autofix+warn=False, coerces silently."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [14, 24, 34], 'dst': [24, 34, 14], 'mixed': [b'silent2', 5.5, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with validate=False, got: {coerce_warnings}"
+        assert result is not None
+
+    # ==========================================================================
+    # Encoding validation tests (Issue #867)
+    # ==========================================================================
+
+    def test_encoding_validation_strict_raises(self):
+        """Strict encoding validation raises on invalid attribute."""
+        from graphistry.arrow_uploader import ArrowUploader
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with pytest.raises(ValueError):
+            uploader.create_dataset(invalid_json, validate='strict', warn=True)
+
+    def test_encoding_validation_warn_mode(self):
+        """Non-strict encoding validation warns instead of raising."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                uploader.create_dataset(invalid_json, validate='autofix', warn=True)
+            except Exception:
+                pass
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) > 0, f"Expected encoding warning, got: {[str(x.message) for x in w]}"
+
+    def test_encoding_validation_silent_mode(self):
+        """Encoding validation with warn=False is silent."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                uploader.create_dataset(invalid_json, validate='autofix', warn=False)
+            except Exception:
+                pass
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",

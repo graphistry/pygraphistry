@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.48.0 - 2025-12-20]
+
+### Added
+- **Arrow:** New `to_arrow()` public method for debugging DataFrame->Arrow conversion issues (#867).
+- **Validation:** New `validate` parameter for `plot()` and `upload()` with modes:
+  - `'autofix'` (default): Auto-coerce mixed-type columns to string + emit warning
+  - `'strict'`: Raise `ArrowConversionError` on mixed types; may do data-level inspection
+  - `'strict-fast'`: Same as strict but stays at metadata/schema level only (for high-throughput pipelines)
+
+- **Validation:** New `validate` + `warn` parameters for `plot()`, `upload()`, and `to_arrow()` to control conversion behavior. `warn` controls warning emission during autofix conversions (default `True`; `validate=False` forces `warn=False`). Backward compatible: `validate=True` maps to `'strict'`, `validate=False` maps to `'autofix'` with `warn=False`. Encoding validation errors are also controlled by these modes. Works with pandas, cuDF, dask, dask_cudf, and Spark/Databricks DataFrames (#867).
+
+### Changed
+- **Arrow:** Auto-coerce mixed-type columns to string during Arrow conversion, preventing `ArrowTypeError` and `ArrowInvalid` exceptions when DataFrames contain columns with mixed types (e.g., bytes/float/string or list/scalar). Emits `RuntimeWarning` listing coerced columns. Applies to pandas, cuDF, and distributed DataFrames (dask, Spark) after collection (#867).
+
 ## [0.47.0 - 2025-12-15]
 
 ### Breaking 🔥
