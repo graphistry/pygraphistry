@@ -784,7 +784,12 @@ class Plottable(Protocol):
     def to_pandas(self) -> 'Plottable':
         ...
 
-    def to_arrow(self, table: Optional[Any] = None) -> Optional[Any]:
+    def to_arrow(
+        self,
+        table: Optional[Any] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> Optional[Any]:
         ...
 
     def protocol(self, v: Optional[str] = None) -> str:

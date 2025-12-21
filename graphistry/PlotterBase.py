@@ -2748,14 +2748,28 @@ class PlotterBase(Plottable):
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
-    def to_arrow(self, table: Optional[Any] = None) -> Optional[pa.Table]:
+    def to_arrow(
+        self,
+        table: Optional[Any] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> Optional[pa.Table]:
         """
         Convert a DataFrame to Arrow format.
 
         This method is useful for debugging Arrow conversion issues.
         If the DataFrame contains mixed-type columns that would cause Arrow
         conversion to fail, they will be automatically coerced to strings
-        with a warning.
+        with a warning in autofix mode.
+
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string.
+                         'strict' or 'strict-fast' raises ArrowConversionError on mixed types.
+                         For backward compatibility: True maps to 'strict', False maps to 'autofix'.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix').
+                     validate=False forces warn=False. Default True.
+        :type warn: bool
 
         :param table: DataFrame to convert. If None, converts the bound edges.
         :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
@@ -2777,15 +2791,23 @@ class PlotterBase(Plottable):
                 g = graphistry.edges(df, 'src', 'dst')
 
                 # Debug: see what Arrow conversion produces
-                arr = g.to_arrow(df)
+                arr = g.to_arrow(df, validate='autofix', warn=True)
                 print(arr.schema)
 
                 # Or convert bound edges
-                arr2 = g.to_arrow()
+                arr2 = g.to_arrow(validate='strict')
         """
         if table is None:
             table = self._edges
-        return self._table_to_arrow(table, memoize=False, validate_mode='autofix')
+        validate_mode: ValidationMode
+        if validate is True:
+            validate_mode = 'strict'
+        elif validate is False:
+            validate_mode = 'autofix'
+            warn = False
+        else:
+            validate_mode = validate
+        return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
 
     def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
 
