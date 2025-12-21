@@ -484,8 +484,8 @@ class ArrowUploader:
 
         Args:
             json: Dataset JSON payload
-            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix' with warn=False
-            warn: If True and validate='autofix', emit warnings on validation errors.
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
         """
         # Normalize validate parameter
         if validate is True:
@@ -570,8 +570,8 @@ class ArrowUploader:
         Args:
             as_files: Upload as separate files (default True)
             memoize: Memoize conversions (default True)
-            validate: 'autofix' (warn and continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix' with warn=False
-            warn: If True and validate='autofix', emit warnings on validation errors.
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
             erase_files_on_fail: Clean up files on failure (default True)
         """
         logger.debug("@ArrowUploader.post, self.org_name : %s", self.org_name)

@@ -2024,10 +2024,10 @@ class PlotterBase(Plottable):
         :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
         :type erase_files_on_fail: bool
 
-        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
         :type validate: ValidationParam
 
-        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
 
         **Example: Simple**
@@ -2106,10 +2106,10 @@ class PlotterBase(Plottable):
         :param override_html_style: Set fully custom style tag.
         :type override_html_style: Optional[str]
 
-        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string with warning. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix' with warn=False.
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
         :type validate: ValidationParam
 
-        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). Default True.
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
 
         **Example: Simple**
