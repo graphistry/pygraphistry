@@ -120,8 +120,8 @@ When you need a quick static image without an interactive client, render directl
 
 .. code-block:: python
 
-   # Auto-displays inline in Jupyter notebooks
-   g.plot_static(format='svg', max_nodes=200, max_edges=400)
+    # Auto-displays inline in Jupyter notebooks
+    g.plot_static(format='svg', max_nodes=200, max_edges=400)
 
 Text-only outputs
 -----------------
@@ -130,8 +130,8 @@ Emit DOT or Mermaid DSL for downstream rendering or embedding:
 
 .. code-block:: python
 
-   dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
-   mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
+    dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
+    mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
 
 - **External Layouts**: Pass in ``x``, ``y`` columns, such as from your own edits, external data, or external ML/AI packages:
 

@@ -202,8 +202,8 @@ For example, GraphViz layouts is known for its high quality for laying out small
 .. code-block:: python
 
     # pygraphistry handles format conversions behind-the-scenes
-   g2 = g1.layout_graphviz('dot')
-   g2.plot()
+    g2 = g1.layout_graphviz('dot')
+    g2.plot()
 
 Static Image Export
 -------------------
@@ -212,24 +212,24 @@ For documentation, reports, or non-interactive use cases, export to static image
 
 .. code-block:: python
 
-   # Auto-displays inline in Jupyter, returns SVG object (.data for bytes)
-   g.plot_static()
+    # Auto-displays inline in Jupyter, returns SVG object (.data for bytes)
+    g.plot_static()
 
-   # Save to file
-   g.plot_static(format='png', path='graph.png')
+    # Save to file
+    g.plot_static(format='png', path='graph.png')
 
-   # With styling
-   g.plot_static(
-       graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
-       node_attr={'style': 'filled', 'fillcolor': 'lightblue'}
-   )
+    # With styling
+    g.plot_static(
+        graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
+        node_attr={'style': 'filled', 'fillcolor': 'lightblue'}
+    )
 
 Works with any layout source (UMAP, ring, graphviz, manual x/y). For DOT or Mermaid text output:
 
 .. code-block:: python
 
-   dot_text = g.plot_static(engine='graphviz-dot')
-   mermaid_text = g.plot_static(engine='mermaid-code')
+    dot_text = g.plot_static(engine='graphviz-dot')
+    mermaid_text = g.plot_static(engine='mermaid-code')
 
 See the `static rendering tutorial <../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_ for styling options and complete examples.
 

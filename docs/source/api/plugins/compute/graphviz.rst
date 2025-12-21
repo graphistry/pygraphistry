@@ -20,7 +20,7 @@ For static outputs in notebooks or docs, you can either call :py:meth:`graphistr
 
 ``plot_static`` engines:
 
-- ``graphviz-svg`` / ``graphviz-png`` (default render to bytes, optional path)
+- ``graphviz-svg`` / ``graphviz-png`` (default render image, optional path)
 - ``graphviz`` (render to any Graphviz format, e.g., pdf)
 - ``graphviz-dot`` (DOT text, optional path)
 - ``mermaid-code`` (Mermaid DSL text, optional path)
