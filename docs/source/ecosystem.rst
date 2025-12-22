@@ -22,7 +22,8 @@ The Graphistry community of projects, open source, and partners has grown over t
        pytorch [label="PyTorch (optional)"];
 
        {rank=same; pandas; arrow; server; rapids; pytorch;}
-       {rank=same; gfql; core; ai; louie; cucat;}
+       {rank=same; gfql; core; ai; cucat;}
+       {rank=min; louie;}
 
        pandas -> core;
        arrow -> core;
