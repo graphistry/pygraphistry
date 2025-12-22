@@ -78,6 +78,14 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
     g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
 
+Example visualization (static):
+
+.. figure:: /_static/gfql/gfql_overview_2_hops.svg
+   :alt: GFQL 2-hop example rendered with plot_static
+   :width: 90%
+
+   2-hop "interesting" edges rendered with ``plot_static()``.
+
 **Find Nodes 1-2 Hops Away and Label Each Hop**
 
 Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
@@ -295,6 +303,12 @@ Example: Visualize high PageRank nodes.
 
     # Plot the subgraph
     g_high_pagerank.plot()
+
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=1d52d9a62e034d9c94e09f5be45e3caa&type=arrow&viztoken=70cfc1a1-9ec0-44af-bbe3-d55d18e5ac4d&usertag=ef9e6f8d-pygraphistry-0.48.0+75.gf422e208&splashAfter=1766373305&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 .. rubric:: Learn More
 
