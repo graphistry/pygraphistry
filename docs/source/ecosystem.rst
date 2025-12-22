@@ -6,7 +6,7 @@ The Graphistry community of projects, open source, and partners has grown over t
 .. graphviz::
 
    digraph graphistry_ecosystem_toy {
-       rankdir=LR;
+       rankdir=TB;
        node [shape=box, style=filled, fillcolor=lightgray];
 
        core [label="pygraphistry core"];
@@ -22,23 +22,23 @@ The Graphistry community of projects, open source, and partners has grown over t
        pytorch [label="PyTorch (optional)"];
 
        {rank=same; pandas; arrow; server; rapids; pytorch;}
+       {rank=same; gfql; core; ai; louie; cucat;}
 
-       pandas -> core [label="dataframes"];
-       arrow -> core [label="columnar IO"];
-       rapids -> core [label="optional GPU"];
-       pytorch -> ai [label="optional ML"];
+       pandas -> core;
+       arrow -> core;
+       rapids -> core;
+       pytorch -> ai;
 
-       core -> gfql [label="module"];
-       core -> ai [label="module"];
-       core -> cucat [label="module"];
-       core -> louie [label="viz + APIs"];
+       core -> gfql;
+       core -> ai;
+       core -> cucat;
+       core -> louie;
 
-       core -> server [label="upload + viz store", style=dashed];
-       gfql -> server [label="remote compute", style=dashed];
-       louie -> server [label="uses remote server", style=dashed];
-       louie -> gfql [label="generates"];
-       louie -> core [label="creates viz"];
+       core -> server [style=dashed];
    }
+
+Legend: Solid arrows show core module/dependency relationships. Dashed arrows show optional server usage.
+PyGraphistry, GFQL, and Louie.AI can run on a Graphistry server to generate visualizations for embedding.
 
 Graphistry Core
 ---------------
