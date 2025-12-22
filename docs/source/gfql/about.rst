@@ -32,24 +32,11 @@ Sample Dataset
 
 Throughout this guide, we'll work with a graph representing people, companies, and transactions with risk indicators:
 
-.. graphviz::
+.. figure:: /_static/gfql/gfql_sample_graph.svg
+   :alt: Sample GFQL graph rendered with plot_static
+   :width: 90%
 
-   digraph sample_graph {
-       rankdir=LR;
-       node [shape=ellipse];
-
-       a [label="a\nperson", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
-       b [label="b\nperson", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
-       c [label="c\ncompany", shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
-       tx1 [label="tx1\ntransaction\nrisk1=True", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
-       tx2 [label="tx2\ntransaction\nrisk2=True", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
-
-       a -> b [label="knows\ninteresting", penwidth=2];
-       b -> c [label="works_at\ninteresting", penwidth=2];
-       a -> tx1 [label="sent", penwidth=2];
-       tx1 -> tx2 [label="transfer", penwidth=2];
-       tx2 -> c [label="received", penwidth=2];
-   }
+   Sample graph rendered with ``plot_static()``.
 
 ::
 
@@ -153,24 +140,11 @@ Traverse multiple hops and filter edges based on attributes using ``e_forward()`
 - ``e_forward({"interesting": True}, hops=2)`` traverses forward edges with ``interesting == True`` for 2 hops.
 - ``g_2_hops.plot()`` visualizes the resulting subgraph.
 
-.. graphviz::
+Example visualization:
 
-   digraph two_hop {
-       rankdir=LR;
-       node [shape=ellipse];
+.. raw:: html
 
-       a [label="a\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
-       b [label="b\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
-       c [label="c\ncompany", shape=box, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
-       tx1 [label="tx1\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
-       tx2 [label="tx2\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
-
-       a -> b [label="interesting", style=bold, color="#228B22", penwidth=2];
-       b -> c [label="interesting", style=bold, color="#228B22", penwidth=2];
-       a -> tx1 [color="#A9A9A9"];
-       tx1 -> tx2 [color="#A9A9A9"];
-       tx2 -> c [color="#A9A9A9"];
-   }
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=ea655131b13b468f961872576d607f91&type=arrow&viztoken=078e924f-ae52-466d-b70e-495e157a45f6&usertag=ef9e6f8d-pygraphistry-0.48.0+75.gf422e208&splashAfter=1766373303&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 3. Find Nodes 1-2 Hops Away and Label Each Hop
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -423,6 +397,12 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 
 - Filters nodes where ``pagerank > 0.1``.
 - Visualizes the subgraph consisting of high PageRank nodes.
+
+Example visualization:
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=1d52d9a62e034d9c94e09f5be45e3caa&type=arrow&viztoken=70cfc1a1-9ec0-44af-bbe3-d55d18e5ac4d&usertag=ef9e6f8d-pygraphistry-0.48.0+75.gf422e208&splashAfter=1766373305&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 10. Sequencing Programs with Let
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
