@@ -131,11 +131,12 @@ When you need a quick static image without an interactive client, render directl
 
 Example visualization (static):
 
-.. figure:: ../_static/visualization/plot_static_example.png
-   :alt: Example static plot rendered with plot_static
-   :width: 90%
+.. raw:: html
 
-   Static render produced with ``plot_static()``.
+   <figure class="align-center">
+     <img src="../_static/visualization/plot_static_example.png" alt="Example static plot rendered with plot_static" style="width: 90%;" />
+     <figcaption>Static render produced with <code>plot_static()</code>.</figcaption>
+   </figure>
 
 Text-only outputs
 -----------------
@@ -178,11 +179,12 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
   Example visualization (static):
 
-  .. figure:: ../_static/visualization/node_edge_encodings_static.png
-     :alt: Example static node/edge encoding render
-     :width: 90%
+  .. raw:: html
 
-     Static render of the categorical encoding example.
+     <figure class="align-center">
+       <img src="../_static/visualization/node_edge_encodings_static.png" alt="Example static node/edge encoding render" style="width: 90%;" />
+       <figcaption>Static render of the categorical encoding example.</figcaption>
+     </figure>
 
 * **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
 

@@ -32,11 +32,12 @@ Sample Dataset
 
 Throughout this guide, we'll work with a graph representing people, companies, and transactions with risk indicators:
 
-.. figure:: ../_static/gfql/gfql_sample_graph.svg
-   :alt: Sample GFQL graph rendered with plot_static
-   :width: 90%
+.. raw:: html
 
-   Sample graph rendered with ``plot_static()``.
+   <figure class="align-center">
+     <img src="../_static/gfql/gfql_sample_graph.svg" alt="Sample GFQL graph rendered with plot_static" style="width: 90%;" />
+     <figcaption>Sample graph rendered with <code>plot_static()</code>.</figcaption>
+   </figure>
 
 ::
 
