@@ -11,6 +11,34 @@ This page provides an overview of the main layouts available in PyGraphistry, in
 - :ref:`igraph Plugin <igraph-plugin>`: Versatile 2D/3D layouts including Fruchterman-Reingold, Kamada-Kawai, and more.
 - :ref:`Custom Layouts <custom-layouts>`: Manually compute or post-process custom layouts.
 
+Preview Gallery
+----------------
+
+Small static previews of representative layouts. Click a thumbnail to open the live interactive view.
+
+.. list-table::
+   :widths: 33 33 33
+   :header-rows: 0
+
+   * - .. figure:: /_static/layout/catalog_circle.svg
+          :alt: Circle layout preview
+          :target: https://hub.graphistry.com/graph/graph.html?dataset=854a81684f274ffdb093b4255e7f767f&type=arrow&viztoken=0b0075c6-7dd3-4376-acba-87eb60469a6f&usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&splashAfter=1766373977&info=true&play=0
+
+          Circle (PyGraphistry)
+     - .. figure:: /_static/layout/catalog_time_ring.svg
+          :alt: Time ring layout preview
+          :target: https://hub.graphistry.com/graph/graph.html?dataset=4d5b51c6868c46228c6f43b5572cd9ad&type=arrow&viztoken=5d3c4a8d-aa75-45a9-a1f6-df7247b99505&usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&splashAfter=1766373979&info=true&play=0&lockedR=True&bg=%23E2E2E2
+
+          Time Ring (PyGraphistry)
+     - .. figure:: /_static/layout/catalog_graphviz_dot.svg
+          :alt: Graphviz dot layout preview
+          :target: https://hub.graphistry.com/graph/graph.html?dataset=06938e865010412dbf3b3469cf2bc07e&type=arrow&viztoken=61ad0b49-e69b-47e5-9849-320ab32e848b&usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&splashAfter=1766373981&info=true&play=0&edgeCurvature=0
+
+          Dot (Graphviz)
+
+These previews use a small toy graph and ``plot_static()`` for lightweight docs.
+For GPU-scale layouts (ForceAtlas2/cugraph) and igraph variants, use the linked notebooks or run the layouts on your own data.
+
 .. _pygraphistry-plugin:
 
 PyGraphistry Plugins
