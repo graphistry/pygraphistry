@@ -70,6 +70,12 @@ PyGraphistry supports flexible shaping of your graph data:
     # ... + df2[['n', ...]]
     graphistry.edges(df, 'src', 'dst').nodes(df2, 'n').plot()
 
+  Example visualization:
+
+  .. raw:: html
+
+      <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=706267dc814545dcb1d0dc634e52f07d&type=arrow&viztoken=a6820453-f52e-4480-8922-9f17aa674c50&usertag=ef9e6f8d-pygraphistry-0.48.0+78.g743cd9d3&splashAfter=1766373653&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 - **Hypergraph**: Use multiple columns for nodes for more complex visualizations
   
   .. code-block:: python
@@ -123,6 +129,14 @@ When you need a quick static image without an interactive client, render directl
     # Auto-displays inline in Jupyter notebooks
     g.plot_static(format='svg', max_nodes=200, max_edges=400)
 
+Example visualization (static):
+
+.. figure:: /_static/visualization/plot_static_example.svg
+   :alt: Example static plot rendered with plot_static
+   :width: 90%
+
+   Static render produced with ``plot_static()``.
+
 Text-only outputs
 -----------------
 
@@ -155,6 +169,12 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
   .. code-block:: python
 
       g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}).plot()
+
+  Example visualization:
+
+  .. raw:: html
+
+      <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=b055da15eabb4271a98d76e1955fe125&type=arrow&viztoken=0b236032-2639-48e8-a733-f791eb0b4ba9&usertag=ef9e6f8d-pygraphistry-0.48.0+78.g743cd9d3&splashAfter=1766373655&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
 * **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
 
