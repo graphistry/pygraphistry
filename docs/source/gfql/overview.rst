@@ -80,7 +80,7 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
 
 Example visualization (static):
 
-.. figure:: /_static/gfql/gfql_overview_2_hops.svg
+.. figure:: /_static/gfql/gfql_overview_2_hops.png
    :alt: GFQL 2-hop example rendered with plot_static
    :width: 90%
 
