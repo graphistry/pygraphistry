@@ -12,7 +12,7 @@ The Graphistry community of projects, open source, and partners has grown over t
        core [label="pygraphistry core"];
        gfql [label="GFQL"];
        ai [label="pygraphistry[ai]"];
-       cucat [label="cu-cat"];
+       cucat [label="cu-cat (optional)"];
        louie [label="Louie.AI"];
 
        pandas [label="pandas"];
@@ -31,13 +31,18 @@ The Graphistry community of projects, open source, and partners has grown over t
 
        core -> gfql;
        core -> ai;
-       core -> cucat;
-       core -> louie;
+
+       cucat -> ai [style=dashed];
+
+       louie -> core;
+       louie -> gfql;
+       louie -> server [style=dashed];
 
        core -> server [style=dashed];
+       gfql -> server [style=dashed];
    }
 
-Legend: Solid arrows show core module/dependency relationships. Dashed arrows show optional server usage.
+Legend: Solid arrows show “can drive/use” relationships, not dataflow. Dashed arrows show optional server usage.
 PyGraphistry, GFQL, and Louie.AI can run on a Graphistry server to generate visualizations for embedding.
 
 Graphistry Core
