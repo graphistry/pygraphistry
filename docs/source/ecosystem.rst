@@ -7,11 +7,32 @@ The Graphistry community of projects, open source, and partners has grown over t
 
    digraph graphistry_ecosystem_toy {
        rankdir=LR;
-       data [label="Dataframes", shape=box, style=filled, fillcolor=lightgray];
+       node [shape=box, style=filled, fillcolor=lightgray];
+
+       core [label="pygraphistry core"];
        gfql [label="GFQL"];
-       viz [label="Graphistry Viz"];
-       ai [label="Louie.AI"];
-       data -> gfql -> viz -> ai;
+       ai [label="pygraphistry[ai]"];
+       cucat [label="cu-cat"];
+       louie [label="Louie.AI"];
+
+       pandas [label="pandas"];
+       arrow [label="Apache Arrow"];
+       server [label="Graphistry server (optional)"];
+       rapids [label="NVIDIA RAPIDS (optional)"];
+       pytorch [label="PyTorch (optional)"];
+
+       {rank=same; pandas; arrow; server; rapids; pytorch;}
+
+       pandas -> core;
+       arrow -> core;
+       rapids -> core;
+       pytorch -> ai;
+       server -> core;
+
+       core -> gfql;
+       core -> ai;
+       core -> cucat;
+       core -> louie;
    }
 
 Graphistry Core
@@ -88,4 +109,3 @@ Graphistry works with a variety of partners and projects, some of which include:
 * `Jupyter <https://jupyter.org/>`_
 * `Pandas <https://pandas.pydata.org/>`_
 * `Dask <https://www.dask.org/>`_
-
