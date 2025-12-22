@@ -23,16 +23,21 @@ The Graphistry community of projects, open source, and partners has grown over t
 
        {rank=same; pandas; arrow; server; rapids; pytorch;}
 
-       pandas -> core;
-       arrow -> core;
-       rapids -> core;
-       pytorch -> ai;
-       server -> core;
+       pandas -> core [label="dataframes"];
+       arrow -> core [label="columnar IO"];
+       rapids -> core [label="optional GPU"];
+       pytorch -> ai [label="optional ML"];
 
-       core -> gfql;
-       core -> ai;
-       core -> cucat;
-       core -> louie;
+       core -> gfql [label="module"];
+       core -> ai [label="module"];
+       core -> cucat [label="module"];
+       core -> louie [label="viz + APIs"];
+
+       core -> server [label="upload + viz store", style=dashed];
+       gfql -> server [label="remote compute", style=dashed];
+       louie -> server [label="uses remote server", style=dashed];
+       louie -> gfql [label="generates"];
+       louie -> core [label="creates viz"];
    }
 
 Graphistry Core
