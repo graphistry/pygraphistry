@@ -135,7 +135,6 @@ Example visualization (static):
 
    <figure class="align-center">
      <img src="../_static/visualization/plot_static_example.png" alt="Example static plot rendered with plot_static" style="width: 90%;" />
-     <figcaption>Static render of a small example graph.</figcaption>
    </figure>
 
 Text-only outputs
@@ -183,7 +182,6 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
      <figure class="align-center">
        <img src="../_static/visualization/node_edge_encodings_static.png" alt="Example static node/edge encoding render" style="width: 90%;" />
-       <figcaption>Static render of a small example graph.</figcaption>
      </figure>
 
 * **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
