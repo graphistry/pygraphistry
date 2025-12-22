@@ -11,39 +11,6 @@ This page provides an overview of the main layouts available in PyGraphistry, in
 - :ref:`igraph Plugin <igraph-plugin>`: Versatile 2D/3D layouts including Fruchterman-Reingold, Kamada-Kawai, and more.
 - :ref:`Custom Layouts <custom-layouts>`: Manually compute or post-process custom layouts.
 
-Preview Gallery
-----------------
-
-Small static previews of representative layouts. Click a thumbnail to open the live interactive view.
-
-.. raw:: html
-
-   <table style="width: 100%; text-align: center;">
-     <tr>
-       <td>
-         <a href="https://hub.graphistry.com/graph/graph.html?dataset=854a81684f274ffdb093b4255e7f767f&amp;type=arrow&amp;viztoken=0b0075c6-7dd3-4376-acba-87eb60469a6f&amp;usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&amp;splashAfter=1766373977&amp;info=true&amp;play=0">
-           <img src="../../_static/layout/catalog_circle.svg" alt="Circle layout preview" style="width: 90%;" />
-         </a>
-         <div>Circle (PyGraphistry)</div>
-       </td>
-       <td>
-         <a href="https://hub.graphistry.com/graph/graph.html?dataset=4d5b51c6868c46228c6f43b5572cd9ad&amp;type=arrow&amp;viztoken=5d3c4a8d-aa75-45a9-a1f6-df7247b99505&amp;usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&amp;splashAfter=1766373979&amp;info=true&amp;play=0&amp;lockedR=True&amp;bg=%23E2E2E2">
-           <img src="../../_static/layout/catalog_time_ring.svg" alt="Time ring layout preview" style="width: 90%;" />
-         </a>
-         <div>Time Ring (PyGraphistry)</div>
-       </td>
-       <td>
-         <a href="https://hub.graphistry.com/graph/graph.html?dataset=06938e865010412dbf3b3469cf2bc07e&amp;type=arrow&amp;viztoken=61ad0b49-e69b-47e5-9849-320ab32e848b&amp;usertag=ef9e6f8d-pygraphistry-0.48.0+79.g7938ff78&amp;splashAfter=1766373981&amp;info=true&amp;play=0&amp;edgeCurvature=0">
-           <img src="../../_static/layout/catalog_graphviz_dot.svg" alt="Graphviz dot layout preview" style="width: 90%;" />
-         </a>
-         <div>Dot (Graphviz)</div>
-       </td>
-     </tr>
-   </table>
-
-These previews use a small toy graph and ``plot_static()`` for lightweight docs.
-For GPU-scale layouts (ForceAtlas2/cugraph) and igraph variants, use the linked notebooks or run the layouts on your own data.
-
 .. _pygraphistry-plugin:
 
 PyGraphistry Plugins
