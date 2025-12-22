@@ -168,7 +168,7 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
   .. code-block:: python
 
-      g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}).plot()
+      g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}, default_mapping='gray').plot()
 
   Example visualization:
 
