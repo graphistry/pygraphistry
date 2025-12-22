@@ -304,7 +304,28 @@ Example: Visualize high PageRank nodes.
     # Plot the subgraph
     g_high_pagerank.plot()
 
-Example visualization:
+Example visualization (graphviz):
+
+.. graphviz::
+
+   digraph high_pagerank {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\npagerank=0.18", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\npagerank=0.12", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\npagerank=0.05", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\npagerank=0.16", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+
+       a -> b [color="#228B22", penwidth=2];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#228B22", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
+   }
+
+Example visualization (interactive):
 
 .. raw:: html
 
