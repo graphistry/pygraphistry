@@ -147,6 +147,25 @@ Emit DOT or Mermaid DSL for downstream rendering or embedding:
     dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
     mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
 
+Example DOT output:
+
+.. code-block:: dot
+
+    digraph G {
+        a -> b;
+        b -> c;
+        a -> tx1;
+    }
+
+Example Mermaid output:
+
+.. code-block:: text
+
+    graph LR
+      a --> b
+      b --> c
+      a --> tx1
+
 - **External Layouts**: Pass in ``x``, ``y`` columns, such as from your own edits, external data, or external ML/AI packages:
 
    .. code-block:: python
