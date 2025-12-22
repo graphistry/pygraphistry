@@ -36,6 +36,7 @@ The Graphistry community of projects, open source, and partners has grown over t
        cucat -> ai [style=dashed];
 
        louie -> core;
+       louie -> ai;
        louie -> gfql;
        louie -> server [style=dashed];
 
