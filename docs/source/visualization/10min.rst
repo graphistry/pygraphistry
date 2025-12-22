@@ -176,6 +176,14 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
       <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=b055da15eabb4271a98d76e1955fe125&type=arrow&viztoken=0b236032-2639-48e8-a733-f791eb0b4ba9&usertag=ef9e6f8d-pygraphistry-0.48.0+78.g743cd9d3&splashAfter=1766373655&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
 
+  Example visualization (static):
+
+  .. figure:: ../_static/visualization/node_edge_encodings_static.png
+     :alt: Example static node/edge encoding render
+     :width: 90%
+
+     Static render of the categorical encoding example.
+
 * **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
 
   .. code-block:: python
