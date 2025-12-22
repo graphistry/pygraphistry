@@ -32,7 +32,7 @@ Sample Dataset
 
 Throughout this guide, we'll work with a graph representing people, companies, and transactions with risk indicators:
 
-.. figure:: /_static/gfql/gfql_sample_graph.svg
+.. figure:: ../_static/gfql/gfql_sample_graph.svg
    :alt: Sample GFQL graph rendered with plot_static
    :width: 90%
 

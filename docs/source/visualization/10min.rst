@@ -131,7 +131,7 @@ When you need a quick static image without an interactive client, render directl
 
 Example visualization (static):
 
-.. figure:: /_static/visualization/plot_static_example.png
+.. figure:: ../_static/visualization/plot_static_example.png
    :alt: Example static plot rendered with plot_static
    :width: 90%
 
