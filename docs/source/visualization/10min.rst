@@ -135,7 +135,7 @@ Example visualization (static):
 
    <figure class="align-center">
      <img src="../_static/visualization/plot_static_example.png" alt="Example static plot rendered with plot_static" style="width: 90%;" />
-     <figcaption>Static render produced with <code>plot_static()</code>.</figcaption>
+     <figcaption>Static render of a small example graph.</figcaption>
    </figure>
 
 Text-only outputs
