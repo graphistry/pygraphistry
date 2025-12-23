@@ -27,16 +27,48 @@ GFQL fills a critical gap in the data community by providing an in-process, high
 - **Ease of Use:** No need for external databases or new infrastructure.
 - **Interoperability:** Integrates with the Python data science ecosystem, including PyGraphistry for visualization.
 
+Sample Dataset
+--------------
+
+Throughout this guide, we'll work with a graph representing people, companies, and transactions with risk indicators:
+
+.. raw:: html
+
+   <figure class="align-center">
+     <img src="../_static/gfql/gfql_sample_graph.svg" alt="Sample GFQL graph rendered with plot_static" style="width: 90%;" />
+     <figcaption>Sample graph rendered with <code>plot_static()</code>.</figcaption>
+   </figure>
+
+::
+
+    import pandas as pd
+    import graphistry
+
+    nodes_df = pd.DataFrame({
+        'id': ['a', 'b', 'c', 'tx1', 'tx2'],
+        'type': ['person', 'person', 'company', 'transaction', 'transaction'],
+        'risk1': [False, False, False, True, False],
+        'risk2': [False, False, False, False, True],
+    })
+    edges_df = pd.DataFrame({
+        'src': ['a', 'b', 'a', 'tx1', 'tx2'],
+        'dst': ['b', 'c', 'tx1', 'tx2', 'c'],
+        'e_type': ['knows', 'works_at', 'sent', 'transfer', 'received'],
+        'interesting': [True, True, False, False, False],
+    })
+
+    g = graphistry.edges(edges_df, 'src', 'dst').nodes(nodes_df, 'id')
+
 Setting Up GFQL
 ---------------
 
-GFQL is part of the open-source `graphistry` library. Install it using pip:
+GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
 ::
 
     pip install graphistry
 
-Ensure you have `pandas` or `cudf` installed, depending on whether you want to run on CPU or GPU.
+Ensure you have ``pandas`` or ``cudf`` installed, depending on whether you want to run on CPU or GPU.
 
 Basic Concepts
 --------------
@@ -53,7 +85,7 @@ Examples
 1. Find Nodes of a Certain Type
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can filter nodes based on their properties using the `n()` function.
+You can filter nodes based on their properties using the ``n()`` function.
 
 **Example: Find all nodes of type "person"**
 
@@ -62,18 +94,37 @@ You can filter nodes based on their properties using the `n()` function.
     from graphistry import n
 
     people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
-    print('Number of person nodes:', len(people_nodes_df))
+    # people_nodes_df: DataFrame with 'a' and 'b' (the person nodes)
 
 **Explanation:**
 
-- `n({"type": "person"})` filters nodes where the `type` property is `"person"`.
-- `g.gfql([...])` applies the chain of operations to the graph `g`.
-- `._nodes` retrieves the resulting nodes dataframe.
+- ``n({"type": "person"})`` filters nodes where the ``type`` property is ``"person"``.
+- ``g.gfql([...])`` applies the chain of operations to the graph ``g``.
+- ``._nodes`` retrieves the resulting nodes dataframe.
+
+.. graphviz::
+
+   digraph filter_nodes {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\ncompany", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+
+       a -> b [color="#A9A9A9"];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
+   }
 
 2. Find 2-Hop Edge Sequences with an Attribute
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Traverse multiple hops and filter edges based on attributes using `e_forward()`.
+Traverse multiple hops and filter edges based on attributes using ``e_forward()``.
 
 **Example: Find 2-hop paths where edges are marked as "interesting"**
 
@@ -82,13 +133,32 @@ Traverse multiple hops and filter edges based on attributes using `e_forward()`.
     from graphistry import e_forward
 
     g_2_hops = g.gfql([ e_forward({"interesting": True}, hops=2) ])
-    print('Number of edges in 2-hop paths:', len(g_2_hops._edges))
+    # g_2_hops._edges: edges a->b->c (both marked interesting)
     g_2_hops.plot()
 
 **Explanation:**
 
-- `e_forward({"interesting": True}, hops=2)` traverses forward edges with `interesting == True` for 2 hops.
-- `g_2_hops.plot()` visualizes the resulting subgraph.
+- ``e_forward({"interesting": True}, hops=2)`` traverses forward edges with ``interesting == True`` for 2 hops.
+- ``g_2_hops.plot()`` visualizes the resulting subgraph.
+
+.. graphviz::
+
+   digraph two_hop {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\nperson", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\ncompany", shape=box, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx1 [label="tx1\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\ntransaction", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+
+       a -> b [label="interesting", style=bold, color="#228B22", penwidth=2];
+       b -> c [label="interesting", style=bold, color="#228B22", penwidth=2];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
+   }
 
 3. Find Nodes 1-2 Hops Away and Label Each Hop
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -107,14 +177,33 @@ Label hops in your traversal to analyze specific relationships.
         e_undirected(name="hop2")
     ])
     first_hop_edges = g_2_hops._edges[ g_2_hops._edges.hop1 == True ]
-    print('Number of first-hop edges:', len(first_hop_edges))
+    # first_hop_edges: edges directly connected to 'a' (hop1=True)
 
 **Explanation:**
 
-- `n({g._node: "a"})` starts the traversal from node `"a"` where `g._node` is the identifying column name.
-- `e_undirected(name="hop1")` traverses undirected edges and labels them as `hop1`.
-- `e_undirected(name="hop2")` continues traversal and labels edges as `hop2`.
+- ``n({g._node: "a"})`` starts the traversal from node ``"a"`` where ``g._node`` is the identifying column name.
+- ``e_undirected(name="hop1")`` traverses undirected edges and labels them as ``hop1``.
+- ``e_undirected(name="hop2")`` continues traversal and labels edges as ``hop2``.
 - The labels allow you to filter and analyze edges from specific hops.
+
+.. graphviz::
+
+   digraph labeled_hops {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a (start)", style="filled,bold", fillcolor="#87CEEB", penwidth=3, color="#4682B4"];
+       b [label="b\nhop1", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\nhop2", shape=box, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx1 [label="tx1\nhop1", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       tx2 [label="tx2\nhop2", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+
+       a -> b [label="hop1", style=bold, color="#228B22", penwidth=2];
+       b -> c [label="hop2", style=bold, color="#228B22", penwidth=2];
+       a -> tx1 [label="hop1", style=bold, color="#228B22", penwidth=2];
+       tx1 -> tx2 [label="hop2", color="#A9A9A9"];
+       tx2 -> c [color="#A9A9A9"];
+   }
 
 4. Query for Transaction Nodes Between Risky Nodes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -135,19 +224,38 @@ Chain multiple traversals to find patterns between nodes.
         n({"risk2": True})
     ])
     hits = g_risky._nodes[ g_risky._nodes["hit"] == True ]
-    print('Number of transaction hits:', len(hits))
+    # hits: transaction nodes reachable from risk1 nodes and reaching risk2 nodes
 
 **Explanation:**
 
-- Starts from nodes with `risk1 == True`.
-- Traverses forward to transaction nodes, labeling them as `hit`.
-- Traverses backward to nodes with `risk2 == True`.
+- Starts from nodes with ``risk1 == True``.
+- Traverses forward to transaction nodes, labeling them as ``hit``.
+- Traverses backward to nodes with ``risk2 == True``.
 - Identifies transaction nodes connected between two risky nodes.
 
-5. Filter by Multiple Node Types Using `is_in`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. graphviz::
 
-Use the `is_in` predicate to filter nodes or edges by multiple values.
+   digraph risk_pattern {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\nperson", style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       b [label="b\nperson", style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       c [label="c\ncompany", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1\nrisk1=True\n(start)", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=3, color="#DC143C"];
+       tx2 [label="tx2\nrisk2=True\n(end)", shape=diamond, style="filled,bold", fillcolor="#FFB6C1", penwidth=3, color="#DC143C"];
+
+       a -> b [color="#A9A9A9"];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [label="path", style=bold, color="#DC143C", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
+   }
+
+5. Filter by Multiple Node Types Using ``is_in``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the ``is_in`` predicate to filter nodes or edges by multiple values.
 
 **Example: Filter nodes and edges by multiple types**
 
@@ -163,19 +271,52 @@ Use the `is_in` predicate to filter nodes or edges by multiple values.
         n({"risk2": True})
     ])
     hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
-    print('Number of filtered hits:', len(hits))
+    # hits: transaction/account nodes matching the traversal pattern
 
 **Explanation:**
 
-- Filters nodes of type `"person"` or `"company"`.
-- Traverses forward edges of type `"owns"` or `"reviews"`.
-- Filters nodes of type `"transaction"` or `"account"`, labeling them as `hit`.
-- Traverses backward to nodes with `risk2 == True`.
+- Filters nodes of type ``"person"`` or ``"company"``.
+- Traverses forward edges of type ``"owns"`` or ``"reviews"``.
+- Filters nodes of type ``"transaction"`` or ``"account"``, labeling them as ``hit``.
+- Traverses backward to nodes with ``risk2 == True``.
+
+.. graphviz::
+
+   digraph is_in_filter {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       subgraph cluster_start {
+           label="n(type ∈ [person, company])";
+           style=rounded;
+           bgcolor="#E6F3FF";
+           person [label="person", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+           company [label="company", style="filled,bold", fillcolor="#87CEEB", penwidth=2, color="#4682B4"];
+       }
+
+       subgraph cluster_hit {
+           label="n(type ∈ [transaction, account])\nname='hit'";
+           style=rounded;
+           bgcolor="#FFFDE7";
+           tx [label="transaction\nor account", shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
+       }
+
+       subgraph cluster_end {
+           label="n(risk2=True)";
+           style=rounded;
+           bgcolor="#FFEBEE";
+           risk2 [label="risk2=True", style="filled,bold", fillcolor="#FFB6C1", penwidth=2, color="#DC143C"];
+       }
+
+       person -> tx [label="e_forward\nowns|reviews", color="#4682B4", penwidth=2, style=bold];
+       company -> tx [label="e_forward\nowns|reviews", color="#4682B4", penwidth=2, style=bold];
+       tx -> risk2 [label="e_reverse\n*", color="#DC143C", penwidth=2, style=bold, dir=back];
+   }
 
 Leveraging GPU Acceleration
 ---------------------------
 
-GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
+GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
 
 6. Automatic GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -196,12 +337,11 @@ GFQL is optimized for GPU acceleration using `cudf` and `rapids`. When using GPU
 
     # Run GFQL query (executes on GPU)
     g_result = g_gpu.gfql([ ... ])
-    print('Number of resulting edges:', len(g_result._edges))
 
 **Explanation:**
 
-- `cudf.read_parquet()` loads data directly into GPU memory.
-- GFQL detects `cudf` dataframes and runs the query on the GPU.
+- ``cudf.read_parquet()`` loads data directly into GPU memory.
+- GFQL detects ``cudf`` dataframes and runs the query on the GPU.
 - Achieves significant performance improvements on large datasets.
 
 7. Forcing GPU Mode
@@ -217,13 +357,13 @@ You can explicitly set the engine to ensure GPU execution.
 
 **Explanation:**
 
-- `engine='cudf'` forces the use of the GPU-accelerated engine.
+- ``engine='cudf'`` forces the use of the GPU-accelerated engine.
 - Useful when you want to ensure the query runs on the GPU.
 
 Integration with PyData Ecosystem
 ---------------------------------
 
-GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like `pandas`, `networkx`, `igraph`, and `PyTorch`.
+GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like ``pandas``, ``networkx``, ``igraph``, and ``PyTorch``.
 
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -239,13 +379,12 @@ GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it
 
     # View top nodes by PageRank
     top_nodes = g_enriched._nodes.sort_values('pagerank', ascending=False).head(5)
-    print('Top nodes by PageRank:')
-    print(top_nodes[['id', 'pagerank']])
+    # top_nodes[['id', 'pagerank']]: DataFrame with highest PageRank nodes
 
 **Explanation:**
 
-- `compute_cugraph('pagerank')` computes the PageRank of nodes using GPU acceleration.
-- The enriched graph now contains a `pagerank` column in the nodes dataframe.
+- ``compute_cugraph('pagerank')`` computes the PageRank of nodes using GPU acceleration.
+- The enriched graph now contains a ``pagerank`` column in the nodes dataframe.
 
 9. Visualizing the Graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -270,8 +409,27 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 
 **Explanation:**
 
-- Filters nodes where `pagerank > 0.1`.
+- Filters nodes where ``pagerank > 0.1``.
 - Visualizes the subgraph consisting of high PageRank nodes.
+
+.. graphviz::
+
+   digraph high_pagerank {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\npagerank=0.18", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\npagerank=0.12", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\npagerank=0.05", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\npagerank=0.16", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+
+       a -> b [color="#228B22", penwidth=2];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#228B22", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
+   }
 
 10. Sequencing Programs with Let
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -311,8 +469,8 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
     # Access results from each stage
     suspicious = result._nodes[result._nodes['suspicious_accounts']]
     clusters = result._nodes[result._nodes['high_risk_clusters']]
-    print(f'Found {len(suspicious)} suspicious accounts')
-    print(f'Identified {clusters["community"].nunique()} high-risk clusters')
+    # suspicious: nodes flagged in stage 1
+    # clusters['community']: community assignments from stage 4
 
 **Key benefits of Let bindings:**
 
@@ -320,6 +478,22 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
 - **Efficient execution**: All stages execute in a single optimized pass
 - **Named results**: Access intermediate results by name for detailed analysis
 - **Composability**: Build complex patterns from simpler named operations
+
+.. graphviz::
+
+   digraph let_dag {
+       rankdir=TB;
+       node [shape=box, style="filled,bold", fillcolor="#FFFACD", penwidth=2, color="#DAA520"];
+
+       suspicious [label="suspicious_accounts\n(stage 1)"];
+       flows [label="money_flows\n(stage 2)"];
+       ranked [label="ranked\n(stage 3)"];
+       clusters [label="high_risk_clusters\n(stage 4)", fillcolor="#90EE90", color="#228B22"];
+
+       suspicious -> flows [label="ref", style=bold, color="#4682B4", penwidth=2];
+       flows -> ranked [label="ref", style=bold, color="#4682B4", penwidth=2];
+       ranked -> clusters [label="ref", style=bold, color="#4682B4", penwidth=2];
+   }
 
 11. Run remotely
 ~~~~~~~~~~~~~~~~
@@ -341,10 +515,10 @@ You may want to run GFQL remotely because the data is remote or a GPU is availab
     from graphistry import n, e
 
     g2 = g1.upload()
-    assert g2._dataset_id is not None, "Uploading sets `dataset_id` for subsequent calls"
+    assert g2._dataset_id is not None, "Uploading sets ``dataset_id`` for subsequent calls"
     g3 = g2.gfql_remote([n(), e(), n()])
 
-Additional parameters enable controlling options such as the execution `engine` and what is returned 
+Additional parameters enable controlling options such as the execution ``engine`` and what is returned 
 
 **Example: Bind to existing remote data and fetch it**
 
@@ -370,7 +544,8 @@ Additional parameters enable controlling options such as the execution `engine` 
         }
 
     g = graphistry.bind(dataset_id='my-dataset-id')
-    print(g.python_remote_json(compute_shape))
+    shape_info = g.python_remote_json(compute_shape)
+    # shape_info: {'nodes': (1000, 5), 'edges': (5000, 3)}
 
 **Example: Run Python on remote GPUs and return a graph**
 
@@ -382,7 +557,7 @@ Additional parameters enable controlling options such as the execution `engine` 
 
     g = graphistry.bind(dataset_id='my-dataset-id')
     g2 = g.python_remote_g(compute_shape)
-    print(g2._nodes)
+    # g2._nodes: DataFrame returned from remote execution
 
 Conclusion and Next Steps
 -------------------------

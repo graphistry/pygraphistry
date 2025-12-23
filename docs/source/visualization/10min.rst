@@ -70,6 +70,12 @@ PyGraphistry supports flexible shaping of your graph data:
     # ... + df2[['n', ...]]
     graphistry.edges(df, 'src', 'dst').nodes(df2, 'n').plot()
 
+  Example visualization:
+
+  .. raw:: html
+
+      <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=706267dc814545dcb1d0dc634e52f07d&type=arrow&viztoken=a6820453-f52e-4480-8922-9f17aa674c50&usertag=ef9e6f8d-pygraphistry-0.48.0+78.g743cd9d3&splashAfter=1766373653&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 - **Hypergraph**: Use multiple columns for nodes for more complex visualizations
   
   .. code-block:: python
@@ -109,11 +115,58 @@ PyGraphistry's :ref:`Layout catalog <layout-catalog>` provides many options, cov
 
 - **Plugin Layouts**: Integrated use of external libraries for specific layouts:
 
-  - :ref:`Graphviz <graphviz>` for hierarchical and directed layouts such as the `"dot"` engine
+  - :ref:`Graphviz <graphviz>` for hierarchical and directed layouts such as the ``"dot"`` engine
   - :ref:`cuGraph <cugraph>` for GPU-accelerated FA2, a weaker version of Graphistry's live layout
   - :ref:`igraph <igraph>` for CPU-based layouts, similar to GraphViz and with layouts that focus more on medium-sized social networks
 
-- **External Layouts**: Pass in `x`, `y` columns, such as from your own edits, external data, or external ML/AI packages:
+Static Graphviz render (for docs/notebooks)
+-------------------------------------------
+
+When you need a quick static image without an interactive client, render directly with Graphviz. ``plot_static`` auto-displays in Jupyter and returns an SVG/Image object (use ``.data`` for raw bytes):
+
+.. code-block:: python
+
+    # Auto-displays inline in Jupyter notebooks
+    g.plot_static(format='svg', max_nodes=200, max_edges=400)
+
+Example visualization (static):
+
+.. raw:: html
+
+   <figure class="align-center">
+     <img src="../_static/visualization/plot_static_example.png" alt="Example static plot rendered with plot_static" style="width: 90%;" />
+   </figure>
+
+Text-only outputs
+-----------------
+
+Emit DOT or Mermaid DSL for downstream rendering or embedding:
+
+.. code-block:: python
+
+    dot_text = g.plot_static(engine='graphviz-dot', reuse_layout=True)
+    mermaid_text = g.plot_static(engine='mermaid-code', reuse_layout=False)
+
+Example DOT output:
+
+.. code-block:: dot
+
+    digraph G {
+        a -> b;
+        b -> c;
+        a -> tx1;
+    }
+
+Example Mermaid output:
+
+.. code-block:: text
+
+    graph LR
+      a --> b
+      b --> c
+      a --> tx1
+
+- **External Layouts**: Pass in ``x``, ``y`` columns, such as from your own edits, external data, or external ML/AI packages:
 
    .. code-block:: python
 
@@ -134,7 +187,21 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
   .. code-block:: python
 
-      g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}).plot()
+      g.encode_point_color('type', categorical_mapping={'A': 'red', 'B': 'blue'}, default_mapping='gray').plot()
+
+  Example visualization:
+
+  .. raw:: html
+
+      <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=b055da15eabb4271a98d76e1955fe125&type=arrow&viztoken=0b236032-2639-48e8-a733-f791eb0b4ba9&usertag=ef9e6f8d-pygraphistry-0.48.0+78.g743cd9d3&splashAfter=1766373655&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
+  Example visualization (static):
+
+  .. raw:: html
+
+     <figure class="align-center">
+       <img src="../_static/visualization/node_edge_encodings_static.png" alt="Example static node/edge encoding render" style="width: 90%;" />
+     </figure>
 
 * **Categorical & Continuous Mappings**: Handle both discrete and continuous data:
 
@@ -194,7 +261,7 @@ For a complete list of parameters, refer to the `official REST URL params page <
 Plotting: Inline and URL Rendering
 ----------------------------------
 
-Once you're ready to visualize, use `.plot()` to render:
+Once you're ready to visualize, use ``.plot()`` to render:
 
 - **Inline Plotting**: Directly embed interactive visualizations in your notebook or Python environment:
 
@@ -209,7 +276,30 @@ Once you're ready to visualize, use `.plot()` to render:
       url = g.plot(render=False)
       print(f"View your graph at: {url}")
 
-  You can further control the embeded visualization using URL parameters and JavaScript 
+  You can further control the embeded visualization using URL parameters and JavaScript
+
+Static Image Export
+~~~~~~~~~~~~~~~~~~~
+
+For non-interactive outputs (documentation, reports, presentations), use ``plot_static()``:
+
+.. code-block:: python
+
+    # Quick static SVG (auto-displays in Jupyter)
+    g.plot_static()
+
+    # With styling
+    g.plot_static(
+        graph_attr={'rankdir': 'LR', 'bgcolor': 'white'},
+        node_attr={'style': 'filled', 'fillcolor': 'lightblue'}
+    )
+
+    # Save to file
+    g.plot_static(format='png', path='graph.png')
+
+Works with any layout source (UMAP, ring, graphviz, or manual x/y positions).
+
+See the `static rendering tutorial <../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_ for styling options, output formats, and complete examples.
 
 .. _extra:
 

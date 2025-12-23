@@ -78,6 +78,15 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
     g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
 
+Example visualization (static):
+
+.. raw:: html
+
+   <figure class="align-center">
+     <img src="../_static/gfql/gfql_overview_2_hops.png" alt="GFQL 2-hop example rendered with plot_static" style="width: 90%;" />
+     <figcaption>2-hop "interesting" edges rendered with <code>plot_static()</code>.</figcaption>
+   </figure>
+
 **Find Nodes 1-2 Hops Away and Label Each Hop**
 
 Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
@@ -296,6 +305,33 @@ Example: Visualize high PageRank nodes.
     # Plot the subgraph
     g_high_pagerank.plot()
 
+Example visualization (graphviz):
+
+.. graphviz::
+
+   digraph high_pagerank {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\npagerank=0.18", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\npagerank=0.12", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\npagerank=0.05", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\npagerank=0.16", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+
+       a -> b [color="#228B22", penwidth=2];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#228B22", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
+   }
+
+Example visualization (interactive):
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=1d52d9a62e034d9c94e09f5be45e3caa&type=arrow&viztoken=70cfc1a1-9ec0-44af-bbe3-d55d18e5ac4d&usertag=ef9e6f8d-pygraphistry-0.48.0+75.gf422e208&splashAfter=1766373305&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 .. rubric:: Learn More
 
 Explore the following sections to dive deeper into GFQL's capabilities:
@@ -328,4 +364,3 @@ Access detailed documentation of GFQL's API:
 - **Predicates**: Apply advanced filtering using predicates.
 
   - :doc:`../api/gfql/predicates`
-

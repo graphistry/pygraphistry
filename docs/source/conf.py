@@ -773,7 +773,7 @@ def remove_external_images_for_latex(app, doctree, fromdocname):
 
 def assert_external_images_removed(app, doctree, fromdocname):
     """Assert that external images have been removed."""
-    if app.builder.name in ['html']:  # Extend to all builds if needed
+    if app.builder.name in ['html', 'singlehtml']:  # HTML builders can render external images
         return
 
     for node in doctree.traverse(nodes.image):
