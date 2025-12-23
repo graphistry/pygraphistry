@@ -10,8 +10,10 @@ build:
   tools:
     python: "3.12"
   apt_packages:
+    # System dependencies - now works because we use jobs instead of commands
     # More closely mirror https://github.com/sphinx-doc/sphinx-docker-images
     - graphviz
+    - graphviz-dev  # Headers for pygraphviz compilation
     - imagemagick
     - make
     - pandoc
@@ -19,37 +21,38 @@ build:
     - texlive-latex-recommended
     - texlive-latex-extra
     - texlive-fonts-recommended
-  commands:
+  jobs:
+    post_install:
+      # Copy content into docs/source after pip install
+      - cp -r demos docs/source/demos
+      - cp README.md docs/source/README.md
+      - cp ARCHITECTURE.md docs/source/ARCHITECTURE.md
+      - cp CONTRIBUTING.md docs/source/CONTRIBUTING.md
+      - cp DEVELOP.md docs/source/DEVELOP.md
+    build:
+      html:
+        - sphinx-build -b html -d docs/doctrees docs/source $READTHEDOCS_OUTPUT/html/
+      epub:
+        - sphinx-build -b epub -d docs/doctrees docs/source docs/_build/epub
+        - mkdir -p $READTHEDOCS_OUTPUT/epub
+        - cp docs/_build/epub/PyGraphistry.epub $READTHEDOCS_OUTPUT/epub/PyGraphistry.epub
+      pdf:
+        # Build LaTeX then run pdflatex 3 times to resolve cross-references
+        - sphinx-build -b latex -d docs/doctrees docs/source docs/_build/latexpdf
+        - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+        - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+        - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
+        - mkdir -p $READTHEDOCS_OUTPUT/pdf
+        - cp docs/_build/latexpdf/PyGraphistry.pdf $READTHEDOCS_OUTPUT/pdf/PyGraphistry.pdf
 
-    # setup
-    - pip install ".[docs]"
-    - cp -r demos docs/source/demos
-    - cp README.md docs/source/README.md
-    - cp ARCHITECTURE.md docs/source/ARCHITECTURE.md
-    - cp CONTRIBUTING.md docs/source/CONTRIBUTING.md
-    - cp DEVELOP.md docs/source/DEVELOP.md
-
-    # build html
-    - sphinx-build -b html -d docs/doctrees docs/source $READTHEDOCS_OUTPUT/html/
-
-    # build epub
-    - sphinx-build -b epub -d docs/doctrees docs/source docs/_build/latexpdf
-    - mkdir -p $READTHEDOCS_OUTPUT/epub
-    - cp docs/_build/latexpdf/PyGraphistry.epub $READTHEDOCS_OUTPUT/epub/PyGraphistry.epub
-
-    # build pdf - run pdflatex 3 times to resolve cross-references
-    - sphinx-build -b latex -d docs/doctrees docs/source docs/_build/latexpdf
-    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
-    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
-    - cd docs/_build/latexpdf && pdflatex -file-line-error -interaction=nonstopmode PyGraphistry.tex
-    - mkdir -p $READTHEDOCS_OUTPUT/pdf
-    - cp docs/_build/latexpdf/PyGraphistry.pdf $READTHEDOCS_OUTPUT/pdf/PyGraphistry.pdf
-
-#for nav links?
 formats:
   - pdf
   - epub
   - htmlzip
+
+# sphinx key triggers RTD's Sphinx support for environment/install steps
+sphinx:
+  configuration: docs/source/conf.py
 
 python:
   install:
@@ -57,3 +60,4 @@ python:
       path: .
       extra_requirements:
         - docs
+        - pygraphviz  # For plot_static() notebook execution

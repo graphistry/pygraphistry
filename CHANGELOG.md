@@ -8,6 +8,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.49.0 - 2025-12-22]
+
+### Added
+- **Graphviz / plot_static**: Added text outputs (`graphviz-dot`, `mermaid-code`) and image outputs (`graphviz-svg`, `graphviz-png`), plus `graphviz` for any Graphviz format. Honors `reuse_layout` for bound positions, supports optional file outputs, and returns display-ready SVG/Image objects for notebooks; Graphviz render accepts passthrough args/positions for consistent layouts.
+
+### Docs
+- **Graphviz guides (RST)**: Updated [10min](https://pygraphistry.readthedocs.io/en/latest/10min.html), [Visualization 10min](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html), [GFQL overview](https://pygraphistry.readthedocs.io/en/latest/gfql/overview.html), [GFQL about](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html), [Ecosystem](https://pygraphistry.readthedocs.io/en/latest/ecosystem.html), and [Layout catalog](https://pygraphistry.readthedocs.io/en/latest/visualization/layout/catalog.html) with static Graphviz examples, DOT/Mermaid text output snippets where relevant, and improved diagrams.
+- **Graphviz reference (RST)**: Expanded [Graphviz plugin docs](https://pygraphistry.readthedocs.io/en/latest/api/plugins/compute/graphviz.html) with static rendering guidance.
+- **Graphviz notebooks (ipynb)**: Refreshed outputs in [Graphviz demo](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/graphviz/graphviz.html), [Static rendering](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/graphviz/static_rendering.html), and [Hop/Chain graph pattern mining](https://pygraphistry.readthedocs.io/en/latest/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.html).
+- **Docs tooling**: Enabled `sphinx.ext.graphviz`, allowed rstcheck `graphviz` directive, and installed graphviz/pygraphviz/gcc in the docs Docker image; `docs/ci.sh` now builds only the sphinx service for CI.
+- **Related MyST/Markdown**: GFQL spec docs remain at [GFQL spec index](https://pygraphistry.readthedocs.io/en/latest/gfql/spec/index.html).
+- **RTD**: Fixed graphviz on Read the Docs by switching from `build.commands` to `build.jobs` (RTD's `apt_packages` is incompatible with `commands`). Docs now fail fast with clear error if `dot` is missing.
+
+### Tests
+- **Graphviz**: Added coverage for `plot_static` DOT/Mermaid engines and position reuse.
+
 ## [0.48.0 - 2025-12-20]
 
 ### Added

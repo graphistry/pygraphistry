@@ -1,7 +1,6 @@
 Visualization
 ==========================
 
-
 Encodings
 ---------
 
@@ -24,6 +23,16 @@ Geographic (Kepler.gl)
    :titlesonly:
 
    Geospatial Network Visualization <../demos/more_examples/graphistry_features/layout_map.ipynb>
+
+Static Export
+-------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Static image export for docs, reports, presentations
+   :titlesonly:
+
+   Static Rendering <../demos/demos_databases_apis/graphviz/static_rendering.ipynb>
 
 Layout
 -------

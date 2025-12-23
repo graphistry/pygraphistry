@@ -91,6 +91,8 @@ Visit the :ref:`API reference on graphviz page <graphviz>` for more examples.
 
     g.layout_graphviz('dot').plot()
 
+For static image export (SVG, PNG) instead of interactive visualization, see :py:meth:`~graphistry.PlotterBase.PlotterBase.plot_static` and the `static rendering tutorial <../../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_.
+
 .. _igraph-plugin:
 
 igraph Plugin

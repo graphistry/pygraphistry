@@ -5,7 +5,7 @@ FROM sphinxdoc/sphinx:8.0.2
 WORKDIR /docs
 
 
-# Step 1: Install necessary system dependencies including Pandoc, with caching for apt-get
+# Step 1: Install necessary system dependencies including Pandoc and Graphviz, with caching for apt-get
 COPY docs/requirements-system.txt /requirements-system.txt
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
@@ -23,6 +23,7 @@ COPY ../../graphistry /docs/graphistry
 # Install graphistry in editable mode so it's available for notebook execution
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e .[docs] && \
+    python3 -m pip install pygraphviz && \
     python3 -m ipykernel install --sys-prefix --name python3
 
 # Step 5: Copy the build script and config files into the container
