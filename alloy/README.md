@@ -27,3 +27,4 @@ Env vars:
 - Null/NaN semantics excluded; verified in Python/cuDF tests.
 - Hashing omitted; treat any hashing as sound prefilter, exactness rechecked in model.
 - Model uses set semantics for outputs (nodes/edges appearing on some satisfying path).
+- Hop ranges/output slicing (`min_hops`/`max_hops`/`output_min_hops`/`output_max_hops`) are not explicitly modeled; approximate by unrolling to fixed-length chains and treating output slicing as hop-position filtering.

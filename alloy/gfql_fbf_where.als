@@ -12,6 +12,7 @@ open util/integer
 // - nFilter/eFilter correspond to per-step filter columns; WHERE models cross-step predicates.
 // - Spec uses path bindings (sequence) like hop composition; Algo uses set semantics like executor.
 // - Null/NaN not modeled; hashing treated as prefilter and omitted here.
+// - Hop ranges/output slicing (min/max/output bounds) are not explicitly modeled; approximate via unrolled fixed-length chains.
 
 abstract sig Value {}
 sig Val extends Value {}
