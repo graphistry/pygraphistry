@@ -15,19 +15,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
-- **GFQL**: `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
-- **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).
-
-### Docs
-- **GFQL validation**: Clarified `Chain` constructor validation defaults, `validate=False` defer option, validation phases, and guidance for large/nested ASTs to reduce redundant validation (issue #860).
 
 ### Tests
 - **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
 - **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
 
 ### Infra
-- **CI / docs-only**: Skip Python lint/type/test matrices when the tip commit only touches docs/markdown/notebooks, and warm a shared HuggingFace cache with pinned CPU torch for AI jobs to avoid HF throttling.
-- **Tooling**: `bin/lint.sh` / `bin/typecheck.sh` resolve interpreters consistently (uv → python -m → bare) without forcing PYTHON_VERSION, keeping developer and CI runs aligned.
+- **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
+- **CI / typecheck**: Stop forcing `PYTHON_VERSION` for mypy; rely on the job interpreter and `mypy.ini` defaults.
 
 ## [0.49.0 - 2025-12-22]
 
@@ -44,6 +39,48 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 - **Graphviz**: Added coverage for `plot_static` DOT/Mermaid engines and position reuse.
+
+## [0.48.0 - 2025-12-20]
+
+### Added
+- **Arrow:** New `to_arrow()` public method for debugging DataFrame->Arrow conversion issues (#867).
+- **Validation:** New `validate` parameter for `plot()` and `upload()` with modes:
+  - `'autofix'` (default): Auto-coerce mixed-type columns to string + emit warning
+  - `'strict'`: Raise `ArrowConversionError` on mixed types; may do data-level inspection
+  - `'strict-fast'`: Same as strict but stays at metadata/schema level only (for high-throughput pipelines)
+
+- **Validation:** New `validate` + `warn` parameters for `plot()`, `upload()`, and `to_arrow()` to control conversion behavior. `warn` controls warning emission during autofix conversions (default `True`; `validate=False` forces `warn=False`). Backward compatible: `validate=True` maps to `'strict'`, `validate=False` maps to `'autofix'` with `warn=False`. Encoding validation errors are also controlled by these modes. Works with pandas, cuDF, dask, dask_cudf, and Spark/Databricks DataFrames (#867).
+
+### Changed
+- **Arrow:** Auto-coerce mixed-type columns to string during Arrow conversion, preventing `ArrowTypeError` and `ArrowInvalid` exceptions when DataFrames contain columns with mixed types (e.g., bytes/float/string or list/scalar). Emits `RuntimeWarning` listing coerced columns. Applies to pandas, cuDF, and distributed DataFrames (dask, Spark) after collection (#867).
+
+## [0.47.0 - 2025-12-15]
+
+### Breaking 🔥
+- **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of API v3.
+  * Removed `_etl1()`, `_etl_url()`, `_check_url()` methods from `pygraphistry.py`
+  * Removed API v1 dispatch path from `PlotterBase.py`
+  * Changed `register(api=...)` parameter type from `Literal[1, 3]` to `Literal[3]`
+  * Updated `client_session.py` type from `Literal["arrow", "vgraph"]` to `Literal["arrow"]`
+  * **Server Compatibility**: Graphistry server v2.45.7+ no longer supports api=1/2 uploads
+  * **Migration**: Users calling `graphistry.register(api=1)` must switch to `graphistry.register(api=3)` or omit the parameter (defaults to v3)
+  * **Auth Migration**: Users previously using `register(api=1, key="...")` must switch to JWT-based auth:
+    - Username/password: `graphistry.register(api=3, username="...", password="...")`
+    - Personal keys (recommended for scripts): `graphistry.register(api=3, personal_key_id="...", personal_key_secret="...")`
+    - SSO: `graphistry.register(api=3, org_name="...", idp_name="...")`
+    - See [authentication docs](https://pygraphistry.readthedocs.io/en/latest/server/register.html) for full options
+
+## [0.46.1 - 2025-12-10]
+
+### Added
+- **GFQL**: Added auto_graph_renderer_switching config option for Kepler maps.
+
+### Fixed
+- **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
+- **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).
+
+### Docs
+- **GFQL validation:** Clarified `Chain` constructor validation defaults, `validate=False` defer option, validation phases, and guidance for large/nested ASTs to reduce redundant validation (issue #860).
 
 ## [0.46.0 - 2025-12-01]
 
@@ -69,7 +106,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 - **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
-- **CI / Lint & Types**: Split lint/type runners from resolution: `bin/flake8.sh`/`bin/mypy.sh` are now minimal and respect `FLAKE8_CMD`/`MYPY_CMD`; `bin/lint.sh`/`bin/typecheck.sh` resolve `uvx` → `python -m …` → bare tool, relying on `mypy.ini`’s interpreter default instead of forcing 3.8. CI still uses `.[test]` installs and the matrix interpreters.
 - **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
