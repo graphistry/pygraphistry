@@ -12,14 +12,14 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Literal, Sequence, Set, List, Optional, Any, cast
+from typing import Dict, Literal, Sequence, Set, List, Optional, Any, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
-from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
+from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
 from graphistry.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.gfql.same_path_types import WhereComparison
 from graphistry.compute.typing import DataFrameT
@@ -189,8 +189,9 @@ class CuDFSamePathExecutor:
                 max_nodes=1000, max_edges=5000, max_length=20, max_partial_rows=1_000_000
             ),
         )
+        nodes_df, edges_df = self._apply_oracle_hop_labels(oracle)
         self._update_alias_frames_from_oracle(oracle.tags)
-        return self._materialize_from_oracle(oracle.nodes, oracle.edges)
+        return self._materialize_from_oracle(nodes_df, edges_df)
 
     # --- GPU path placeholder --------------------------------------------------------
 
@@ -356,7 +357,13 @@ class CuDFSamePathExecutor:
             # Apply value-based clauses between adjacent aliases
             left_alias = self._alias_for_step(left_node_idx)
             right_alias = self._alias_for_step(right_node_idx)
-            if left_alias and right_alias:
+            edge_op = self.inputs.chain[edge_idx]
+            if (
+                isinstance(edge_op, ASTEdge)
+                and self._is_single_hop(edge_op)
+                and left_alias
+                and right_alias
+            ):
                 filtered = self._filter_edges_by_clauses(
                     filtered, left_alias, right_alias, allowed_nodes
                 )
@@ -468,6 +475,18 @@ class CuDFSamePathExecutor:
                     out_df = out_df[mask]
 
         return out_df
+
+    @staticmethod
+    def _is_single_hop(op: ASTEdge) -> bool:
+        hop_min = op.min_hops if op.min_hops is not None else (
+            op.hops if isinstance(op.hops, int) else 1
+        )
+        hop_max = op.max_hops if op.max_hops is not None else (
+            op.hops if isinstance(op.hops, int) else hop_min
+        )
+        if hop_min is None or hop_max is None:
+            return False
+        return hop_min == 1 and hop_max == 1
 
     def _apply_inequality_clause(
         self,
@@ -599,6 +618,38 @@ class CuDFSamePathExecutor:
         if allowed_edge_ids and edge_id and edge_id in filtered_edges.columns:
             filtered_edges = filtered_edges[filtered_edges[edge_id].isin(list(allowed_edge_ids))]
 
+        filtered_nodes = self._merge_label_frames(
+            filtered_nodes,
+            self._collect_label_frames("node"),
+            node_id,
+        )
+        if edge_id is not None:
+            filtered_edges = self._merge_label_frames(
+                filtered_edges,
+                self._collect_label_frames("edge"),
+                edge_id,
+            )
+
+        filtered_edges = self._apply_output_slices(filtered_edges, "edge")
+
+        has_output_slice = any(
+            isinstance(op, ASTEdge)
+            and (op.output_min_hops is not None or op.output_max_hops is not None)
+            for op in self.inputs.chain
+        )
+        if has_output_slice:
+            if len(filtered_edges) > 0:
+                endpoint_ids = set(filtered_edges[src].tolist()) | set(
+                    filtered_edges[dst].tolist()
+                )
+                filtered_nodes = filtered_nodes[
+                    filtered_nodes[node_id].isin(list(endpoint_ids))
+                ]
+            else:
+                filtered_nodes = self._apply_output_slices(filtered_nodes, "node")
+        else:
+            filtered_nodes = self._apply_output_slices(filtered_nodes, "node")
+
         for alias, binding in self.inputs.alias_bindings.items():
             frame = filtered_nodes if binding.kind == "node" else filtered_edges
             id_col = self._node_column if binding.kind == "node" else self._edge_column
@@ -610,6 +661,118 @@ class CuDFSamePathExecutor:
             self.alias_frames[alias] = subset
 
         return self._materialize_from_oracle(filtered_nodes, filtered_edges)
+
+    @staticmethod
+    def _needs_auto_labels(op: ASTEdge) -> bool:
+        return bool(
+            (op.output_min_hops is not None or op.output_max_hops is not None)
+            or (op.min_hops is not None and op.min_hops > 0)
+        )
+
+    @staticmethod
+    def _resolve_label_cols(op: ASTEdge) -> Tuple[Optional[str], Optional[str]]:
+        node_label = op.label_node_hops
+        edge_label = op.label_edge_hops
+        if CuDFSamePathExecutor._needs_auto_labels(op):
+            node_label = node_label or "__gfql_output_node_hop__"
+            edge_label = edge_label or "__gfql_output_edge_hop__"
+        return node_label, edge_label
+
+    def _collect_label_frames(self, kind: AliasKind) -> List[DataFrameT]:
+        frames: List[DataFrameT] = []
+        id_col = self._node_column if kind == "node" else self._edge_column
+        if id_col is None:
+            return frames
+        for idx, op in enumerate(self.inputs.chain):
+            if not isinstance(op, ASTEdge):
+                continue
+            step = self.forward_steps[idx]
+            df = step._nodes if kind == "node" else step._edges
+            if df is None or id_col not in df.columns:
+                continue
+            node_label, edge_label = self._resolve_label_cols(op)
+            label_col = node_label if kind == "node" else edge_label
+            if label_col is None or label_col not in df.columns:
+                continue
+            frames.append(df[[id_col, label_col]])
+        return frames
+
+    @staticmethod
+    def _merge_label_frames(
+        base_df: DataFrameT,
+        label_frames: Sequence[DataFrameT],
+        id_col: str,
+    ) -> DataFrameT:
+        out_df = base_df
+        for frame in label_frames:
+            label_cols = [c for c in frame.columns if c != id_col]
+            if not label_cols:
+                continue
+            merged = safe_merge(out_df, frame[[id_col] + label_cols], on=id_col, how="left")
+            for col in label_cols:
+                col_x = f"{col}_x"
+                col_y = f"{col}_y"
+                if col_x in merged.columns and col_y in merged.columns:
+                    merged = merged.assign(**{col: merged[col_x].fillna(merged[col_y])})
+                    merged = merged.drop(columns=[col_x, col_y])
+            out_df = merged
+        return out_df
+
+    def _apply_output_slices(self, df: DataFrameT, kind: AliasKind) -> DataFrameT:
+        out_df = df
+        for op in self.inputs.chain:
+            if not isinstance(op, ASTEdge):
+                continue
+            if op.output_min_hops is None and op.output_max_hops is None:
+                continue
+            label_col = self._select_label_col(out_df, op, kind)
+            if label_col is None or label_col not in out_df.columns:
+                continue
+            mask = out_df[label_col].notna()
+            if op.output_min_hops is not None:
+                mask = mask & (out_df[label_col] >= op.output_min_hops)
+            if op.output_max_hops is not None:
+                mask = mask & (out_df[label_col] <= op.output_max_hops)
+            out_df = out_df[mask]
+        return out_df
+
+    def _select_label_col(
+        self, df: DataFrameT, op: ASTEdge, kind: AliasKind
+    ) -> Optional[str]:
+        node_label, edge_label = self._resolve_label_cols(op)
+        label_col = node_label if kind == "node" else edge_label
+        if label_col and label_col in df.columns:
+            return label_col
+        hop_like = [c for c in df.columns if "hop" in c]
+        return hop_like[0] if hop_like else None
+
+    def _apply_oracle_hop_labels(self, oracle: "OracleResult") -> Tuple[DataFrameT, DataFrameT]:
+        nodes_df = oracle.nodes
+        edges_df = oracle.edges
+        node_id = self._node_column
+        edge_id = self._edge_column
+        node_labels = oracle.node_hop_labels or {}
+        edge_labels = oracle.edge_hop_labels or {}
+
+        node_frames: List[DataFrameT] = []
+        edge_frames: List[DataFrameT] = []
+        for op in self.inputs.chain:
+            if not isinstance(op, ASTEdge):
+                continue
+            node_label, edge_label = self._resolve_label_cols(op)
+            if node_label and node_id and node_id in nodes_df.columns and node_labels:
+                node_series = nodes_df[node_id].map(node_labels)
+                node_frames.append(pd.DataFrame({node_id: nodes_df[node_id], node_label: node_series}))
+            if edge_label and edge_id and edge_id in edges_df.columns and edge_labels:
+                edge_series = edges_df[edge_id].map(edge_labels)
+                edge_frames.append(pd.DataFrame({edge_id: edges_df[edge_id], edge_label: edge_series}))
+
+        if node_id is not None and node_frames:
+            nodes_df = self._merge_label_frames(nodes_df, node_frames, node_id)
+        if edge_id is not None and edge_frames:
+            edges_df = self._merge_label_frames(edges_df, edge_frames, edge_id)
+
+        return nodes_df, edges_df
 
     def _alias_for_step(self, step_index: int) -> Optional[str]:
         for alias, binding in self.inputs.alias_bindings.items():
