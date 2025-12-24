@@ -81,7 +81,7 @@ g.gfql([
 | `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "KNOWS"}, "name": "r"}` |
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
 | `-[r]-` | `e(name="r")` | `{"type": "Edge", "direction": "undirected", "name": "r"}` |
-| `(n1)-[*2]->(n2)` | `e_forward(hops=2)` | `{"type": "Edge", "direction": "forward", "hops": 2}` |
+| `(n1)-[*2]->(n2)` | `e_forward(min_hops=2, max_hops=2)` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 2}` |
 | `(n1)-[*1..3]->(n2)` | `e_forward(min_hops=1, max_hops=3)` | `{"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 3}` |
 | `(n1)-[*3..3]->(n2)` | `e_forward(min_hops=3, max_hops=3)` | `{"type": "Edge", "direction": "forward", "min_hops": 3, "max_hops": 3}` |
 | `(n1)-[*2..4]->(n2)` but only show hops 3..4 | `e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 4, "output_min_hops": 3, "label_edge_hops": "edge_hop"}` |
@@ -121,7 +121,7 @@ WHERE fof.active = true
 ```python
 g.gfql([
     n({"type": "User", "name": "Alice"}),
-    e_forward({"type": "FRIEND"}, hops=2),
+    e_forward({"type": "FRIEND"}, min_hops=2, max_hops=2),
     n({"type": "User", "active": True}, name="fof")
 ])
 ```
@@ -130,7 +130,7 @@ g.gfql([
 ```json
 {"type": "Chain", "chain": [
   {"type": "Node", "filter_dict": {"type": "User", "name": "Alice"}},
-  {"type": "Edge", "direction": "forward", "edge_match": {"type": "FRIEND"}, "hops": 2},
+  {"type": "Edge", "direction": "forward", "edge_match": {"type": "FRIEND"}, "min_hops": 2, "max_hops": 2},
   {"type": "Node", "filter_dict": {"type": "User", "active": true}, "name": "fof"}
 ]}
 ```

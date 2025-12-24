@@ -103,8 +103,8 @@
   "direction": "forward|reverse|undirected",   // required
   "max_hops": 1,                               // default: 1 (hops shorthand)
   "min_hops": 1,                               // optional; default 1 unless max_hops is 0
-  "output_min_hops": 1,                        // optional post-filter slice; defaults keep 1..max_hops
-  "output_max_hops": 1,                        // optional post-filter cap; defaults to max_hops
+  "output_min_hops": 1,                        // optional post-filter slice; omit to keep min_hops..max_hops
+  "output_max_hops": 1,                        // optional post-filter cap; omit to keep max_hops
   "label_node_hops": "hop",                    // optional; omit/null to skip node hop labels
   "label_edge_hops": "edge_hop",               // optional; omit/null to skip edge hop labels
   "label_seeds": false,                        // optional; when true, label seeds at hop 0
@@ -184,16 +184,16 @@
 }
 ```
 
-**Multi-hop (friends of friends):**
+**Multi-hop (friends of friends only):**
 ```python
-# Dense: [n({'name': 'Alice'}), e_forward(min_hops=1, max_hops=2), n()]
+# Dense: [n({'name': 'Alice'}), e_forward(min_hops=2, max_hops=2), n()]
 ```
 ```json
 {
   "type": "Chain",
   "chain": [
     {"type": "Node", "filter_dict": {"name": "Alice"}},
-    {"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 2, "to_fixed_point": false},
+    {"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 2, "to_fixed_point": false},
     {"type": "Node", "filter_dict": {}}
   ]
 }
