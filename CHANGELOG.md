@@ -24,7 +24,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
 - **CI / typecheck**: Stop forcing `PYTHON_VERSION` for mypy; rely on the job interpreter and `mypy.ini` defaults.
 
-## [0.49.0 - 2025-12-22]
+## [0.50.0 - 2025-12-24]
 
 ### Added
 - **Graphviz / plot_static**: Added text outputs (`graphviz-dot`, `mermaid-code`) and image outputs (`graphviz-svg`, `graphviz-png`), plus `graphviz` for any Graphviz format. Honors `reuse_layout` for bound positions, supports optional file outputs, and returns display-ready SVG/Image objects for notebooks; Graphviz render accepts passthrough args/positions for consistent layouts.
