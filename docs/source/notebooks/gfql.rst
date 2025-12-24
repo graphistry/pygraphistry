@@ -7,6 +7,7 @@ GFQL Graph queries
    :titlesonly:
 
    Intro to graph queries with hop and chain <../demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb>
+   Hop ranges, slices, and labels <../gfql/hop_bounds.ipynb>
    GFQL Validation Fundamentals <../demos/gfql/gfql_validation_fundamentals.ipynb>
    DateTime Filtering Examples <../demos/gfql/temporal_predicates.ipynb>
    GPU Benchmarking <../demos/gfql/benchmark_hops_cpu_gpu.ipynb>

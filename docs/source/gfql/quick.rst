@@ -61,12 +61,12 @@ Edge Matchers
 
 .. code-block:: python
 
-  e_forward(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_reverse(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_undirected(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_forward(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_reverse(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_undirected(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
   
   # alias for e_undirected
-  e(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
 
 :meth:`e <graphistry.compute.ast.e>` matches edges based on their attributes (undirected). May also include matching on edge's source and destination nodes.
 
@@ -77,6 +77,9 @@ Edge Matchers
   - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
   - `edge_query`: Custom query string for edge attributes.
   - `hops`: `int`, number of hops to traverse.
+  - `min_hops`/`max_hops`: Inclusive traversal bounds (min defaults to 1 unless max_hops is 0; max defaults to `hops`).
+  - `output_min_hops`/`output_max_hops`: Optional post-filter slice; defaults keep all traversed hops up to `max_hops`.
+  - `label_node_hops`/`label_edge_hops`: Optional column names for hop numbers; `label_seeds=True` adds hop 0 for seeds.
   - `to_fixed_point`: `bool`, continue traversal until no more matches.
   - `source_node_match`: Filter for source nodes.
   - `destination_node_match`: Filter for destination nodes.
@@ -86,11 +89,23 @@ Edge Matchers
 
 **Examples:**
 
-- Traverse 2 hops forward on edges where `status` is `'active'`:
+- Traverse up to 2 hops forward on edges where `status` is `'active'`:
 
   .. code-block:: python
 
       e_forward({"status": "active"}, hops=2)
+
+- Traverse 2..4 hops but show only hops 3..4 with labels:
+
+  .. code-block:: python
+
+      e_forward(
+          {"status": "active"},
+          min_hops=2,
+          max_hops=4,
+          output_min_hops=3,
+          label_edge_hops="edge_hop"
+      )
 
 - Use custom edge query strings:
 
@@ -504,7 +519,7 @@ Parameter Summary
 
   - `filter_dict`: Attribute filters (e.g., `{"status": "active"}`)
   - `query`: Custom query string (e.g., `"age > 30"`)
-  - `hops`: Number of steps to traverse (`int`, default `1`)
+  - `hops`: Max hops to traverse (shorthand for `max_hops`, default `1`)
   - `to_fixed_point`: Continue traversal until no more matches (`bool`, default `False`)
   - `name`: Label for matchers (`str`)
   - `source_node_match`, `destination_node_match`: Filters for connected nodes

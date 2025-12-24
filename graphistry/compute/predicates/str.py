@@ -1,7 +1,15 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
+
+import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
+
+
+def _cudf_mask_none(result: Any, mask: Any) -> Any:
+    result_pd = result.to_pandas().astype('object')
+    result_pd.iloc[mask] = None
+    return result_pd
 
 
 class Contains(ASTPredicate):
@@ -151,8 +159,6 @@ class Startswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    import pandas as pd
-                    # Create False for all values
                     result = pd.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default)
                     if self.na is None:
@@ -170,7 +176,6 @@ class Startswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    import pandas as pd
                     # Create False for all values
                     result = cudf.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
@@ -178,10 +183,9 @@ class Startswith(ASTPredicate):
                         # cuDF bool dtype can't hold None, so check if we need object dtype
                         has_na: bool = bool(s.isna().any())
                         if has_na:
-                            # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')  # type: ignore[operator]
-                            result_pd[s.to_pandas().isna()] = None
-                            result = cudf.from_pandas(result_pd)
+                            # Convert to object dtype and apply mask to preserve None values
+                            na_mask_arr = s.to_pandas().isna().to_numpy()
+                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
@@ -321,7 +325,6 @@ class Endswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    import pandas as pd
                     # Create False for all values
                     result = pd.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default)
@@ -340,7 +343,6 @@ class Endswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    import pandas as pd
                     # Create False for all values
                     result = cudf.Series([False] * len(s), index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
@@ -348,10 +350,9 @@ class Endswith(ASTPredicate):
                         # cuDF bool dtype can't hold None, so check if we need object dtype
                         has_na: bool = bool(s.isna().any())
                         if has_na:
-                            # Convert to object dtype to preserve None values
-                            result_pd = result.to_pandas().astype('object')  # type: ignore[operator]
-                            result_pd[s.to_pandas().isna()] = None
-                            result = cudf.from_pandas(result_pd)
+                            # Convert to object dtype and apply mask to preserve None values
+                            na_mask_arr = s.to_pandas().isna().to_numpy()
+                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()

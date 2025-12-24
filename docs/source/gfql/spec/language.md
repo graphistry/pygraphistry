@@ -107,7 +107,10 @@ edge_params ::= edge_match_params ("," hop_params)? ("," node_filter_params)? ("
 filter_dict ::= "{" (property_filter ("," property_filter)*)? "}"
 property_filter ::= string ":" (value | predicate)
 
-hop_params ::= "hops=" integer | "to_fixed_point=True"
+hop_params ::= hop_bound_params | hop_slice_params | hop_label_params | "hops=" integer | "to_fixed_point=True"
+hop_bound_params ::= "min_hops=" integer | "max_hops=" integer
+hop_slice_params ::= "output_min_hops=" integer | "output_max_hops=" integer
+hop_label_params ::= "label_node_hops=" string | "label_edge_hops=" string | "label_seeds=True"
 node_filter_params ::= source_filter ("," dest_filter)?
 source_filter ::= "source_node_match=" filter_dict | "source_node_query=" string
 dest_filter ::= "destination_node_match=" filter_dict | "destination_node_query=" string
@@ -185,11 +188,14 @@ n(query="age > 30 and status == 'active'")  # Query string
 
 Traverses edges in forward direction (source → destination).
 
-**Syntax**: `e_forward(edge_match?, hops?, to_fixed_point?, source_node_match?, destination_node_match?, name?)`
+**Syntax**: `e_forward(edge_match?, hops?, min_hops?, max_hops?, output_min_hops?, output_max_hops?, label_node_hops?, label_edge_hops?, label_seeds?, to_fixed_point?, source_node_match?, destination_node_match?, name?)`
 
 **Parameters**:
 - `edge_match`: Edge attribute filters
-- `hops`: Number of hops (default: 1)
+- `hops`: Number of hops (default: 1; shorthand for `max_hops`)
+- `min_hops`/`max_hops`: Inclusive traversal bounds (default min=1 unless max=0; max defaults to hops)
+- `output_min_hops`/`output_max_hops`: Optional post-filter slice; defaults keep all traversed hops up to `max_hops`
+- `label_node_hops`/`label_edge_hops`: Optional hop-number columns; `label_seeds=True` writes hop 0 for seeds when labeling
 - `to_fixed_point`: Continue until no new nodes (default: False)
 - `source_node_match`: Filters for source nodes
 - `destination_node_match`: Filters for destination nodes
@@ -199,6 +205,7 @@ Traverses edges in forward direction (source → destination).
 ```python
 e_forward()                           # One hop forward
 e_forward(hops=2)                     # Two hops forward
+e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")  # bounded + sliced + labeled
 e_forward(to_fixed_point=True)        # All reachable nodes
 e_forward({"type": "follows"})        # Only 'follows' edges
 e_forward(source_node_match={"active": True})  # From active nodes

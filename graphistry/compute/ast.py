@@ -272,6 +272,13 @@ class ASTEdge(ASTObject):
         direction: Optional[Direction] = DEFAULT_DIRECTION,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
+        min_hops: Optional[int] = None,
+        max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
+        label_node_hops: Optional[str] = None,
+        label_edge_hops: Optional[str] = None,
+        label_seeds: bool = False,
         to_fixed_point: bool = DEFAULT_FIXED_POINT,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
@@ -293,6 +300,13 @@ class ASTEdge(ASTObject):
             destination_node_match = None
 
         self.hops = hops
+        self.min_hops = min_hops
+        self.max_hops = max_hops
+        self.output_min_hops = output_min_hops
+        self.output_max_hops = output_max_hops
+        self.label_node_hops = label_node_hops
+        self.label_edge_hops = label_edge_hops
+        self.label_seeds = label_seeds
         self.to_fixed_point = to_fixed_point
         self.direction : Direction = direction
         self.source_node_match = source_node_match
@@ -303,7 +317,7 @@ class ASTEdge(ASTObject):
         self.edge_query = edge_query
 
     def __repr__(self) -> str:
-        return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
+        return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
 
     def _validate_fields(self) -> None:
         """Validate edge fields."""
@@ -317,6 +331,77 @@ class ASTEdge(ASTObject):
                     value=self.hops,
                     suggestion="Use hops=2 for specific count, or to_fixed_point=True for unbounded",
                 )
+
+        # Validate hop bounds/slices
+        for field_name, field_val in [
+            ("min_hops", self.min_hops),
+            ("max_hops", self.max_hops),
+            ("output_min_hops", self.output_min_hops),
+            ("output_max_hops", self.output_max_hops),
+        ]:
+            if field_val is not None and (not isinstance(field_val, int) or field_val < 0):
+                raise GFQLTypeError(
+                    ErrorCode.E103,
+                    f"{field_name} must be a non-negative integer or None",
+                    field=field_name,
+                    value=field_val,
+                )
+
+        if self.min_hops is not None and self.max_hops is not None and self.min_hops > self.max_hops:
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "min_hops cannot exceed max_hops",
+                field="min_hops",
+                value=self.min_hops,
+                suggestion="Set min_hops <= max_hops",
+            )
+
+        if self.output_min_hops is not None and self.output_max_hops is not None and self.output_min_hops > self.output_max_hops:
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "output_min_hops cannot exceed output_max_hops",
+                field="output_min_hops",
+                value=self.output_min_hops,
+                suggestion="Set output_min_hops <= output_max_hops",
+            )
+
+        if self.output_min_hops is not None and self.max_hops is not None and self.output_min_hops > self.max_hops:
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "output_min_hops cannot exceed max_hops traversal bound",
+                field="output_min_hops",
+                value=self.output_min_hops,
+                suggestion="Lower output_min_hops or raise max_hops",
+            )
+
+        if self.output_max_hops is not None and self.min_hops is not None and self.output_max_hops < self.min_hops:
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "output_max_hops cannot be below min_hops traversal bound",
+                field="output_max_hops",
+                value=self.output_max_hops,
+                suggestion="Raise output_max_hops or lower min_hops",
+            )
+
+        for label_field, label_val in [
+            ("label_node_hops", self.label_node_hops),
+            ("label_edge_hops", self.label_edge_hops),
+        ]:
+            if label_val is not None and not isinstance(label_val, str):
+                raise GFQLTypeError(
+                    ErrorCode.E204,
+                    f"{label_field} must be a string when provided",
+                    field=label_field,
+                    value=type(label_val).__name__,
+                )
+
+        if not isinstance(self.label_seeds, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "label_seeds must be a boolean",
+                field="label_seeds",
+                value=type(self.label_seeds).__name__,
+            )
 
         # Validate to_fixed_point
         if not isinstance(self.to_fixed_point, bool):
@@ -402,6 +487,13 @@ class ASTEdge(ASTObject):
         return {
             'type': 'Edge',
             'hops': self.hops,
+            **({'min_hops': self.min_hops} if self.min_hops is not None else {}),
+            **({'max_hops': self.max_hops} if self.max_hops is not None else {}),
+            **({'output_min_hops': self.output_min_hops} if self.output_min_hops is not None else {}),
+            **({'output_max_hops': self.output_max_hops} if self.output_max_hops is not None else {}),
+            **({'label_node_hops': self.label_node_hops} if self.label_node_hops is not None else {}),
+            **({'label_edge_hops': self.label_edge_hops} if self.label_edge_hops is not None else {}),
+            **({'label_seeds': self.label_seeds} if self.label_seeds else {}),
             'to_fixed_point': self.to_fixed_point,
             'direction': self.direction,
             **({'source_node_match': {
@@ -431,6 +523,13 @@ class ASTEdge(ASTObject):
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
+            min_hops=d.get('min_hops'),
+            max_hops=d.get('max_hops'),
+            output_min_hops=d.get('output_min_hops'),
+            output_max_hops=d.get('output_max_hops'),
+            label_node_hops=d.get('label_node_hops'),
+            label_edge_hops=d.get('label_edge_hops'),
+            label_seeds=d.get('label_seeds', False),
             to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
             source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
             destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
@@ -460,9 +559,33 @@ class ASTEdge(ASTObject):
             logger.debug('g._edges:\n%s\n', g._edges)
             logger.debug('----------------------------------------')
 
+        wants_output_slice = self.output_min_hops is not None or self.output_max_hops is not None
+        return_wavefront = True  # AST edges are used in chain/gfql wavefront mode
+        # Avoid slicing during traversal but keep hop labels so the final combine step can filter.
+        resolved_output_min = None if return_wavefront else self.output_min_hops
+        resolved_output_max = None if return_wavefront else self.output_max_hops
+        # Use declared min_hops for traversal; hop.py handles path pruning for min_hops > 1
+        resolved_min_hops = self.min_hops
+        resolved_max_hops = self.max_hops
+
+        label_node_hops = self.label_node_hops
+        label_edge_hops = self.label_edge_hops
+        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0)
+        if return_wavefront and needs_auto_labels:
+            # Ensure hop labels exist for post-filtering even if user didn't request explicit labels
+            label_node_hops = label_node_hops or '__gfql_output_node_hop__'
+            label_edge_hops = label_edge_hops or '__gfql_output_edge_hop__'
+
         out_g = g.hop(
             nodes=prev_node_wavefront,
             hops=self.hops,
+            min_hops=resolved_min_hops,
+            max_hops=resolved_max_hops,
+            output_min_hops=resolved_output_min,
+            output_max_hops=resolved_output_max,
+            label_node_hops=label_node_hops,
+            label_edge_hops=label_edge_hops,
+            label_seeds=self.label_seeds,
             to_fixed_point=self.to_fixed_point,
             direction=self.direction,
             source_node_match=self.source_node_match,
@@ -493,10 +616,20 @@ class ASTEdge(ASTObject):
             direction = 'reverse'
         else:
             direction = 'undirected'
+        # The reverse pass validates path completeness, not hop constraints.
+        # Forward pass already pruned dead-end branches; reverse just needs to traverse
+        # the remaining edges back to seeds. Use min_hops=None to skip re-pruning.
         return ASTEdge(
             direction=direction,
             edge_match=self.edge_match,
             hops=self.hops,
+            min_hops=None,
+            max_hops=self.max_hops,
+            output_min_hops=None,
+            output_max_hops=None,
+            label_node_hops=self.label_node_hops,
+            label_edge_hops=self.label_edge_hops,
+            label_seeds=self.label_seeds,
             to_fixed_point=self.to_fixed_point,
             source_node_match=self.destination_node_match,
             destination_node_match=self.source_node_match,
@@ -514,6 +647,13 @@ class ASTEdgeForward(ASTEdge):
         self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
+        min_hops: Optional[int] = None,
+        max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
+        label_node_hops: Optional[str] = None,
+        label_edge_hops: Optional[str] = None,
+        label_seeds: bool = False,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         to_fixed_point: bool = DEFAULT_FIXED_POINT,
@@ -526,6 +666,13 @@ class ASTEdgeForward(ASTEdge):
             direction='forward',
             edge_match=edge_match,
             hops=hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
+            output_min_hops=output_min_hops,
+            output_max_hops=output_max_hops,
+            label_node_hops=label_node_hops,
+            label_edge_hops=label_edge_hops,
+            label_seeds=label_seeds,
             source_node_match=source_node_match,
             destination_node_match=destination_node_match,
             to_fixed_point=to_fixed_point,
@@ -540,6 +687,13 @@ class ASTEdgeForward(ASTEdge):
         out = ASTEdgeForward(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
+            min_hops=d.get('min_hops'),
+            max_hops=d.get('max_hops'),
+            output_min_hops=d.get('output_min_hops'),
+            output_max_hops=d.get('output_max_hops'),
+            label_node_hops=d.get('label_node_hops'),
+            label_edge_hops=d.get('label_edge_hops'),
+            label_seeds=d.get('label_seeds', False),
             to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
             source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
             destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
@@ -564,6 +718,13 @@ class ASTEdgeReverse(ASTEdge):
         self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
+        min_hops: Optional[int] = None,
+        max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
+        label_node_hops: Optional[str] = None,
+        label_edge_hops: Optional[str] = None,
+        label_seeds: bool = False,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         to_fixed_point: bool = DEFAULT_FIXED_POINT,
@@ -576,6 +737,13 @@ class ASTEdgeReverse(ASTEdge):
             direction='reverse',
             edge_match=edge_match,
             hops=hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
+            output_min_hops=output_min_hops,
+            output_max_hops=output_max_hops,
+            label_node_hops=label_node_hops,
+            label_edge_hops=label_edge_hops,
+            label_seeds=label_seeds,
             source_node_match=source_node_match,
             destination_node_match=destination_node_match,
             to_fixed_point=to_fixed_point,
@@ -590,6 +758,13 @@ class ASTEdgeReverse(ASTEdge):
         out = ASTEdgeReverse(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
+            min_hops=d.get('min_hops'),
+            max_hops=d.get('max_hops'),
+            output_min_hops=d.get('output_min_hops'),
+            output_max_hops=d.get('output_max_hops'),
+            label_node_hops=d.get('label_node_hops'),
+            label_edge_hops=d.get('label_edge_hops'),
+            label_seeds=d.get('label_seeds', False),
             to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
             source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
             destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
@@ -614,6 +789,13 @@ class ASTEdgeUndirected(ASTEdge):
         self,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
+        min_hops: Optional[int] = None,
+        max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
+        label_node_hops: Optional[str] = None,
+        label_edge_hops: Optional[str] = None,
+        label_seeds: bool = False,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         to_fixed_point: bool = DEFAULT_FIXED_POINT,
@@ -626,6 +808,13 @@ class ASTEdgeUndirected(ASTEdge):
             direction='undirected',
             edge_match=edge_match,
             hops=hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
+            output_min_hops=output_min_hops,
+            output_max_hops=output_max_hops,
+            label_node_hops=label_node_hops,
+            label_edge_hops=label_edge_hops,
+            label_seeds=label_seeds,
             source_node_match=source_node_match,
             destination_node_match=destination_node_match,
             to_fixed_point=to_fixed_point,
@@ -640,6 +829,13 @@ class ASTEdgeUndirected(ASTEdge):
         out = ASTEdgeUndirected(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
+            min_hops=d.get('min_hops'),
+            max_hops=d.get('max_hops'),
+            output_min_hops=d.get('output_min_hops'),
+            output_max_hops=d.get('output_max_hops'),
+            label_node_hops=d.get('label_node_hops'),
+            label_edge_hops=d.get('label_edge_hops'),
+            label_seeds=d.get('label_seeds', False),
             to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
             source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
             destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),

@@ -55,6 +55,7 @@ esac
 NOTEBOOKS_TO_VALIDATE=(
     "/docs/test_notebooks/test_graphistry_import.ipynb"
     "/docs/source/demos/gfql/temporal_predicates.ipynb"
+    "/docs/source/gfql/hop_bounds.ipynb"
 )
 
 for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do

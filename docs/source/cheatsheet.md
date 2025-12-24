@@ -906,6 +906,14 @@ g2.plot() # nodes are values from cols s, d, k1
     direction='forward', # 'reverse', 'undirected'
     hops=2, # number (1..n hops, inclusive) or None if to_fixed_point
     to_fixed_point=False, 
+    # optional traversal range + labeling
+    min_hops=1,  # inclusive lower bound (defaults to 1 unless hops==0)
+    max_hops=3,  # inclusive upper bound; defaults to hops
+    output_min_hops=None,  # optional output slice lower bound (post-filter; defaults keep early hops)
+    output_max_hops=None,  # optional output slice upper bound (post-filter; defaults to max_hops)
+    label_node_hops='hop',  # write first hop step each node is reached (omit/None to skip)
+    label_edge_hops='edge_hop',  # hop step for each traversed edge
+    label_seeds=True,  # also tag starting seeds as hop 0 when labeling
 
     #every edge source node must match these
     source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},
@@ -1054,6 +1062,19 @@ g2c = g2.hop(
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
+
+# Bounded hops with labels and sliced outputs
+g4 = g2.hop(
+  pd.DataFrame({g2._node: ['a']}),
+  min_hops=2,
+  max_hops=3,
+  output_min_hops=2,
+  output_max_hops=3,
+  label_node_hops='hop',
+  label_edge_hops='edge_hop',
+  label_seeds=True
+)
+g4._nodes[['node', 'hop']]
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: is_in(['a', 'b'])}), hops=8)

@@ -190,6 +190,22 @@ Performing Multi-Hop Traversals
         n({g._node: "Alice"}), e_forward(), e_forward(), n(name='m')
     ])._nodes.query('m')
 
+**GFQL (bounded hop alternative)**
+
+.. code-block:: python
+
+    # Same intent using hop() with explicit bounds + optional labels
+    g.hop(
+        nodes=pd.DataFrame({g._node: ['Alice']}),
+        min_hops=2,
+        max_hops=2
+    )
+
+**Explanation**:
+
+- `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. If you set `label_node_hops`/`label_edge_hops`, those column names will store the hop step (nodes = first arrival, edges = traversal step); omit or `None` to skip labels.
+- `output_min_hops`/`output_max_hops` (optional) slice the displayed hops after traversal. By default, all traversed hops up to `max_hops` remain visible; set `output_min_hops` if you want to drop early hops (e.g., traverse 2..4 but only show 3..4). Invalid slices (e.g., `output_min_hops` > `max_hops` or `output_max_hops` < `min_hops`) raise a `ValueError`.
+
 **Explanation**:
 
 - **GFQL**: Starts at node ``"Alice"``, performs two forward hops, and obtains nodes two steps away. Results are in ``nodes_df``. Building on the expressive and performance benefits of the previous 1-hop example, it begins adding the parallel path finding benefits of GFQL over Cypher, which benefits both CPU and GPU usage.

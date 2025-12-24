@@ -1,27 +1,12 @@
 #!/bin/bash
 set -e
 
-# Try to find the best Python version available
-PYTHON_BIN=""
-for ver in 3.14 3.13 3.12 3.11 3.10 3.9 3.8; do
-    if command -v python$ver &> /dev/null; then
-        PYTHON_BIN=python$ver
-        break
-    fi
-done
+# Minimal resolution: env override or host flake8
+FLAKE8_CMD_ARR=(${FLAKE8_CMD:-flake8})
 
-if [ -z "$PYTHON_BIN" ]; then
-    echo "No suitable Python version found (3.8-3.14)"
+if ! "${FLAKE8_CMD_ARR[@]}" --version &> /dev/null; then
+    echo "flake8 not found. Set FLAKE8_CMD or install flake8 on PATH."
     exit 1
-fi
-
-echo "Using Python: $PYTHON_BIN"
-$PYTHON_BIN --version
-
-# Install flake8 if not available
-if ! $PYTHON_BIN -m flake8 --version &> /dev/null; then
-    echo "Installing flake8..."
-    $PYTHON_BIN -m pip install flake8 --user
 fi
 
 # Get the script directory and repo root
@@ -44,7 +29,7 @@ echo "Running flake8 on: $TARGET"
 
 # Quick syntax error check
 echo "=== Running quick syntax check ==="
-$PYTHON_BIN -m flake8 \
+"${FLAKE8_CMD_ARR[@]}" \
     $TARGET \
     --count \
     --select=E9,F63,F7,F82 \
@@ -53,7 +38,7 @@ $PYTHON_BIN -m flake8 \
 
 # Full lint check
 echo "=== Running full lint check ==="
-$PYTHON_BIN -m flake8 \
+"${FLAKE8_CMD_ARR[@]}" \
     $TARGET \
     --exclude=graphistry/graph_vector_pb2.py,graphistry/_version.py \
     --count \
