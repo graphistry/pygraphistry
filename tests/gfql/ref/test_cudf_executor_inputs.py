@@ -34,6 +34,27 @@ def _make_graph():
     return CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
 
 
+def _make_hop_graph():
+    nodes = pd.DataFrame(
+        [
+            {"id": "acct1", "type": "account", "owner_id": "u1", "score": 1},
+            {"id": "user1", "type": "user", "owner_id": "u1", "score": 5},
+            {"id": "user2", "type": "user", "owner_id": "u1", "score": 7},
+            {"id": "acct2", "type": "account", "owner_id": "u1", "score": 9},
+            {"id": "user3", "type": "user", "owner_id": "u3", "score": 2},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"src": "acct1", "dst": "user1"},
+            {"src": "user1", "dst": "user2"},
+            {"src": "user2", "dst": "acct2"},
+            {"src": "acct1", "dst": "user3"},
+        ]
+    )
+    return CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+
 def test_build_inputs_collects_alias_metadata():
     chain = [
         n({"type": "account"}, name="a"),
@@ -267,6 +288,51 @@ def _assert_parity(graph, chain, where):
     assert set(result._nodes["id"]) == set(oracle.nodes["id"])
     assert set(result._edges["src"]) == set(oracle.edges["src"])
     assert set(result._edges["dst"]) == set(oracle.edges["dst"])
+
+
+@pytest.mark.parametrize(
+    "edge_kwargs",
+    [
+        {"min_hops": 2, "max_hops": 3},
+        {"min_hops": 1, "max_hops": 3, "output_min_hops": 3, "output_max_hops": 3},
+    ],
+    ids=["hop_range", "output_slice"],
+)
+def test_same_path_hop_params_parity(edge_kwargs):
+    graph = _make_hop_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(**edge_kwargs),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "owner_id"))]
+    _assert_parity(graph, chain, where)
+
+
+def test_same_path_hop_labels_propagate():
+    graph = _make_hop_graph()
+    chain = [
+        n({"type": "account"}, name="a"),
+        e_forward(
+            min_hops=1,
+            max_hops=2,
+            label_node_hops="node_hop",
+            label_edge_hops="edge_hop",
+            label_seeds=True,
+        ),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "owner_id"), "==", col("c", "owner_id"))]
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    executor = CuDFSamePathExecutor(inputs)
+    executor._forward()
+    result = executor._run_gpu()
+
+    assert result._nodes is not None and result._edges is not None
+    assert "node_hop" in result._nodes.columns
+    assert "edge_hop" in result._edges.columns
+    assert result._nodes["node_hop"].notna().any()
+    assert result._edges["edge_hop"].notna().any()
 
 
 def test_topology_parity_scenarios():

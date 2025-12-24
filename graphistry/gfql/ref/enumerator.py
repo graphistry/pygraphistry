@@ -104,11 +104,9 @@ def enumerate_chain(
             paths = paths.drop(columns=[current])
             current = node_step["id_col"]
         else:
-            if where:
-                raise ValueError("WHERE clauses not supported for multi-hop edges in enumerator")
-            if edge_step["alias"] or node_step["alias"]:
-                # Alias tagging for multi-hop not yet supported in enumerator
-                raise ValueError("Aliases not supported for multi-hop edges in enumerator")
+            if edge_step["alias"]:
+                # Edge alias tagging for multi-hop not yet supported in enumerator
+                raise ValueError("Edge aliases not supported for multi-hop edges in enumerator")
 
             dest_allowed: Optional[Set[Any]] = None
             if not node_frame.empty:
@@ -128,6 +126,12 @@ def enumerate_chain(
                 for dst in bp_result.seed_to_nodes.get(seed_id, set()):
                     new_rows.append([*row, dst])
             paths = pd.DataFrame(new_rows, columns=[*base_cols, node_step["id_col"]])
+            paths = paths.merge(
+                node_frame,
+                on=node_step["id_col"],
+                how="inner",
+                validate="m:1",
+            )
             current = node_step["id_col"]
 
             # Stash edges/nodes and hop labels for final selection
