@@ -12,7 +12,7 @@ from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
-from .gfql.same_path_types import (
+from graphistry.gfql.same_path_types import (
     WhereComparison,
     parse_where_json,
     where_to_json,
