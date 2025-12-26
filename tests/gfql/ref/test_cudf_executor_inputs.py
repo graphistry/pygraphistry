@@ -593,10 +593,6 @@ class TestP0FeatureComposition:
         # d satisfies WHERE (5 < 10 is true), should be included
         assert "d" in result_ids, "Node d satisfies WHERE but was excluded"
 
-    @pytest.mark.xfail(
-        reason="Multi-hop backward prune doesn't trace through intermediate edges for reverse direction",
-        strict=True,
-    )
     def test_reverse_direction_where_semantics(self):
         """
         P0 Test 2: WHERE semantics must be consistent with reverse direction.
@@ -702,10 +698,6 @@ class TestP0FeatureComposition:
         if result._nodes is not None and not result._nodes.empty:
             assert "z" not in set(result._nodes["id"]), "z violates WHERE but executor included it"
 
-    @pytest.mark.xfail(
-        reason="Multi-hop + WHERE parity issues between executor and oracle",
-        strict=True,
-    )
     def test_oracle_cudf_parity_comprehensive(self):
         """
         P0 Test 4: Oracle and cuDF executor must produce identical results.
@@ -828,10 +820,6 @@ class TestP1FeatureComposition:
     cuDF executor's handling of multi-hop + WHERE combinations.
     """
 
-    @pytest.mark.xfail(
-        reason="Multi-hop edges skip WHERE filtering in _is_single_hop check",
-        strict=True,
-    )
     def test_multi_hop_edge_where_filtering(self):
         """
         P1 Test 5: WHERE must be applied even for multi-hop edges.

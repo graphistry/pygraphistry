@@ -347,26 +347,33 @@ class CuDFSamePathExecutor:
                 continue
 
             filtered = edges_df
-            if self._destination_column and self._destination_column in filtered.columns:
-                allowed_dst = allowed_nodes.get(right_node_idx)
-                if allowed_dst is not None:
-                    filtered = filtered[
-                        filtered[self._destination_column].isin(list(allowed_dst))
-                    ]
+            edge_op = self.inputs.chain[edge_idx]
+            is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
+
+            # For single-hop edges, filter by allowed dst first
+            # For multi-hop, defer dst filtering to _filter_multihop_by_where
+            if not is_multihop:
+                if self._destination_column and self._destination_column in filtered.columns:
+                    allowed_dst = allowed_nodes.get(right_node_idx)
+                    if allowed_dst is not None:
+                        filtered = filtered[
+                            filtered[self._destination_column].isin(list(allowed_dst))
+                        ]
 
             # Apply value-based clauses between adjacent aliases
             left_alias = self._alias_for_step(left_node_idx)
             right_alias = self._alias_for_step(right_node_idx)
-            edge_op = self.inputs.chain[edge_idx]
-            if (
-                isinstance(edge_op, ASTEdge)
-                and self._is_single_hop(edge_op)
-                and left_alias
-                and right_alias
-            ):
-                filtered = self._filter_edges_by_clauses(
-                    filtered, left_alias, right_alias, allowed_nodes
-                )
+            if isinstance(edge_op, ASTEdge) and left_alias and right_alias:
+                if self._is_single_hop(edge_op):
+                    # Single-hop: filter edges directly
+                    filtered = self._filter_edges_by_clauses(
+                        filtered, left_alias, right_alias, allowed_nodes
+                    )
+                else:
+                    # Multi-hop: filter nodes first, then keep connecting edges
+                    filtered = self._filter_multihop_by_where(
+                        filtered, edge_op, left_alias, right_alias, allowed_nodes
+                    )
 
             if edge_alias and edge_alias in allowed_tags:
                 allowed_edge_ids = allowed_tags[edge_alias]
@@ -475,6 +482,121 @@ class CuDFSamePathExecutor:
                     out_df = out_df[mask]
 
         return out_df
+
+    def _filter_multihop_by_where(
+        self,
+        edges_df: DataFrameT,
+        edge_op: ASTEdge,
+        left_alias: str,
+        right_alias: str,
+        allowed_nodes: Dict[int, Set[Any]],
+    ) -> DataFrameT:
+        """
+        Filter multi-hop edges by WHERE clauses connecting start/end aliases.
+
+        For multi-hop traversals, edges_df contains all edges in the path. The src/dst
+        columns represent intermediate connections, not the start/end aliases directly.
+
+        Strategy:
+        1. Identify which (start, end) pairs satisfy WHERE clauses
+        2. Trace paths to find valid edges: start nodes connect via hop 1, end nodes via last hop
+        3. Keep only edges that participate in valid paths
+        """
+        relevant = [
+            clause
+            for clause in self.inputs.where
+            if {clause.left.alias, clause.right.alias} == {left_alias, right_alias}
+        ]
+        if not relevant or not self._source_column or not self._destination_column:
+            return edges_df
+
+        left_frame = self.alias_frames.get(left_alias)
+        right_frame = self.alias_frames.get(right_alias)
+        if left_frame is None or right_frame is None or self._node_column is None:
+            return edges_df
+
+        # Get hop label column to identify first/last hop edges
+        node_label, edge_label = self._resolve_label_cols(edge_op)
+        if edge_label is None or edge_label not in edges_df.columns:
+            # No hop labels - can't distinguish first/last hop edges
+            return edges_df
+
+        # Identify first-hop and last-hop edges
+        hop_col = edges_df[edge_label]
+        min_hop = hop_col.min()
+        max_hop = hop_col.max()
+
+        first_hop_edges = edges_df[hop_col == min_hop]
+        last_hop_edges = edges_df[hop_col == max_hop]
+
+        # Get start nodes (sources of first-hop edges)
+        start_nodes = set(first_hop_edges[self._source_column].tolist())
+        # Get end nodes (destinations of last-hop edges)
+        end_nodes = set(last_hop_edges[self._destination_column].tolist())
+
+        # Filter to allowed nodes
+        left_step_idx = self.inputs.alias_bindings[left_alias].step_index
+        right_step_idx = self.inputs.alias_bindings[right_alias].step_index
+        if left_step_idx in allowed_nodes and allowed_nodes[left_step_idx]:
+            start_nodes &= allowed_nodes[left_step_idx]
+        if right_step_idx in allowed_nodes and allowed_nodes[right_step_idx]:
+            end_nodes &= allowed_nodes[right_step_idx]
+
+        if not start_nodes or not end_nodes:
+            return edges_df.iloc[:0]  # Empty dataframe
+
+        # Build (start, end) pairs that satisfy WHERE
+        lf = left_frame[left_frame[self._node_column].isin(list(start_nodes))]
+        rf = right_frame[right_frame[self._node_column].isin(list(end_nodes))]
+
+        left_cols = list(self.inputs.column_requirements.get(left_alias, []))
+        right_cols = list(self.inputs.column_requirements.get(right_alias, []))
+        if self._node_column in left_cols:
+            left_cols.remove(self._node_column)
+        if self._node_column in right_cols:
+            right_cols.remove(self._node_column)
+
+        lf = lf[[self._node_column] + left_cols].rename(columns={self._node_column: "__start_id__"})
+        rf = rf[[self._node_column] + right_cols].rename(columns={self._node_column: "__end_id__"})
+
+        # Cross join to get all (start, end) combinations
+        lf = lf.assign(__cross_key__=1)
+        rf = rf.assign(__cross_key__=1)
+        pairs_df = lf.merge(rf, on="__cross_key__").drop(columns=["__cross_key__"])
+
+        # Apply WHERE clauses to filter valid (start, end) pairs
+        for clause in relevant:
+            left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
+            right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
+            if left_col in pairs_df.columns and right_col in pairs_df.columns:
+                mask = self._evaluate_clause(pairs_df[left_col], clause.op, pairs_df[right_col])
+                pairs_df = pairs_df[mask]
+
+        if len(pairs_df) == 0:
+            return edges_df.iloc[:0]
+
+        # Get valid start and end nodes
+        valid_starts = set(pairs_df["__start_id__"].tolist())
+        valid_ends = set(pairs_df["__end_id__"].tolist())
+
+        # Filter edges: keep edges where:
+        # - First hop edges have src in valid_starts
+        # - Last hop edges have dst in valid_ends
+        # - Intermediate edges are kept if they connect valid paths
+        # For simplicity, we filter first/last hop edges and keep all intermediates
+        # (path coherence will be enforced by allowed_nodes propagation)
+
+        def filter_row(row):
+            hop = row[edge_label]
+            if hop == min_hop:
+                return row[self._source_column] in valid_starts
+            elif hop == max_hop:
+                return row[self._destination_column] in valid_ends
+            else:
+                return True  # Intermediate edges kept for now
+
+        mask = edges_df.apply(filter_row, axis=1)
+        return edges_df[mask]
 
     @staticmethod
     def _is_single_hop(op: ASTEdge) -> bool:
@@ -603,6 +725,18 @@ class CuDFSamePathExecutor:
         allowed_edge_ids: Set[Any] = (
             set().union(*path_state.allowed_edges.values()) if path_state.allowed_edges else set()
         )
+
+        # For multi-hop edges, include all intermediate nodes from the edge frames
+        # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
+        has_multihop = any(
+            isinstance(op, ASTEdge) and not self._is_single_hop(op)
+            for op in self.inputs.chain
+        )
+        if has_multihop and src in edges_df.columns and dst in edges_df.columns:
+            # Include all nodes referenced by edges
+            edge_src_nodes = set(edges_df[src].tolist())
+            edge_dst_nodes = set(edges_df[dst].tolist())
+            allowed_node_ids = allowed_node_ids | edge_src_nodes | edge_dst_nodes
 
         filtered_nodes = (
             nodes_df[nodes_df[node_id].isin(list(allowed_node_ids))]
