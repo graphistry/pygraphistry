@@ -23,8 +23,27 @@ Env vars:
 - schedule/workflow_dispatch: full scopes + optional multi-chain (heavier).
 - Job pre-pulls `ghcr.io/graphistry/alloy6:6.2.0`; falls back to local build and pushes when allowed.
 
-## Notes / exclusions
-- Null/NaN semantics excluded; verified in Python/cuDF tests.
-- Hashing omitted; treat any hashing as sound prefilter, exactness rechecked in model.
-- Model uses set semantics for outputs (nodes/edges appearing on some satisfying path).
-- Hop ranges/output slicing (`min_hops`/`max_hops`/`output_min_hops`/`output_max_hops`) are not explicitly modeled; approximate by unrolling to fixed-length chains and treating output slicing as hop-position filtering.
+## Scope and Limitations
+
+### What IS Formally Verified
+- WHERE clause lowering to per-alias value summaries
+- Equality (`==`, `!=`) via bitset filtering
+- Inequality (`<`, `<=`, `>`, `>=`) via min/max summaries
+- Multi-step chains with cross-alias comparisons
+- Graph topologies: fan-out, fan-in, cycles, parallel edges, disconnected
+
+### What is NOT Formally Verified
+- **Hop ranges** (`min_hops`, `max_hops`): Approximated by unrolling to fixed-length chains
+- **Output slicing** (`output_min_hops`, `output_max_hops`): Treated as post-filter
+- **Hop labeling** (`label_node_hops`, `label_edge_hops`, `label_seeds`): Not modeled
+- **Null/NaN semantics**: Verified in Python tests instead
+- **Hashing**: Treated as prefilter and omitted (exactness rechecked in model)
+
+### Test Coverage for Unverified Features
+Hop ranges and output slicing are covered by Python parity tests:
+- `tests/gfql/ref/test_enumerator_parity.py`: 11+ hop range scenarios
+- `tests/gfql/ref/test_cudf_executor_inputs.py`: 8+ WHERE + hop range scenarios
+
+These tests verify the cuDF executor matches the reference oracle implementation.
+
+See issue #871 for the testing & verification roadmap.
