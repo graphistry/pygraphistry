@@ -3,17 +3,17 @@ import pytest
 
 from graphistry.Engine import Engine
 from graphistry.compute import n, e_forward, e_reverse
-from graphistry.compute.gfql.cudf_executor import (
+from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
-    CuDFSamePathExecutor,
+    DFSamePathExecutor,
     execute_same_path_chain,
+    _CUDF_MODE_ENV,
 )
 from graphistry.compute.gfql_unified import gfql
 from graphistry.compute.chain import Chain
 from graphistry.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
-from graphistry.compute.gfql.cudf_executor import _CUDF_MODE_ENV
 
 
 def _make_graph():
@@ -90,7 +90,7 @@ def test_forward_captures_alias_frames_and_prunes():
     ]
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
 
     assert "a" in executor.alias_frames
@@ -108,7 +108,7 @@ def test_forward_matches_oracle_tags_on_equality():
     ]
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
 
     oracle = enumerate_chain(
@@ -157,7 +157,7 @@ def test_forward_minmax_prune_matches_oracle():
     ]
     where = [compare(col("a", "score"), "<", col("c", "score"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
     oracle = enumerate_chain(
         graph,
@@ -181,7 +181,7 @@ def test_strict_mode_without_cudf_raises(monkeypatch):
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     monkeypatch.setenv(_CUDF_MODE_ENV, "strict")
     inputs = build_same_path_inputs(graph, chain, where, Engine.CUDF)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
 
     cudf_available = True
     try:
@@ -207,7 +207,7 @@ def test_auto_mode_without_cudf_falls_back(monkeypatch):
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     monkeypatch.setenv(_CUDF_MODE_ENV, "auto")
     inputs = build_same_path_inputs(graph, chain, where, Engine.CUDF)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     result = executor.run()
     oracle = enumerate_chain(
         graph,
@@ -229,7 +229,7 @@ def test_gpu_path_parity_equality():
     ]
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_gpu()
 
@@ -255,7 +255,7 @@ def test_gpu_path_parity_inequality():
     ]
     where = [compare(col("a", "score"), ">", col("c", "score"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_gpu()
 
@@ -274,7 +274,7 @@ def test_gpu_path_parity_inequality():
 
 def _assert_parity(graph, chain, where):
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_gpu()
     oracle = enumerate_chain(
@@ -324,7 +324,7 @@ def test_same_path_hop_labels_propagate():
     ]
     where = [compare(col("a", "owner_id"), "==", col("c", "owner_id"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_gpu()
 
@@ -451,7 +451,7 @@ def test_cudf_gpu_path_if_available():
     ]
     where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
     inputs = build_same_path_inputs(graph, chain, where, Engine.CUDF)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     result = executor.run()
 
     assert result._nodes is not None and result._edges is not None
@@ -787,7 +787,7 @@ class TestP0FeatureComposition:
         for nodes_df, edges_df, chain, where, desc in scenarios:
             graph = CGFull().nodes(nodes_df, "id").edges(edges_df, "src", "dst")
             inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-            executor = CuDFSamePathExecutor(inputs)
+            executor = DFSamePathExecutor(inputs)
             executor._forward()
             result = executor._run_gpu()
 

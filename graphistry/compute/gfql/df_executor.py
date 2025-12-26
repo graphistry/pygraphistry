@@ -1,10 +1,8 @@
-"""cuDF-based GFQL executor with same-path WHERE planning.
+"""DataFrame-based GFQL executor with same-path WHERE planning.
 
-This module hosts the GPU execution path for GFQL chains that require
-same-path predicate enforcement.  The actual kernels / dataframe
-operations are implemented in follow-up steps; for now we centralize the
-structure so the planner and chain machinery have a single place to hook
-into.
+This module hosts the execution path for GFQL chains that require
+same-path predicate enforcement. Works with both pandas and cuDF
+DataFrames.
 """
 
 from __future__ import annotations
@@ -29,7 +27,7 @@ AliasKind = Literal["node", "edge"]
 __all__ = [
     "AliasBinding",
     "SamePathExecutorInputs",
-    "CuDFSamePathExecutor",
+    "DFSamePathExecutor",
     "build_same_path_inputs",
     "execute_same_path_chain",
 ]
@@ -61,8 +59,8 @@ class SamePathExecutorInputs:
     include_paths: bool = False
 
 
-class CuDFSamePathExecutor:
-    """Runs a forward/backward/forward pass using cuDF dataframes."""
+class DFSamePathExecutor:
+    """Runs a forward/backward/forward pass using pandas or cuDF dataframes."""
 
     def __init__(self, inputs: SamePathExecutorInputs) -> None:
         self.inputs = inputs
@@ -807,7 +805,7 @@ class CuDFSamePathExecutor:
     def _resolve_label_cols(op: ASTEdge) -> Tuple[Optional[str], Optional[str]]:
         node_label = op.label_node_hops
         edge_label = op.label_edge_hops
-        if CuDFSamePathExecutor._needs_auto_labels(op):
+        if DFSamePathExecutor._needs_auto_labels(op):
             node_label = node_label or "__gfql_output_node_hop__"
             edge_label = edge_label or "__gfql_output_edge_hop__"
         return node_label, edge_label
@@ -1003,18 +1001,18 @@ class CuDFSamePathExecutor:
 
     @staticmethod
     def _common_values(series_a: Any, series_b: Any) -> Set[Any]:
-        vals_a = CuDFSamePathExecutor._series_values(series_a)
-        vals_b = CuDFSamePathExecutor._series_values(series_b)
+        vals_a = DFSamePathExecutor._series_values(series_a)
+        vals_b = DFSamePathExecutor._series_values(series_b)
         return vals_a & vals_b
 
     @staticmethod
     def _series_values(series: Any) -> Set[Any]:
-        pandas_series = CuDFSamePathExecutor._to_pandas_series(series)
+        pandas_series = DFSamePathExecutor._to_pandas_series(series)
         return set(pandas_series.dropna().unique().tolist())
 
     @staticmethod
     def _safe_min(series: Any) -> Optional[Any]:
-        pandas_series = CuDFSamePathExecutor._to_pandas_series(series).dropna()
+        pandas_series = DFSamePathExecutor._to_pandas_series(series).dropna()
         if pandas_series.empty:
             return None
         value = pandas_series.min()
@@ -1024,7 +1022,7 @@ class CuDFSamePathExecutor:
 
     @staticmethod
     def _safe_max(series: Any) -> Optional[Any]:
-        pandas_series = CuDFSamePathExecutor._to_pandas_series(series).dropna()
+        pandas_series = DFSamePathExecutor._to_pandas_series(series).dropna()
         if pandas_series.empty:
             return None
         value = pandas_series.max()
@@ -1077,7 +1075,7 @@ def execute_same_path_chain(
     """Convenience wrapper used by Chain execution once hooked up."""
 
     inputs = build_same_path_inputs(g, chain, where, engine, include_paths)
-    executor = CuDFSamePathExecutor(inputs)
+    executor = DFSamePathExecutor(inputs)
     return executor.run()
 
 
