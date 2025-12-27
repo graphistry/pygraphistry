@@ -150,6 +150,70 @@ def enumerate_chain(
 
     if where:
         paths = paths[_apply_where(paths, where)]
+
+        # After WHERE filtering, prune collected_nodes/edges to only those in surviving paths
+        # For multi-hop edges, we stored all reachable nodes/edges before WHERE filtering
+        # Now we need to keep only those that participate in valid paths
+        if len(paths) > 0:
+            for i, edge_step in enumerate(edge_steps):
+                if "collected_nodes" not in edge_step:
+                    continue
+                start_col = node_steps[i]["id_col"]
+                end_col = node_steps[i + 1]["id_col"]
+                if start_col not in paths.columns or end_col not in paths.columns:
+                    continue
+                valid_starts = set(paths[start_col].tolist())
+                valid_ends = set(paths[end_col].tolist())
+
+                # Re-trace paths from valid_starts to valid_ends to find valid nodes/edges
+                # Build adjacency from original edges, respecting direction
+                direction = edge_step.get("direction", "forward")
+                adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
+                for _, row in edges_df.iterrows():
+                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]
+                    if direction == "reverse":
+                        # Reverse: traverse dst -> src
+                        adjacency.setdefault(dst, []).append((eid, src))
+                    elif direction == "undirected":
+                        # Undirected: traverse both ways
+                        adjacency.setdefault(src, []).append((eid, dst))
+                        adjacency.setdefault(dst, []).append((eid, src))
+                    else:
+                        # Forward: traverse src -> dst
+                        adjacency.setdefault(src, []).append((eid, dst))
+
+                # BFS from valid_starts to find paths to valid_ends
+                valid_nodes: Set[Any] = set()
+                valid_edge_ids: Set[Any] = set()
+                max_hops = edge_step.get("max_hops", 10)
+
+                for start in valid_starts:
+                    # Track paths: (current_node, path_edges, path_nodes)
+                    stack = [(start, [], [start])]
+                    while stack:
+                        node, path_edges, path_nodes = stack.pop()
+                        if len(path_edges) >= max_hops:
+                            continue
+                        for eid, dst in adjacency.get(node, []):
+                            new_edges = path_edges + [eid]
+                            new_nodes = path_nodes + [dst]
+                            if dst in valid_ends:
+                                # This path reaches a valid end - include all nodes/edges
+                                valid_nodes.update(new_nodes)
+                                valid_edge_ids.update(new_edges)
+                            if len(new_edges) < max_hops:
+                                stack.append((dst, new_edges, new_nodes))
+
+                edge_step["collected_nodes"] = valid_nodes
+                edge_step["collected_edges"] = valid_edge_ids
+        else:
+            # No surviving paths - clear all collected nodes/edges
+            for edge_step in edge_steps:
+                if "collected_nodes" in edge_step:
+                    edge_step["collected_nodes"] = set()
+                if "collected_edges" in edge_step:
+                    edge_step["collected_edges"] = set()
+
     seq_cols: List[str] = []
     for i, node_step in enumerate(node_steps):
         seq_cols.append(node_step["id_col"])
