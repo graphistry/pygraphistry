@@ -225,16 +225,22 @@ class DFSamePathExecutor:
         self._update_alias_frames_from_oracle(oracle.tags)
         return self._materialize_from_oracle(nodes_df, edges_df)
 
-    # --- GPU path placeholder --------------------------------------------------------
+    # --- Native vectorized path (pandas + cuDF) ---------------------------------------
 
-    def _run_gpu(self) -> Plottable:
-        """GPU-style path using captured wavefronts and same-path pruning."""
+    def _run_native(self) -> Plottable:
+        """Native vectorized path using backward-prune for same-path filtering.
 
+        Works for both pandas and cuDF engines. Uses Yannakakis-style semijoin
+        pruning to filter nodes/edges that participate in valid paths.
+        """
         allowed_tags = self._compute_allowed_tags()
         path_state = self._backward_prune(allowed_tags)
         # Apply non-adjacent equality constraints after backward prune
         path_state = self._apply_non_adjacent_where_post_prune(path_state)
         return self._materialize_filtered(path_state)
+
+    # Alias for backwards compatibility
+    _run_gpu = _run_native
 
     def _update_alias_frames_from_oracle(
         self, tags: Dict[str, Set[Any]]
@@ -400,49 +406,50 @@ class DFSamePathExecutor:
                 continue
 
             # Get column values for the constraint
-            left_frame = self.alias_frames.get(left_alias)
-            right_frame = self.alias_frames.get(right_alias)
-            if left_frame is None or right_frame is None:
-                continue
-
+            # IMPORTANT: Use the original graph's node DataFrame, not alias_frames,
+            # because alias_frames can be incomplete (populated during forward phase
+            # but backward prune may add more allowed nodes).
             left_col = clause.left.column
             right_col = clause.right.column
             node_id_col = self._node_column
             if not node_id_col:
                 continue
 
-            # Build value DataFrames for each alias (vectorized - no dict intermediates)
-            # Handle case where node_id_col == left_col or right_col (same column)
+            nodes_df = self.inputs.graph._nodes
+            if nodes_df is None or node_id_col not in nodes_df.columns:
+                continue
+
+            # Build value DataFrames from the original graph nodes
+            # Filter to start_nodes/end_nodes for efficiency
             left_values_df = None
-            if node_id_col in left_frame.columns and left_col in left_frame.columns:
+            if left_col in nodes_df.columns:
                 if node_id_col == left_col:
-                    # Same column - just rename once
-                    left_values_df = left_frame[[node_id_col]].drop_duplicates().copy()
+                    # Same column - just use node IDs
+                    left_values_df = nodes_df[nodes_df[node_id_col].isin(start_nodes)][[node_id_col]].drop_duplicates().copy()
                     left_values_df.columns = ['__start__']
                     left_values_df['__start_val__'] = left_values_df['__start__']
                 else:
-                    left_values_df = left_frame[[node_id_col, left_col]].drop_duplicates().rename(
+                    left_values_df = nodes_df[nodes_df[node_id_col].isin(start_nodes)][[node_id_col, left_col]].drop_duplicates().rename(
                         columns={node_id_col: '__start__', left_col: '__start_val__'}
                     )
 
             right_values_df = None
-            if node_id_col in right_frame.columns and right_col in right_frame.columns:
+            if right_col in nodes_df.columns:
                 if node_id_col == right_col:
-                    # Same column - just rename once
-                    right_values_df = right_frame[[node_id_col]].drop_duplicates().copy()
+                    # Same column - just use node IDs
+                    right_values_df = nodes_df[nodes_df[node_id_col].isin(end_nodes)][[node_id_col]].drop_duplicates().copy()
                     right_values_df.columns = ['__current__']
                     right_values_df['__end_val__'] = right_values_df['__current__']
                 else:
-                    right_values_df = right_frame[[node_id_col, right_col]].drop_duplicates().rename(
+                    right_values_df = nodes_df[nodes_df[node_id_col].isin(end_nodes)][[node_id_col, right_col]].drop_duplicates().rename(
                         columns={node_id_col: '__current__', right_col: '__end_val__'}
                     )
 
             # Vectorized path tracing using state table propagation
             # State table: (current_node, start_node) pairs - which starts can reach each node
-            # Build from left_values_df to avoid Python set->list conversion
+            # left_values_df is already filtered to start_nodes
             if left_values_df is not None and len(left_values_df) > 0:
-                # Filter to start_nodes using isin (start_nodes is still a set here, but isin handles it)
-                state_df = left_values_df[left_values_df['__start__'].isin(start_nodes)][['__start__']].copy()
+                state_df = left_values_df[['__start__']].copy()
                 state_df['__current__'] = state_df['__start__']
             else:
                 state_df = pd.DataFrame(columns=['__current__', '__start__'])
@@ -895,46 +902,46 @@ class DFSamePathExecutor:
 
         # Vectorized backward BFS: propagate reachability hop by hop
         # Use DataFrame-based tracking throughout (no Python sets internally)
-        # Start with right_allowed as reachable at hop 0
-        reachable = pd.DataFrame({'__node__': list(right_allowed), '__hop__': 0})
-        all_reachable = reachable.copy()
+        # Start with right_allowed as target destinations (hop 0 means "at the destination")
+        # We trace backward to find nodes that can REACH these destinations
+        frontier = pd.DataFrame({'__node__': list(right_allowed)})
+        all_visited = frontier.copy()
         valid_starts_frames: List[DataFrameT] = []
 
-        # Collect nodes at each hop distance
+        # Collect nodes at each hop distance FROM the destination
         for hop in range(1, max_hops + 1):
-            # Get nodes reachable at previous hop
-            prev_hop_nodes = reachable[reachable['__hop__'] == hop - 1][['__node__']]
-
-            # Join with edges to find nodes one hop back
-            # edge_pairs: __from__ -> __to__, we want nodes that go TO prev_hop_nodes
-            new_reachable = edge_pairs.merge(
-                prev_hop_nodes,
-                left_on='__to__',
+            # Join with edges to find nodes one hop back from frontier
+            # edge_pairs: __from__ = dst (target), __to__ = src (predecessor)
+            # We want nodes (__to__) that can reach frontier nodes (__from__)
+            new_frontier = edge_pairs.merge(
+                frontier,
+                left_on='__from__',
                 right_on='__node__',
                 how='inner'
-            )[['__from__']].drop_duplicates()
+            )[['__to__']].drop_duplicates()
 
-            if len(new_reachable) == 0:
+            if len(new_frontier) == 0:
                 break
 
-            new_reachable = new_reachable.rename(columns={'__from__': '__node__'})
-            new_reachable['__hop__'] = hop
-
-            # Anti-join: filter out nodes already seen at a shorter distance
-            merged = new_reachable.merge(
-                all_reachable[['__node__']], on='__node__', how='left', indicator=True
-            )
-            new_reachable = merged[merged['_merge'] == 'left_only'][['__node__', '__hop__']]
-
-            if len(new_reachable) == 0:
-                break
-
-            reachable = pd.concat([reachable, new_reachable], ignore_index=True)
-            all_reachable = pd.concat([all_reachable, new_reachable], ignore_index=True)
+            new_frontier = new_frontier.rename(columns={'__to__': '__node__'})
 
             # Collect valid starts (nodes at hop distance in [min_hops, max_hops])
+            # These are nodes that can reach right_allowed in exactly `hop` hops
             if hop >= min_hops:
-                valid_starts_frames.append(new_reachable[['__node__']])
+                valid_starts_frames.append(new_frontier[['__node__']])
+
+            # Anti-join: filter out nodes already visited to avoid infinite loops
+            # But still keep nodes for valid_starts even if visited before at different hop
+            merged = new_frontier.merge(
+                all_visited[['__node__']], on='__node__', how='left', indicator=True
+            )
+            unvisited = merged[merged['_merge'] == 'left_only'][['__node__']]
+
+            if len(unvisited) == 0:
+                break
+
+            frontier = unvisited
+            all_visited = pd.concat([all_visited, unvisited], ignore_index=True)
 
         # Combine all valid starts and convert to set (caller expects set)
         if valid_starts_frames:
@@ -1132,6 +1139,9 @@ class DFSamePathExecutor:
         For forward edges: left_alias matches src, right_alias matches dst.
         For reverse edges: left_alias matches dst, right_alias matches src.
         """
+        # Early return for empty edges - no filtering needed
+        if len(edges_df) == 0:
+            return edges_df
 
         relevant = [
             clause
@@ -1489,6 +1499,16 @@ class DFSamePathExecutor:
         if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
             raise ValueError("Graph bindings are incomplete for same-path execution")
 
+        # If any node step has an explicitly empty allowed set, the path is broken
+        # (e.g., WHERE clause filtered out all nodes at some step)
+        if path_state.allowed_nodes:
+            for node_set in path_state.allowed_nodes.values():
+                if node_set is not None and len(node_set) == 0:
+                    # Empty set at a step means no valid paths exist
+                    return self._materialize_from_oracle(
+                        nodes_df.iloc[0:0], edges_df.iloc[0:0]
+                    )
+
         # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
         # Collect allowed node IDs from path_state
         allowed_node_frames: List[DataFrameT] = []
@@ -1525,10 +1545,14 @@ class DFSamePathExecutor:
         else:
             filtered_nodes = nodes_df.iloc[0:0]
 
-        # Filter edges by allowed nodes (dst must be in allowed nodes)
+        # Filter edges by allowed nodes (both src AND dst must be in allowed nodes)
+        # This ensures that edges from filtered-out paths don't appear in the result
         filtered_edges = edges_df
         if allowed_node_frames:
-            filtered_edges = filtered_edges[filtered_edges[dst].isin(allowed_nodes_df['__node__'])]
+            filtered_edges = filtered_edges[
+                filtered_edges[src].isin(allowed_nodes_df['__node__']) &
+                filtered_edges[dst].isin(allowed_nodes_df['__node__'])
+            ]
         else:
             filtered_edges = filtered_edges.iloc[0:0]
 
