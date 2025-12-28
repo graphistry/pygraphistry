@@ -721,16 +721,16 @@ class DFSamePathExecutor:
         # Build edge pairs for traversal based on direction
         if is_undirected:
             edges_fwd = edges_df[[src_col, dst_col]].copy()
-            edges_fwd.columns = ['__from__', '__to__']
+            edges_fwd.columns = pd.Index(['__from__', '__to__'])
             edges_rev = edges_df[[dst_col, src_col]].copy()
-            edges_rev.columns = ['__from__', '__to__']
+            edges_rev.columns = pd.Index(['__from__', '__to__'])
             edge_pairs = pd.concat([edges_fwd, edges_rev], ignore_index=True).drop_duplicates()
         elif is_reverse:
             edge_pairs = edges_df[[dst_col, src_col]].copy()
-            edge_pairs.columns = ['__from__', '__to__']
+            edge_pairs.columns = pd.Index(['__from__', '__to__'])
         else:
             edge_pairs = edges_df[[src_col, dst_col]].copy()
-            edge_pairs.columns = ['__from__', '__to__']
+            edge_pairs.columns = pd.Index(['__from__', '__to__'])
 
         # Forward reachability: nodes reachable from left_allowed at each hop distance
         # Use DataFrame-based tracking throughout (no Python sets)
