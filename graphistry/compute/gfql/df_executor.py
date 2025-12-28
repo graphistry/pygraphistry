@@ -44,7 +44,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Literal, Sequence, Set, List, Optional, Any, Tuple, cast
+from typing import Dict, Literal, Sequence, Set, List, Optional, Any, Tuple
 
 import pandas as pd
 
@@ -388,11 +388,7 @@ class DFSamePathExecutor:
             start_node_idx = left_binding.step_index
             end_node_idx = right_binding.step_index
 
-            # Get node indices between start and end (inclusive)
-            relevant_node_indices = [
-                idx for idx in node_indices
-                if start_node_idx <= idx <= end_node_idx
-            ]
+            # Get edge indices between start and end node positions
             relevant_edge_indices = [
                 idx for idx in edge_indices
                 if start_node_idx < idx < end_node_idx
@@ -588,7 +584,6 @@ class DFSamePathExecutor:
             return
 
         # Walk backward from end to start
-        relevant_node_indices = [idx for idx in node_indices if start_idx <= idx <= end_idx]
         relevant_edge_indices = [idx for idx in edge_indices if start_idx < idx < end_idx]
 
         for edge_idx in reversed(relevant_edge_indices):
@@ -634,8 +629,8 @@ class DFSamePathExecutor:
                         right_set = list(right_allowed)
                         # Keep edges where (src in left and dst in right) OR (dst in left and src in right)
                         mask = (
-                            (edges_df[src_col].isin(left_set) & edges_df[dst_col].isin(right_set)) |
-                            (edges_df[dst_col].isin(left_set) & edges_df[src_col].isin(right_set))
+                            (edges_df[src_col].isin(left_set) & edges_df[dst_col].isin(right_set))
+                            | (edges_df[dst_col].isin(left_set) & edges_df[src_col].isin(right_set))
                         )
                         edges_df = edges_df[mask]
                     elif left_allowed:
@@ -714,7 +709,6 @@ class DFSamePathExecutor:
         """
         src_col = self._source_column
         dst_col = self._destination_column
-        edge_id_col = self._edge_column
 
         if not src_col or not dst_col or not left_allowed or not right_allowed:
             return edges_df
@@ -808,8 +802,8 @@ class DFSamePathExecutor:
             )
             edges_annotated1['__total_hops__'] = edges_annotated1['__fwd_hop__'] + 1 + edges_annotated1['__bwd_hop__']
             valid1 = edges_annotated1[
-                (edges_annotated1['__total_hops__'] >= min_hops) &
-                (edges_annotated1['__total_hops__'] <= max_hops)
+                (edges_annotated1['__total_hops__'] >= min_hops)
+                & (edges_annotated1['__total_hops__'] <= max_hops)
             ]
 
             # Direction 2: dst is fwd, src is bwd
@@ -820,8 +814,8 @@ class DFSamePathExecutor:
             )
             edges_annotated2['__total_hops__'] = edges_annotated2['__fwd_hop__'] + 1 + edges_annotated2['__bwd_hop__']
             valid2 = edges_annotated2[
-                (edges_annotated2['__total_hops__'] >= min_hops) &
-                (edges_annotated2['__total_hops__'] <= max_hops)
+                (edges_annotated2['__total_hops__'] >= min_hops)
+                & (edges_annotated2['__total_hops__'] <= max_hops)
             ]
 
             # Get original edge columns only
@@ -843,8 +837,8 @@ class DFSamePathExecutor:
             edges_annotated['__total_hops__'] = edges_annotated['__fwd_hop__'] + 1 + edges_annotated['__bwd_hop__']
 
             valid_edges = edges_annotated[
-                (edges_annotated['__total_hops__'] >= min_hops) &
-                (edges_annotated['__total_hops__'] <= max_hops)
+                (edges_annotated['__total_hops__'] >= min_hops)
+                & (edges_annotated['__total_hops__'] <= max_hops)
             ]
 
             # Return only original columns
@@ -1038,8 +1032,8 @@ class DFSamePathExecutor:
                         if self._source_column and self._destination_column:
                             dst_list = list(allowed_dst)
                             filtered = filtered[
-                                filtered[self._source_column].isin(dst_list) |
-                                filtered[self._destination_column].isin(dst_list)
+                                filtered[self._source_column].isin(dst_list)
+                                | filtered[self._destination_column].isin(dst_list)
                             ]
                     elif is_reverse:
                         if self._source_column and self._source_column in filtered.columns:
@@ -1081,8 +1075,8 @@ class DFSamePathExecutor:
                 # Undirected: both src and dst can be left or right nodes
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
-                        self._series_values(filtered[self._source_column]) |
-                        self._series_values(filtered[self._destination_column])
+                        self._series_values(filtered[self._source_column])
+                        | self._series_values(filtered[self._destination_column])
                     )
                     # Right node is constrained by allowed_dst already filtered above
                     current_dst = allowed_nodes.get(right_node_idx, set())
@@ -1273,7 +1267,6 @@ class DFSamePathExecutor:
         # Identify first-hop edges and valid endpoint edges
         hop_col = edges_df[edge_label]
         min_hop = hop_col.min()
-        max_hop = hop_col.max()
 
         first_hop_edges = edges_df[hop_col == min_hop]
 
@@ -1550,8 +1543,8 @@ class DFSamePathExecutor:
         filtered_edges = edges_df
         if allowed_node_frames:
             filtered_edges = filtered_edges[
-                filtered_edges[src].isin(allowed_nodes_df['__node__']) &
-                filtered_edges[dst].isin(allowed_nodes_df['__node__'])
+                filtered_edges[src].isin(allowed_nodes_df['__node__'])
+                & filtered_edges[dst].isin(allowed_nodes_df['__node__'])
             ]
         else:
             filtered_edges = filtered_edges.iloc[0:0]
