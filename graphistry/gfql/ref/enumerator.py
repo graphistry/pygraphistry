@@ -169,8 +169,8 @@ def enumerate_chain(
                 # Build adjacency from original edges, respecting direction
                 direction = edge_step.get("direction", "forward")
                 adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
-                for _, row in edges_df.iterrows():
-                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]
+                for _, row in edges_df.iterrows():  # type: ignore[union-attr]
+                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]  # type: ignore[index]
                     if direction == "reverse":
                         # Reverse: traverse dst -> src
                         adjacency.setdefault(dst, []).append((eid, src))
@@ -189,7 +189,7 @@ def enumerate_chain(
 
                 for start in valid_starts:
                     # Track paths: (current_node, path_edges, path_nodes)
-                    stack = [(start, [], [start])]
+                    stack: List[Tuple[Any, List[Any], List[Any]]] = [(start, [], [start])]
                     while stack:
                         node, path_edges, path_nodes = stack.pop()
                         if len(path_edges) >= max_hops:
