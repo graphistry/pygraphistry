@@ -465,7 +465,7 @@ class DFSamePathExecutor:
                 is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
                 is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
 
-                if is_multihop:
+                if is_multihop and isinstance(edge_op, ASTEdge):
                     # For multi-hop, propagate state through multiple hops
                     min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
                     max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
@@ -613,7 +613,7 @@ class DFSamePathExecutor:
             right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
 
             is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
-            if is_multihop:
+            if is_multihop and isinstance(edge_op, ASTEdge):
                 # For multi-hop edges, we need to trace valid paths from left_allowed
                 # to right_allowed, keeping all edges that participate in valid paths.
                 # Simple src/dst filtering would incorrectly remove intermediate edges.
@@ -665,7 +665,7 @@ class DFSamePathExecutor:
                     path_state.allowed_edges[edge_idx] = new_edge_ids
 
             # Update allowed left (src) nodes based on filtered edges
-            if is_multihop:
+            if is_multihop and isinstance(edge_op, ASTEdge):
                 # For multi-hop, the "left" nodes are those that can START paths
                 # to reach right_allowed within the hop constraints
                 new_src_nodes = self._find_multihop_start_nodes(
