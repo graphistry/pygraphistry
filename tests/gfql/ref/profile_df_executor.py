@@ -118,6 +118,8 @@ def run_profiles() -> List[ProfileResult]:
         ('small', 1000, 2000, 'linear'),
         ('medium', 10000, 20000, 'linear'),
         ('medium_dense', 10000, 50000, 'dense'),
+        ('large', 100000, 200000, 'linear'),
+        ('large_dense', 100000, 500000, 'dense'),
     ]
 
     for scenario_name, n_nodes, n_edges, graph_type in scenarios:
