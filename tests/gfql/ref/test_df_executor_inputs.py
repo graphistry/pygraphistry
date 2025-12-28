@@ -2672,3 +2672,379 @@ class TestP2EdgeCases:
         ]
 
         _assert_parity(graph, chain, where)
+
+
+# ============================================================================
+# P3 TESTS: Bug Pattern Coverage (from 5 Whys analysis)
+# ============================================================================
+#
+# These tests target specific bug patterns discovered during debugging:
+# 1. Multi-hop backward propagation edge cases
+# 2. Merge suffix handling for same-named columns
+# 3. Undirected edge handling in various contexts
+# ============================================================================
+
+
+class TestBugPatternMultihopBackprop:
+    """
+    Tests for multi-hop backward propagation edge cases.
+
+    Bug pattern: Code that filters edges by endpoints breaks for multi-hop
+    because intermediate nodes aren't in left_allowed or right_allowed sets.
+    """
+
+    def test_three_consecutive_multihop_edges(self):
+        """Three consecutive multi-hop edges - stress test for backward prop."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 4},
+            {"id": "e", "v": 5},
+            {"id": "f", "v": 6},
+            {"id": "g", "v": 7},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+            {"src": "d", "dst": "e"},
+            {"src": "e", "dst": "f"},
+            {"src": "f", "dst": "g"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="mid1"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="mid2"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_multihop_with_output_slicing_and_where(self):
+        """Multi-hop with output_min_hops/output_max_hops + WHERE."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 4},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=3, output_min_hops=2, output_max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_multihop_diamond_graph(self):
+        """Multi-hop through a diamond-shaped graph (multiple paths)."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 4},
+        ])
+        # Diamond: a -> b -> d and a -> c -> d
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+            {"src": "b", "dst": "d"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+
+class TestBugPatternMergeSuffix:
+    """
+    Tests for merge suffix handling with same-named columns.
+
+    Bug pattern: When left_col == right_col, pandas merge creates
+    suffixed columns (e.g., 'v' and 'v__r') but code may compare
+    column to itself instead of to the suffixed version.
+    """
+
+    def test_same_column_eq(self):
+        """Same column name with == operator."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 5},  # Same as a
+            {"id": "d", "v": 7},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # start.v == end.v: only c matches (v=5)
+        where = [compare(col("start", "v"), "==", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_same_column_lt(self):
+        """Same column name with < operator."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 1},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # start.v < end.v: c matches (5 < 10), d doesn't (5 < 1 is false)
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_same_column_lte(self):
+        """Same column name with <= operator."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 5},  # Equal
+            {"id": "d", "v": 10},  # Greater
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # start.v <= end.v: c (5<=5) and d (5<=10) match
+        where = [compare(col("start", "v"), "<=", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_same_column_gt(self):
+        """Same column name with > operator."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 1},  # Less than a
+            {"id": "d", "v": 10},  # Greater than a
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # start.v > end.v: only c matches (5 > 1)
+        where = [compare(col("start", "v"), ">", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_same_column_gte(self):
+        """Same column name with >= operator."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 5},  # Equal
+            {"id": "d", "v": 1},  # Less
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # start.v >= end.v: c (5>=5) and d (5>=1) match
+        where = [compare(col("start", "v"), ">=", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+
+class TestBugPatternUndirected:
+    """
+    Tests for undirected edge handling in various contexts.
+
+    Bug pattern: Code checks `is_reverse = direction == "reverse"` but
+    doesn't handle `direction == "undirected"`, treating it as forward.
+    Undirected requires bidirectional adjacency.
+    """
+
+    def test_undirected_non_adjacent_where(self):
+        """Undirected edges with non-adjacent WHERE clause."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        # Edges only go one way, but undirected should work both ways
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "c", "dst": "b"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(),
+            n(name="mid"),
+            e_undirected(),
+            n(name="end"),
+        ]
+        # Non-adjacent: start.v < end.v
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_undirected_multiple_where(self):
+        """Undirected edges with multiple WHERE clauses."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "w": 10},
+            {"id": "b", "v": 5, "w": 5},
+            {"id": "c", "v": 10, "w": 1},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "c", "dst": "b"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        # Multiple WHERE: start.v < end.v AND start.w > end.w
+        where = [
+            compare(col("start", "v"), "<", col("end", "v")),
+            compare(col("start", "w"), ">", col("end", "w")),
+        ]
+
+        _assert_parity(graph, chain, where)
+
+    def test_mixed_directed_undirected_chain(self):
+        """Chain with both directed and undirected edges."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 4},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "c", "dst": "b"},  # Goes "wrong" way, but undirected should handle
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_undirected(),  # Should be able to go b -> c even though edge is c -> b
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_undirected_with_self_loop(self):
+        """Undirected edge with self-loop."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "a"},  # Self-loop
+            {"src": "a", "dst": "b"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_undirected_reverse_undirected_chain(self):
+        """Chain: undirected -> reverse -> undirected."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 4},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "b", "dst": "c"},
+            {"src": "d", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(),
+            n(name="mid1"),
+            e_reverse(),
+            n(name="mid2"),
+            e_undirected(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)

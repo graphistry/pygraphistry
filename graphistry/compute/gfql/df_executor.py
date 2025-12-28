@@ -3,6 +3,40 @@
 This module hosts the execution path for GFQL chains that require
 same-path predicate enforcement. Works with both pandas and cuDF
 DataFrames.
+
+ARCHITECTURE NOTE FOR AI ASSISTANTS
+====================================
+This executor implements Yannakakis-style semijoin pruning for graph queries.
+The same code path must work for BOTH pandas (CPU) and cuDF (GPU).
+
+CRITICAL: ALL operations must be VECTORIZED using DataFrame operations:
+- Use merge() for joins
+- Use groupby().agg() for summaries (min/max for </>; value sets for ==)
+- Use boolean masks for filtering
+- Use .isin() for set membership
+
+NEVER use these anti-patterns (they break GPU and are slow on CPU):
+- for loops over DataFrame rows (for row in df.iterrows())
+- for loops with zip over columns (for a, b in zip(df[x], df[y]))
+- while loops for BFS/DFS graph traversal
+- Building Python dicts/adjacency lists from DataFrame data
+- .tolist() conversions followed by Python iteration
+
+For same-path predicates across multiple hops (e.g., a.val > c.threshold):
+- Monotone (<, >, <=, >=): Propagate min/max summaries hop-by-hop via groupby
+- Equality (==, !=): Propagate value sets via state tables (merge + groupby)
+
+Example of CORRECT vectorized multi-hop summary propagation:
+    # Forward: propagate max(a.val) through edges to node c
+    e1_with_a = edges_e1.merge(nodes_a[['id', 'val']], left_on='src', right_on='id')
+    max_at_b = e1_with_a.groupby('dst')['val'].max().reset_index()
+    e2_with_b = edges_e2.merge(max_at_b, left_on='src', right_on='id')
+    max_at_c = e2_with_b.groupby('dst')['val'].max().reset_index()
+    # Filter: keep c nodes where max_a_val > threshold
+    valid_c = nodes_c.merge(max_at_c, on='id')
+    valid_c = valid_c[valid_c['val'] > valid_c['threshold']]
+
+See plan.md for full Yannakakis algorithm explanation and refactoring notes.
 """
 
 from __future__ import annotations
@@ -377,26 +411,45 @@ class DFSamePathExecutor:
             if not node_id_col:
                 continue
 
-            # Build mapping: node_id -> column value for each alias
-            left_values_map: Dict[Any, Any] = {}
-            for _, row in left_frame.iterrows():
-                if node_id_col in row and left_col in row:
-                    left_values_map[row[node_id_col]] = row[left_col]
+            # Build value DataFrames for each alias (vectorized - no dict intermediates)
+            # Handle case where node_id_col == left_col or right_col (same column)
+            left_values_df = None
+            if node_id_col in left_frame.columns and left_col in left_frame.columns:
+                if node_id_col == left_col:
+                    # Same column - just rename once
+                    left_values_df = left_frame[[node_id_col]].drop_duplicates().copy()
+                    left_values_df.columns = ['__start__']
+                    left_values_df['__start_val__'] = left_values_df['__start__']
+                else:
+                    left_values_df = left_frame[[node_id_col, left_col]].drop_duplicates().rename(
+                        columns={node_id_col: '__start__', left_col: '__start_val__'}
+                    )
 
-            right_values_map: Dict[Any, Any] = {}
-            for _, row in right_frame.iterrows():
-                if node_id_col in row and right_col in row:
-                    right_values_map[row[node_id_col]] = row[right_col]
+            right_values_df = None
+            if node_id_col in right_frame.columns and right_col in right_frame.columns:
+                if node_id_col == right_col:
+                    # Same column - just rename once
+                    right_values_df = right_frame[[node_id_col]].drop_duplicates().copy()
+                    right_values_df.columns = ['__current__']
+                    right_values_df['__end_val__'] = right_values_df['__current__']
+                else:
+                    right_values_df = right_frame[[node_id_col, right_col]].drop_duplicates().rename(
+                        columns={node_id_col: '__current__', right_col: '__end_val__'}
+                    )
 
-            # Trace paths step by step
-            # Start with all valid starts
-            current_reachable: Dict[Any, Set[Any]] = {
-                start: {start} for start in start_nodes
-            }  # Maps current_node -> set of original starts that can reach it
+            # Vectorized path tracing using state table propagation
+            # State table: (current_node, start_node) pairs - which starts can reach each node
+            # Build from left_values_df to avoid Python set->list conversion
+            if left_values_df is not None and len(left_values_df) > 0:
+                # Filter to start_nodes using isin (start_nodes is still a set here, but isin handles it)
+                state_df = left_values_df[left_values_df['__start__'].isin(start_nodes)][['__start__']].copy()
+                state_df['__current__'] = state_df['__start__']
+            else:
+                state_df = pd.DataFrame(columns=['__current__', '__start__'])
 
             for edge_idx in relevant_edge_indices:
                 edges_df = self.forward_steps[edge_idx]._edges
-                if edges_df is None:
+                if edges_df is None or len(state_df) == 0:
                     break
 
                 # Filter edges to allowed edges
@@ -410,120 +463,91 @@ class DFSamePathExecutor:
                 is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
 
                 if is_multihop:
-                    # For multi-hop edges, we need to trace paths through the underlying
-                    # graph edges, not just treat it as one hop. Use DFS from current
-                    # reachable nodes to find all nodes reachable within min..max hops.
+                    # For multi-hop, propagate state through multiple hops
                     min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
                     max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
                         edge_op.hops if edge_op.hops is not None else 1
                     )
 
-                    # Build adjacency from edges
-                    adjacency: Dict[Any, List[Any]] = {}
-                    for _, row in edges_df.iterrows():
-                        if is_undirected:
-                            # Undirected: can traverse both ways
-                            adjacency.setdefault(row[src_col], []).append(row[dst_col])
-                            adjacency.setdefault(row[dst_col], []).append(row[src_col])
-                        elif is_reverse:
-                            s, d = row[dst_col], row[src_col]
-                            adjacency.setdefault(s, []).append(d)
-                        else:
-                            s, d = row[src_col], row[dst_col]
-                            adjacency.setdefault(s, []).append(d)
+                    # Build edge pairs based on direction
+                    if is_undirected:
+                        edge_pairs = pd.concat([
+                            edges_df[[src_col, dst_col]].rename(columns={src_col: '__from__', dst_col: '__to__'}),
+                            edges_df[[dst_col, src_col]].rename(columns={dst_col: '__from__', src_col: '__to__'})
+                        ], ignore_index=True).drop_duplicates()
+                    elif is_reverse:
+                        edge_pairs = edges_df[[dst_col, src_col]].rename(columns={dst_col: '__from__', src_col: '__to__'})
+                    else:
+                        edge_pairs = edges_df[[src_col, dst_col]].rename(columns={src_col: '__from__', dst_col: '__to__'})
 
-                    # DFS/BFS to find all reachable nodes within min..max hops
-                    next_reachable: Dict[Any, Set[Any]] = {}
-                    for start_node, original_starts in current_reachable.items():
-                        # BFS from this node
-                        # Track: (node, hop_count)
-                        queue = [(start_node, 0)]
-                        visited_at_hop: Dict[Any, int] = {start_node: 0}
+                    # Propagate state through hops
+                    all_reachable = [state_df.copy()]
+                    current_state = state_df.copy()
 
-                        while queue:
-                            node, hop = queue.pop(0)
-                            if hop >= max_hops:
-                                continue
-                            for neighbor in adjacency.get(node, []):
-                                next_hop = hop + 1
-                                if neighbor not in visited_at_hop or visited_at_hop[neighbor] > next_hop:
-                                    visited_at_hop[neighbor] = next_hop
-                                    queue.append((neighbor, next_hop))
+                    for hop in range(1, max_hops + 1):
+                        # Propagate current_state through one hop
+                        next_state = edge_pairs.merge(
+                            current_state, left_on='__from__', right_on='__current__', how='inner'
+                        )[['__to__', '__start__']].rename(columns={'__to__': '__current__'}).drop_duplicates()
 
-                        # Nodes reachable within [min_hops, max_hops] are valid "mid" nodes
-                        for node, hop in visited_at_hop.items():
-                            if min_hops <= hop <= max_hops:
-                                if node not in next_reachable:
-                                    next_reachable[node] = set()
-                                next_reachable[node].update(original_starts)
+                        if len(next_state) == 0:
+                            break
 
-                    current_reachable = next_reachable
+                        if hop >= min_hops:
+                            all_reachable.append(next_state)
+                        current_state = next_state
+
+                    # Combine all reachable states
+                    if len(all_reachable) > 1:
+                        state_df = pd.concat(all_reachable[1:], ignore_index=True).drop_duplicates()
+                    else:
+                        state_df = pd.DataFrame(columns=['__current__', '__start__'])
                 else:
-                    # Single-hop edge: propagate reachability through one hop
-                    next_reachable: Dict[Any, Set[Any]] = {}
+                    # Single-hop: propagate state through one hop
+                    if is_undirected:
+                        # Both directions
+                        next1 = edges_df.merge(
+                            state_df, left_on=src_col, right_on='__current__', how='inner'
+                        )[[dst_col, '__start__']].rename(columns={dst_col: '__current__'})
+                        next2 = edges_df.merge(
+                            state_df, left_on=dst_col, right_on='__current__', how='inner'
+                        )[[src_col, '__start__']].rename(columns={src_col: '__current__'})
+                        state_df = pd.concat([next1, next2], ignore_index=True).drop_duplicates()
+                    elif is_reverse:
+                        state_df = edges_df.merge(
+                            state_df, left_on=dst_col, right_on='__current__', how='inner'
+                        )[[src_col, '__start__']].rename(columns={src_col: '__current__'}).drop_duplicates()
+                    else:
+                        state_df = edges_df.merge(
+                            state_df, left_on=src_col, right_on='__current__', how='inner'
+                        )[[dst_col, '__start__']].rename(columns={dst_col: '__current__'}).drop_duplicates()
 
-                    for _, row in edges_df.iterrows():
-                        if is_undirected:
-                            # Undirected: can traverse both ways
-                            src_val, dst_val = row[src_col], row[dst_col]
-                            if src_val in current_reachable:
-                                if dst_val not in next_reachable:
-                                    next_reachable[dst_val] = set()
-                                next_reachable[dst_val].update(current_reachable[src_val])
-                            if dst_val in current_reachable:
-                                if src_val not in next_reachable:
-                                    next_reachable[src_val] = set()
-                                next_reachable[src_val].update(current_reachable[dst_val])
-                        elif is_reverse:
-                            src_val, dst_val = row[dst_col], row[src_col]
-                            if src_val in current_reachable:
-                                if dst_val not in next_reachable:
-                                    next_reachable[dst_val] = set()
-                                next_reachable[dst_val].update(current_reachable[src_val])
-                        else:
-                            src_val, dst_val = row[src_col], row[dst_col]
-                            if src_val in current_reachable:
-                                if dst_val not in next_reachable:
-                                    next_reachable[dst_val] = set()
-                                next_reachable[dst_val].update(current_reachable[src_val])
+            # state_df now has (current_node=end_node, start_node) pairs
+            # Filter to valid end nodes
+            state_df = state_df[state_df['__current__'].isin(end_nodes)]
 
-                    current_reachable = next_reachable
+            if len(state_df) == 0:
+                # No valid paths found
+                if start_node_idx in path_state.allowed_nodes:
+                    path_state.allowed_nodes[start_node_idx] = set()
+                if end_node_idx in path_state.allowed_nodes:
+                    path_state.allowed_nodes[end_node_idx] = set()
+                continue
 
-            # Now current_reachable maps end_node -> set of starts that can reach it
-            # Apply the WHERE clause: filter to (start, end) pairs satisfying constraint
-            valid_starts: Set[Any] = set()
-            valid_ends: Set[Any] = set()
+            # Join with start and end values to apply WHERE clause
+            # left_values_df and right_values_df were built earlier (vectorized)
+            if left_values_df is None or right_values_df is None:
+                continue
 
-            for end_node, starts in current_reachable.items():
-                if end_node not in end_nodes:
-                    continue
-                end_value = right_values_map.get(end_node)
-                if end_value is None:
-                    continue
+            pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
+            pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
 
-                for start_node in starts:
-                    start_value = left_values_map.get(start_node)
-                    if start_value is None:
-                        continue
+            # Apply the comparison vectorized
+            mask = self._evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
+            valid_pairs = pairs_df[mask]
 
-                    # Apply the comparison
-                    satisfies = False
-                    if clause.op == "==":
-                        satisfies = start_value == end_value
-                    elif clause.op == "!=":
-                        satisfies = start_value != end_value
-                    elif clause.op == "<":
-                        satisfies = start_value < end_value
-                    elif clause.op == "<=":
-                        satisfies = start_value <= end_value
-                    elif clause.op == ">":
-                        satisfies = start_value > end_value
-                    elif clause.op == ">=":
-                        satisfies = start_value >= end_value
-
-                    if satisfies:
-                        valid_starts.add(start_node)
-                        valid_ends.add(end_node)
+            valid_starts = set(valid_pairs['__start__'].tolist())
+            valid_ends = set(valid_pairs['__current__'].tolist())
 
             # Update allowed_nodes for start and end positions
             if start_node_idx in path_state.allowed_nodes:
@@ -675,6 +699,11 @@ class DFSamePathExecutor:
         """
         Filter multi-hop edges to only those participating in valid paths
         from left_allowed to right_allowed.
+
+        Uses vectorized bidirectional reachability propagation:
+        1. Forward: find nodes reachable from left_allowed at each hop
+        2. Backward: find nodes that can reach right_allowed at each hop
+        3. Keep edges connecting forward-reachable to backward-reachable nodes
         """
         src_col = self._source_column
         dst_col = self._destination_column
@@ -688,43 +717,132 @@ class DFSamePathExecutor:
             edge_op.hops if edge_op.hops is not None else 1
         )
 
-        # Build adjacency from edges
-        adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
-        for row_idx, row in edges_df.iterrows():
-            src_val, dst_val = row[src_col], row[dst_col]
-            eid = row[edge_id_col] if edge_id_col and edge_id_col in edges_df.columns else row_idx
-            if is_undirected:
-                # Undirected: can traverse both ways
-                adjacency.setdefault(src_val, []).append((eid, dst_val))
-                adjacency.setdefault(dst_val, []).append((eid, src_val))
-            elif is_reverse:
-                adjacency.setdefault(dst_val, []).append((eid, src_val))
-            else:
-                adjacency.setdefault(src_val, []).append((eid, dst_val))
-
-        # DFS from left_allowed to find paths reaching right_allowed
-        valid_edge_ids: Set[Any] = set()
-
-        for start in left_allowed:
-            # Track (current_node, path_edges)
-            stack: List[Tuple[Any, List[Any]]] = [(start, [])]
-            while stack:
-                node, path_edges = stack.pop()
-                if len(path_edges) >= max_hops:
-                    continue
-                for eid, next_node in adjacency.get(node, []):
-                    new_edges = path_edges + [eid]
-                    if next_node in right_allowed and len(new_edges) >= min_hops:
-                        # Valid path found - include all edges
-                        valid_edge_ids.update(new_edges)
-                    if len(new_edges) < max_hops:
-                        stack.append((next_node, new_edges))
-
-        # Filter edges to only those in valid paths
-        if edge_id_col and edge_id_col in edges_df.columns:
-            return edges_df[edges_df[edge_id_col].isin(list(valid_edge_ids))]
+        # Build edge pairs for traversal based on direction
+        if is_undirected:
+            edges_fwd = edges_df[[src_col, dst_col]].copy()
+            edges_fwd.columns = ['__from__', '__to__']
+            edges_rev = edges_df[[dst_col, src_col]].copy()
+            edges_rev.columns = ['__from__', '__to__']
+            edge_pairs = pd.concat([edges_fwd, edges_rev], ignore_index=True).drop_duplicates()
+        elif is_reverse:
+            edge_pairs = edges_df[[dst_col, src_col]].copy()
+            edge_pairs.columns = ['__from__', '__to__']
         else:
-            return edges_df.loc[list(valid_edge_ids)] if valid_edge_ids else edges_df.iloc[:0]
+            edge_pairs = edges_df[[src_col, dst_col]].copy()
+            edge_pairs.columns = ['__from__', '__to__']
+
+        # Forward reachability: nodes reachable from left_allowed at each hop distance
+        # Use DataFrame-based tracking throughout (no Python sets)
+        # fwd_df tracks (node, min_hop) for all reachable nodes
+        fwd_df = pd.DataFrame({'__node__': list(left_allowed), '__fwd_hop__': 0})
+        all_fwd_df = fwd_df.copy()
+
+        for hop in range(1, max_hops):  # max_hops-1 because edge adds 1 more
+            # Get frontier (nodes at previous hop)
+            frontier_df = fwd_df[fwd_df['__fwd_hop__'] == hop - 1][['__node__']].rename(
+                columns={'__node__': '__from__'}
+            )
+            if len(frontier_df) == 0:
+                break
+            # Propagate through edges
+            next_nodes_df = edge_pairs.merge(frontier_df, on='__from__', how='inner')[['__to__']].drop_duplicates()
+            next_nodes_df = next_nodes_df.rename(columns={'__to__': '__node__'})
+            next_nodes_df['__fwd_hop__'] = hop
+            # Anti-join: keep only nodes not yet seen
+            merged = next_nodes_df.merge(all_fwd_df[['__node__']], on='__node__', how='left', indicator=True)
+            new_nodes_df = merged[merged['_merge'] == 'left_only'][['__node__', '__fwd_hop__']]
+            if len(new_nodes_df) == 0:
+                break
+            fwd_df = pd.concat([fwd_df, new_nodes_df], ignore_index=True)
+            all_fwd_df = pd.concat([all_fwd_df, new_nodes_df], ignore_index=True)
+
+        # Backward reachability: nodes that can reach right_allowed at each hop distance
+        rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
+
+        bwd_df = pd.DataFrame({'__node__': list(right_allowed), '__bwd_hop__': 0})
+        all_bwd_df = bwd_df.copy()
+
+        for hop in range(1, max_hops):  # max_hops-1 because edge adds 1 more
+            frontier_df = bwd_df[bwd_df['__bwd_hop__'] == hop - 1][['__node__']].rename(
+                columns={'__node__': '__from__'}
+            )
+            if len(frontier_df) == 0:
+                break
+            next_nodes_df = rev_edge_pairs.merge(frontier_df, on='__from__', how='inner')[['__to__']].drop_duplicates()
+            next_nodes_df = next_nodes_df.rename(columns={'__to__': '__node__'})
+            next_nodes_df['__bwd_hop__'] = hop
+            # Anti-join: keep only nodes not yet seen
+            merged = next_nodes_df.merge(all_bwd_df[['__node__']], on='__node__', how='left', indicator=True)
+            new_nodes_df = merged[merged['_merge'] == 'left_only'][['__node__', '__bwd_hop__']]
+            if len(new_nodes_df) == 0:
+                break
+            bwd_df = pd.concat([bwd_df, new_nodes_df], ignore_index=True)
+            all_bwd_df = pd.concat([all_bwd_df, new_nodes_df], ignore_index=True)
+
+        # An edge (u, v) is valid if:
+        # - u is forward-reachable at hop h_fwd (path length from left_allowed to u)
+        # - v is backward-reachable at hop h_bwd (path length from v to right_allowed)
+        # - h_fwd + 1 + h_bwd is in [min_hops, max_hops]
+        if len(fwd_df) == 0 or len(bwd_df) == 0:
+            return edges_df.iloc[:0]
+
+        # For nodes reachable at multiple hops, keep the minimum
+        fwd_df = fwd_df.groupby('__node__')['__fwd_hop__'].min().reset_index()
+        bwd_df = bwd_df.groupby('__node__')['__bwd_hop__'].min().reset_index()
+
+        # Join edges with hop distances
+        if is_undirected:
+            # For undirected, check both directions
+            # Direction 1: src is fwd, dst is bwd
+            edges_annotated1 = edges_df.merge(
+                fwd_df, left_on=src_col, right_on='__node__', how='inner'
+            ).merge(
+                bwd_df, left_on=dst_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
+            )
+            edges_annotated1['__total_hops__'] = edges_annotated1['__fwd_hop__'] + 1 + edges_annotated1['__bwd_hop__']
+            valid1 = edges_annotated1[
+                (edges_annotated1['__total_hops__'] >= min_hops) &
+                (edges_annotated1['__total_hops__'] <= max_hops)
+            ]
+
+            # Direction 2: dst is fwd, src is bwd
+            edges_annotated2 = edges_df.merge(
+                fwd_df, left_on=dst_col, right_on='__node__', how='inner'
+            ).merge(
+                bwd_df, left_on=src_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
+            )
+            edges_annotated2['__total_hops__'] = edges_annotated2['__fwd_hop__'] + 1 + edges_annotated2['__bwd_hop__']
+            valid2 = edges_annotated2[
+                (edges_annotated2['__total_hops__'] >= min_hops) &
+                (edges_annotated2['__total_hops__'] <= max_hops)
+            ]
+
+            # Get original edge columns only
+            orig_cols = list(edges_df.columns)
+            valid_edges = pd.concat([valid1[orig_cols], valid2[orig_cols]], ignore_index=True).drop_duplicates()
+            return valid_edges
+        else:
+            # Determine which column is "source" (fwd) and which is "dest" (bwd)
+            if is_reverse:
+                fwd_col, bwd_col = dst_col, src_col
+            else:
+                fwd_col, bwd_col = src_col, dst_col
+
+            edges_annotated = edges_df.merge(
+                fwd_df, left_on=fwd_col, right_on='__node__', how='inner'
+            ).merge(
+                bwd_df, left_on=bwd_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
+            )
+            edges_annotated['__total_hops__'] = edges_annotated['__fwd_hop__'] + 1 + edges_annotated['__bwd_hop__']
+
+            valid_edges = edges_annotated[
+                (edges_annotated['__total_hops__'] >= min_hops) &
+                (edges_annotated['__total_hops__'] <= max_hops)
+            ]
+
+            # Return only original columns
+            orig_cols = list(edges_df.columns)
+            return valid_edges[orig_cols]
 
     def _find_multihop_start_nodes(
         self,
@@ -736,6 +854,8 @@ class DFSamePathExecutor:
     ) -> Set[Any]:
         """
         Find nodes that can start multi-hop paths reaching right_allowed.
+
+        Uses vectorized hop-by-hop backward propagation via merge+groupby.
         """
         src_col = self._source_column
         dst_col = self._destination_column
@@ -748,47 +868,79 @@ class DFSamePathExecutor:
             edge_op.hops if edge_op.hops is not None else 1
         )
 
-        # Build reverse adjacency to trace backward from endpoints
-        # For forward edges: we need to find which src nodes can reach dst nodes in right_allowed
-        # For reverse edges: we need to find which dst nodes can reach src nodes in right_allowed
-        # For undirected: bidirectional so reverse adjacency is same as forward
-        reverse_adj: Dict[Any, List[Any]] = {}
-        for _, row in edges_df.iterrows():
-            src_val, dst_val = row[src_col], row[dst_col]
-            if is_undirected:
-                # Undirected: bidirectional, so both directions are valid for tracing back
-                reverse_adj.setdefault(src_val, []).append(dst_val)
-                reverse_adj.setdefault(dst_val, []).append(src_val)
-            elif is_reverse:
-                # Reverse: traversal goes dst->src, so to trace back we go src->dst
-                reverse_adj.setdefault(src_val, []).append(dst_val)
-            else:
-                # Forward: traversal goes src->dst, so to trace back we go dst->src
-                reverse_adj.setdefault(dst_val, []).append(src_val)
+        # Determine edge direction for backward traversal
+        # Forward edges: src->dst, backward: dst->src
+        # Reverse edges: dst->src, backward: src->dst
+        # Undirected: both directions
+        if is_undirected:
+            # For undirected, we need edges in both directions
+            # Create a DataFrame with both (src, dst) and (dst, src) as edges
+            edges_fwd = edges_df[[src_col, dst_col]].rename(
+                columns={src_col: '__from__', dst_col: '__to__'}
+            )
+            edges_rev = edges_df[[dst_col, src_col]].rename(
+                columns={dst_col: '__from__', src_col: '__to__'}
+            )
+            edge_pairs = pd.concat([edges_fwd, edges_rev], ignore_index=True).drop_duplicates()
+        elif is_reverse:
+            # Reverse: traversal goes dst->src, backward trace goes src->dst
+            edge_pairs = edges_df[[src_col, dst_col]].rename(
+                columns={src_col: '__from__', dst_col: '__to__'}
+            ).drop_duplicates()
+        else:
+            # Forward: traversal goes src->dst, backward trace goes dst->src
+            edge_pairs = edges_df[[dst_col, src_col]].rename(
+                columns={dst_col: '__from__', src_col: '__to__'}
+            ).drop_duplicates()
 
-        # BFS backward from right_allowed to find all nodes that can reach them
-        valid_starts: Set[Any] = set()
-        for end_node in right_allowed:
-            # Track (node, hops_from_end)
-            queue = [(end_node, 0)]
-            visited: Dict[Any, int] = {end_node: 0}
+        # Vectorized backward BFS: propagate reachability hop by hop
+        # Use DataFrame-based tracking throughout (no Python sets internally)
+        # Start with right_allowed as reachable at hop 0
+        reachable = pd.DataFrame({'__node__': list(right_allowed), '__hop__': 0})
+        all_reachable = reachable.copy()
+        valid_starts_frames: List[DataFrameT] = []
 
-            while queue:
-                node, hops = queue.pop(0)
-                if hops >= max_hops:
-                    continue
-                for prev_node in reverse_adj.get(node, []):
-                    next_hops = hops + 1
-                    if prev_node not in visited or visited[prev_node] > next_hops:
-                        visited[prev_node] = next_hops
-                        queue.append((prev_node, next_hops))
+        # Collect nodes at each hop distance
+        for hop in range(1, max_hops + 1):
+            # Get nodes reachable at previous hop
+            prev_hop_nodes = reachable[reachable['__hop__'] == hop - 1][['__node__']]
 
-            # Nodes that are min_hops to max_hops away (backward) can be starts
-            for node, hops in visited.items():
-                if min_hops <= hops <= max_hops:
-                    valid_starts.add(node)
+            # Join with edges to find nodes one hop back
+            # edge_pairs: __from__ -> __to__, we want nodes that go TO prev_hop_nodes
+            new_reachable = edge_pairs.merge(
+                prev_hop_nodes,
+                left_on='__to__',
+                right_on='__node__',
+                how='inner'
+            )[['__from__']].drop_duplicates()
 
-        return valid_starts
+            if len(new_reachable) == 0:
+                break
+
+            new_reachable = new_reachable.rename(columns={'__from__': '__node__'})
+            new_reachable['__hop__'] = hop
+
+            # Anti-join: filter out nodes already seen at a shorter distance
+            merged = new_reachable.merge(
+                all_reachable[['__node__']], on='__node__', how='left', indicator=True
+            )
+            new_reachable = merged[merged['_merge'] == 'left_only'][['__node__', '__hop__']]
+
+            if len(new_reachable) == 0:
+                break
+
+            reachable = pd.concat([reachable, new_reachable], ignore_index=True)
+            all_reachable = pd.concat([all_reachable, new_reachable], ignore_index=True)
+
+            # Collect valid starts (nodes at hop distance in [min_hops, max_hops])
+            if hop >= min_hops:
+                valid_starts_frames.append(new_reachable[['__node__']])
+
+        # Combine all valid starts and convert to set (caller expects set)
+        if valid_starts_frames:
+            valid_starts_df = pd.concat(valid_starts_frames, ignore_index=True).drop_duplicates()
+            return set(valid_starts_df['__node__'].tolist())
+        return set()
 
     def _capture_minmax(
         self, alias: str, frame: DataFrameT, id_col: Optional[str]
@@ -865,14 +1017,24 @@ class DFSamePathExecutor:
             edge_op = self.inputs.chain[edge_idx]
             is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
             is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
+            is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
 
             # For single-hop edges, filter by allowed dst first
             # For multi-hop, defer dst filtering to _filter_multihop_by_where
             # For reverse edges, "dst" in traversal = "src" in edge data
+            # For undirected edges, "dst" can be either src or dst column
             if not is_multihop:
                 allowed_dst = allowed_nodes.get(right_node_idx)
                 if allowed_dst is not None:
-                    if is_reverse:
+                    if is_undirected:
+                        # Undirected: right node can be reached via either src or dst column
+                        if self._source_column and self._destination_column:
+                            dst_list = list(allowed_dst)
+                            filtered = filtered[
+                                filtered[self._source_column].isin(dst_list) |
+                                filtered[self._destination_column].isin(dst_list)
+                            ]
+                    elif is_reverse:
                         if self._source_column and self._source_column in filtered.columns:
                             filtered = filtered[
                                 filtered[self._source_column].isin(list(allowed_dst))
@@ -907,7 +1069,23 @@ class DFSamePathExecutor:
 
             # Update allowed_nodes based on filtered edges
             # For reverse edges, swap src/dst semantics
-            if is_reverse:
+            # For undirected edges, both src and dst can be either left or right node
+            if is_undirected:
+                # Undirected: both src and dst can be left or right nodes
+                if self._source_column and self._destination_column:
+                    all_nodes_in_edges = (
+                        self._series_values(filtered[self._source_column]) |
+                        self._series_values(filtered[self._destination_column])
+                    )
+                    # Right node is constrained by allowed_dst already filtered above
+                    current_dst = allowed_nodes.get(right_node_idx, set())
+                    allowed_nodes[right_node_idx] = (
+                        current_dst & all_nodes_in_edges if current_dst else all_nodes_in_edges
+                    )
+                    # Left node is any node in the filtered edges
+                    current = allowed_nodes.get(left_node_idx, set())
+                    allowed_nodes[left_node_idx] = current & all_nodes_in_edges if current else all_nodes_in_edges
+            elif is_reverse:
                 # Reverse: right node reached via src, left node via dst
                 if self._source_column and self._source_column in filtered.columns:
                     allowed_dst_actual = self._series_values(filtered[self._source_column])
@@ -1100,21 +1278,39 @@ class DFSamePathExecutor:
         # Undirected: edges can be traversed both ways, so both src and dst are potential starts/ends
         is_reverse = edge_op.direction == "reverse"
         is_undirected = edge_op.direction == "undirected"
+
+        # Extract start/end nodes using DataFrame operations (vectorized)
         if is_undirected:
             # Undirected: start can be either src or dst of first hop
-            start_nodes = set(first_hop_edges[self._source_column].tolist()) | \
-                          set(first_hop_edges[self._destination_column].tolist())
+            start_nodes_df = pd.concat([
+                first_hop_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
+                first_hop_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
+            ], ignore_index=True).drop_duplicates()
             # End can be either src or dst of edges at hop >= min_hops
-            end_nodes = set(valid_endpoint_edges[self._source_column].tolist()) | \
-                        set(valid_endpoint_edges[self._destination_column].tolist())
+            end_nodes_df = pd.concat([
+                valid_endpoint_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
+                valid_endpoint_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
+            ], ignore_index=True).drop_duplicates()
         elif is_reverse:
             # Reverse: start is dst of first hop, end is src of edges at hop >= min_hops
-            start_nodes = set(first_hop_edges[self._destination_column].tolist())
-            end_nodes = set(valid_endpoint_edges[self._source_column].tolist())
+            start_nodes_df = first_hop_edges[[self._destination_column]].rename(
+                columns={self._destination_column: '__node__'}
+            ).drop_duplicates()
+            end_nodes_df = valid_endpoint_edges[[self._source_column]].rename(
+                columns={self._source_column: '__node__'}
+            ).drop_duplicates()
         else:
             # Forward: start is src of first hop, end is dst of edges at hop >= min_hops
-            start_nodes = set(first_hop_edges[self._source_column].tolist())
-            end_nodes = set(valid_endpoint_edges[self._destination_column].tolist())
+            start_nodes_df = first_hop_edges[[self._source_column]].rename(
+                columns={self._source_column: '__node__'}
+            ).drop_duplicates()
+            end_nodes_df = valid_endpoint_edges[[self._destination_column]].rename(
+                columns={self._destination_column: '__node__'}
+            ).drop_duplicates()
+
+        # Convert to sets for intersection with allowed_nodes (caller uses sets)
+        start_nodes = set(start_nodes_df['__node__'].tolist())
+        end_nodes = set(end_nodes_df['__node__'].tolist())
 
         # Filter to allowed nodes
         left_step_idx = self.inputs.alias_bindings[left_alias].step_index
@@ -1166,60 +1362,11 @@ class DFSamePathExecutor:
         valid_starts = set(pairs_df["__start_id__"].tolist())
         valid_ends = set(pairs_df["__end_id__"].tolist())
 
-        # Trace paths from valid_starts to valid_ends to find valid edges
-        # Build adjacency from edges_df, tracking row indices for filtering
-        src_col = self._source_column
-        dst_col = self._destination_column
-        edge_id_col = self._edge_column
-
-        # Use row index as edge identifier if no edge ID column
-        # For reverse edges, build adjacency in the opposite direction (dst -> src)
-        # For undirected edges, build bidirectional adjacency
-        adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
-        for row_idx, row in edges_df.iterrows():
-            src_val, dst_val = row[src_col], row[dst_col]
-            eid = row[edge_id_col] if edge_id_col and edge_id_col in edges_df.columns else row_idx
-            if is_undirected:
-                # Undirected: can traverse both directions
-                adjacency.setdefault(src_val, []).append((eid, dst_val))
-                adjacency.setdefault(dst_val, []).append((eid, src_val))
-            elif is_reverse:
-                # Reverse: traverse from dst to src
-                adjacency.setdefault(dst_val, []).append((eid, src_val))
-            else:
-                # Forward: traverse from src to dst
-                adjacency.setdefault(src_val, []).append((eid, dst_val))
-
-        # DFS from valid_starts to find paths to valid_ends
-        valid_edge_ids: Set[Any] = set()
-        # Use edge_op.max_hops instead of max_hop from hop column, because hop column
-        # is unreliable when all nodes can be starts (all edges get labeled as hop 1)
-        chain_max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
-            edge_op.hops if edge_op.hops is not None else 10
+        # Use vectorized bidirectional reachability to filter edges
+        # This reuses the same logic as _filter_multihop_edges_by_endpoints
+        return self._filter_multihop_edges_by_endpoints(
+            edges_df, edge_op, valid_starts, valid_ends, is_reverse, is_undirected
         )
-        max_hops_val = int(chain_max_hops)
-
-        for start in valid_starts:
-            # Track (current_node, path_edges)
-            stack: List[Tuple[Any, List[Any]]] = [(start, [])]
-            while stack:
-                node, path_edges = stack.pop()
-                if len(path_edges) >= max_hops_val:
-                    continue
-                for eid, dst_val in adjacency.get(node, []):
-                    new_edges = path_edges + [eid]
-                    if dst_val in valid_ends:
-                        # Valid path found - include all edges
-                        valid_edge_ids.update(new_edges)
-                    if len(new_edges) < max_hops_val:
-                        stack.append((dst_val, new_edges))
-
-        # Filter edges to only those in valid paths
-        if edge_id_col and edge_id_col in edges_df.columns:
-            return edges_df[edges_df[edge_id_col].isin(list(valid_edge_ids))]
-        else:
-            # Filter by row index
-            return edges_df.loc[list(valid_edge_ids)] if valid_edge_ids else edges_df.iloc[:0]
 
     @staticmethod
     def _is_single_hop(op: ASTEdge) -> bool:
@@ -1342,12 +1489,19 @@ class DFSamePathExecutor:
         if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
             raise ValueError("Graph bindings are incomplete for same-path execution")
 
-        allowed_node_ids: Set[Any] = (
-            set().union(*path_state.allowed_nodes.values()) if path_state.allowed_nodes else set()
-        )
-        allowed_edge_ids: Set[Any] = (
-            set().union(*path_state.allowed_edges.values()) if path_state.allowed_edges else set()
-        )
+        # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
+        # Collect allowed node IDs from path_state
+        allowed_node_frames: List[DataFrameT] = []
+        if path_state.allowed_nodes:
+            for node_set in path_state.allowed_nodes.values():
+                if node_set:
+                    allowed_node_frames.append(pd.DataFrame({'__node__': list(node_set)}))
+
+        allowed_edge_frames: List[DataFrameT] = []
+        if path_state.allowed_edges:
+            for edge_set in path_state.allowed_edges.values():
+                if edge_set:
+                    allowed_edge_frames.append(pd.DataFrame({'__edge__': list(edge_set)}))
 
         # For multi-hop edges, include all intermediate nodes from the edge frames
         # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
@@ -1356,24 +1510,32 @@ class DFSamePathExecutor:
             for op in self.inputs.chain
         )
         if has_multihop and src in edges_df.columns and dst in edges_df.columns:
-            # Include all nodes referenced by edges
-            edge_src_nodes = set(edges_df[src].tolist())
-            edge_dst_nodes = set(edges_df[dst].tolist())
-            allowed_node_ids = allowed_node_ids | edge_src_nodes | edge_dst_nodes
+            # Include all nodes referenced by edges (vectorized)
+            allowed_node_frames.append(
+                edges_df[[src]].rename(columns={src: '__node__'})
+            )
+            allowed_node_frames.append(
+                edges_df[[dst]].rename(columns={dst: '__node__'})
+            )
 
-        filtered_nodes = (
-            nodes_df[nodes_df[node_id].isin(list(allowed_node_ids))]
-            if allowed_node_ids
-            else nodes_df.iloc[0:0]
-        )
+        # Combine and dedupe allowed nodes
+        if allowed_node_frames:
+            allowed_nodes_df = pd.concat(allowed_node_frames, ignore_index=True).drop_duplicates()
+            filtered_nodes = nodes_df[nodes_df[node_id].isin(allowed_nodes_df['__node__'])]
+        else:
+            filtered_nodes = nodes_df.iloc[0:0]
+
+        # Filter edges by allowed nodes (dst must be in allowed nodes)
         filtered_edges = edges_df
-        filtered_edges = (
-            filtered_edges[filtered_edges[dst].isin(list(allowed_node_ids))]
-            if allowed_node_ids
-            else filtered_edges.iloc[0:0]
-        )
-        if allowed_edge_ids and edge_id and edge_id in filtered_edges.columns:
-            filtered_edges = filtered_edges[filtered_edges[edge_id].isin(list(allowed_edge_ids))]
+        if allowed_node_frames:
+            filtered_edges = filtered_edges[filtered_edges[dst].isin(allowed_nodes_df['__node__'])]
+        else:
+            filtered_edges = filtered_edges.iloc[0:0]
+
+        # Filter by allowed edge IDs
+        if allowed_edge_frames and edge_id and edge_id in filtered_edges.columns:
+            allowed_edges_df = pd.concat(allowed_edge_frames, ignore_index=True).drop_duplicates()
+            filtered_edges = filtered_edges[filtered_edges[edge_id].isin(allowed_edges_df['__edge__'])]
 
         filtered_nodes = self._merge_label_frames(
             filtered_nodes,
@@ -1396,11 +1558,13 @@ class DFSamePathExecutor:
         )
         if has_output_slice:
             if len(filtered_edges) > 0:
-                endpoint_ids = set(filtered_edges[src].tolist()) | set(
-                    filtered_edges[dst].tolist()
-                )
+                # Build endpoint IDs DataFrame (vectorized - no Python sets)
+                endpoint_ids_df = pd.concat([
+                    filtered_edges[[src]].rename(columns={src: '__node__'}),
+                    filtered_edges[[dst]].rename(columns={dst: '__node__'})
+                ], ignore_index=True).drop_duplicates()
                 filtered_nodes = filtered_nodes[
-                    filtered_nodes[node_id].isin(list(endpoint_ids))
+                    filtered_nodes[node_id].isin(endpoint_ids_df['__node__'])
                 ]
             else:
                 filtered_nodes = self._apply_output_slices(filtered_nodes, "node")
