@@ -276,7 +276,7 @@ def _assert_parity(graph, chain, where):
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
     executor = DFSamePathExecutor(inputs)
     executor._forward()
-    result = executor._run_gpu()
+    result = executor._run_native()
     oracle = enumerate_chain(
         graph,
         chain,
@@ -3043,6 +3043,249 @@ class TestBugPatternUndirected:
             e_reverse(),
             n(name="mid2"),
             e_undirected(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+
+class TestImpossibleConstraints:
+    """Test cases with impossible/contradictory constraints that should return empty results."""
+
+    def test_contradictory_lt_gt_same_column(self):
+        """Impossible: a.v < b.v AND a.v > b.v (can't be both)."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 10},
+            {"id": "c", "v": 3},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="end"),
+        ]
+        # start.v < end.v AND start.v > end.v - impossible!
+        where = [
+            compare(col("start", "v"), "<", col("end", "v")),
+            compare(col("start", "v"), ">", col("end", "v")),
+        ]
+
+        _assert_parity(graph, chain, where)
+
+    def test_contradictory_eq_neq_same_column(self):
+        """Impossible: a.v == b.v AND a.v != b.v (can't be both)."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="end"),
+        ]
+        # start.v == end.v AND start.v != end.v - impossible!
+        where = [
+            compare(col("start", "v"), "==", col("end", "v")),
+            compare(col("start", "v"), "!=", col("end", "v")),
+        ]
+
+        _assert_parity(graph, chain, where)
+
+    def test_contradictory_lte_gt_same_column(self):
+        """Impossible: a.v <= b.v AND a.v > b.v (can't be both)."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 10},
+            {"id": "c", "v": 3},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="end"),
+        ]
+        # start.v <= end.v AND start.v > end.v - impossible!
+        where = [
+            compare(col("start", "v"), "<=", col("end", "v")),
+            compare(col("start", "v"), ">", col("end", "v")),
+        ]
+
+        _assert_parity(graph, chain, where)
+
+    def test_no_paths_satisfy_predicate(self):
+        """All edges exist but no path satisfies the predicate."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 100},  # Highest value
+            {"id": "b", "v": 50},
+            {"id": "c", "v": 10},   # Lowest value
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n({"id": "c"}, name="end"),
+        ]
+        # start.v < mid.v - but a.v=100 > b.v=50, so no valid path
+        where = [compare(col("start", "v"), "<", col("mid", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_multihop_no_valid_endpoints(self):
+        """Multi-hop where no endpoints satisfy the predicate."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 100},
+            {"id": "b", "v": 50},
+            {"id": "c", "v": 25},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=3),
+            n(name="end"),
+        ]
+        # start.v < end.v - but a.v=100 is the highest, so impossible
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_contradictory_on_different_columns(self):
+        """Multiple predicates on different columns that are contradictory."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5, "w": 10},
+            {"id": "b", "v": 10, "w": 5},  # v is higher, w is lower
+            {"id": "c", "v": 3, "w": 20},  # v is lower, w is higher
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="end"),
+        ]
+        # For b: a.v < b.v (5 < 10) TRUE, but a.w < b.w (10 < 5) FALSE
+        # For c: a.v < c.v (5 < 3) FALSE, but a.w < c.w (10 < 20) TRUE
+        # No destination satisfies both
+        where = [
+            compare(col("start", "v"), "<", col("end", "v")),
+            compare(col("start", "w"), "<", col("end", "w")),
+        ]
+
+        _assert_parity(graph, chain, where)
+
+    def test_chain_with_impossible_intermediate(self):
+        """Chain where intermediate step makes path impossible."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 100},  # This would make mid.v > end.v impossible
+            {"id": "c", "v": 50},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n({"id": "c"}, name="end"),
+        ]
+        # mid.v < end.v - but b.v=100 > c.v=50
+        where = [compare(col("mid", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_non_adjacent_impossible_constraint(self):
+        """Non-adjacent WHERE clause that's impossible to satisfy."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 100},  # Highest
+            {"id": "b", "v": 50},
+            {"id": "c", "v": 10},   # Lowest
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n({"id": "c"}, name="end"),
+        ]
+        # start.v < end.v - but a.v=100 > c.v=10
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_empty_graph_with_constraints(self):
+        """Empty graph should return empty even with valid-looking constraints."""
+        nodes = pd.DataFrame({"id": [], "v": []})
+        edges = pd.DataFrame({"src": [], "dst": []})
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_no_edges_with_constraints(self):
+        """Nodes exist but no edges - should return empty."""
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 10},
+        ])
+        edges = pd.DataFrame({"src": [], "dst": []})
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
             n(name="end"),
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
