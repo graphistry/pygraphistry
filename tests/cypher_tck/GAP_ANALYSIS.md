@@ -28,8 +28,10 @@ translation guidelines.
 ### G1: Cartesian product + projection results
 - **Status**: Open
 - **Description**: The harness does not compute cartesian products across
-  multiple MATCH clauses or validate row-level projections in `RETURN`.
-- **Affected scenarios**: `match1-5` (Match1 [5])
+  multiple MATCH clauses or comma-separated patterns, nor validate row-level
+  projections in `RETURN`.
+- **Affected scenarios**: `match1-5` (Match1 [5]), `match-where3-1`,
+  `match-where3-2`, `match-where4-1`, `match-where4-2`
 - **Workaround**: Mark as xfail with expected rows captured in the scenario.
 - **Next steps**: Add a result comparator for row projections and introduce a
   cartesian product mechanism (likely outside GFQL core) for multiple MATCH
@@ -72,7 +74,7 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support OR predicates across node or
   relationship properties/types.
-- **Affected scenarios**: `match-where1-10`, `match-where1-11`
+- **Affected scenarios**: `match-where1-10`, `match-where1-11`, `match-where4-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add predicate combinators or explicit OR support in the
   translation layer and runner comparison.
@@ -107,16 +109,28 @@ translation guidelines.
   and multi-pattern binding, then add row-level validation to assert projected
   property outputs.
 
-### G9: Variable equality joins
+### G9: Variable comparison joins
 - **Status**: Open
-- **Description**: The harness cannot express equality between variables (e.g.,
-  `a = b`, `a.id = b.id`, `n.animal = x.animal`), which requires join semantics
-  across bindings and row-level projection validation.
-- **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`
+- **Description**: The harness cannot express comparisons between variables
+  (e.g., `a = b`, `a <> b`, `a.id = b.id`, `n.animal = x.animal`), which requires
+  join semantics across bindings and row-level projection validation.
+- **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`,
+  `match-where4-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
-- **Next steps**: Add join-aware translation support (variable equality
+- **Next steps**: Add join-aware translation support (variable comparison
   predicates) and extend the runner to compare projected rows.
+
+### G10: Pattern predicates + variable-length relationships in WHERE
+- **Status**: Open
+- **Description**: Pattern predicates used as boolean filters in WHERE (e.g.,
+  `(a)-[:T]->(b)` or `(a)-[:T*]->(b)`) are not supported, nor are variable-length
+  relationship predicates.
+- **Affected scenarios**: `match-where4-2`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add translation support for pattern predicates and
+  variable-length relationship filters, then validate projected rows.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
