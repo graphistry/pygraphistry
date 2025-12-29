@@ -13,6 +13,7 @@ Encodings
    Sizes <../demos/more_examples/graphistry_features/encodings-sizes.ipynb>
    Icons <../demos/more_examples/graphistry_features/encodings-icons.ipynb>
    Badges <../demos/more_examples/graphistry_features/encodings-badges.ipynb>
+   Collections <../demos/more_examples/graphistry_features/collections.ipynb>
 
 Geographic (Kepler.gl)
 ----------------------
