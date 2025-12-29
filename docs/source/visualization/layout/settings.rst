@@ -36,6 +36,39 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.scene_settings` to modify the appe
 - ``edge_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 - ``point_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 
+Collections
+~~~~~~~~~~~
+
+Use :meth:`graphistry.PlotterBase.PlotterBase.collections` to define collections (subsets) with optional encodings:
+
+.. code-block:: python
+
+   import graphistry
+
+   collections = [
+       {
+           "type": "set",
+           "id": "newsletter_subscribers",
+           "name": "Newsletter Subscribers",
+           "node_color": "#32CD32",
+           "expr": {
+               "type": "gfql_chain",
+               "gfql": [graphistry.n({"subscribed_to_newsletter": True})],
+           },
+       }
+   ]
+
+   g2 = g.collections(
+       collections=collections,
+       show_collections=True,
+       collections_global_node_color="CCCCCC",
+       collections_global_edge_color="CCCCCC",
+   )
+   g2.plot()
+
+The collections list is JSON-minified and URL-encoded automatically. For full schema details, see
+`Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
+
 
 Styling the Background and Foreground
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
