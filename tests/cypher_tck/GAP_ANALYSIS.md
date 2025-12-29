@@ -169,6 +169,27 @@ translation guidelines.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
   extend row-level validation for projections.
 
+### G14: Multiple relationship types in MATCH
+- **Status**: Open
+- **Description**: The harness does not support relationship type lists in MATCH
+  patterns (e.g., `:KNOWS|HATES`).
+- **Affected scenarios**: `match2-6`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add relationship type set support in the translation layer
+  and validate projected relationship outputs.
+
+### G15: Label predicates on relationship endpoints
+- **Status**: Open
+- **Description**: Label predicates on both sides of relationship patterns are
+  not reliably supported; label boolean columns can trigger schema/type
+  mismatches during multi-hop GFQL filtering.
+- **Affected scenarios**: `match2-2`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Ensure label predicate columns remain boolean across GFQL
+  chain operations and allow endpoint label filtering on relationship matches.
+
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.
