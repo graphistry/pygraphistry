@@ -63,7 +63,7 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support Cypher parameters (e.g. `$param`)
   for query execution or comparison.
-- **Affected scenarios**: `match-where1-6`
+- **Affected scenarios**: `match-where1-6`, `match-where1-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add parameter injection support (scenario metadata -> GFQL
   predicate substitution) and validation for edge-return scenarios.
