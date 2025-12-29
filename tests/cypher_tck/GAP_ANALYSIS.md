@@ -86,6 +86,15 @@ translation guidelines.
 - **Next steps**: Define a path representation in GFQL and implement length
   checks in the reference enumerator + runner.
 
+### G7: Compile-time validation coverage
+- **Status**: Open
+- **Description**: The harness does not model Cypher compile-time validation
+  errors (e.g., invalid path property predicates, aggregation in WHERE).
+- **Affected scenarios**: `match-where1-14`, `match-where1-15`
+- **Workaround**: Mark as xfail with explicit syntax-error reasons.
+- **Next steps**: Map Cypher error classes to GFQL validation and assert
+  exception types in the runner.
+
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.
