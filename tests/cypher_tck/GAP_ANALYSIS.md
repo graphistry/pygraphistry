@@ -68,6 +68,24 @@ translation guidelines.
 - **Next steps**: Add parameter injection support (scenario metadata -> GFQL
   predicate substitution) and validation for edge-return scenarios.
 
+### G5: Disjunctive WHERE predicates (OR)
+- **Status**: Open
+- **Description**: The harness does not support OR predicates across node or
+  relationship properties/types.
+- **Affected scenarios**: `match-where1-10`, `match-where1-11`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario.
+- **Next steps**: Add predicate combinators or explicit OR support in the
+  translation layer and runner comparison.
+
+### G6: Path variables + length()
+- **Status**: Open
+- **Description**: Path variables and path-length predicates (e.g. `length(p)`)
+  are not supported in GFQL translations or the harness.
+- **Affected scenarios**: `match-where1-12`, `match-where1-13`
+- **Workaround**: Mark as xfail and capture expected node sets.
+- **Next steps**: Define a path representation in GFQL and implement length
+  checks in the reference enumerator + runner.
+
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.

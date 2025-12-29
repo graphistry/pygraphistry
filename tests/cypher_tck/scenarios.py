@@ -218,4 +218,80 @@ SCENARIOS = [
         reason="Parameter binding and edge-return validation not supported in harness",
         tags=("match-where", "params", "edge-return", "xfail"),
     ),
+    Scenario(
+        key="match-where1-10",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[10] Filter node with disjunctive property predicate on single variables with multiple bindings",
+        cypher="MATCH (n)\nWHERE n.p1 = 12 OR n.p2 = 13\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {p1: 12}),
+              (b:B {p2: 13}),
+              (c:C)
+            """
+        ),
+        expected=Expected(node_ids=["a", "b"]),
+        gfql=None,
+        status="xfail",
+        reason="Disjunctive WHERE predicates are not supported in harness",
+        tags=("match-where", "or", "xfail"),
+    ),
+    Scenario(
+        key="match-where1-11",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[11] Filter relationship with disjunctive relationship type predicate on multi variables with multiple bindings",
+        cypher="MATCH (n)-[r]->(x)\nWHERE type(r) = 'KNOWS' OR type(r) = 'HATES'\nRETURN r",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a {name: 'A'}),
+              (b {name: 'B'}),
+              (c {name: 'C'}),
+              (a)-[:KNOWS]->(b),
+              (a)-[:HATES]->(c),
+              (a)-[:WONDERS]->(c)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"r": "[:KNOWS]"},
+                {"r": "[:HATES]"},
+            ]
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Disjunctive WHERE predicates and edge-return validation are not supported",
+        tags=("match-where", "or", "edge-return", "xfail"),
+    ),
+    Scenario(
+        key="match-where1-12",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[12] Filter path with path length predicate on multi variables with one binding",
+        cypher="MATCH p = (n)-->(x)\nWHERE length(p) = 1\nRETURN x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {name: 'A'})-[:KNOWS]->(b:B {name: 'B'})
+            """
+        ),
+        expected=Expected(node_ids=["b"]),
+        gfql=None,
+        status="xfail",
+        reason="Path variables and length() predicates are not supported in harness",
+        tags=("match-where", "path-length", "xfail"),
+    ),
+    Scenario(
+        key="match-where1-13",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[13] Filter path with false path length predicate on multi variables with one binding",
+        cypher="MATCH p = (n)-->(x)\nWHERE length(p) = 10\nRETURN x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {name: 'A'})-[:KNOWS]->(b:B {name: 'B'})
+            """
+        ),
+        expected=Expected(node_ids=[]),
+        gfql=None,
+        status="xfail",
+        reason="Path variables and length() predicates are not supported in harness",
+        tags=("match-where", "path-length", "xfail"),
+    ),
 ]
