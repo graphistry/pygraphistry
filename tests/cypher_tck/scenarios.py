@@ -72,4 +72,46 @@ SCENARIOS = [
         gfql=[n({"name": "bar"})],
         tags=("match", "property", "inline-predicate"),
     ),
+    Scenario(
+        key="match1-5",
+        feature_path="tck/features/clauses/match/Match1.feature",
+        scenario="[5] Use multiple MATCH clauses to do a Cartesian product",
+        cypher="MATCH (n), (m)\nRETURN n.num AS n, m.num AS m",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({num: 1}), ({num: 2}), ({num: 3})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": 1, "m": 1},
+                {"n": 1, "m": 2},
+                {"n": 1, "m": 3},
+                {"n": 2, "m": 1},
+                {"n": 2, "m": 2},
+                {"n": 2, "m": 3},
+                {"n": 3, "m": 3},
+                {"n": 3, "m": 1},
+                {"n": 3, "m": 2},
+            ]
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Cartesian product + projection results not supported in current GFQL harness",
+        tags=("match", "cartesian", "return", "xfail"),
+    ),
+    Scenario(
+        key="match-where1-3",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[3] Filter node with property predicate on a single variable with multiple bindings",
+        cypher="MATCH (n)\nWHERE n.name = 'Bar'\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (), ({name: 'Bar'}), (:Bar)
+            """
+        ),
+        expected=Expected(node_ids=["anon_2"]),
+        gfql=[n({"name": "Bar"})],
+        tags=("match-where", "property"),
+    ),
 ]
