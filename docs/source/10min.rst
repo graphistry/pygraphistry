@@ -173,6 +173,23 @@ You can adjust further node and edge settings using data. Sample calls include:
 - ``encode_point_weight()``: Adjust node weights based on a column
 - Equivalent functions for edges: ``encode_edge_size()``, ``encode_edge_icon()``, ``encode_edge_badge()``
 
+For advanced, subset-based coloring, use Collections with GFQL AST helpers:
+
+.. code-block:: python
+
+    collections = [
+        {
+            "type": "set",
+            "name": "VIP",
+            "node_color": "#FF8800",
+            "expr": [graphistry.n({"vip": True})],
+        }
+    ]
+    g.collections(collections=collections, show_collections=True).plot()
+
+See :ref:`Layout settings <layout-settings>` and the
+`Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
+
 Additional settings, such as background colors and logo watermarks, can also be configured.
 
 

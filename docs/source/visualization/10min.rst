@@ -224,6 +224,23 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
     - :meth:`graphistry.PlotterBase.PlotterBase.encode_edge_color`
     - :meth:`graphistry.PlotterBase.PlotterBase.encode_edge_icon`
 
+* **Collections (advanced coloring)**: Define subsets using GFQL AST helpers and color them consistently:
+
+  .. code-block:: python
+
+      collections = [
+          {
+              "type": "set",
+              "name": "Subscribers",
+              "node_color": "#32CD32",
+              "expr": [graphistry.n({"subscribed_to_newsletter": True})],
+          }
+      ]
+      g.collections(collections=collections, show_collections=True).plot()
+
+  See :doc:`Layout settings <layout/settings>` and the
+  `Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
+
 * **Bind**: Simpler data-driven settings are done through :meth:`graphistry.PlotterBase.PlotterBase.bind`:
 
   .. code-block:: python
