@@ -42,8 +42,25 @@ Env vars:
 ### Test Coverage for Unverified Features
 Hop ranges and output slicing are covered by Python parity tests:
 - `tests/gfql/ref/test_enumerator_parity.py`: 11+ hop range scenarios
-- `tests/gfql/ref/test_cudf_executor_inputs.py`: 8+ WHERE + hop range scenarios
+- `tests/gfql/ref/test_df_executor_inputs.py`: 50+ WHERE + hop range scenarios
+- `tests/gfql/ref/test_df_executor_inputs.py::TestImpossibleConstraints`: 10 impossible/contradictory constraint tests
 
-These tests verify the cuDF executor matches the reference oracle implementation.
+These tests verify the native executor matches the reference oracle implementation.
 
-See issue #871 for the testing & verification roadmap.
+### Bugs Found That Inform Future Verification (PR #846)
+
+The following bugs were found during executor development that formal verification could catch:
+
+1. **Backward traversal join direction** (`_find_multihop_start_nodes`) - joined on wrong column
+2. **Empty set short-circuit missing** (`_materialize_filtered`) - no early return for empty sets
+3. **Wrong node source for non-adjacent WHERE** - used incomplete alias_frames instead of graph nodes
+4. **Multi-hop path tracing through intermediates** - backward prune filtered wrong edges
+5. **Reverse/undirected edge direction handling** - missing is_undirected checks
+
+See issue #871 for recommended Alloy model extensions:
+- P1: Add hop range modeling
+- P1: Add backward reachability assertions
+- P2: Add empty set propagation assertion
+- P2: Add contradictory WHERE scenarios (partially added in this model)
+
+See issue #871 for the full testing & verification roadmap.
