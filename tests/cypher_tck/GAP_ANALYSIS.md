@@ -107,6 +107,17 @@ translation guidelines.
   and multi-pattern binding, then add row-level validation to assert projected
   property outputs.
 
+### G9: Variable equality joins
+- **Status**: Open
+- **Description**: The harness cannot express equality between variables (e.g.,
+  `a = b`, `a.id = b.id`, `n.animal = x.animal`), which requires join semantics
+  across bindings and row-level projection validation.
+- **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add join-aware translation support (variable equality
+  predicates) and extend the runner to compare projected rows.
+
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.
