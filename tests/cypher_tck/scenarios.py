@@ -902,4 +902,92 @@ SCENARIOS = [
         reason="Multiple relationship types and row projections are not supported",
         tags=("match", "relationship", "multi-type", "xfail"),
     ),
+    Scenario(
+        key="match3-4",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[4] Get two related nodes",
+        cypher="MATCH ()-[rel:KNOWS]->(x)\nRETURN x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {num: 1}),
+              (a)-[:KNOWS]->(b:B {num: 2}),
+              (a)-[:KNOWS]->(c:C {num: 3})
+            """
+        ),
+        expected=Expected(
+            node_ids=["b", "c"],
+            rows=[
+                {"x": "(:B {num: 2})"},
+                {"x": "(:C {num: 3})"},
+            ],
+        ),
+        gfql=[n(), e_forward({"type": "KNOWS"}), n(name="x")],
+        return_alias="x",
+        tags=("match", "relationship", "return"),
+    ),
+    Scenario(
+        key="match3-6",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[6] Matching a relationship pattern using a label predicate",
+        cypher="MATCH (a)-->(b:Foo)\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a), (b1:Foo), (b2)
+            CREATE (a)-[:T]->(b1),
+                   (a)-[:T]->(b2)
+            """
+        ),
+        expected=Expected(
+            node_ids=["b1"],
+            rows=[
+                {"b": "(:Foo)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Label predicates on relationship endpoints are not supported in the harness",
+        tags=("match", "relationship", "label", "xfail"),
+    ),
+    Scenario(
+        key="match3-8",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[8] Matching using relationship predicate with multiples of the same type",
+        cypher="MATCH (a)-[:T|:T]->(b)\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B)
+            CREATE (a)-[:T]->(b)
+            """
+        ),
+        expected=Expected(
+            node_ids=["b"],
+            rows=[
+                {"b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Multiple relationship types are not supported",
+        tags=("match", "relationship", "multi-type", "xfail"),
+    ),
+    Scenario(
+        key="match3-9",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[9] Get related to related to",
+        cypher="MATCH (n)-->(a)-->(b)\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {num: 1})-[:KNOWS]->(b:B {num: 2})-[:FRIEND]->(c:C {num: 3})
+            """
+        ),
+        expected=Expected(
+            node_ids=["c"],
+            rows=[
+                {"b": "(:C {num: 3})"},
+            ],
+        ),
+        gfql=[n(), e_forward(), n(), e_forward(), n(name="b")],
+        return_alias="b",
+        tags=("match", "relationship", "multi-hop", "return"),
+    ),
 ]

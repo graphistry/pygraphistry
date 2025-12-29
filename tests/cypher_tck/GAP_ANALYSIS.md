@@ -173,7 +173,7 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support relationship type lists in MATCH
   patterns (e.g., `:KNOWS|HATES`).
-- **Affected scenarios**: `match2-6`
+- **Affected scenarios**: `match2-6`, `match3-8`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add relationship type set support in the translation layer
@@ -184,7 +184,7 @@ translation guidelines.
 - **Description**: Label predicates on both sides of relationship patterns are
   not reliably supported; label boolean columns can trigger schema/type
   mismatches during multi-hop GFQL filtering.
-- **Affected scenarios**: `match2-2`
+- **Affected scenarios**: `match2-2`, `match3-6`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Ensure label predicate columns remain boolean across GFQL
