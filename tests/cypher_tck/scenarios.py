@@ -53,17 +53,60 @@ SCENARIOS = [
         feature_path="tck/features/clauses/match/Match1.feature",
         scenario="[2] Matching all nodes",
         cypher="MATCH (n)\nRETURN n",
-        graph=GraphFixture(nodes=[], edges=[]),
+        graph=GraphFixture(
+            nodes=[
+                {"id": "a", "label": "A"},
+                {"id": "b", "label": "B", "name": "b"},
+                {"id": "c", "name": "c"},
+            ],
+            edges=[],
+        ),
         expected=Expected(
+            node_ids=["a", "b", "c"],
             rows=[
                 {"n": "(:A)"},
                 {"n": "(:B {name: 'b'})"},
                 {"n": "({name: 'c'})"},
+            ],
+        ),
+        gfql=[n()],
+        tags=("match", "return", "manual-graph"),
+    ),
+    Scenario(
+        key="match1-3",
+        feature_path="tck/features/clauses/match/Match1.feature",
+        scenario="[3] Matching nodes using multiple labels",
+        cypher="MATCH (a:A:B)\nRETURN a",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"a": "(:A:B)"},
+                {"a": "(:A:B:C)"},
             ]
         ),
         gfql=None,
         status="xfail",
-        reason="Requires CREATE setup parsing for TCK graph initialization",
-        tags=("match", "return", "create", "tck-setup"),
+        reason="Multi-label matching needs label encoding strategy in GFQL fixtures",
+        tags=("match", "labels", "tck-setup"),
+    ),
+    Scenario(
+        key="match1-4",
+        feature_path="tck/features/clauses/match/Match1.feature",
+        scenario="[4] Simple node inline property predicate",
+        cypher="MATCH (n {name: 'bar'})\nRETURN n",
+        graph=GraphFixture(
+            nodes=[
+                {"id": "n1", "name": "bar"},
+                {"id": "n2", "name": "monkey"},
+                {"id": "n3", "firstname": "bar"},
+            ],
+            edges=[],
+        ),
+        expected=Expected(
+            node_ids=["n1"],
+            rows=[{"n": "({name: 'bar'})"}],
+        ),
+        gfql=[n({"name": "bar"})],
+        tags=("match", "property", "inline-predicate"),
     ),
 ]
