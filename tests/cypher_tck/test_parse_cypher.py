@@ -44,3 +44,15 @@ def test_parse_create_relationship_chain():
     assert len(fixture.edges) == 2
     types = {edge["type"] for edge in fixture.edges}
     assert types == {"X"}
+
+
+def test_parse_create_relationship_properties():
+    script = """
+    CREATE (a)-[:T {name: 'bar', weight: 2}]->(b)
+    """
+    fixture = graph_fixture_from_create(script)
+    assert len(fixture.edges) == 1
+    edge = fixture.edges[0]
+    assert edge["type"] == "T"
+    assert edge["name"] == "bar"
+    assert edge["weight"] == 2

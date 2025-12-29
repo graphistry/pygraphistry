@@ -147,4 +147,41 @@ SCENARIOS = [
         return_alias="a",
         tags=("match-where", "relationship", "type"),
     ),
+    Scenario(
+        key="match-where1-6",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[6] Filter node with a parameter in a property predicate on multi variables with one binding",
+        cypher="MATCH (a)-[r]->(b)\nWHERE b.name = $param\nRETURN r",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:T {name: 'bar'}]->(:B {name: 'me'})
+            """
+        ),
+        expected=Expected(
+            rows=[{"r": "[:T {name: 'bar'}]"}],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and edge-return validation not supported in harness",
+        tags=("match-where", "params", "edge-return", "xfail"),
+    ),
+    Scenario(
+        key="match-where1-7",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[7] Filter relationship with relationship type predicate on multi variables with multiple bindings",
+        cypher="MATCH (n {name: 'A'})-[r]->(x)\nWHERE type(r) = 'KNOWS'\nRETURN x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {name: 'A'}),
+              (b:B {name: 'B'}),
+              (c:C {name: 'C'}),
+              (a)-[:KNOWS]->(b),
+              (a)-[:HATES]->(c)
+            """
+        ),
+        expected=Expected(node_ids=["b"]),
+        gfql=[n({"name": "A"}, name="n"), e_forward({"type": "KNOWS"}), n(name="x")],
+        return_alias="x",
+        tags=("match-where", "relationship", "type"),
+    ),
 ]

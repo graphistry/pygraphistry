@@ -50,14 +50,23 @@ translation guidelines.
 ### G3: CREATE parser coverage
 - **Status**: Partial
 - **Description**: The minimal CREATE parser handles nodes, labels, simple
-  properties, basic relationships, and chained relationship patterns, but does
-  not parse relationship properties, variable-length relationships, or advanced
-  Cypher constructs.
+  properties, basic relationships, chained relationship patterns, and simple
+  relationship properties, but does not parse variable-length relationships or
+  advanced Cypher constructs.
 - **Affected scenarios**: Any scenario whose setup includes relationship
   properties or complex patterns.
 - **Workaround**: Manually craft fixtures or extend parser incrementally.
-- **Next steps**: Support relationship properties and additional pattern forms
-  as needed by the next wave of scenarios.
+- **Next steps**: Support variable-length relationships and additional pattern
+  forms as needed by the next wave of scenarios.
+
+### G4: Parameter binding
+- **Status**: Open
+- **Description**: The harness does not support Cypher parameters (e.g. `$param`)
+  for query execution or comparison.
+- **Affected scenarios**: `match-where1-6`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario.
+- **Next steps**: Add parameter injection support (scenario metadata -> GFQL
+  predicate substitution) and validation for edge-return scenarios.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in

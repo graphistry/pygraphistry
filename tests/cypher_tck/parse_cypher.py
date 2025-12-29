@@ -143,8 +143,15 @@ def _parse_node(node_text: str, ctx: ParseContext) -> str:
     return node_id
 
 
-def _parse_rel_segment(rel_segment: str, ctx: ParseContext) -> Tuple[str, str | None]:
+def _parse_rel_segment(
+    rel_segment: str, ctx: ParseContext
+) -> Tuple[str, str | None, Dict[str, Any]]:
     rel_inner = rel_segment.strip()[1:-1].strip()
+    rel_props: Dict[str, Any] = {}
+    if '{' in rel_inner:
+        before, prop_part = rel_inner.split('{', 1)
+        rel_inner = before.strip()
+        rel_props = _parse_properties('{' + prop_part)
     rel_var = None
     rel_type = None
     if rel_inner:
@@ -154,7 +161,7 @@ def _parse_rel_segment(rel_segment: str, ctx: ParseContext) -> Tuple[str, str | 
             rel_type = rel_parts[1].strip() or None
     edge_id = rel_var or f"rel_{ctx.rel_counter}"
     ctx.rel_counter += 1
-    return edge_id, rel_type
+    return edge_id, rel_type, rel_props
 
 def _edge_from_segment(
     left_id: str,
@@ -164,7 +171,7 @@ def _edge_from_segment(
     right_dir: str | None,
     ctx: ParseContext,
 ) -> Dict[str, Any]:
-    edge_id, rel_type = _parse_rel_segment(rel_segment, ctx)
+    edge_id, rel_type, rel_props = _parse_rel_segment(rel_segment, ctx)
     if left_dir == '<-' and right_dir == '-':
         src, dst = right_id, left_id
     elif left_dir == '-' and right_dir == '->':
@@ -173,13 +180,19 @@ def _edge_from_segment(
         src, dst = right_id, left_id
     else:
         src, dst = left_id, right_id
-    return {
+    edge = {
         "edge_id": edge_id,
         "src": src,
         "dst": dst,
         "type": rel_type,
         "undirected": left_dir == '-' and right_dir == '-',
     }
+    for key, value in rel_props.items():
+        if key in edge:
+            edge[f"prop__{key}"] = value
+        else:
+            edge[key] = value
+    return edge
 
 
 def _parse_chain(pattern: str, ctx: ParseContext) -> List[Dict[str, Any]]:
