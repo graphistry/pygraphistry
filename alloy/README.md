@@ -61,6 +61,6 @@ See issue #871 for recommended Alloy model extensions:
 - P1: Add hop range modeling
 - P1: Add backward reachability assertions
 - P2: Add empty set propagation assertion
-- P2: Add contradictory WHERE scenarios (partially added in this model)
+- P2: Add contradictory WHERE scenarios (attempted but model's value semantics are too nuanced; covered by Python tests)
 
 See issue #871 for the full testing & verification roadmap.
