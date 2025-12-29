@@ -8,6 +8,11 @@ optional cuDF runs when enabled.
 - openCypher TCK: https://github.com/opencypher/openCypher/tree/main/tck
 - Local clone (gitignored): `plans/cypher-tck-conformance/tck`
 
+## Provenance
+- Clone date: 2025-12-29
+- Repo commit: `59edf2e1c17b845bf97c334ed06b2eb780950c13`
+- License: Apache License 2.0 (`plans/cypher-tck-conformance/tck/LICENSE`)
+
 ## Goals
 - Translate supported Cypher scenarios into GFQL equivalents.
 - Run each translated case on:
