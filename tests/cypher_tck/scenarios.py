@@ -1,4 +1,4 @@
-from graphistry.compute import n
+from graphistry.compute import e_forward, n
 
 from tests.cypher_tck.models import Expected, GraphFixture, Scenario
 from tests.cypher_tck.parse_cypher import graph_fixture_from_create
@@ -113,5 +113,23 @@ SCENARIOS = [
         expected=Expected(node_ids=["anon_2"]),
         gfql=[n({"name": "Bar"})],
         tags=("match-where", "property"),
+    ),
+    Scenario(
+        key="match-where1-4",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[4] Filter start node of relationship with property predicate on multi variables with multiple bindings",
+        cypher="MATCH (n:Person)-->()\nWHERE n.name = 'Bob'\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}),
+                   (c), (d)
+            CREATE (a)-[:T]->(c),
+                   (b)-[:T]->(d)
+            """
+        ),
+        expected=Expected(node_ids=["b"]),
+        gfql=[n({"label__Person": True, "name": "Bob"}, name="n"), e_forward(), n()],
+        return_alias="n",
+        tags=("match-where", "relationship", "alias"),
     ),
 ]

@@ -36,15 +36,16 @@ translation guidelines.
   clauses.
 
 ### G2: Scenario-level row expectations
-- **Status**: Open
+- **Status**: Partial
 - **Description**: Scenario `Expected.rows` is recorded but not validated by the
-  runner (only node/edge IDs are compared).
+  runner. The harness can now validate alias-tagged node IDs for single-node
+  returns, but does not compare row-level combinations or projections.
 - **Affected scenarios**: Any scenario that only specifies rows, or uses RETURN
   expressions beyond node/edge identity.
-- **Workaround**: Use node_ids/edge_ids when possible; otherwise xfail and note
-  row expectations.
-- **Next steps**: Extend the runner with row extraction and normalization (e.g.,
-  alias binding, ordering rules, null handling).
+- **Workaround**: Use node_ids/edge_ids or `return_alias` when possible;
+  otherwise xfail and note row expectations.
+- **Next steps**: Extend the runner with row extraction and normalization
+  (alias binding, ordering rules, null handling, projection comparisons).
 
 ### G3: CREATE parser coverage
 - **Status**: Partial

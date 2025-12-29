@@ -73,6 +73,15 @@ def _ids_from_df(df: Any, id_col: str) -> set:
     return set(pdf[id_col])
 
 
+def _alias_nodes(df: Any, id_col: str, alias: str) -> set:
+    if df is None:
+        return set()
+    pdf = _to_pandas(df)
+    if pdf is None or alias not in pdf.columns:
+        return set()
+    return set(pdf.loc[pdf[alias].astype(bool), id_col])
+
+
 def _assert_ids(
     expected: Expected,
     oracle_nodes: set,
@@ -112,10 +121,16 @@ def test_cypher_tck_scenario(scenario: Scenario) -> None:
     pandas_nodes = _ids_from_df(pandas_result._nodes, g._node)
     pandas_edges = _ids_from_df(pandas_result._edges, g._edge)
 
+    if scenario.return_alias:
+        oracle_nodes = set(oracle.tags.get(scenario.return_alias, set()))
+        pandas_nodes = _alias_nodes(pandas_result._nodes, g._node, scenario.return_alias)
+
     _assert_ids(scenario.expected, oracle_nodes, oracle_edges, pandas_nodes, pandas_edges)
 
     if _TEST_CUDF and _HAS_CUDF:
         cudf_result = g.gfql(scenario.gfql, engine="cudf")
         cudf_nodes = _ids_from_df(cudf_result._nodes, g._node)
         cudf_edges = _ids_from_df(cudf_result._edges, g._edge)
+        if scenario.return_alias:
+            cudf_nodes = _alias_nodes(cudf_result._nodes, g._node, scenario.return_alias)
         _assert_ids(scenario.expected, oracle_nodes, oracle_edges, cudf_nodes, cudf_edges)

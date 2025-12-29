@@ -33,3 +33,4 @@ class Scenario:
     status: str = "supported"
     reason: Optional[str] = None
     tags: Tuple[str, ...] = ()
+    return_alias: Optional[str] = None
