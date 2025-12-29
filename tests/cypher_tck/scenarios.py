@@ -12,7 +12,7 @@ class GraphFixture:
     src: str = "src"
     dst: str = "dst"
     edge_id: str = "edge_id"
-    node_columns: Tuple[str, ...] = ("id",)
+    node_columns: Tuple[str, ...] = ("id", "labels")
     edge_columns: Tuple[str, ...] = ("src", "dst", "edge_id")
 
 
@@ -55,8 +55,8 @@ SCENARIOS = [
         cypher="MATCH (n)\nRETURN n",
         graph=GraphFixture(
             nodes=[
-                {"id": "a", "label": "A"},
-                {"id": "b", "label": "B", "name": "b"},
+                {"id": "a", "labels": ["A"]},
+                {"id": "b", "labels": ["B"], "name": "b"},
                 {"id": "c", "name": "c"},
             ],
             edges=[],
@@ -77,17 +77,24 @@ SCENARIOS = [
         feature_path="tck/features/clauses/match/Match1.feature",
         scenario="[3] Matching nodes using multiple labels",
         cypher="MATCH (a:A:B)\nRETURN a",
-        graph=GraphFixture(nodes=[], edges=[]),
-        expected=Expected(
-            rows=[
-                {"a": "(:A:B)"},
-                {"a": "(:A:B:C)"},
-            ]
+        graph=GraphFixture(
+            nodes=[
+                {"id": "n1", "labels": ["A", "B", "C"]},
+                {"id": "n2", "labels": ["A", "B"]},
+                {"id": "n3", "labels": ["A", "C"]},
+                {"id": "n4", "labels": ["B", "C"]},
+                {"id": "n5", "labels": ["A"]},
+                {"id": "n6", "labels": ["B"]},
+                {"id": "n7", "labels": ["C"]},
+                {"id": "n8", "name": ":A:B:C"},
+                {"id": "n9", "abc": "abc"},
+                {"id": "n10"},
+            ],
+            edges=[],
         ),
-        gfql=None,
-        status="xfail",
-        reason="Multi-label matching needs label encoding strategy in GFQL fixtures",
-        tags=("match", "labels", "tck-setup"),
+        expected=Expected(node_ids=["n1", "n2"]),
+        gfql=[n({"label__A": True, "label__B": True})],
+        tags=("match", "labels", "manual-graph"),
     ),
     Scenario(
         key="match1-4",

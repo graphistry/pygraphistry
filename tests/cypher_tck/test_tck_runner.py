@@ -25,9 +25,32 @@ def _df_from_records(records: Sequence[dict], required_cols: Iterable[str]) -> p
     return pd.DataFrame(columns=list(required_cols))
 
 
+def _normalize_labels(value: Any) -> Sequence[str]:
+    if value is None:
+        return []
+    if isinstance(value, float) and pd.isna(value):
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
+def _expand_label_columns(nodes_df: pd.DataFrame, label_col: str = "labels") -> pd.DataFrame:
+    if label_col not in nodes_df.columns:
+        return nodes_df
+    normalized = [_normalize_labels(value) for value in nodes_df[label_col].tolist()]
+    all_labels = sorted({label for labels in normalized for label in labels})
+    for label in all_labels:
+        nodes_df[f"label__{label}"] = [label in labels for labels in normalized]
+    return nodes_df
+
+
 def _build_graph(fixture: GraphFixture) -> Any:
     g = CGFull()
     nodes_df = _df_from_records(fixture.nodes, fixture.node_columns)
+    nodes_df = _expand_label_columns(nodes_df)
     g = g.nodes(nodes_df, fixture.node_id)
     edges_df = _df_from_records(fixture.edges, fixture.edge_columns)
     g = g.edges(edges_df, fixture.src, fixture.dst, edge=fixture.edge_id)
