@@ -794,6 +794,10 @@ class DFSamePathExecutor:
         # Join edges with hop distances
         if is_undirected:
             # For undirected, check both directions
+            # An edge is valid if it lies on ANY valid path from left_allowed to right_allowed.
+            # This means: fwd_hop(u) + 1 + bwd_hop(v) <= max_hops
+            # We also need at least one path through the edge to have length >= min_hops.
+
             # Direction 1: src is fwd, dst is bwd
             edges_annotated1 = edges_df.merge(
                 fwd_df, left_on=src_col, right_on='__node__', how='inner'
@@ -801,10 +805,9 @@ class DFSamePathExecutor:
                 bwd_df, left_on=dst_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
             )
             edges_annotated1['__total_hops__'] = edges_annotated1['__fwd_hop__'] + 1 + edges_annotated1['__bwd_hop__']
-            valid1 = edges_annotated1[
-                (edges_annotated1['__total_hops__'] >= min_hops)
-                & (edges_annotated1['__total_hops__'] <= max_hops)
-            ]
+            # Keep edges that can be part of a valid path (total <= max_hops)
+            # The min_hops constraint is enforced at the path level, not per-edge
+            valid1 = edges_annotated1[edges_annotated1['__total_hops__'] <= max_hops]
 
             # Direction 2: dst is fwd, src is bwd
             edges_annotated2 = edges_df.merge(
@@ -813,10 +816,7 @@ class DFSamePathExecutor:
                 bwd_df, left_on=src_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
             )
             edges_annotated2['__total_hops__'] = edges_annotated2['__fwd_hop__'] + 1 + edges_annotated2['__bwd_hop__']
-            valid2 = edges_annotated2[
-                (edges_annotated2['__total_hops__'] >= min_hops)
-                & (edges_annotated2['__total_hops__'] <= max_hops)
-            ]
+            valid2 = edges_annotated2[edges_annotated2['__total_hops__'] <= max_hops]
 
             # Get original edge columns only
             orig_cols = list(edges_df.columns)
@@ -836,10 +836,9 @@ class DFSamePathExecutor:
             )
             edges_annotated['__total_hops__'] = edges_annotated['__fwd_hop__'] + 1 + edges_annotated['__bwd_hop__']
 
-            valid_edges = edges_annotated[
-                (edges_annotated['__total_hops__'] >= min_hops)
-                & (edges_annotated['__total_hops__'] <= max_hops)
-            ]
+            # Keep edges that can be part of a valid path (total <= max_hops)
+            # The min_hops constraint is enforced at the path level, not per-edge
+            valid_edges = edges_annotated[edges_annotated['__total_hops__'] <= max_hops]
 
             # Return only original columns
             orig_cols = list(edges_df.columns)
