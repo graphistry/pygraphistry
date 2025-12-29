@@ -3291,3 +3291,425 @@ class TestImpossibleConstraints:
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
         _assert_parity(graph, chain, where)
+
+
+class TestFiveWhysAmplification:
+    """
+    Tests derived from 5-whys analysis of bugs found in PR #846.
+
+    Each test targets a root cause that wasn't covered by existing tests.
+    See alloy/README.md for bug list and issue #871 for verification roadmap.
+    """
+
+    # =========================================================================
+    # Bug 1: Backward traversal join direction
+    # Root cause: Direction semantics not tested at reachability level
+    # =========================================================================
+
+    def test_reverse_multihop_with_unreachable_intermediate(self):
+        """
+        Reverse multi-hop where some intermediates are unreachable from start.
+
+        Bug pattern: Join direction error causes wrong nodes to appear reachable.
+        This catches bugs where reverse traversal join uses wrong column order.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},   # start
+            {"id": "b", "v": 5},   # reachable from a in reverse (b->a exists)
+            {"id": "c", "v": 10},  # reachable from b in reverse (c->b exists)
+            {"id": "x", "v": 100}, # NOT reachable - no path to a
+            {"id": "y", "v": 200}, # NOT reachable - only x->y, no connection to a
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},  # reverse: a <- b
+            {"src": "c", "dst": "b"},  # reverse: b <- c (so a <- b <- c)
+            {"src": "x", "dst": "y"},  # isolated: y <- x (no connection to a)
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_reverse(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        # Verify x and y are NOT in results (they're unreachable)
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "x" not in result_ids, "x is unreachable but appeared in results"
+        assert "y" not in result_ids, "y is unreachable but appeared in results"
+
+    def test_reverse_multihop_asymmetric_fanout(self):
+        """
+        Reverse traversal with asymmetric fan-out to test join direction.
+
+        Graph: a <- b <- c
+               a <- b <- d
+               e <- f (isolated)
+
+        Bug pattern: Wrong join direction could include f when tracing from a.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 15},
+            {"id": "e", "v": 100},  # Isolated
+            {"id": "f", "v": 200},  # Isolated
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "c", "dst": "b"},
+            {"src": "d", "dst": "b"},
+            {"src": "f", "dst": "e"},  # Isolated edge
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_reverse(min_hops=2, max_hops=2),  # Exactly 2 hops
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        # c and d are reachable in exactly 2 reverse hops
+        assert "c" in result_ids, "c is reachable in 2 hops but excluded"
+        assert "d" in result_ids, "d is reachable in 2 hops but excluded"
+        # e and f are isolated
+        assert "e" not in result_ids, "e is isolated but appeared"
+        assert "f" not in result_ids, "f is isolated but appeared"
+
+    # =========================================================================
+    # Bug 2: Empty set short-circuit missing
+    # Root cause: No tests for aggressive filtering yielding empty mid-pass
+    # =========================================================================
+
+    def test_aggressive_where_empties_mid_pass(self):
+        """
+        WHERE clause that eliminates all candidates during backward pass.
+
+        Bug pattern: Missing early return when pruned sets become empty,
+        leading to empty DataFrames propagating through merges.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1000},  # Very high value
+            {"id": "b", "v": 1},
+            {"id": "c", "v": 2},
+            {"id": "d", "v": 3},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=3),
+            n(name="end"),
+        ]
+        # start.v < end.v - but a.v=1000 is larger than all reachable nodes
+        # This should empty the result during backward pruning
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_where_eliminates_all_intermediates(self):
+        """
+        Non-adjacent WHERE that eliminates all valid intermediate nodes.
+
+        This tests that empty set propagation is handled correctly when
+        intermediates are filtered out but endpoints exist.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 100},  # Intermediate - will be filtered (100 > 2)
+            {"id": "c", "v": 2},    # End - would match if path existed
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        # mid.v < end.v - b.v=100 > c.v=2 fails, so no valid path
+        where = [compare(col("mid", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    # =========================================================================
+    # Bug 3: Wrong node source for non-adjacent WHERE
+    # Root cause: No tests where WHERE references nodes outside forward reach
+    # =========================================================================
+
+    def test_non_adjacent_where_references_unreached_value(self):
+        """
+        Non-adjacent WHERE where the comparison value exists in graph
+        but not in forward-reachable set.
+
+        Bug pattern: Using alias_frames (only reached nodes) instead of
+        full graph nodes for value lookups.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 10},
+            {"id": "b", "v": 20},
+            {"id": "c", "v": 30},
+            {"id": "z", "v": 5},   # NOT reachable from a, but has lowest v
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            # z is isolated
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        # b and c should match (10 < 20, 10 < 30)
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_ids
+        assert "c" in result_ids
+        assert "z" not in result_ids  # Unreachable
+
+    def test_non_adjacent_multihop_value_comparison(self):
+        """
+        Multi-hop chain with non-adjacent WHERE comparing first and last.
+
+        Tests that value comparison uses correct node sets even when
+        intermediate nodes don't have the compared property.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "w": 100},
+            {"id": "b", "v": None, "w": None},  # Intermediate, no v/w
+            {"id": "c", "v": 10, "w": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        # Compare start.v < end.v across intermediate that lacks v
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    # =========================================================================
+    # Bug 4: Multi-hop path tracing through intermediates
+    # Root cause: Diamond/convergent topologies with multi-hop not tested
+    # =========================================================================
+
+    def test_diamond_convergent_multihop_where(self):
+        """
+        Diamond graph where multiple paths converge, with WHERE filtering.
+
+        Bug pattern: Backward prune filters wrong edges when multiple
+        paths exist through different intermediates.
+
+        Graph:   a
+               / | \\
+              b  c  d
+               \\ | /
+                 e
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 10},
+            {"id": "c", "v": 5},   # c.v < b.v
+            {"id": "d", "v": 15},
+            {"id": "e", "v": 20},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+            {"src": "a", "dst": "d"},
+            {"src": "b", "dst": "e"},
+            {"src": "c", "dst": "e"},
+            {"src": "d", "dst": "e"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        # e should be reachable via any of b, c, d
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "e" in result_ids, "e reachable via multiple 2-hop paths"
+
+    def test_parallel_paths_different_lengths(self):
+        """
+        Multiple paths of different lengths to same destination.
+
+        Bug pattern: Path length tracking confused when same node
+        reachable at multiple hop distances.
+
+        Graph: a -> b -> c -> d  (3 hops)
+               a -> d            (1 hop)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 20},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+            {"src": "a", "dst": "d"},  # Direct edge
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        # All of b, c, d satisfy 1 < their value
+        assert "b" in result_ids
+        assert "c" in result_ids
+        assert "d" in result_ids
+
+    # =========================================================================
+    # Bug 5: Edge direction handling (undirected)
+    # Root cause: Undirected + multi-hop + WHERE combinations not tested
+    # =========================================================================
+
+    def test_undirected_multihop_bidirectional_traversal(self):
+        """
+        Undirected multi-hop that requires traversing edges in both directions.
+
+        Bug pattern: Undirected treated as forward-only when is_reverse check
+        doesn't account for undirected needing bidirectional adjacency.
+
+        Graph edges: a->b, c->b (b is hub)
+        Undirected should allow: a-b-c path
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},  # a->b exists
+            {"src": "c", "dst": "b"},  # c->b exists (b<-c)
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        # c should be reachable: a-(undirected)->b-(undirected)->c
+        # even though b->c edge doesn't exist (only c->b)
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "c" in result_ids, "c reachable via undirected 2-hop"
+
+    def test_undirected_reverse_mixed_chain(self):
+        """
+        Chain mixing undirected and reverse edges.
+
+        Tests that direction handling is correct when switching between
+        undirected (bidirectional) and reverse (dst->src) modes.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 20},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},  # For undirected: a-b
+            {"src": "c", "dst": "b"},  # For reverse from b: b <- c
+            {"src": "c", "dst": "d"},  # For undirected: c-d
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(),
+            n(name="mid1"),
+            e_reverse(),
+            n(name="mid2"),
+            e_undirected(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+    def test_undirected_multihop_with_aggressive_where(self):
+        """
+        Undirected multi-hop with WHERE that filters aggressively.
+
+        Combines undirected direction handling with empty-set scenarios.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 100},  # High value start
+            {"id": "b", "v": 50},
+            {"id": "c", "v": 25},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "c", "dst": "b"},
+            {"src": "d", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=1, max_hops=3),
+            n(name="end"),
+        ]
+        # start.v < end.v - but a.v=100 is highest, so no matches
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
