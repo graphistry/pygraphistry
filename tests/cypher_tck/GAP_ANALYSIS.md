@@ -113,10 +113,12 @@ translation guidelines.
 ### G9: Variable comparison joins
 - **Status**: Open
 - **Description**: The harness cannot express comparisons between variables
-  (e.g., `a = b`, `a <> b`, `a.id = b.id`, `n.animal = x.animal`), which requires
-  join semantics across bindings and row-level projection validation.
+  (e.g., `a = b`, `a <> b`, `a.id = b.id`, `n.animal = x.animal`,
+  `x.val < y.val`), which requires join semantics across bindings and row-level
+  projection validation.
 - **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`,
-  `match-where4-1`
+  `match-where4-1`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
+  `match-where6-8`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add join-aware translation support (variable comparison
@@ -144,6 +146,28 @@ translation guidelines.
   metadata.
 - **Next steps**: Add predicate operators and null-handling semantics to the
   translation layer and runner comparisons.
+
+### G12: OPTIONAL MATCH semantics
+- **Status**: Open
+- **Description**: The harness does not model OPTIONAL MATCH row preservation,
+  null propagation, or WHERE filtering behavior for optional patterns.
+- **Affected scenarios**: `match-where6-1`, `match-where6-2`, `match-where6-3`,
+  `match-where6-4`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
+  `match-where6-8`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add OPTIONAL MATCH semantics to the translation layer and
+  extend the runner to compare projected rows with null handling.
+
+### G13: WITH/LIMIT pipeline semantics
+- **Status**: Open
+- **Description**: The harness does not support WITH clauses, LIMIT scoping, or
+  mid-query variable pipelines.
+- **Affected scenarios**: `match-where6-5`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
+  extend row-level validation for projections.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
