@@ -74,7 +74,8 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support OR predicates across node or
   relationship properties/types.
-- **Affected scenarios**: `match-where1-10`, `match-where1-11`, `match-where4-2`
+- **Affected scenarios**: `match-where1-10`, `match-where1-11`, `match-where4-2`,
+  `match-where5-4`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add predicate combinators or explicit OR support in the
   translation layer and runner comparison.
@@ -131,6 +132,18 @@ translation guidelines.
   metadata.
 - **Next steps**: Add translation support for pattern predicates and
   variable-length relationship filters, then validate projected rows.
+
+### G11: Comparison predicates + null semantics
+- **Status**: Open
+- **Description**: The harness cannot express comparison predicates (e.g.,
+  `>`, `<`), label predicates in WHERE (e.g., `i:TextNode`), or null checks
+  (`IS NOT NULL`) with Cypher's tri-valued logic.
+- **Affected scenarios**: `match-where5-1`, `match-where5-2`, `match-where5-3`,
+  `match-where5-4`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add predicate operators and null-handling semantics to the
+  translation layer and runner comparisons.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
