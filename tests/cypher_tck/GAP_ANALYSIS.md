@@ -50,8 +50,9 @@ translation guidelines.
 ### G3: CREATE parser coverage
 - **Status**: Partial
 - **Description**: The minimal CREATE parser handles nodes, labels, simple
-  properties, and basic relationships, but does not parse relationship
-  properties, variable-length relationships, or advanced Cypher constructs.
+  properties, basic relationships, and chained relationship patterns, but does
+  not parse relationship properties, variable-length relationships, or advanced
+  Cypher constructs.
 - **Affected scenarios**: Any scenario whose setup includes relationship
   properties or complex patterns.
 - **Workaround**: Manually craft fixtures or extend parser incrementally.

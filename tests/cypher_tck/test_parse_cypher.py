@@ -33,3 +33,14 @@ def test_parse_create_relationship():
     assert edge["src"] == "a"
     assert edge["dst"] == "b"
     assert edge["type"] == "KNOWS"
+
+
+def test_parse_create_relationship_chain():
+    script = """
+    CREATE ({name: 'Someone'})<-[:X]-()-[:X]->({name: 'Andres'})
+    """
+    fixture = graph_fixture_from_create(script)
+    assert len(fixture.nodes) == 3
+    assert len(fixture.edges) == 2
+    types = {edge["type"] for edge in fixture.edges}
+    assert types == {"X"}

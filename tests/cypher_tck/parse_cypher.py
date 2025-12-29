@@ -143,30 +143,7 @@ def _parse_node(node_text: str, ctx: ParseContext) -> str:
     return node_id
 
 
-def _parse_relationship(rel_text: str, ctx: ParseContext) -> Dict[str, Any]:
-    left_text, rest = _extract_balanced(rel_text, '(', ')')
-    rest = rest.strip()
-    left_dir = None
-    if rest.startswith('<-'):
-        left_dir = '<-'
-        rest = rest[2:]
-    elif rest.startswith('-'):
-        left_dir = '-'
-        rest = rest[1:]
-    rel_segment, rest = _extract_balanced(rest.strip(), '[', ']')
-    rest = rest.strip()
-    right_dir = None
-    if rest.startswith('->'):
-        right_dir = '->'
-        rest = rest[2:]
-    elif rest.startswith('-'):
-        right_dir = '-'
-        rest = rest[1:]
-    right_text, _ = _extract_balanced(rest.strip(), '(', ')')
-
-    left_id = _parse_node(left_text, ctx)
-    right_id = _parse_node(right_text, ctx)
-
+def _parse_rel_segment(rel_segment: str, ctx: ParseContext) -> Tuple[str, str | None]:
     rel_inner = rel_segment.strip()[1:-1].strip()
     rel_var = None
     rel_type = None
@@ -177,7 +154,17 @@ def _parse_relationship(rel_text: str, ctx: ParseContext) -> Dict[str, Any]:
             rel_type = rel_parts[1].strip() or None
     edge_id = rel_var or f"rel_{ctx.rel_counter}"
     ctx.rel_counter += 1
+    return edge_id, rel_type
 
+def _edge_from_segment(
+    left_id: str,
+    right_id: str,
+    rel_segment: str,
+    left_dir: str | None,
+    right_dir: str | None,
+    ctx: ParseContext,
+) -> Dict[str, Any]:
+    edge_id, rel_type = _parse_rel_segment(rel_segment, ctx)
     if left_dir == '<-' and right_dir == '-':
         src, dst = right_id, left_id
     elif left_dir == '-' and right_dir == '->':
@@ -186,7 +173,6 @@ def _parse_relationship(rel_text: str, ctx: ParseContext) -> Dict[str, Any]:
         src, dst = right_id, left_id
     else:
         src, dst = left_id, right_id
-
     return {
         "edge_id": edge_id,
         "src": src,
@@ -194,6 +180,42 @@ def _parse_relationship(rel_text: str, ctx: ParseContext) -> Dict[str, Any]:
         "type": rel_type,
         "undirected": left_dir == '-' and right_dir == '-',
     }
+
+
+def _parse_chain(pattern: str, ctx: ParseContext) -> List[Dict[str, Any]]:
+    edges: List[Dict[str, Any]] = []
+    node_text, rest = _extract_balanced(pattern.strip(), '(', ')')
+    left_id = _parse_node(node_text, ctx)
+    text = rest.strip()
+    while text:
+        left_dir = None
+        if text.startswith('<-'):
+            left_dir = '<-'
+            text = text[2:]
+        elif text.startswith('-'):
+            left_dir = '-'
+            text = text[1:]
+        else:
+            break
+
+        rel_segment, rest = _extract_balanced(text.strip(), '[', ']')
+        text = rest.strip()
+
+        right_dir = None
+        if text.startswith('->'):
+            right_dir = '->'
+            text = text[2:]
+        elif text.startswith('-'):
+            right_dir = '-'
+            text = text[1:]
+
+        node_text, rest = _extract_balanced(text.strip(), '(', ')')
+        right_id = _parse_node(node_text, ctx)
+        text = rest.strip()
+
+        edges.append(_edge_from_segment(left_id, right_id, rel_segment, left_dir, right_dir, ctx))
+        left_id = right_id
+    return edges
 
 
 def _extract_create_clauses(script: str) -> List[str]:
@@ -213,7 +235,7 @@ def graph_fixture_from_create(script: str) -> GraphFixture:
     for clause in _extract_create_clauses(script):
         for pattern in _split_top_level(clause):
             if '[' in pattern and ']' in pattern:
-                edges.append(_parse_relationship(pattern, ctx))
+                edges.extend(_parse_chain(pattern, ctx))
             else:
                 _parse_node(pattern, ctx)
     return GraphFixture(

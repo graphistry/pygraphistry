@@ -1,4 +1,4 @@
-from graphistry.compute import e_forward, n
+from graphistry.compute import e_forward, e_undirected, n
 
 from tests.cypher_tck.models import Expected, GraphFixture, Scenario
 from tests.cypher_tck.parse_cypher import graph_fixture_from_create
@@ -131,5 +131,20 @@ SCENARIOS = [
         gfql=[n({"label__Person": True, "name": "Bob"}, name="n"), e_forward(), n()],
         return_alias="n",
         tags=("match-where", "relationship", "alias"),
+    ),
+    Scenario(
+        key="match-where1-5",
+        feature_path="tck/features/clauses/match-where/MatchWhere1.feature",
+        scenario="[5] Filter end node of relationship with property predicate on multi variables with multiple bindings",
+        cypher="MATCH ()-[rel:X]-(a)\nWHERE a.name = 'Andres'\nRETURN a",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'Someone'})<-[:X]-()-[:X]->({name: 'Andres'})
+            """
+        ),
+        expected=Expected(node_ids=["anon_3"]),
+        gfql=[n(), e_undirected({"type": "X"}), n({"name": "Andres"}, name="a")],
+        return_alias="a",
+        tags=("match-where", "relationship", "type"),
     ),
 ]
