@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
-from tests.cypher_tck.scenarios import GraphFixture
+from tests.cypher_tck.models import GraphFixture
 
 
 @dataclass

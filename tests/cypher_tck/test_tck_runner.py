@@ -8,7 +8,8 @@ from graphistry.embed_utils import check_cudf
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
-from tests.cypher_tck.scenarios import Expected, GraphFixture, Scenario, SCENARIOS
+from tests.cypher_tck.models import Expected, GraphFixture, Scenario
+from tests.cypher_tck.scenarios import SCENARIOS
 
 
 _HAS_CUDF, _ = check_cudf()
