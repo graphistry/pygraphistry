@@ -138,22 +138,23 @@ def _normalize_gfql_ops(
         except json.JSONDecodeError as exc:
             _issue('GFQL chain string must be JSON', {'index': entry_index, 'error': str(exc)}, validate_mode, warn)
             return None
+    ops_raw: Any
     if isinstance(gfql_ops, Chain):
-        ops = gfql_ops.to_json().get('chain', [])
+        ops_raw = gfql_ops.to_json().get('chain', [])
     elif isinstance(gfql_ops, ASTObject):
-        ops = [gfql_ops.to_json()]
+        ops_raw = [gfql_ops.to_json()]
     elif isinstance(gfql_ops, dict):
         if 'chain' in gfql_ops:
-            ops = gfql_ops.get('chain', [])
+            ops_raw = gfql_ops.get('chain', [])
         else:
-            ops = [gfql_ops]
+            ops_raw = [gfql_ops]
     elif isinstance(gfql_ops, list):
-        ops = []
+        ops_raw = []
         for op in gfql_ops:
             if isinstance(op, ASTObject):
-                ops.append(op.to_json())
+                ops_raw.append(op.to_json())
             elif isinstance(op, dict):
-                ops.append(op)
+                ops_raw.append(op)
             else:
                 _issue(
                     'GFQL operations must be AST objects or dicts',
@@ -172,6 +173,17 @@ def _normalize_gfql_ops(
             warn
         )
         return None
+
+    if not isinstance(ops_raw, list):
+        _issue(
+            'GFQL operations must be a list',
+            {'index': entry_index, 'value': ops_raw, 'type': type(ops_raw).__name__},
+            validate_mode,
+            warn
+        )
+        return None
+
+    ops: List[Any] = ops_raw
 
     normalized_ops: List[Dict[str, Any]] = []
     for op in ops:
