@@ -23,6 +23,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     nodes,
     graph,
     settings,
+    collections,
     encode_point_color,
     encode_point_size,
     encode_point_icon,
