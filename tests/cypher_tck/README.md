@@ -32,3 +32,4 @@ TEST_CUDF=1 pytest tests/cypher_tck -xvs
 - The TCK repo is not vendored; use the local clone under `plans/`.
 - Each translated scenario should include a reference back to the TCK path,
   the original Cypher, and the expected rows or aggregates.
+- Track feature gaps and workarounds in `tests/cypher_tck/GAP_ANALYSIS.md`.
