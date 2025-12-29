@@ -1846,6 +1846,51 @@ class PlotterBase(Plottable):
         return res
 
 
+    def collections(
+        self,
+        collections: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        encode: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        """Set collections URL parameters. Additive over previous settings.
+
+        :param collections: List/dict of collections or JSON/URL-encoded JSON string.
+        :param show_collections: Toggle collections panel display.
+        :param collections_global_node_color: Hex color for non-collection nodes (leading # stripped).
+        :param collections_global_edge_color: Hex color for non-collection edges (leading # stripped).
+        :param encode: If True, JSON-minify and URL-encode collections. Use False for pre-encoded strings.
+        :param validate: Validation mode. 'autofix' (default) warns on issues, 'strict' raises on issues.
+        :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
+        """
+        from graphistry.validate.validate_collections import encode_collections, normalize_collections
+
+        def strip_hash(value: str) -> str:
+            return value[1:] if value.startswith('#') else value
+
+        settings: Dict[str, Any] = {}
+        if collections is not None:
+            normalized = normalize_collections(collections, validate=validate, warn=warn)
+            if isinstance(collections, str) and not encode:
+                settings['collections'] = collections
+            else:
+                settings['collections'] = encode_collections(normalized, encode=encode)
+        if show_collections is not None:
+            settings['showCollections'] = show_collections
+        if collections_global_node_color is not None:
+            settings['collectionsGlobalNodeColor'] = strip_hash(collections_global_node_color)
+        if collections_global_edge_color is not None:
+            settings['collectionsGlobalEdgeColor'] = strip_hash(collections_global_edge_color)
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
+
+
     def privacy(
         self, 
         mode: Optional[Mode] = None, 
@@ -2191,7 +2236,10 @@ class PlotterBase(Plottable):
             'viztoken': str(uuid.uuid4())
         }
 
-        viz_url = self._pygraphistry._viz_url(info, self._url_params)
+        from graphistry.validate.validate_collections import normalize_collections_url_params
+
+        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
+        viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
         full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 

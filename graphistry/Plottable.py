@@ -783,6 +783,18 @@ class Plottable(Protocol):
     ) -> 'Plottable':
         ...
 
+    def collections(
+        self,
+        collections: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        encode: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        ...
+
     def privacy(self, mode: Optional[PrivacyMode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None, mode_action: Optional[ModeAction] = None) -> 'Plottable':
         ...
 
