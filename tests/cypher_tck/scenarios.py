@@ -318,4 +318,60 @@ SCENARIOS = [
         reason="Syntax error validation for aggregations in WHERE not enforced",
         tags=("match-where", "syntax-error", "xfail"),
     ),
+    Scenario(
+        key="match-where2-1",
+        feature_path="tck/features/clauses/match-where/MatchWhere2.feature",
+        scenario="[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings",
+        cypher="MATCH (a)--(b)--(c)--(d)--(a), (b)--(d)\nWHERE a.id = 1\n  AND c.id = 2\nRETURN d",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B {id: 1}), (c:C {id: 2}), (d:D)
+            CREATE (a)-[:T]->(b),
+                   (a)-[:T]->(c),
+                   (a)-[:T]->(d),
+                   (b)-[:T]->(c),
+                   (b)-[:T]->(d),
+                   (c)-[:T]->(d)
+            """
+        ),
+        expected=Expected(
+            node_ids=["a", "d"],
+            rows=[
+                {"d": "(:A)"},
+                {"d": "(:D)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Multi-variable WHERE predicates and complex pattern matching not supported",
+        return_alias="d",
+        tags=("match-where", "and", "multi-var", "xfail"),
+    ),
+    Scenario(
+        key="match-where2-2",
+        feature_path="tck/features/clauses/match-where/MatchWhere2.feature",
+        scenario="[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings",
+        cypher="MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_VALUE]->(red)<-[:AA_HAS_VALUE]-(a)\nWHERE advertiser.id = $1\n  AND a.id = $2\n  AND red.name = 'red'\n  AND out.name = 'product1'\nRETURN out.name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (advertiser {name: 'advertiser1', id: 0}),
+                   (thing {name: 'Color', id: 1}),
+                   (red {name: 'red'}),
+                   (p1 {name: 'product1'}),
+                   (p2 {name: 'product4'})
+            CREATE (advertiser)-[:ADV_HAS_PRODUCT]->(p1),
+                   (advertiser)-[:ADV_HAS_PRODUCT]->(p2),
+                   (thing)-[:AA_HAS_VALUE]->(red),
+                   (p1)-[:AP_HAS_VALUE]->(red),
+                   (p2)-[:AP_HAS_VALUE]->(red)
+            """
+        ),
+        expected=Expected(
+            rows=[{"out.name": "'product1'"}],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding, multi-variable WHERE, and projection validation not supported",
+        tags=("match-where", "params", "and", "multi-var", "xfail"),
+    ),
 ]

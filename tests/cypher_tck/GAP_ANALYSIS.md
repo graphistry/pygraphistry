@@ -63,7 +63,7 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support Cypher parameters (e.g. `$param`)
   for query execution or comparison.
-- **Affected scenarios**: `match-where1-6`, `match-where1-9`
+- **Affected scenarios**: `match-where1-6`, `match-where1-9`, `match-where2-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add parameter injection support (scenario metadata -> GFQL
   predicate substitution) and validation for edge-return scenarios.
@@ -94,6 +94,18 @@ translation guidelines.
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
+
+### G8: Multi-variable WHERE predicates
+- **Status**: Open
+- **Description**: The harness cannot yet translate conjunctive WHERE predicates
+  that bind and filter multiple variables across a complex MATCH pattern (e.g.,
+  multiple node aliases, re-used variables, multi-hop joins).
+- **Affected scenarios**: `match-where2-1`, `match-where2-2`
+- **Workaround**: Mark as xfail and capture expected rows/node sets in the
+  scenario metadata.
+- **Next steps**: Extend the translation layer to support per-alias predicates
+  and multi-pattern binding, then add row-level validation to assert projected
+  property outputs.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
