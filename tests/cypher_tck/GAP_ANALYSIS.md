@@ -71,7 +71,7 @@ translation guidelines.
   `return6-17`, `return-orderby6-1`, `return-skip-limit1-2`,
   `return-skip-limit1-6`, `return-skip-limit1-8`, `return-skip-limit2-10`,
   `return-skip-limit2-11`, `return-skip-limit2-14`, `return-skip-limit2-15`,
-  `return-skip-limit3-2`
+  `return-skip-limit3-2`, `with6-5`, `with-where2-2`, `with-skip-limit3-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add parameter injection support (scenario metadata -> GFQL
   predicate substitution) and validation for edge-return scenarios.
@@ -81,7 +81,7 @@ translation guidelines.
 - **Description**: The harness does not support OR predicates across node or
   relationship properties/types.
 - **Affected scenarios**: `match-where1-10`, `match-where1-11`, `match-where4-2`,
-  `match-where5-4`
+  `match-where5-4`, `with-where4-2`, `with-where7-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add predicate combinators or explicit OR support in the
   translation layer and runner comparison.
@@ -91,7 +91,7 @@ translation guidelines.
 - **Description**: Path variables and path-length predicates (e.g. `length(p)`)
   are not supported in GFQL translations or the harness.
 - **Affected scenarios**: `match-where1-12`, `match-where1-13`, `return6-8`,
-  `return6-13`
+  `return6-13`, `with1-4`, `with6-4`
 - **Workaround**: Mark as xfail and capture expected node sets.
 - **Next steps**: Define a path representation in GFQL and implement length
   checks in the reference enumerator + runner.
@@ -103,7 +103,7 @@ translation guidelines.
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
   `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`,
   `return2-18`, `return4-10`, `return6-14`, `return6-15`, `return6-20`,
-  `return6-21`, `return7-2`
+  `return6-21`, `return7-2`, `with4-4`, `with4-5`, `with6-8`, `with6-9`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -113,7 +113,8 @@ translation guidelines.
 - **Description**: The harness cannot yet translate conjunctive WHERE predicates
   that bind and filter multiple variables across a complex MATCH pattern (e.g.,
   multiple node aliases, re-used variables, multi-hop joins).
-- **Affected scenarios**: `match-where2-1`, `match-where2-2`
+- **Affected scenarios**: `match-where2-1`, `match-where2-2`, `with-where2-1`,
+  `with-where2-2`
 - **Workaround**: Mark as xfail and capture expected rows/node sets in the
   scenario metadata.
 - **Next steps**: Extend the translation layer to support per-alias predicates
@@ -128,7 +129,8 @@ translation guidelines.
   projection validation.
 - **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`,
   `match-where4-1`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
-  `match-where6-8`, `match7-11`, `match9-8`, `return6-13`
+  `match-where6-8`, `match7-11`, `match9-8`, `return6-13`,
+  `with-where3-1..with-where3-3`, `with-where4-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add join-aware translation support (variable comparison
@@ -139,7 +141,7 @@ translation guidelines.
 - **Description**: Pattern predicates used as boolean filters in WHERE (e.g.,
   `(a)-[:T]->(b)` or `(a)-[:T*]->(b)`) are not supported, nor are variable-length
   relationship predicates.
-- **Affected scenarios**: `match-where4-2`
+- **Affected scenarios**: `match-where4-2`, `with-where4-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add translation support for pattern predicates and
@@ -151,7 +153,7 @@ translation guidelines.
   `>`, `<`), label predicates in WHERE (e.g., `i:TextNode`), or null checks
   (`IS NOT NULL`) with Cypher's tri-valued logic.
 - **Affected scenarios**: `match-where5-1`, `match-where5-2`, `match-where5-3`,
-  `match-where5-4`, `match7-25`, `match9-8`
+  `match-where5-4`, `match7-25`, `match9-8`, `with-where5-1..with-where5-4`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add predicate operators and null-handling semantics to the
@@ -164,7 +166,8 @@ translation guidelines.
 - **Affected scenarios**: `match-where6-1`, `match-where6-2`, `match-where6-3`,
   `match-where6-4`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
   `match-where6-8`, `match3-27`, `match3-28`, `match7-1..match7-31`,
-  `match8-2`, `match9-8`, `match9-9`
+  `match8-2`, `match9-8`, `match9-9`, `with1-5`, `with1-6`,
+  `with-where1-3`, `with-where1-4`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add OPTIONAL MATCH semantics to the translation layer and
@@ -180,7 +183,14 @@ translation guidelines.
   `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`, `return4-1`,
   `return4-11`, `return6-3`, `return6-13`, `return6-16`, `return6-18`,
   `return8-1`, `return-orderby4-1`, `return-orderby4-2`, `return-skip-limit1-3`,
-  `return-skip-limit2-6`
+  `return-skip-limit2-6`, `with1-1..with1-6`, `with2-1..with2-2`, `with3-1`,
+  `with4-1..with4-7`, `with5-1..with5-2`, `with6-1..with6-9`,
+  `with7-1..with7-2`, `with-where1-1..with-where1-4`,
+  `with-where2-1..with-where2-2`, `with-where3-1..with-where3-3`,
+  `with-where4-1..with-where4-2`, `with-where5-1..with-where5-4`,
+  `with-where6-1`, `with-where7-1..with-where7-3`,
+  `with-skip-limit1-1..with-skip-limit1-2`, `with-skip-limit2-1..with-skip-limit2-4`,
+  `with-skip-limit3-1..with-skip-limit3-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -232,7 +242,7 @@ translation guidelines.
   `match5-9`, `match5-10`, `match5-11..match5-29`, `match6-14`, `match6-15`,
   `match6-16`, `match6-17`, `match6-19`, `match6-20`, `match7-12`,
   `match7-13`, `match7-14`, `match7-15`, `match7-19`, `match7-20`,
-  `match9-1..match9-9`, `return6-8`, `return6-13`
+  `match9-1..match9-9`, `return6-8`, `return6-13`, `with6-4`, `with-where4-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add variable-length matching support to GFQL translation and
@@ -247,7 +257,7 @@ translation guidelines.
   `match6-11`, `match6-12`, `match6-13`, `match6-14`, `match6-15`,
   `match6-16`, `match6-17`, `match6-18`, `match6-19`, `match6-20`,
   `match7-16`, `match7-17`, `match7-18`, `match7-19`, `match7-20`, `match9-9`,
-  `return7-1`
+  `return7-1`, `with1-4`, `with6-4`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add path materialization support in GFQL and extend the runner
@@ -261,7 +271,8 @@ translation guidelines.
   `match8-3`, `match9-5`, `return2-10`, `return4-4`, `return4-6`, `return4-7`,
   `return4-8`, `return4-9`, `return4-11`, `return5-1`, `return5-3`,
   `return5-4`, `return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
-  `return8-1`
+  `return8-1`, `with4-6`, `with5-2`, `with6-1..with6-9`, `with7-2`,
+  `with-where6-1`, `with-skip-limit1-2`, `with-skip-limit2-4`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -339,7 +350,9 @@ translation guidelines.
   `return-skip-limit1-1..return-skip-limit1-2`, `return-skip-limit2-2`,
   `return-skip-limit2-4`, `return-skip-limit2-5`, `return-skip-limit2-7`,
   `return-skip-limit2-8`, `return-skip-limit2-11`, `return-skip-limit2-15`,
-  `return-skip-limit3-1..return-skip-limit3-3`
+  `return-skip-limit3-1..return-skip-limit3-3`, `with3-1`, `with4-6`,
+  `with-skip-limit1-1..with-skip-limit1-2`, `with-skip-limit2-1`,
+  `with-skip-limit2-4`, `with-skip-limit3-1..with-skip-limit3-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add ORDER BY support to the translation layer and extend the
@@ -350,7 +363,8 @@ translation guidelines.
 - **Description**: The harness does not support DISTINCT projections or
   DISTINCT handling inside aggregations.
 - **Affected scenarios**: `return4-6`, `return5-1`, `return5-2`, `return5-3`,
-  `return5-4`, `return5-5`, `return6-16`
+  `return5-4`, `return5-5`, `return6-16`, `with5-1`, `with5-2`,
+  `with-where1-2`, `with-where4-2`, `with-skip-limit1-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add DISTINCT handling to projection and aggregation paths
@@ -362,7 +376,10 @@ translation guidelines.
   validation (including parameterized values).
 - **Affected scenarios**: `return-skip-limit1-1..return-skip-limit1-11`,
   `return-skip-limit2-1..return-skip-limit2-17`,
-  `return-skip-limit3-1..return-skip-limit3-3`
+  `return-skip-limit3-1..return-skip-limit3-3`, `with7-1`,
+  `with-skip-limit1-1..with-skip-limit1-2`,
+  `with-skip-limit2-1..with-skip-limit2-4`,
+  `with-skip-limit3-1..with-skip-limit3-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add SKIP/LIMIT handling to the translation layer and enforce

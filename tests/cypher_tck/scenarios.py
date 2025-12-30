@@ -6197,4 +6197,1214 @@ SCENARIOS = [
         reason="UNWIND, SKIP/LIMIT, and ORDER BY are not supported",
         tags=("return", "skip", "limit", "orderby", "unwind", "xfail"),
     ),
+    Scenario(
+        key="with1-1",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[1] Forwarind a node variable 1",
+        cypher="MATCH (a:A)\nWITH a\nMATCH (a)-->(b)\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:REL]->(:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and RETURN * projections are not supported",
+        tags=("with", "pipeline", "return-star", "xfail"),
+    ),
+    Scenario(
+        key="with1-2",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[2] Forwarind a node variable 2",
+        cypher="MATCH (a:A)\nWITH a\nMATCH (x:X), (a)-->(b)\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:REL]->(:B)
+            CREATE (:X)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "b": "(:B)", "x": "(:X)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, cartesian products, and RETURN * projections are not supported",
+        tags=("with", "pipeline", "cartesian", "return-star", "xfail"),
+    ),
+    Scenario(
+        key="with1-3",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[3] Forwarding a relationship variable",
+        cypher="MATCH ()-[r1]->(:X)\nWITH r1 AS r2\nMATCH ()-[r2]->()\nRETURN r2 AS rel",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1]->(:X),
+                   ()-[:T2]->(:X),
+                   ()-[:T3]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rel": "[:T1]"},
+                {"rel": "[:T2]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and relationship variable aliasing are not supported",
+        tags=("with", "relationship", "alias", "xfail"),
+    ),
+    Scenario(
+        key="with1-4",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[4] Forwarding a path variable",
+        cypher="MATCH p = (a)\nWITH p\nRETURN p",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"p": "<()>"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and path variables are not supported",
+        tags=("with", "path", "xfail"),
+    ),
+    Scenario(
+        key="with1-5",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[5] Forwarding null",
+        cypher="OPTIONAL MATCH (a:Start)\nWITH a\nMATCH (a)-->(b)\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="OPTIONAL MATCH semantics and WITH pipelines are not supported",
+        tags=("with", "optional-match", "null", "xfail"),
+    ),
+    Scenario(
+        key="with1-6",
+        feature_path="tck/features/clauses/with/With1.feature",
+        scenario="[6] Forwarding a node variable possibly null",
+        cypher="OPTIONAL MATCH (a:A)\nWITH a AS a\nMATCH (b:B)\nRETURN a, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Single), (a:A {num: 42}),
+                   (b:B {num: 46}), (c:C)
+            CREATE (s)-[:REL]->(a),
+                   (s)-[:REL]->(b),
+                   (a)-[:REL]->(c),
+                   (b)-[:LOOP]->(b)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 42})", "b": "(:B {num: 46})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="OPTIONAL MATCH semantics and WITH pipelines are not supported",
+        tags=("with", "optional-match", "xfail"),
+    ),
+    Scenario(
+        key="with2-1",
+        feature_path="tck/features/clauses/with/With2.feature",
+        scenario="[1] Forwarding a property to express a join",
+        cypher="MATCH (a:Begin)\nWITH a.num AS property\nMATCH (b)\nWHERE b.id = property\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:End {num: 42, id: 0}),
+                   (:End {num: 3}),
+                   (:Begin {num: a.id})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "(:End {num: 42, id: 0})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, joins, and row projections are not supported",
+        tags=("with", "join", "xfail"),
+    ),
+    Scenario(
+        key="with2-2",
+        feature_path="tck/features/clauses/with/With2.feature",
+        scenario="[2] Forwarding a nested map literal",
+        cypher="WITH {name: {name2: 'baz'}} AS nestedMap\nRETURN nestedMap.name.name2",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"nestedMap.name.name2": "'baz'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and map projections are not supported",
+        tags=("with", "map", "projection", "xfail"),
+    ),
+    Scenario(
+        key="with3-1",
+        feature_path="tck/features/clauses/with/With3.feature",
+        scenario="[1] Forwarding multiple node and relationship variables",
+        cypher="MATCH (a)-[r]->(b:X)\nWITH a, r, b\nMATCH (a)-[r]->(b)\nRETURN r AS rel\n  ORDER BY rel.id",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1 {id: 0}]->(:X),
+                   ()-[:T2 {id: 1}]->(:X),
+                   ()-[:T2 {id: 2}]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rel": "[:T1 {id: 0}]"},
+                {"rel": "[:T2 {id: 1}]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, and relationship projections are not supported",
+        tags=("with", "orderby", "relationship", "xfail"),
+    ),
+    Scenario(
+        key="with4-1",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[1] Aliasing relationship variable",
+        cypher="MATCH ()-[r1]->()\nWITH r1 AS r2\nRETURN r2 AS rel",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1]->(),
+                   ()-[:T2]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rel": "[:T1]"},
+                {"rel": "[:T2]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and relationship aliasing are not supported",
+        tags=("with", "alias", "relationship", "xfail"),
+    ),
+    Scenario(
+        key="with4-2",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[2] Aliasing expression to new variable name",
+        cypher="MATCH (a:Begin)\nWITH a.num AS property\nMATCH (b:End)\nWHERE property = b.num\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:Begin {num: 42}),
+                   (:End {num: 42}),
+                   (:End {num: 3})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "(:End {num: 42})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, expression aliasing, and row projections are not supported",
+        tags=("with", "alias", "projection", "xfail"),
+    ),
+    Scenario(
+        key="with4-3",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[3] Aliasing expression to existing variable name",
+        cypher="MATCH (n)\nWITH n.name AS n\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({num: 1, name: 'King Kong'}),
+              ({num: 2, name: 'Ann Darrow'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "'Ann Darrow'"},
+                {"n": "'King Kong'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and expression projections are not supported",
+        tags=("with", "alias", "projection", "xfail"),
+    ),
+    Scenario(
+        key="with4-4",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[4] Fail when forwarding multiple aliases with the same name",
+        cypher="WITH 1 AS a, 2 AS a\nRETURN a",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for duplicate WITH aliases is not enforced",
+        tags=("with", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="with4-5",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[5] Fail when not aliasing expressions in WITH",
+        cypher="MATCH (a)\nWITH a, count(*)\nRETURN a",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for WITH expression aliasing is not enforced",
+        tags=("with", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="with4-6",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[6] Reusing variable names in WITH",
+        cypher="MATCH (person:Person)<--(message)<-[like]-(:Person)\nWITH like.creationDate AS likeTime, person AS person\n  ORDER BY likeTime, message.id\nWITH head(collect({likeTime: likeTime})) AS latestLike, person AS person\nWITH latestLike.likeTime AS likeTime\n  ORDER BY likeTime\nRETURN likeTime",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:Person), (b:Person), (m:Message {id: 10})
+            CREATE (a)-[:LIKE {creationDate: 20160614}]->(m)-[:POSTED_BY]->(b)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"likeTime": 20160614},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, aggregations, and list/map expressions are not supported",
+        tags=("with", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with4-7",
+        feature_path="tck/features/clauses/with/With4.feature",
+        scenario="[7] Multiple aliasing and backreferencing",
+        cypher="CREATE (m {id: 0})\nWITH {first: m.id} AS m\nWITH {second: m.first} AS m\nRETURN m.second",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"m.second": 0},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, map projections, and side effect validation are not supported",
+        tags=("with", "map", "projection", "xfail"),
+    ),
+    Scenario(
+        key="with5-1",
+        feature_path="tck/features/clauses/with/With5.feature",
+        scenario="[1] DISTINCT on an expression",
+        cypher="MATCH (a)\nWITH DISTINCT a.name AS name\nRETURN name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+                   ({name: 'A'}),
+                   ({name: 'B'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'A'"},
+                {"name": "'B'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH DISTINCT projections are not supported",
+        tags=("with", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="with5-2",
+        feature_path="tck/features/clauses/with/With5.feature",
+        scenario="[2] Handling DISTINCT with lists in maps",
+        cypher="MATCH (n)\nWITH DISTINCT {name: n.list} AS map\nRETURN count(*)",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({list: ['A', 'B']}), ({list: ['A', 'B']})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH DISTINCT projections and aggregations are not supported",
+        tags=("with", "distinct", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with6-1",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[1] Implicit grouping with single expression as grouping key and single aggregation",
+        cypher="MATCH (a)\nWITH a.name AS name, count(*) AS relCount\nRETURN name, relCount",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+                   ({name: 'A'}),
+                   ({name: 'B'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'A'", "relCount": 2},
+                {"name": "'B'", "relCount": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH aggregations and row projections are not supported",
+        tags=("with", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with6-2",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[2] Implicit grouping with single relationship variable as grouping key and single aggregation",
+        cypher="MATCH ()-[r1]->(:X)\nWITH r1 AS r2, count(*) AS c\nMATCH ()-[r2]->()\nRETURN r2 AS rel",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1]->(:X),
+                   ()-[:T2]->(:X),
+                   ()-[:T3]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rel": "[:T1]"},
+                {"rel": "[:T2]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH aggregations and relationship projections are not supported",
+        tags=("with", "aggregation", "relationship", "xfail"),
+    ),
+    Scenario(
+        key="with6-3",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[3] Implicit grouping with multiple node and relationship variables as grouping key and single aggregation",
+        cypher="MATCH (a)-[r1]->(b:X)\nWITH a, r1 AS r2, b, count(*) AS c\nMATCH (a)-[r2]->(b)\nRETURN r2 AS rel",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1]->(:X),
+                   ()-[:T2]->(:X),
+                   ()-[:T3]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rel": "[:T1]"},
+                {"rel": "[:T2]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH aggregations and relationship projections are not supported",
+        tags=("with", "aggregation", "relationship", "xfail"),
+    ),
+    Scenario(
+        key="with6-4",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[4] Implicit grouping with single path variable as grouping key and single aggregation",
+        cypher="MATCH p = ()-[*]->()\nWITH count(*) AS count, p AS p\nRETURN nodes(p) AS nodes",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (n1 {num: 1}), (n2 {num: 2}),
+                   (n3 {num: 3}), (n4 {num: 4})
+            CREATE (n1)-[:T]->(n2),
+                   (n3)-[:T]->(n4)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"nodes": "[({num: 1}), ({num: 2})]"},
+                {"nodes": "[({num: 3}), ({num: 4})]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable-length patterns, path functions, and aggregations are not supported",
+        tags=("with", "aggregation", "path", "variable-length", "xfail"),
+    ),
+    Scenario(
+        key="with6-5",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[5] Handle constants and parameters inside an expression which contains an aggregation expression",
+        cypher="MATCH (person)\nWITH $age + avg(person.age) - 1000 AS agg\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"agg": "null"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Parameters, aggregations, and WITH pipelines are not supported",
+        tags=("with", "aggregation", "params", "xfail"),
+    ),
+    Scenario(
+        key="with6-6",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[6] Handle projected variables inside an expression which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nWITH age, age + count(you.age) AS agg\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and aggregations are not supported",
+        tags=("with", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with6-7",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[7] Handle projected property accesses inside an expression which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nWITH me.age AS age, me.age + count(you.age) AS agg\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and aggregations are not supported",
+        tags=("with", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with6-8",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[8] Fail if not projected variables are used inside an expression which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nWITH me.age + count(you.age) AS agg\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ambiguous aggregation expressions is not enforced",
+        tags=("with", "syntax-error", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with6-9",
+        feature_path="tck/features/clauses/with/With6.feature",
+        scenario="[9] Fail if more complex expression, even if projected, are used inside expression which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nWITH me.age + you.age AS grp, me.age + you.age + count(*) AS agg\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ambiguous aggregation expressions is not enforced",
+        tags=("with", "syntax-error", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with7-1",
+        feature_path="tck/features/clauses/with/With7.feature",
+        scenario="[1] A simple pattern with one bound endpoint",
+        cypher="MATCH (a:A)-[r:REL]->(b:B)\nWITH a AS b, b AS tmp, r AS r\nWITH b AS a, r\nLIMIT 1\nMATCH (a)-[r]->(b)\nRETURN a, r, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:REL]->(:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "r": "[:REL]", "b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, LIMIT, and row projections are not supported",
+        tags=("with", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with7-2",
+        feature_path="tck/features/clauses/with/With7.feature",
+        scenario="[2] Multiple WITHs using a predicate and aggregation",
+        cypher="MATCH (david {name: 'David'})--(otherPerson)-->()\nWITH otherPerson, count(*) AS foaf\nWHERE foaf > 1\nWITH otherPerson\nWHERE otherPerson.name <> 'NotOther'\nRETURN count(*)",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a {name: 'David'}),
+                   (b {name: 'Other'}),
+                   (c {name: 'NotOther'}),
+                   (d {name: 'NotOther2'}),
+                   (a)-[:REL]->(b),
+                   (a)-[:REL]->(c),
+                   (a)-[:REL]->(d),
+                   (b)-[:REL]->(),
+                   (b)-[:REL]->(),
+                   (c)-[:REL]->(),
+                   (c)-[:REL]->(),
+                   (d)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, WHERE filtering, and aggregations are not supported",
+        tags=("with", "where", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with-where1-1",
+        feature_path="tck/features/clauses/with-where/WithWhere1.feature",
+        scenario="[1] Filter node with property predicate on a single variable with multiple bindings",
+        cypher="MATCH (a)\nWITH a\nWHERE a.name = 'B'\nRETURN a",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+                   ({name: 'B'}),
+                   ({name: 'C'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "({name: 'B'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and WHERE filtering are not supported",
+        tags=("with", "where", "xfail"),
+    ),
+    Scenario(
+        key="with-where1-2",
+        feature_path="tck/features/clauses/with-where/WithWhere1.feature",
+        scenario="[2] Filter node with property predicate on a single variable with multiple distinct bindings",
+        cypher="MATCH (a)\nWITH DISTINCT a.name2 AS name\nWHERE a.name2 = 'B'\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name2: 'A'}),
+                   ({name2: 'A'}),
+                   ({name2: 'B'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'B'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH DISTINCT projections and WHERE filtering are not supported",
+        tags=("with", "distinct", "where", "xfail"),
+    ),
+    Scenario(
+        key="with-where1-3",
+        feature_path="tck/features/clauses/with-where/WithWhere1.feature",
+        scenario="[3] Filter for an unbound relationship variable",
+        cypher="MATCH (a:A), (other:B)\nOPTIONAL MATCH (a)-[r]->(other)\nWITH other WHERE r IS NULL\nRETURN other",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B {id: 1}), (:B {id: 2})
+            CREATE (a)-[:T]->(b)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"other": "(:B {id: 2})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, OPTIONAL MATCH semantics, and null handling are not supported",
+        tags=("with", "optional-match", "null", "xfail"),
+    ),
+    Scenario(
+        key="with-where1-4",
+        feature_path="tck/features/clauses/with-where/WithWhere1.feature",
+        scenario="[4] Filter for an unbound node variable",
+        cypher="MATCH (other:B)\nOPTIONAL MATCH (a)-[r]->(other)\nWITH other WHERE a IS NULL\nRETURN other",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B {id: 1}), (:B {id: 2})
+            CREATE (a)-[:T]->(b)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"other": "(:B {id: 2})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, OPTIONAL MATCH semantics, and null handling are not supported",
+        tags=("with", "optional-match", "null", "xfail"),
+    ),
+    Scenario(
+        key="with-where2-1",
+        feature_path="tck/features/clauses/with-where/WithWhere2.feature",
+        scenario="[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings",
+        cypher="MATCH (a)--(b)--(c)--(d)--(a), (b)--(d)\nWITH a, c, d\nWHERE a.id = 1\n  AND c.id = 2\nRETURN d",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B {id: 1}), (c:C {id: 2}), (d:D)
+            CREATE (a)-[:T]->(b),
+                   (a)-[:T]->(c),
+                   (a)-[:T]->(d),
+                   (b)-[:T]->(c),
+                   (b)-[:T]->(d),
+                   (c)-[:T]->(d)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"d": "(:A)"},
+                {"d": "(:D)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and multi-variable WHERE predicates are not supported",
+        tags=("with", "where", "multi-var", "xfail"),
+    ),
+    Scenario(
+        key="with-where2-2",
+        feature_path="tck/features/clauses/with-where/WithWhere2.feature",
+        scenario="[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings",
+        cypher="MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_VALUE]->(red)<-[:AA_HAS_VALUE]-(a)\nWITH a, advertiser, red, out\nWHERE advertiser.id = $1\n  AND a.id = $2\n  AND red.name = 'red'\n  AND out.name = 'product1'\nRETURN out.name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (advertiser {name: 'advertiser1', id: 0}),
+                   (thing {name: 'Color', id: 1}),
+                   (red {name: 'red'}),
+                   (p1 {name: 'product1'}),
+                   (p2 {name: 'product4'})
+            CREATE (advertiser)-[:ADV_HAS_PRODUCT]->(p1),
+                   (advertiser)-[:ADV_HAS_PRODUCT]->(p2),
+                   (thing)-[:AA_HAS_VALUE]->(red),
+                   (p1)-[:AP_HAS_VALUE]->(red),
+                   (p2)-[:AP_HAS_VALUE]->(red)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"out.name": "'product1'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, parameter binding, and multi-variable WHERE predicates are not supported",
+        tags=("with", "where", "params", "multi-var", "xfail"),
+    ),
+    Scenario(
+        key="with-where3-1",
+        feature_path="tck/features/clauses/with-where/WithWhere3.feature",
+        scenario="[1] Join between node identities",
+        cypher="MATCH (a), (b)\nWITH a, b\nWHERE a = b\nRETURN a, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A), (:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "b": "(:A)"},
+                {"a": "(:B)", "b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable equality joins, and row projections are not supported",
+        tags=("with", "join", "xfail"),
+    ),
+    Scenario(
+        key="with-where3-2",
+        feature_path="tck/features/clauses/with-where/WithWhere3.feature",
+        scenario="[2] Join between node properties of disconnected nodes",
+        cypher="MATCH (a:A), (b:B)\nWITH a, b\nWHERE a.id = b.id\nRETURN a, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A {id: 1}),
+                   (:A {id: 2}),
+                   (:B {id: 2}),
+                   (:B {id: 3})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A {id: 2})", "b": "(:B {id: 2})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable comparison joins, and row projections are not supported",
+        tags=("with", "join", "xfail"),
+    ),
+    Scenario(
+        key="with-where3-3",
+        feature_path="tck/features/clauses/with-where/WithWhere3.feature",
+        scenario="[3] Join between node properties of adjacent nodes",
+        cypher="MATCH (n)-[rel]->(x)\nWITH n, x\nWHERE n.animal = x.animal\nRETURN n, x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {animal: 'monkey'}),
+              (b:B {animal: 'cow'}),
+              (c:C {animal: 'monkey'}),
+              (d:D {animal: 'cow'}),
+              (a)-[:KNOWS]->(b),
+              (a)-[:KNOWS]->(c),
+              (d)-[:KNOWS]->(b),
+              (d)-[:KNOWS]->(c)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "(:A {animal: 'monkey'})", "x": "(:C {animal: 'monkey'})"},
+                {"n": "(:D {animal: 'cow'})", "x": "(:B {animal: 'cow'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable comparison joins, and row projections are not supported",
+        tags=("with", "join", "xfail"),
+    ),
+    Scenario(
+        key="with-where4-1",
+        feature_path="tck/features/clauses/with-where/WithWhere4.feature",
+        scenario="[1] Join nodes on inequality",
+        cypher="MATCH (a), (b)\nWITH a, b\nWHERE a <> b\nRETURN a, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A), (:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "b": "(:B)"},
+                {"a": "(:B)", "b": "(:A)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable inequality joins, and row projections are not supported",
+        tags=("with", "join", "inequality", "xfail"),
+    ),
+    Scenario(
+        key="with-where4-2",
+        feature_path="tck/features/clauses/with-where/WithWhere4.feature",
+        scenario="[2] Join with disjunctive multi-part predicates including patterns",
+        cypher="MATCH (a), (b)\nWITH a, b\nWHERE a.id = 0\n  AND (a)-[:T]->(b:TheLabel)\n  OR (a)-[:T*]->(b:MissingLabel)\nRETURN DISTINCT b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:TheLabel {id: 0}), (b:TheLabel {id: 1}), (c:TheLabel {id: 2})
+            CREATE (a)-[:T]->(b),
+                   (b)-[:T]->(c)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "(:TheLabel {id: 1})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, OR predicates, pattern predicates, variable-length patterns, and DISTINCT are not supported",
+        tags=("with", "or", "pattern-predicate", "variable-length", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="with-where5-1",
+        feature_path="tck/features/clauses/with-where/WithWhere5.feature",
+        scenario="[1] Filter out on null",
+        cypher="MATCH (:Root {name: 'x'})-->(i:TextNode)\nWITH i\nWHERE i.var > 'te'\nRETURN i",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (root:Root {name: 'x'}),
+                   (child1:TextNode {var: 'text'}),
+                   (child2:IntNode {var: 0})
+            CREATE (root)-[:T]->(child1),
+                   (root)-[:T]->(child2)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"i": "(:TextNode {var: 'text'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, comparison predicates, and null semantics are not supported",
+        tags=("with", "null", "comparison", "xfail"),
+    ),
+    Scenario(
+        key="with-where5-2",
+        feature_path="tck/features/clauses/with-where/WithWhere5.feature",
+        scenario="[2] Filter out on null if the AND'd predicate evaluates to false",
+        cypher="MATCH (:Root {name: 'x'})-->(i:TextNode)\nWITH i\nWHERE i.var > 'te' AND i:TextNode\nRETURN i",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (root:Root {name: 'x'}),
+                   (child1:TextNode {var: 'text'}),
+                   (child2:IntNode {var: 0})
+            CREATE (root)-[:T]->(child1),
+                   (root)-[:T]->(child2)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"i": "(:TextNode {var: 'text'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, comparison predicates, label predicates, and null semantics are not supported",
+        tags=("with", "null", "comparison", "label-predicate", "xfail"),
+    ),
+    Scenario(
+        key="with-where5-3",
+        feature_path="tck/features/clauses/with-where/WithWhere5.feature",
+        scenario="[3] Filter out on null if the AND'd predicate evaluates to true",
+        cypher="MATCH (:Root {name: 'x'})-->(i:TextNode)\nWITH i\nWHERE i.var > 'te' AND i.var IS NOT NULL\nRETURN i",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (root:Root {name: 'x'}),
+                   (child1:TextNode {var: 'text'}),
+                   (child2:IntNode {var: 0})
+            CREATE (root)-[:T]->(child1),
+                   (root)-[:T]->(child2)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"i": "(:TextNode {var: 'text'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, comparison predicates, IS NOT NULL, and null semantics are not supported",
+        tags=("with", "null", "comparison", "is-not-null", "xfail"),
+    ),
+    Scenario(
+        key="with-where5-4",
+        feature_path="tck/features/clauses/with-where/WithWhere5.feature",
+        scenario="[4] Do not filter out on null if the OR'd predicate evaluates to true",
+        cypher="MATCH (:Root {name: 'x'})-->(i)\nWITH i\nWHERE i.var > 'te' OR i.var IS NOT NULL\nRETURN i",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (root:Root {name: 'x'}),
+                   (child1:TextNode {var: 'text'}),
+                   (child2:IntNode {var: 0})
+            CREATE (root)-[:T]->(child1),
+                   (root)-[:T]->(child2)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"i": "(:TextNode {var: 'text'})"},
+                {"i": "(:IntNode {var: 0})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, OR predicates, comparison predicates, and null semantics are not supported",
+        tags=("with", "null", "or", "comparison", "xfail"),
+    ),
+    Scenario(
+        key="with-where6-1",
+        feature_path="tck/features/clauses/with-where/WithWhere6.feature",
+        scenario="[1] Filter a single aggregate",
+        cypher="MATCH (a)-->()\nWITH a, count(*) AS relCount\nWHERE relCount > 1\nRETURN a",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a {name: 'A'}),
+                   (b {name: 'B'})
+            CREATE (a)-[:REL]->(),
+                   (a)-[:REL]->(),
+                   (a)-[:REL]->(),
+                   (b)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "({name: 'A'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, aggregations, and WHERE filtering are not supported",
+        tags=("with", "aggregation", "where", "xfail"),
+    ),
+    Scenario(
+        key="with-where7-1",
+        feature_path="tck/features/clauses/with-where/WithWhere7.feature",
+        scenario="[1] WHERE sees a variable bound before but not after WITH",
+        cypher="MATCH (a)\nWITH a.name2 AS name\nWHERE a.name2 = 'B'\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name2: 'A'}),
+                   ({name2: 'B'}),
+                   ({name2: 'C'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'B'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and variable scoping rules are not supported",
+        tags=("with", "where", "xfail"),
+    ),
+    Scenario(
+        key="with-where7-2",
+        feature_path="tck/features/clauses/with-where/WithWhere7.feature",
+        scenario="[2] WHERE sees a variable bound after but not before WITH",
+        cypher="MATCH (a)\nWITH a.name2 AS name\nWHERE name = 'B'\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name2: 'A'}),
+                   ({name2: 'B'}),
+                   ({name2: 'C'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'B'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and variable scoping rules are not supported",
+        tags=("with", "where", "xfail"),
+    ),
+    Scenario(
+        key="with-where7-3",
+        feature_path="tck/features/clauses/with-where/WithWhere7.feature",
+        scenario="[3] WHERE sees both, variable bound before but not after WITH and variable bound after but not before WITH",
+        cypher="MATCH (a)\nWITH a.name2 AS name\nWHERE name = 'B' OR a.name2 = 'C'\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name2: 'A'}),
+                   ({name2: 'B'}),
+                   ({name2: 'C'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'B'"},
+                {"name": "'C'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, variable scoping rules, and OR predicates are not supported",
+        tags=("with", "where", "or", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit1-1",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit1.feature",
+        scenario="[1] Handle dependencies across WITH with SKIP",
+        cypher="MATCH (a)\nWITH a.name AS property, a.num AS idToUse\n  ORDER BY property\n  SKIP 1\nMATCH (b)\nWHERE b.id = idToUse\nRETURN DISTINCT b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a {name: 'A', num: 0, id: 0}),
+                   ({name: 'B', num: a.id, id: 1}),
+                   ({name: 'C', num: 0, id: 2})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "({name: 'A', num: 0, id: 0})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, SKIP, and DISTINCT are not supported",
+        tags=("with", "skip", "orderby", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit1-2",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit1.feature",
+        scenario="[2] Ordering and skipping on aggregate",
+        cypher="MATCH ()-[r1]->(x)\nWITH x, sum(r1.num) AS c\n  ORDER BY c SKIP 1\nRETURN x, c",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1 {num: 3}]->(x:X),
+                   ()-[:T2 {num: 2}]->(x),
+                   ()-[:T3 {num: 1}]->(:Y)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"x": "(:X)", "c": 5},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, aggregations, ORDER BY, and SKIP are not supported",
+        tags=("with", "skip", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit2-1",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit2.feature",
+        scenario="[1] ORDER BY and LIMIT can be used",
+        cypher="MATCH (a:A)\nWITH a\nORDER BY a.name\nLIMIT 1\nMATCH (a)-->(b)\nRETURN a",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (), (), (),
+                   (a)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, and LIMIT are not supported",
+        tags=("with", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit2-2",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit2.feature",
+        scenario="[2] Handle dependencies across WITH with LIMIT",
+        cypher="MATCH (a:Begin)\nWITH a.num AS property\n  LIMIT 1\nMATCH (b)\nWHERE b.id = property\nRETURN b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:End {num: 42, id: 0}),
+                   (:End {num: 3}),
+                   (:Begin {num: a.id})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "(:End {num: 42, id: 0})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, LIMIT, and joins are not supported",
+        tags=("with", "limit", "join", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit2-3",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit2.feature",
+        scenario="[3] Connected components succeeding WITH with LIMIT",
+        cypher="MATCH (n:A)\nWITH n\nLIMIT 1\nMATCH (m:B), (n)-->(x:X)\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:REL]->(:X)
+            CREATE (:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"m": "(:B)", "n": "(:A)", "x": "(:X)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, LIMIT, and RETURN * projections are not supported",
+        tags=("with", "limit", "return-star", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit2-4",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit2.feature",
+        scenario="[4] Ordering and limiting on aggregate",
+        cypher="MATCH ()-[r1]->(x)\nWITH x, sum(r1.num) AS c\n  ORDER BY c LIMIT 1\nRETURN x, c",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ()-[:T1 {num: 3}]->(x:X),
+                   ()-[:T2 {num: 2}]->(x),
+                   ()-[:T3 {num: 1}]->(:Y)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"x": "(:Y)", "c": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, aggregations, ORDER BY, and LIMIT are not supported",
+        tags=("with", "limit", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit3-1",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit3.feature",
+        scenario="[1] Get rows in the middle",
+        cypher="MATCH (n)\nWITH n\nORDER BY n.name ASC\nSKIP 2\nLIMIT 2\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, SKIP/LIMIT, and ORDER BY are not supported",
+        tags=("with", "skip", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit3-2",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit3.feature",
+        scenario="[2] Get rows in the middle by param",
+        cypher="MATCH (n)\nWITH n\nORDER BY n.name ASC\nSKIP $s\nLIMIT $l\nRETURN n",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, SKIP/LIMIT, ORDER BY, and parameter binding are not supported",
+        tags=("with", "skip", "limit", "orderby", "params", "xfail"),
+    ),
+    Scenario(
+        key="with-skip-limit3-3",
+        feature_path="tck/features/clauses/with-skip-limit/WithSkipLimit3.feature",
+        scenario="[3] Limiting amount of rows when there are fewer left than the LIMIT argument",
+        cypher="MATCH (a)\nWITH a.count AS count\n  ORDER BY a.count\n  SKIP 10\n  LIMIT 10\nRETURN count",
+        graph=GraphFixture(
+            nodes=[{"id": f"n{i}", "labels": [], "count": i} for i in range(16)],
+            edges=[],
+        ),
+        expected=Expected(
+            rows=[
+                {"count": 10},
+                {"count": 11},
+                {"count": 12},
+                {"count": 13},
+                {"count": 14},
+                {"count": 15},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, SKIP/LIMIT, and ORDER BY are not supported",
+        tags=("with", "skip", "limit", "orderby", "xfail"),
+    ),
 ]
