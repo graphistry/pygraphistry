@@ -3737,4 +3737,36 @@ SCENARIOS = [
         reason="OPTIONAL MATCH semantics, variable-length relationship lists, IN predicates, and named path returns are not supported",
         tags=("match", "optional-match", "variable-length", "list", "path", "in-predicate", "xfail"),
     ),
+    Scenario(
+        key="return1-1",
+        feature_path="tck/features/clauses/return/Return1.feature",
+        scenario="[1] Returning a list property",
+        cypher="MATCH (n)\nRETURN n",
+        graph=GraphFixture(
+            nodes=[
+                {"id": "n1", "labels": [], "numbers": [1, 2, 3]},
+            ],
+            edges=[],
+        ),
+        expected=Expected(
+            node_ids=["n1"],
+            rows=[
+                {"n": "({numbers: [1, 2, 3]})"},
+            ],
+        ),
+        gfql=[n()],
+        tags=("return", "list-property"),
+    ),
+    Scenario(
+        key="return1-2",
+        feature_path="tck/features/clauses/return/Return1.feature",
+        scenario="[2] Fail when returning an undefined variable",
+        cypher="MATCH ()\nRETURN foo",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for undefined variables is not enforced",
+        tags=("return", "syntax-error", "xfail"),
+    ),
 ]

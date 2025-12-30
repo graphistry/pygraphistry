@@ -96,7 +96,7 @@ translation guidelines.
 - **Description**: The harness does not model Cypher compile-time validation
   errors (e.g., invalid path property predicates, aggregation in WHERE).
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
-  `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`
+  `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
