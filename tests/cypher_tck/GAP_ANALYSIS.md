@@ -68,7 +68,10 @@ translation guidelines.
 - **Description**: The harness does not support Cypher parameters (e.g. `$param`)
   for query execution or comparison.
 - **Affected scenarios**: `match-where1-6`, `match-where1-9`, `match-where2-2`,
-  `return6-17`
+  `return6-17`, `return-orderby6-1`, `return-skip-limit1-2`,
+  `return-skip-limit1-6`, `return-skip-limit1-8`, `return-skip-limit2-10`,
+  `return-skip-limit2-11`, `return-skip-limit2-14`, `return-skip-limit2-15`,
+  `return-skip-limit3-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario.
 - **Next steps**: Add parameter injection support (scenario metadata -> GFQL
   predicate substitution) and validation for edge-return scenarios.
@@ -176,7 +179,8 @@ translation guidelines.
   `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`,
   `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`, `return4-1`,
   `return4-11`, `return6-3`, `return6-13`, `return6-16`, `return6-18`,
-  `return8-1`
+  `return8-1`, `return-orderby4-1`, `return-orderby4-2`, `return-skip-limit1-3`,
+  `return-skip-limit2-6`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -325,9 +329,17 @@ translation guidelines.
 
 ### G25: ORDER BY semantics
 - **Status**: Open
-- **Description**: The harness does not support ORDER BY clauses or ordering
-  guarantees across WITH/RETURN pipelines.
-- **Affected scenarios**: `return4-11`
+- **Description**: The harness does not support ORDER BY clauses, ordering
+  guarantees across WITH/RETURN pipelines, or ORDER BY validation (scoping and
+  aggregation restrictions).
+- **Affected scenarios**: `return4-11`, `return-orderby1-1..return-orderby1-12`,
+  `return-orderby2-1..return-orderby2-14`, `return-orderby3-1`,
+  `return-orderby4-1..return-orderby4-2`, `return-orderby5-1`,
+  `return-orderby6-1..return-orderby6-5`,
+  `return-skip-limit1-1..return-skip-limit1-2`, `return-skip-limit2-2`,
+  `return-skip-limit2-4`, `return-skip-limit2-5`, `return-skip-limit2-7`,
+  `return-skip-limit2-8`, `return-skip-limit2-11`, `return-skip-limit2-15`,
+  `return-skip-limit3-1..return-skip-limit3-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add ORDER BY support to the translation layer and extend the
@@ -343,6 +355,30 @@ translation guidelines.
   metadata.
 - **Next steps**: Add DISTINCT handling to projection and aggregation paths
   and extend the runner to validate distinct row sets.
+
+### G27: SKIP/LIMIT semantics
+- **Status**: Open
+- **Description**: The harness does not support SKIP/LIMIT clauses or argument
+  validation (including parameterized values).
+- **Affected scenarios**: `return-skip-limit1-1..return-skip-limit1-11`,
+  `return-skip-limit2-1..return-skip-limit2-17`,
+  `return-skip-limit3-1..return-skip-limit3-3`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add SKIP/LIMIT handling to the translation layer and enforce
+  compile/runtime validation of arguments in the runner.
+
+### G28: UNWIND clause support
+- **Status**: Open
+- **Description**: The harness does not execute UNWIND clauses or list
+  expansion semantics.
+- **Affected scenarios**: `return-orderby1-1..return-orderby1-12`,
+  `return-orderby4-1`, `return-skip-limit1-3`, `return-skip-limit2-1`,
+  `return-skip-limit2-6`, `return-skip-limit3-3`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add UNWIND translation/execution support and row-level
+  comparison for list projections.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in

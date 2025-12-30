@@ -4938,4 +4938,1263 @@ SCENARIOS = [
         reason="WITH pipelines, WHERE filtering, and aggregations are not supported",
         tags=("return", "with", "aggregation", "xfail"),
     ),
+    Scenario(
+        key="return-orderby1-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[1] ORDER BY should order booleans in the expected order",
+        cypher="UNWIND [true, false] AS bools\nRETURN bools\nORDER BY bools",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"bools": "false"},
+                {"bools": "true"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-2",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[2] ORDER BY DESC should order booleans in the expected order",
+        cypher="UNWIND [true, false] AS bools\nRETURN bools\nORDER BY bools DESC",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"bools": "true"},
+                {"bools": "false"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-3",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[3] ORDER BY should order strings in the expected order",
+        cypher="UNWIND ['.*', '', ' ', 'one'] AS strings\nRETURN strings\nORDER BY strings",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"strings": "''"},
+                {"strings": "' '"},
+                {"strings": "'.*'"},
+                {"strings": "'one'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-4",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[4] ORDER BY DESC should order strings in the expected order",
+        cypher="UNWIND ['.*', '', ' ', 'one'] AS strings\nRETURN strings\nORDER BY strings DESC",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"strings": "'one'"},
+                {"strings": "'.*'"},
+                {"strings": "' '"},
+                {"strings": "''"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-5",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[5] ORDER BY should order ints in the expected order",
+        cypher="UNWIND [1, 3, 2] AS ints\nRETURN ints\nORDER BY ints",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"ints": 1},
+                {"ints": 2},
+                {"ints": 3},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-6",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[6] ORDER BY DESC should order ints in the expected order",
+        cypher="UNWIND [1, 3, 2] AS ints\nRETURN ints\nORDER BY ints DESC",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"ints": 3},
+                {"ints": 2},
+                {"ints": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-7",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[7] ORDER BY should order floats in the expected order",
+        cypher="UNWIND [1.5, 1.3, 999.99] AS floats\nRETURN floats\nORDER BY floats",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"floats": 1.3},
+                {"floats": 1.5},
+                {"floats": 999.99},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-8",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[8] ORDER BY DESC should order floats in the expected order",
+        cypher="UNWIND [1.5, 1.3, 999.99] AS floats\nRETURN floats\nORDER BY floats DESC",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"floats": 999.99},
+                {"floats": 1.5},
+                {"floats": 1.3},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-9",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[9] ORDER BY should order lists in the expected order",
+        cypher="UNWIND [[], ['a'], ['a', 1], [1], [1, 'a'], [1, null], [null, 1], [null, 2]] AS lists\nRETURN lists\nORDER BY lists",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"lists": "[]"},
+                {"lists": "['a']"},
+                {"lists": "['a', 1]"},
+                {"lists": "[1]"},
+                {"lists": "[1, 'a']"},
+                {"lists": "[1, null]"},
+                {"lists": "[null, 1]"},
+                {"lists": "[null, 2]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-10",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[10] ORDER BY DESC should order lists in the expected order",
+        cypher="UNWIND [[], ['a'], ['a', 1], [1], [1, 'a'], [1, null], [null, 1], [null, 2]] AS lists\nRETURN lists\nORDER BY lists DESC",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"lists": "[null, 2]"},
+                {"lists": "[null, 1]"},
+                {"lists": "[1, null]"},
+                {"lists": "[1, 'a']"},
+                {"lists": "[1]"},
+                {"lists": "['a', 1]"},
+                {"lists": "['a']"},
+                {"lists": "[]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and ORDER BY are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-11",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[11] ORDER BY should order distinct types in the expected order",
+        cypher="MATCH p = (n:N)-[r:REL]->()\nUNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map'}] AS types\nRETURN types\nORDER BY types",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:N)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"types": "{a: 'map'}"},
+                {"types": "(:N)"},
+                {"types": "[:REL]"},
+                {"types": "['list']"},
+                {"types": "<(:N)-[:REL]->()>"},
+                {"types": "'text'"},
+                {"types": "false"},
+                {"types": 1.5},
+                {"types": "NaN"},
+                {"types": "null"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND, ORDER BY, and heterogeneous type ordering are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby1-12",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy1.feature",
+        scenario="[12] ORDER BY DESC should order distinct types in the expected order",
+        cypher="MATCH p = (n:N)-[r:REL]->()\nUNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map'}] AS types\nRETURN types\nORDER BY types DESC",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:N)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"types": "null"},
+                {"types": "NaN"},
+                {"types": 1.5},
+                {"types": "false"},
+                {"types": "'text'"},
+                {"types": "<(:N)-[:REL]->()>"},
+                {"types": "['list']"},
+                {"types": "[:REL]"},
+                {"types": "(:N)"},
+                {"types": "{a: 'map'}"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND, ORDER BY, and heterogeneous type ordering are not supported",
+        tags=("return", "orderby", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[1] ORDER BY should return results in ascending order",
+        cypher="MATCH (n)\nRETURN n.num AS prop\nORDER BY n.num",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (n1 {num: 1}),
+              (n2 {num: 3}),
+              (n3 {num: -5})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"prop": -5},
+                {"prop": 1},
+                {"prop": 3},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and RETURN projections are not supported",
+        tags=("return", "orderby", "projection", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-2",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[2] ORDER BY DESC should return results in descending order",
+        cypher="MATCH (n)\nRETURN n.num AS prop\nORDER BY n.num DESC",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (n1 {num: 1}),
+              (n2 {num: 3}),
+              (n3 {num: -5})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"prop": 3},
+                {"prop": 1},
+                {"prop": -5},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and RETURN projections are not supported",
+        tags=("return", "orderby", "projection", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-3",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[3] Sort on aggregated function",
+        cypher="MATCH (n)\nRETURN n.division, max(n.age)\nORDER BY max(n.age)",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({division: 'A', age: 22}),
+              ({division: 'B', age: 33}),
+              ({division: 'B', age: 44}),
+              ({division: 'C', age: 55})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n.division": "'A'", "max(n.age)": 22},
+                {"n.division": "'B'", "max(n.age)": 44},
+                {"n.division": "'C'", "max(n.age)": 55},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and aggregations are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-4",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[4] Support sort and distinct",
+        cypher="MATCH (a)\nRETURN DISTINCT a\nORDER BY a.name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "({name: 'A'})"},
+                {"a": "({name: 'B'})"},
+                {"a": "({name: 'C'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and DISTINCT projections are not supported",
+        tags=("return", "orderby", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-5",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[5] Support ordering by a property after being distinct-ified",
+        cypher="MATCH (a)-->(b)\nRETURN DISTINCT b\nORDER BY b.name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:T]->(:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and DISTINCT projections are not supported",
+        tags=("return", "orderby", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-6",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[6] Count star should count everything in scope",
+        cypher="MATCH (a)\nRETURN a, count(*)\nORDER BY count(*)",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:L1), (:L2), (:L3)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:L1)", "count(*)": 1},
+                {"a": "(:L2)", "count(*)": 1},
+                {"a": "(:L3)", "count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and aggregations are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-7",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[7] Ordering with aggregation",
+        cypher="MATCH (n)\nRETURN n.name, count(*) AS foo\nORDER BY n.name",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'nisse'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n.name": "'nisse'", "foo": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and aggregations are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-8",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[8] Returning all variables with ordering",
+        cypher="MATCH (n)\nRETURN *\nORDER BY n.id",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({id: 1}), ({id: 10})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({id: 1})"},
+                {"n": "({id: 10})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="RETURN * projections and ORDER BY are not supported",
+        tags=("return", "orderby", "return-star", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-9",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[9] Using aliased DISTINCT expression in ORDER BY",
+        cypher="MATCH (n)\nRETURN DISTINCT n.id AS id\nORDER BY id DESC",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({id: 1}), ({id: 10})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"id": 10},
+                {"id": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and DISTINCT projections are not supported",
+        tags=("return", "orderby", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-10",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[10] Returned columns do not change from using ORDER BY",
+        cypher="MATCH (n)\nRETURN DISTINCT n\nORDER BY n.id",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({id: 1}), ({id: 10})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({id: 1})"},
+                {"n": "({id: 10})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and DISTINCT projections are not supported",
+        tags=("return", "orderby", "distinct", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-11",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[11] Aggregates ordered by arithmetics",
+        cypher="MATCH (a:A), (b:X)\nRETURN count(a) * 10 + count(b) * 5 AS x\nORDER BY x",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A), (:X), (:X)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"x": 30},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and aggregation expressions are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-12",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[12] Aggregation of named paths",
+        cypher="MATCH p = (a)-[*]->(b)\nRETURN collect(nodes(p)) AS paths, length(p) AS l\nORDER BY l",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (b:B), (c:C), (d:D), (e:E), (f:F)
+            CREATE (a)-[:R]->(b)
+            CREATE (c)-[:R]->(d)
+            CREATE (d)-[:R]->(e)
+            CREATE (e)-[:R]->(f)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"paths": "[[(:A), (:B)], [(:C), (:D)], [(:D), (:E)], [(:E), (:F)]]", "l": 1},
+                {"paths": "[[(:C), (:D), (:E)], [(:D), (:E), (:F)]]", "l": 2},
+                {"paths": "[[(:C), (:D), (:E), (:F)]]", "l": 3},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Variable-length patterns, path functions, aggregations, and ORDER BY are not supported",
+        tags=("return", "orderby", "path", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-13",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[13] Fail when sorting on variable removed by DISTINCT",
+        cypher="MATCH (a)\nRETURN DISTINCT a.name\nORDER BY a.age",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A', age: 13}), ({name: 'B', age: 12}), ({name: 'C', age: 11})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ORDER BY variable scoping is not enforced",
+        tags=("return", "orderby", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby2-14",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy2.feature",
+        scenario="[14] Fail on aggregation in ORDER BY after RETURN",
+        cypher="MATCH (n)\nRETURN n.num1\nORDER BY max(n.num2)",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ORDER BY aggregation expressions is not enforced",
+        tags=("return", "orderby", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby3-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy3.feature",
+        scenario="[1] Sort on aggregate function and normal property",
+        cypher="MATCH (n)\nRETURN n.division, count(*)\nORDER BY count(*) DESC, n.division ASC",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({division: 'Sweden'})
+            CREATE ({division: 'Germany'})
+            CREATE ({division: 'England'})
+            CREATE ({division: 'Sweden'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n.division": "'Sweden'", "count(*)": 2},
+                {"n.division": "'England'", "count(*)": 1},
+                {"n.division": "'Germany'", "count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY and aggregations are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby4-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy4.feature",
+        scenario="[1] ORDER BY of a column introduced in RETURN should return salient results in ascending order",
+        cypher="WITH [0, 1] AS prows, [[2], [3, 4]] AS qrows\nUNWIND prows AS p\nUNWIND qrows[p] AS q\nWITH p, count(q) AS rng\nRETURN p\nORDER BY rng",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"p": 0},
+                {"p": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, and ORDER BY are not supported",
+        tags=("return", "orderby", "with", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby4-2",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy4.feature",
+        scenario="[2] Handle projections with ORDER BY",
+        cypher="MATCH (c:Crew {name: 'Neo'})\nWITH c, 0 AS relevance\nRETURN c.rank AS rank\nORDER BY relevance, c.rank",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (c1:Crew {name: 'Neo', rank: 1}),
+              (c2:Crew {name: 'Neo', rank: 2}),
+              (c3:Crew {name: 'Neo', rank: 3}),
+              (c4:Crew {name: 'Neo', rank: 4}),
+              (c5:Crew {name: 'Neo', rank: 5})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"rank": 1},
+                {"rank": 2},
+                {"rank": 3},
+                {"rank": 4},
+                {"rank": 5},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines and ORDER BY are not supported",
+        tags=("return", "orderby", "with", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby5-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy5.feature",
+        scenario="[1] Renaming columns before ORDER BY should return results in ascending order",
+        cypher="MATCH (n)\nRETURN n.num AS n\nORDER BY n + 2",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (n1 {num: 1}),
+              (n2 {num: 3}),
+              (n3 {num: -5})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": -5},
+                {"n": 1},
+                {"n": 3},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="ORDER BY expression evaluation is not supported",
+        tags=("return", "orderby", "expression", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby6-1",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy6.feature",
+        scenario="[1] Handle constants and parameters inside an order by item which contains an aggregation expression",
+        cypher="MATCH (person)\nRETURN avg(person.age) AS avgAge\nORDER BY $age + avg(person.age) - 1000",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"avgAge": "null"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Parameters, aggregations, and ORDER BY are not supported",
+        tags=("return", "orderby", "aggregation", "params", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby6-2",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy6.feature",
+        scenario="[2] Handle returned aliases inside an order by item which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nRETURN me.age AS age, count(you.age) AS cnt\nORDER BY age, age + count(you.age)",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="Aggregations and ORDER BY are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby6-3",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy6.feature",
+        scenario="[3] Handle returned property accesses inside an order by item which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nRETURN me.age AS age, count(you.age) AS cnt\nORDER BY me.age + count(you.age)",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="Aggregations and ORDER BY are not supported",
+        tags=("return", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby6-4",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy6.feature",
+        scenario="[4] Fail if not returned variables are used inside an order by item which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nRETURN count(you.age) AS agg\nORDER BY me.age + count(you.age)",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ORDER BY aggregation expressions is not enforced",
+        tags=("return", "orderby", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-orderby6-5",
+        feature_path="tck/features/clauses/return-orderby/ReturnOrderBy6.feature",
+        scenario="[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression",
+        cypher="MATCH (me: Person)--(you: Person)\nRETURN me.age + you.age, count(*) AS cnt\nORDER BY me.age + you.age + count(*)",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for ORDER BY aggregation expressions is not enforced",
+        tags=("return", "orderby", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-1",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[1] Start the result from the second row",
+        cypher="MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP 2",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+                {"n": "({name: 'E'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="SKIP and ORDER BY are not supported",
+        tags=("return", "skip", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-2",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[2] Start the result from the second row by param",
+        cypher="MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP $skipAmount",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+                {"n": "({name: 'E'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="SKIP, ORDER BY, and parameter binding are not supported",
+        tags=("return", "skip", "orderby", "params", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-3",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[3] SKIP with an expression that does not depend on variables",
+        cypher="MATCH (n)\nWITH n SKIP toInteger(rand()*9)\nWITH count(*) AS count\nRETURN count > 0 AS nonEmpty",
+        graph=GraphFixture(
+            nodes=[{"id": f"n{i}", "labels": [], "nr": i} for i in range(1, 11)],
+            edges=[],
+        ),
+        expected=Expected(
+            rows=[
+                {"nonEmpty": "true"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, SKIP, and functions are not supported",
+        tags=("return", "skip", "with", "function", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-4",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[4] Accept skip zero",
+        cypher="MATCH (n)\nWHERE 1 = 0\nRETURN n\nSKIP 0",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="SKIP is not supported",
+        tags=("return", "skip", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-5",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[5] SKIP with an expression that depends on variables should fail",
+        cypher="MATCH (n)\nRETURN n\nSKIP n.count",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for SKIP expressions is not enforced",
+        tags=("return", "skip", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-6",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[6] Negative parameter for SKIP should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nSKIP $_skip",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for SKIP are not supported",
+        tags=("return", "skip", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-7",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[7] Negative SKIP should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nSKIP -1",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for SKIP arguments is not enforced",
+        tags=("return", "skip", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-8",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[8] Floating point parameter for SKIP should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nSKIP $_limit",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for SKIP are not supported",
+        tags=("return", "skip", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-9",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[9] Floating point SKIP should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nSKIP 1.5",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for SKIP arguments is not enforced",
+        tags=("return", "skip", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-10",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[10] Fail when using non-constants in SKIP",
+        cypher="MATCH (n)\nRETURN n\nSKIP n.count",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for SKIP expressions is not enforced",
+        tags=("return", "skip", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit1-11",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit1.feature",
+        scenario="[11] Fail when using negative value in SKIP",
+        cypher="MATCH (n)\nRETURN n\nSKIP -1",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for SKIP arguments is not enforced",
+        tags=("return", "skip", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-1",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[1] Limit to two hits",
+        cypher="UNWIND [1, 1, 1, 1, 1] AS i\nRETURN i\nLIMIT 2",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"i": 1},
+                {"i": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND and LIMIT are not supported",
+        tags=("return", "limit", "unwind", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-2",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[2] Limit to two hits with explicit order",
+        cypher="MATCH (n)\nRETURN n\nORDER BY n.name ASC\nLIMIT 2",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'A'})"},
+                {"n": "({name: 'B'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT and ORDER BY are not supported",
+        tags=("return", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-3",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[3] LIMIT 0 should return an empty result",
+        cypher="MATCH (n)\nRETURN n\nLIMIT 0",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (), (), ()
+            """
+        ),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT is not supported",
+        tags=("return", "limit", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-4",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[4] Handle ORDER BY with LIMIT 1",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nORDER BY p.name\nLIMIT 1",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+              (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"name": "'Craig'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT and ORDER BY are not supported",
+        tags=("return", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-5",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[5] ORDER BY with LIMIT 0 should not generate errors",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nORDER BY p.name\nLIMIT 0",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(rows=[]),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT and ORDER BY are not supported",
+        tags=("return", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-6",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[6] LIMIT with an expression that does not depend on variables",
+        cypher="MATCH (n)\nWITH n LIMIT toInteger(ceil(1.7))\nRETURN count(*) AS count",
+        graph=GraphFixture(
+            nodes=[{"id": f"n{i}", "labels": [], "nr": i} for i in range(1, 4)],
+            edges=[],
+        ),
+        expected=Expected(
+            rows=[
+                {"count": 2},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, LIMIT, and functions are not supported",
+        tags=("return", "limit", "with", "function", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-7",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[7] Limit to more rows than actual results 1",
+        cypher="MATCH (foo)\nRETURN foo.num AS x\nORDER BY x DESC\nLIMIT 4",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({num: 1}), ({num: 3}), ({num: 2})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"x": 3},
+                {"x": 2},
+                {"x": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT and ORDER BY are not supported",
+        tags=("return", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-8",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[8] Limit to more rows than actual results 2",
+        cypher="MATCH (a:A)-->(n)-->(m)\nRETURN n.num, count(*)\nORDER BY n.num\nLIMIT 1000",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A), (n1 {num: 1}), (n2 {num: 2}),
+                   (m1), (m2)
+            CREATE (a)-[:T]->(n1),
+                   (n1)-[:T]->(m1),
+                   (a)-[:T]->(n2),
+                   (n2)-[:T]->(m2)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n.num": 1, "count(*)": 1},
+                {"n.num": 2, "count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="LIMIT, ORDER BY, and aggregations are not supported",
+        tags=("return", "limit", "orderby", "aggregation", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-9",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[9] Fail when using non-constants in LIMIT",
+        cypher="MATCH (n)\nRETURN n\nLIMIT n.count",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for LIMIT expressions is not enforced",
+        tags=("return", "limit", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-10",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[10] Negative parameter for LIMIT should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nLIMIT $_limit",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for LIMIT are not supported",
+        tags=("return", "limit", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-11",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[11] Negative parameter for LIMIT with ORDER BY should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nORDER BY name\nLIMIT $_limit",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for LIMIT are not supported",
+        tags=("return", "limit", "orderby", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-12",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[12] Fail when using negative value in LIMIT 1",
+        cypher="MATCH (n)\nRETURN n\nLIMIT -1",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for LIMIT arguments is not enforced",
+        tags=("return", "limit", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-13",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[13] Fail when using negative value in LIMIT 2",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nLIMIT -1",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for LIMIT arguments is not enforced",
+        tags=("return", "limit", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-14",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[14] Floating point parameter for LIMIT should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nLIMIT $_limit",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for LIMIT are not supported",
+        tags=("return", "limit", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-15",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[15] Floating point parameter for LIMIT with ORDER BY should fail",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nORDER BY name\nLIMIT $_limit",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Parameter binding and runtime validation for LIMIT are not supported",
+        tags=("return", "limit", "orderby", "params", "runtime-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-16",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[16] Fail when using floating point in LIMIT 1",
+        cypher="MATCH (n)\nRETURN n\nLIMIT 1.7",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for LIMIT arguments is not enforced",
+        tags=("return", "limit", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit2-17",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit2.feature",
+        scenario="[17] Fail when using floating point in LIMIT 2",
+        cypher="MATCH (p:Person)\nRETURN p.name AS name\nLIMIT 1.5",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (s:Person {name: 'Steven'}),
+                   (c:Person {name: 'Craig'})
+            """
+        ),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for LIMIT arguments is not enforced",
+        tags=("return", "limit", "syntax-error", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit3-1",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit3.feature",
+        scenario="[1] Get rows in the middle",
+        cypher="MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP 2\nLIMIT 2",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="SKIP/LIMIT and ORDER BY are not supported",
+        tags=("return", "skip", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit3-2",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit3.feature",
+        scenario="[2] Get rows in the middle by param",
+        cypher="MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP $s\nLIMIT $l",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({name: 'A'}),
+              ({name: 'B'}),
+              ({name: 'C'}),
+              ({name: 'D'}),
+              ({name: 'E'})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "({name: 'C'})"},
+                {"n": "({name: 'D'})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="SKIP/LIMIT, ORDER BY, and parameter binding are not supported",
+        tags=("return", "skip", "limit", "orderby", "params", "xfail"),
+    ),
+    Scenario(
+        key="return-skip-limit3-3",
+        feature_path="tck/features/clauses/return-skip-limit/ReturnSkipLimit3.feature",
+        scenario="[3] Limiting amount of rows when there are fewer left than the LIMIT argument",
+        cypher="MATCH (a)\nRETURN a.count\nORDER BY a.count\nSKIP 10\nLIMIT 10",
+        graph=GraphFixture(
+            nodes=[{"id": f"n{i}", "labels": [], "count": i} for i in range(16)],
+            edges=[],
+        ),
+        expected=Expected(
+            rows=[
+                {"a.count": 10},
+                {"a.count": 11},
+                {"a.count": 12},
+                {"a.count": 13},
+                {"a.count": 14},
+                {"a.count": 15},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="UNWIND, SKIP/LIMIT, and ORDER BY are not supported",
+        tags=("return", "skip", "limit", "orderby", "unwind", "xfail"),
+    ),
 ]
