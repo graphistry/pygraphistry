@@ -763,10 +763,23 @@ def hop(self: Plottable,
         and edge_hop_col is not None
         and max_reached_hop >= resolved_min_hops
     ):
-        # Find goal nodes (nodes at hop >= min_hops)
-        goal_nodes = set(
-            node_hop_records[node_hop_records[node_hop_col] >= resolved_min_hops][g2._node].tolist()
+        # Yannakakis: use edge endpoints, not node_hop_records (lossy min-hop-per-node)
+        # A node reachable at hop 1 AND hop 2 only records hop 1 in node_hop_records,
+        # but IS a valid goal if reached via a longer path at hop >= min_hops.
+        valid_endpoint_edges = edge_hop_records[edge_hop_records[edge_hop_col] >= resolved_min_hops]
+        valid_endpoint_edges_with_nodes = safe_merge(
+            valid_endpoint_edges,
+            edges_indexed[[EDGE_ID, g2._source, g2._destination]],
+            on=EDGE_ID,
+            how='inner'
         )
+        if direction == 'forward':
+            goal_nodes = set(valid_endpoint_edges_with_nodes[g2._destination].tolist())
+        elif direction == 'reverse':
+            goal_nodes = set(valid_endpoint_edges_with_nodes[g2._source].tolist())
+        else:
+            # Undirected: either endpoint could be a goal
+            goal_nodes = set(valid_endpoint_edges_with_nodes[g2._source].tolist()) | set(valid_endpoint_edges_with_nodes[g2._destination].tolist())
 
         if goal_nodes:
             # Backtrack from goal nodes to find all edges/nodes on valid paths
