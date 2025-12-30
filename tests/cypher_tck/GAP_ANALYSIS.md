@@ -54,9 +54,11 @@ translation guidelines.
 - **Description**: The minimal CREATE parser handles nodes, labels, simple
   properties, basic relationships, chained relationship patterns, and simple
   relationship properties, but does not parse variable-length relationships or
-  advanced Cypher constructs.
-- **Affected scenarios**: Any scenario whose setup includes relationship
-  properties or complex patterns.
+  advanced Cypher constructs (MATCH/DELETE/UNWIND or computed property
+  expressions) in setup scripts.
+- **Affected scenarios**: `match4-4`, `match5-25`, `match5-26`, `match5-27`,
+  `match5-28`, `match5-29`, plus any scenario whose setup includes complex
+  patterns.
 - **Workaround**: Manually craft fixtures or extend parser incrementally.
 - **Next steps**: Support variable-length relationships and additional pattern
   forms as needed by the next wave of scenarios.
