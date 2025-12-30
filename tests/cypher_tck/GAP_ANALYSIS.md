@@ -190,7 +190,8 @@ translation guidelines.
   `with-where4-1..with-where4-2`, `with-where5-1..with-where5-4`,
   `with-where6-1`, `with-where7-1..with-where7-3`,
   `with-skip-limit1-1..with-skip-limit1-2`, `with-skip-limit2-1..with-skip-limit2-4`,
-  `with-skip-limit3-1..with-skip-limit3-3`
+  `with-skip-limit3-1..with-skip-limit3-3`, `with-orderby1-1..with-orderby1-22`,
+  `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -313,13 +314,13 @@ translation guidelines.
 
 ### G23: RETURN expression projections
 - **Status**: Open
-- **Description**: The harness does not evaluate RETURN expressions or
-  projections, including property access, arithmetic, list/map construction,
-  label predicates, and literal expressions.
+- **Description**: The harness does not evaluate projection expressions
+  (RETURN/WITH/ORDER BY), including property access, arithmetic, list/map
+  construction, label predicates, and literal expressions.
 - **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
   `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`,
   `return5-1..return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
-  `return7-1`, `return8-1`
+  `return7-1`, `return8-1`, `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection
@@ -352,7 +353,8 @@ translation guidelines.
   `return-skip-limit2-8`, `return-skip-limit2-11`, `return-skip-limit2-15`,
   `return-skip-limit3-1..return-skip-limit3-3`, `with3-1`, `with4-6`,
   `with-skip-limit1-1..with-skip-limit1-2`, `with-skip-limit2-1`,
-  `with-skip-limit2-4`, `with-skip-limit3-1..with-skip-limit3-3`
+  `with-skip-limit2-4`, `with-skip-limit3-1..with-skip-limit3-3`,
+  `with-orderby1-1..with-orderby1-22`, `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add ORDER BY support to the translation layer and extend the
@@ -379,7 +381,8 @@ translation guidelines.
   `return-skip-limit3-1..return-skip-limit3-3`, `with7-1`,
   `with-skip-limit1-1..with-skip-limit1-2`,
   `with-skip-limit2-1..with-skip-limit2-4`,
-  `with-skip-limit3-1..with-skip-limit3-3`
+  `with-skip-limit3-1..with-skip-limit3-3`, `with-orderby1-1..with-orderby1-22`,
+  `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add SKIP/LIMIT handling to the translation layer and enforce
@@ -391,11 +394,22 @@ translation guidelines.
   expansion semantics.
 - **Affected scenarios**: `return-orderby1-1..return-orderby1-12`,
   `return-orderby4-1`, `return-skip-limit1-3`, `return-skip-limit2-1`,
-  `return-skip-limit2-6`, `return-skip-limit3-3`
+  `return-skip-limit2-6`, `return-skip-limit3-3`, `with-orderby1-1..with-orderby1-22`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add UNWIND translation/execution support and row-level
   comparison for list projections.
+
+### G29: Temporal values and functions
+- **Status**: Open
+- **Description**: The harness does not parse or evaluate temporal functions
+  and values (date, time, localtime, datetime, localdatetime) or their ordering
+  semantics.
+- **Affected scenarios**: `with-orderby1-11..with-orderby1-20`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add temporal literal/function support in the parser and
+  expression evaluation/ordering layers.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in

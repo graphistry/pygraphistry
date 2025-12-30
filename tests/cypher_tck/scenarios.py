@@ -114,6 +114,16 @@ MATCH7_GRAPH_PLAYER_TEAM_DIFF = graph_fixture_from_create(
     """
 )
 
+WITH_ORDERBY4_GRAPH = graph_fixture_from_create(
+    """
+    CREATE (:A {num: 1, num2: 4}),
+           (:A {num: 5, num2: 2}),
+           (:A {num: 9, num2: 0}),
+           (:A {num: 3, num2: 3}),
+           (:A {num: 7, num2: 1})
+    """
+)
+
 
 SCENARIOS = [
     Scenario(
@@ -7406,5 +7416,565 @@ SCENARIOS = [
         status="xfail",
         reason="WITH pipelines, SKIP/LIMIT, and ORDER BY are not supported",
         tags=("with", "skip", "limit", "orderby", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-1",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[1] Sort booleans in ascending order",
+        cypher="UNWIND [true, false] AS bools\nWITH bools\n  ORDER BY bools\n  LIMIT 1\nRETURN bools",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"bools": "false"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-2",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[2] Sort booleans in descending order",
+        cypher="UNWIND [true, false] AS bools\nWITH bools\n  ORDER BY bools DESC\n  LIMIT 1\nRETURN bools",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"bools": "true"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-3",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[3] Sort integers in ascending order",
+        cypher="UNWIND [1, 3, 2] AS ints\nWITH ints\n  ORDER BY ints\n  LIMIT 2\nRETURN ints",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"ints": 1},
+                {"ints": 2},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-4",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[4] Sort integers in descending order",
+        cypher="UNWIND [1, 3, 2] AS ints\nWITH ints\n  ORDER BY ints DESC\n  LIMIT 2\nRETURN ints",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"ints": 3},
+                {"ints": 2},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-5",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[5] Sort floats in ascending order",
+        cypher="UNWIND [1.5, 1.3, 999.99] AS floats\nWITH floats\n  ORDER BY floats\n  LIMIT 2\nRETURN floats",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"floats": 1.3},
+                {"floats": 1.5},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-6",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[6] Sort floats in descending order",
+        cypher="UNWIND [1.5, 1.3, 999.99] AS floats\nWITH floats\n  ORDER BY floats DESC\n  LIMIT 2\nRETURN floats",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"floats": 999.99},
+                {"floats": 1.5},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-7",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[7] Sort strings in ascending order",
+        cypher="UNWIND ['.*', '', ' ', 'one'] AS strings\nWITH strings\n  ORDER BY strings\n  LIMIT 2\nRETURN strings",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"strings": "''"},
+                {"strings": "' '"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-8",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[8] Sort strings in descending order",
+        cypher="UNWIND ['.*', '', ' ', 'one'] AS strings\nWITH strings\n  ORDER BY strings DESC\n  LIMIT 2\nRETURN strings",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"strings": "'one'"},
+                {"strings": "'.*'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-9",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[9] Sort lists in ascending order",
+        cypher="UNWIND [[], ['a'], ['a', 1], [1], [1, 'a'], [1, null], [null, 1], [null, 2]] AS lists\nWITH lists\n  ORDER BY lists\n  LIMIT 4\nRETURN lists",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"lists": "[]"},
+                {"lists": "['a']"},
+                {"lists": "['a', 1]"},
+                {"lists": "[1]"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-10",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[10] Sort lists in descending order",
+        cypher="UNWIND [[], ['a'], ['a', 1], [1], [1, 'a'], [1, null], [null, 1], [null, 2]] AS lists\nWITH lists\n  ORDER BY lists DESC\n  LIMIT 4\nRETURN lists",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"lists": "[null, 2]"},
+                {"lists": "[null, 1]"},
+                {"lists": "[1, null]"},
+                {"lists": "[1, 'a']"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and LIMIT are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-11",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[11] Sort dates in ascending order",
+        cypher="UNWIND [date({year: 1910, month: 5, day: 6}),\n        date({year: 1980, month: 12, day: 24}),\n        date({year: 1984, month: 10, day: 12}),\n        date({year: 1985, month: 5, day: 6}),\n        date({year: 1980, month: 10, day: 24}),\n        date({year: 1984, month: 10, day: 11})] AS dates\nWITH dates\n  ORDER BY dates\n  LIMIT 2\nRETURN dates",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"dates": "'1910-05-06'"},
+                {"dates": "'1980-10-24'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-12",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[12] Sort dates in descending order",
+        cypher="UNWIND [date({year: 1910, month: 5, day: 6}),\n        date({year: 1980, month: 12, day: 24}),\n        date({year: 1984, month: 10, day: 12}),\n        date({year: 1985, month: 5, day: 6}),\n        date({year: 1980, month: 10, day: 24}),\n        date({year: 1984, month: 10, day: 11})] AS dates\nWITH dates\n  ORDER BY dates DESC\n  LIMIT 2\nRETURN dates",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"dates": "'1985-05-06'"},
+                {"dates": "'1984-10-12'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-13",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[13] Sort local times in ascending order",
+        cypher="UNWIND [localtime({hour: 10, minute: 35}),\n        localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}),\n        localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876124}),\n        localtime({hour: 12, minute: 35, second: 13}),\n        localtime({hour: 12, minute: 30, second: 14, nanosecond: 645876123})] AS localtimes\nWITH localtimes\n  ORDER BY localtimes\n  LIMIT 3\nRETURN localtimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"localtimes": "'10:35'"},
+                {"localtimes": "'12:30:14.645876123'"},
+                {"localtimes": "'12:31:14.645876123'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-14",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[14] Sort local times in descending order",
+        cypher="UNWIND [localtime({hour: 10, minute: 35}),\n        localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}),\n        localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876124}),\n        localtime({hour: 12, minute: 35, second: 13}),\n        localtime({hour: 12, minute: 30, second: 14, nanosecond: 645876123})] AS localtimes\nWITH localtimes\n  ORDER BY localtimes DESC\n  LIMIT 3\nRETURN localtimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"localtimes": "'12:35:13'"},
+                {"localtimes": "'12:31:14.645876124'"},
+                {"localtimes": "'12:31:14.645876123'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-15",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[15] Sort times in ascending order",
+        cypher="UNWIND [time({hour: 10, minute: 35, timezone: '-08:00'}),\n        time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}),\n        time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'}),\n        time({hour: 12, minute: 35, second: 15, timezone: '+05:00'}),\n        time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})] AS times\nWITH times\n  ORDER BY times\n  LIMIT 3\nRETURN times",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"times": "'12:35:15+05:00'"},
+                {"times": "'12:30:14.645876123+01:01'"},
+                {"times": "'12:31:14.645876123+01:00'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-16",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[16] Sort times in descending order",
+        cypher="UNWIND [time({hour: 10, minute: 35, timezone: '-08:00'}),\n        time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}),\n        time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'}),\n        time({hour: 12, minute: 35, second: 15, timezone: '+05:00'}),\n        time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})] AS times\nWITH times\n  ORDER BY times DESC\n  LIMIT 3\nRETURN times",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"times": "'10:35-08:00'"},
+                {"times": "'12:31:14.645876124+01:00'"},
+                {"times": "'12:31:14.645876123+01:00'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-17",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[17] Sort local date times in ascending order",
+        cypher="UNWIND [localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12}),\n        localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}),\n        localdatetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1}),\n        localdatetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999}),\n        localdatetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14})] AS localdatetimes\nWITH localdatetimes\n  ORDER BY localdatetimes\n  LIMIT 3\nRETURN localdatetimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"localdatetimes": "'0001-01-01T01:01:01.000000001'"},
+                {"localdatetimes": "'1980-12-11T12:31:14'"},
+                {"localdatetimes": "'1984-10-11T12:30:14.000000012'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-18",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[18] Sort local date times in descending order",
+        cypher="UNWIND [localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12}),\n        localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}),\n        localdatetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1}),\n        localdatetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999}),\n        localdatetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14})] AS localdatetimes\nWITH localdatetimes\n  ORDER BY localdatetimes DESC\n  LIMIT 3\nRETURN localdatetimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"localdatetimes": "'9999-09-09T09:59:59.999999999'"},
+                {"localdatetimes": "'1984-10-11T12:31:14.645876123'"},
+                {"localdatetimes": "'1984-10-11T12:30:14.000000012'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-19",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[19] Sort date times in ascending order",
+        cypher="UNWIND [datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'}),\n        datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+00:17'}),\n        datetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1, timezone: '-11:59'}),\n        datetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999, timezone: '+11:59'}),\n        datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '-11:59'})] AS datetimes\nWITH datetimes\n  ORDER BY datetimes\n  LIMIT 3\nRETURN datetimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"datetimes": "'0001-01-01T01:01:01.000000001-11:59'"},
+                {"datetimes": "'1980-12-11T12:31:14-11:59'"},
+                {"datetimes": "'1984-10-11T12:31:14.645876123+00:17'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-20",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[20] Sort date times in descending order",
+        cypher="UNWIND [datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'}),\n        datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+00:17'}),\n        datetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1, timezone: '-11:59'}),\n        datetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999, timezone: '+11:59'}),\n        datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '-11:59'})] AS datetimes\nWITH datetimes\n  ORDER BY datetimes DESC\n  LIMIT 3\nRETURN datetimes",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(
+            rows=[
+                {"datetimes": "'9999-09-09T09:59:59.999999999+11:59'"},
+                {"datetimes": "'1984-10-11T12:30:14.000000012+00:15'"},
+                {"datetimes": "'1984-10-11T12:31:14.645876123+00:17'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, LIMIT, and temporal values are not supported",
+        tags=("with", "orderby", "unwind", "limit", "temporal", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-21",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[21] Sort distinct types in ascending order",
+        cypher="MATCH p = (n:N)-[r:REL]->()\nUNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map'}] AS types\nWITH types\n  ORDER BY types\n  LIMIT 5\nRETURN types",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:N)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"types": "{a: 'map'}"},
+                {"types": "(:N)"},
+                {"types": "[:REL]"},
+                {"types": "['list']"},
+                {"types": "<(:N)-[:REL]->()>"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and heterogeneous type ordering are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby1-22",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy1.feature",
+        scenario="[22] Sort distinct types in descending order",
+        cypher="MATCH p = (n:N)-[r:REL]->()\nUNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map'}] AS types\nWITH types\n  ORDER BY types DESC\n  LIMIT 5\nRETURN types",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:N)-[:REL]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"types": "null"},
+                {"types": "NaN"},
+                {"types": 1.5},
+                {"types": "false"},
+                {"types": "'text'"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, UNWIND, ORDER BY, and heterogeneous type ordering are not supported",
+        tags=("with", "orderby", "unwind", "limit", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-1",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[1] Sort by a projected expression",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum\n  ORDER BY a.num + a.num2\n  LIMIT 3\nRETURN a, sum",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5},
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6},
+                {"a": "(:A {num: 5, num2: 2})", "sum": 7},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-2",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[2] Sort by an alias of a projected expression",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum\n  ORDER BY sum\n  LIMIT 3\nRETURN a, sum",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5},
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6},
+                {"a": "(:A {num: 5, num2: 2})", "sum": 7},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-3",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[3] Sort by two projected expressions with order priority being different than projection order",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum, a.num2 % 3 AS mod\n  ORDER BY a.num2 % 3, a.num + a.num2\n  LIMIT 3\nRETURN a, sum, mod",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6, "mod": 0},
+                {"a": "(:A {num: 9, num2: 0})", "sum": 9, "mod": 0},
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5, "mod": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-4",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[4] Sort by one projected expression and one alias of a projected expression with order priority being different than projection order",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum, a.num2 % 3 AS mod\n  ORDER BY a.num2 % 3, sum\n  LIMIT 3\nRETURN a, sum, mod",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6, "mod": 0},
+                {"a": "(:A {num: 9, num2: 0})", "sum": 9, "mod": 0},
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5, "mod": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-5",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[5] Sort by one alias of a projected expression and one projected expression with order priority being different than projection order",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum, a.num2 % 3 AS mod\n  ORDER BY mod, a.num + a.num2\n  LIMIT 3\nRETURN a, sum, mod",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6, "mod": 0},
+                {"a": "(:A {num: 9, num2: 0})", "sum": 9, "mod": 0},
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5, "mod": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-6",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[6] Sort by aliases of two projected expressions with order priority being different than projection order",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum, a.num2 % 3 AS mod\n  ORDER BY mod, sum\n  LIMIT 3\nRETURN a, sum, mod",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 3, num2: 3})", "sum": 6, "mod": 0},
+                {"a": "(:A {num: 9, num2: 0})", "sum": 9, "mod": 0},
+                {"a": "(:A {num: 1, num2: 4})", "sum": 5, "mod": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-7",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[7] Sort by an alias of a projected expression where the alias shadows an existing variable",
+        cypher="MATCH (a:A)\nWITH a, a.num2 % 3 AS x\nWITH a, a.num + a.num2 AS x\n  ORDER BY x\n  LIMIT 3\nRETURN a, x",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 1, num2: 4})", "x": 5},
+                {"a": "(:A {num: 3, num2: 3})", "x": 6},
+                {"a": "(:A {num: 5, num2: 2})", "x": 7},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-8",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[8] Sort by non-projected existing variable",
+        cypher="MATCH (a:A)\nWITH a, a.num + a.num2 AS sum\nWITH a, a.num2 % 3 AS mod\n  ORDER BY sum\n  LIMIT 3\nRETURN a, mod",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"a": "(:A {num: 1, num2: 4})", "mod": 1},
+                {"a": "(:A {num: 3, num2: 3})", "mod": 0},
+                {"a": "(:A {num: 5, num2: 2})", "mod": 2},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
+    ),
+    Scenario(
+        key="with-orderby4-9",
+        feature_path="tck/features/clauses/with-orderBy/WithOrderBy4.feature",
+        scenario="[9] Sort by an alias of a projected expression containing the variable shadowed by the alias",
+        cypher="MATCH (a:A)\nWITH a.num2 AS x\nWITH x % 3 AS x\n  ORDER BY x\n  LIMIT 3\nRETURN x",
+        graph=WITH_ORDERBY4_GRAPH,
+        expected=Expected(
+            rows=[
+                {"x": 0},
+                {"x": 0},
+                {"x": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, ORDER BY, LIMIT, and expression aliasing are not supported",
+        tags=("with", "orderby", "limit", "alias", "expression", "xfail"),
     ),
 ]
