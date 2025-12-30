@@ -250,7 +250,8 @@ translation guidelines.
   or boolean projections in `RETURN` (e.g., `s IS NULL`).
 - **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`, `match8-2`,
   `match8-3`, `match9-5`, `return2-10`, `return4-4`, `return4-6`, `return4-7`,
-  `return4-8`, `return4-9`, `return4-11`
+  `return4-8`, `return4-9`, `return4-11`, `return5-1`, `return5-3`,
+  `return5-4`, `return5-5`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -295,7 +296,8 @@ translation guidelines.
   projections, including property access, arithmetic, list/map construction,
   label predicates, and literal expressions.
 - **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
-  `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`
+  `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`,
+  `return5-1..return5-5`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection
@@ -323,6 +325,17 @@ translation guidelines.
   metadata.
 - **Next steps**: Add ORDER BY support to the translation layer and extend the
   runner to validate ordered outputs.
+
+### G26: DISTINCT semantics
+- **Status**: Open
+- **Description**: The harness does not support DISTINCT projections or
+  DISTINCT handling inside aggregations.
+- **Affected scenarios**: `return4-6`, `return5-1`, `return5-2`, `return5-3`,
+  `return5-4`, `return5-5`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add DISTINCT handling to projection and aggregation paths
+  and extend the runner to validate distinct row sets.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
