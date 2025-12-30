@@ -31,7 +31,7 @@ translation guidelines.
   multiple MATCH clauses or comma-separated patterns, nor validate row-level
   projections in `RETURN`.
 - **Affected scenarios**: `match1-5` (Match1 [5]), `match-where3-1`,
-  `match-where3-2`, `match-where4-1`, `match-where4-2`
+  `match-where3-2`, `match-where4-1`, `match-where4-2`, `match8-1`
 - **Workaround**: Mark as xfail with expected rows captured in the scenario.
 - **Next steps**: Add a result comparator for row projections and introduce a
   cartesian product mechanism (likely outside GFQL core) for multiple MATCH
@@ -156,7 +156,8 @@ translation guidelines.
   null propagation, or WHERE filtering behavior for optional patterns.
 - **Affected scenarios**: `match-where6-1`, `match-where6-2`, `match-where6-3`,
   `match-where6-4`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
-  `match-where6-8`, `match3-27`, `match3-28`, `match7-1..match7-31`
+  `match-where6-8`, `match3-27`, `match3-28`, `match7-1..match7-31`,
+  `match8-2`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add OPTIONAL MATCH semantics to the translation layer and
@@ -168,7 +169,8 @@ translation guidelines.
   mid-query variable pipelines.
 - **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
   `match3-26`, `match3-27`, `match3-28`, `match4-8`, `match6-18`, `match7-4`,
-  `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`
+  `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`,
+  `match8-1`, `match8-2`, `match8-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -244,6 +246,7 @@ translation guidelines.
 - **Description**: The harness does not support aggregations (e.g., `count(*)`)
   or boolean projections in `RETURN` (e.g., `s IS NULL`).
 - **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`
+  `match7-29`, `match7-30`, `match7-31`, `match8-2`, `match8-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -258,6 +261,16 @@ translation guidelines.
   metadata.
 - **Next steps**: Add `IN` predicate translation to the GFQL predicate layer
   and update the runner to compare filtered rows.
+
+### G21: MERGE clause semantics
+- **Status**: Open
+- **Description**: The harness does not support `MERGE` clause write semantics
+  or the ability to match-or-create nodes/relationships.
+- **Affected scenarios**: `match8-2`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add MERGE support to the translation layer (or precompute
+  fixture states) and extend the runner to validate resulting graph state.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
