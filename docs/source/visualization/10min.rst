@@ -240,6 +240,7 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
 
   See :doc:`Layout settings <layout/settings>` and the
   :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+  Tip: order matters (earlier collections override later ones) and intersections require set IDs.
 
 * **Bind**: Simpler data-driven settings are done through :meth:`graphistry.PlotterBase.PlotterBase.bind`:
 
