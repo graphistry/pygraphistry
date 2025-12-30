@@ -46,13 +46,12 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.collections` to define collections
    import graphistry
 
    collections = [
-       {
-           "type": "set",
-           "id": "newsletter_subscribers",
-           "name": "Newsletter Subscribers",
-           "node_color": "#32CD32",
-           "expr": [graphistry.n({"subscribed_to_newsletter": True})],
-       }
+       graphistry.collection_set(
+           expr=graphistry.n({"subscribed_to_newsletter": True}),
+           id="newsletter_subscribers",
+           name="Newsletter Subscribers",
+           node_color="#32CD32",
+       )
    ]
 
    g2 = g.collections(
