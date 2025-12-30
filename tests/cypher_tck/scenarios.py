@@ -903,6 +903,110 @@ SCENARIOS = [
         tags=("match", "relationship", "multi-type", "xfail"),
     ),
     Scenario(
+        key="match3-1",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[1] Get neighbours",
+        cypher="MATCH (n1)-[rel:KNOWS]->(n2)\nRETURN n1, n2",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {num: 1})-[:KNOWS]->(b:B {num: 2})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n1": "(:A {num: 1})", "n2": "(:B {num: 2})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Row projections with multiple return columns are not supported",
+        tags=("match", "relationship", "return", "xfail"),
+    ),
+    Scenario(
+        key="match3-2",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[2] Directed match of a simple relationship",
+        cypher="MATCH (a)-[r]->(b)\nRETURN a, r, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:LOOP]->(:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "r": "[:LOOP]", "b": "(:B)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Row projections with relationships are not supported",
+        tags=("match", "relationship", "return", "xfail"),
+    ),
+    Scenario(
+        key="match3-3",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[3] Undirected match on simple relationship graph",
+        cypher="MATCH (a)-[r]-(b)\nRETURN a, r, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:A)-[:LOOP]->(:B)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:A)", "r": "[:LOOP]", "b": "(:B)"},
+                {"a": "(:B)", "r": "[:LOOP]", "b": "(:A)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Row projections with undirected relationship matches are not supported",
+        tags=("match", "relationship", "undirected", "xfail"),
+    ),
+    Scenario(
+        key="match3-5",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[5] Return two subgraphs with bound undirected relationship",
+        cypher="MATCH (a)-[r {name: 'r'}]-(b)\nRETURN a, b",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A {num: 1})-[:REL {name: 'r'}]->(b:B {num: 2})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:B {num: 2})", "b": "(:A {num: 1})"},
+                {"a": "(:A {num: 1})", "b": "(:B {num: 2})"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Row projections with undirected relationship matches are not supported",
+        tags=("match", "relationship", "undirected", "xfail"),
+    ),
+    Scenario(
+        key="match3-7",
+        feature_path="tck/features/clauses/match/Match3.feature",
+        scenario="[7] Matching nodes with many labels",
+        cypher="MATCH (n:A:B:C:D:E:F:G:H:I:J:K:L:M)-[:T]->(m:Z:Y:X:W:V:U)\nRETURN n, m",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (a:A:B:C:D:E:F:G:H:I:J:K:L:M),
+                   (b:U:V:W:X:Y:Z)
+            CREATE (a)-[:T]->(b)
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"n": "(:A:B:C:D:E:F:G:H:I:J:K:L:M)", "m": "(:Z:Y:X:W:V:U)"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="Label predicates on relationship endpoints and row projections are not supported",
+        tags=("match", "relationship", "label", "xfail"),
+    ),
+    Scenario(
         key="match3-4",
         feature_path="tck/features/clauses/match/Match3.feature",
         scenario="[4] Get two related nodes",
