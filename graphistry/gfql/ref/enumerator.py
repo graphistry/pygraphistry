@@ -185,6 +185,7 @@ def enumerate_chain(
                 # BFS from valid_starts to find paths to valid_ends
                 valid_nodes: Set[Any] = set()
                 valid_edge_ids: Set[Any] = set()
+                min_hops = edge_step.get("min_hops", 1)
                 max_hops = edge_step.get("max_hops", 10)
 
                 for start in valid_starts:
@@ -197,7 +198,8 @@ def enumerate_chain(
                         for eid, dst in adjacency.get(node, []):
                             new_edges = path_edges + [eid]
                             new_nodes = path_nodes + [dst]
-                            if dst in valid_ends:
+                            # Only include paths within [min_hops, max_hops] range
+                            if dst in valid_ends and len(new_edges) >= min_hops:
                                 # This path reaches a valid end - include all nodes/edges
                                 valid_nodes.update(new_nodes)
                                 valid_edge_ids.update(new_edges)
@@ -616,8 +618,8 @@ def _bounded_paths(
 
     for seed in seeds:
         # Phase 1: Explore all paths and find valid destinations (reachable within [min_hops, max_hops])
-        # Also collect ALL paths to ALL nodes (will filter in phase 2)
-        all_paths: List[Tuple[Any, List[Any], List[Any]]] = []  # (destination, edge_ids, node_ids)
+        # Also collect paths within hop range (will filter in phase 2)
+        all_paths: List[Tuple[Any, List[Any], List[Any], int]] = []  # (destination, edge_ids, node_ids, path_length)
         valid_destinations: Set[Any] = set()
 
         stack: List[Tuple[Any, int, List[Any], List[Any]]] = [(seed, 0, [], [seed])]
@@ -630,10 +632,9 @@ def _bounded_paths(
                 new_path = path_edges + [edge_id]
                 new_nodes = path_nodes + [dst]
 
-                # Save every path
-                all_paths.append((dst, list(new_path), list(new_nodes)))
-
+                # Only save paths within [min_hops, max_hops] range
                 if new_depth >= min_hops:
+                    all_paths.append((dst, list(new_path), list(new_nodes), new_depth))
                     if dest_allowed is None or dst in dest_allowed:
                         valid_destinations.add(dst)
                         seed_to_nodes.setdefault(seed, set()).add(dst)
@@ -648,7 +649,7 @@ def _bounded_paths(
             if label_seeds and seed not in node_hops:
                 node_hops[seed] = 0
 
-            for dst, path_edges, path_nodes in all_paths:
+            for dst, path_edges, path_nodes, path_len in all_paths:
                 if dst in valid_destinations:
                     edges_used.update(path_edges)
                     nodes_used.update(path_nodes)
