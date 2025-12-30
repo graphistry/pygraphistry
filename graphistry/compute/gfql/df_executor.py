@@ -787,7 +787,7 @@ class DFSamePathExecutor:
         if len(fwd_df) == 0 or len(bwd_df) == 0:
             return edges_df.iloc[:0]
 
-        # For nodes reachable at multiple hops, keep the minimum
+        # Yannakakis: min hop is correct here - edge validity uses shortest path through node
         fwd_df = fwd_df.groupby('__node__')['__fwd_hop__'].min().reset_index()
         bwd_df = bwd_df.groupby('__node__')['__bwd_hop__'].min().reset_index()
 
