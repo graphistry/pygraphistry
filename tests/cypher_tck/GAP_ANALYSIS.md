@@ -292,7 +292,8 @@ translation guidelines.
 - **Description**: The harness does not evaluate RETURN expressions or
   projections, including property access, arithmetic, list/map construction,
   label predicates, and literal expressions.
-- **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`
+- **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
+  `return3-1`, `return3-2`, `return3-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection
