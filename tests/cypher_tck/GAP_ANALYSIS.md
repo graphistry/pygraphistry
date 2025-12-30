@@ -100,7 +100,7 @@ translation guidelines.
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
   `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`,
   `return2-18`, `return4-10`, `return6-14`, `return6-15`, `return6-20`,
-  `return6-21`
+  `return6-21`, `return7-2`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -241,7 +241,8 @@ translation guidelines.
   `match6-5`, `match6-6`, `match6-7`, `match6-8`, `match6-9`, `match6-10`,
   `match6-11`, `match6-12`, `match6-13`, `match6-14`, `match6-15`,
   `match6-16`, `match6-17`, `match6-18`, `match6-19`, `match6-20`,
-  `match7-16`, `match7-17`, `match7-18`, `match7-19`, `match7-20`, `match9-9`
+  `match7-16`, `match7-17`, `match7-18`, `match7-19`, `match7-20`, `match9-9`,
+  `return7-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add path materialization support in GFQL and extend the runner
@@ -300,7 +301,8 @@ translation guidelines.
   label predicates, and literal expressions.
 - **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
   `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`,
-  `return5-1..return5-5`, `return6-1..return6-13`, `return6-16..return6-19`
+  `return5-1..return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
+  `return7-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection

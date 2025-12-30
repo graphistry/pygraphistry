@@ -4886,4 +4886,36 @@ SCENARIOS = [
         reason="Compile-time validation for ambiguous aggregation expressions is not enforced",
         tags=("return", "syntax-error", "aggregation", "xfail"),
     ),
+    Scenario(
+        key="return7-1",
+        feature_path="tck/features/clauses/return/Return7.feature",
+        scenario="[1] Return all variables",
+        cypher="MATCH p = (a:Start)-->(b)\nRETURN *",
+        graph=graph_fixture_from_create(
+            """
+            CREATE (:Start)-[:T]->()
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"a": "(:Start)", "b": "()", "p": "<(:Start)-[:T]->()>"},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="RETURN * projections and named path returns are not supported",
+        tags=("return", "projection", "path", "xfail"),
+    ),
+    Scenario(
+        key="return7-2",
+        feature_path="tck/features/clauses/return/Return7.feature",
+        scenario="[2] Fail when using RETURN * without variables in scope",
+        cypher="MATCH ()\nRETURN *",
+        graph=GraphFixture(nodes=[], edges=[]),
+        expected=Expected(),
+        gfql=None,
+        status="xfail",
+        reason="Compile-time validation for RETURN * without scoped variables is not enforced",
+        tags=("return", "syntax-error", "xfail"),
+    ),
 ]
