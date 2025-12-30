@@ -94,7 +94,7 @@ translation guidelines.
 - **Description**: The harness does not model Cypher compile-time validation
   errors (e.g., invalid path property predicates, aggregation in WHERE).
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
-  `match3-30`, `match4-9`, `match4-10`
+  `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -165,7 +165,7 @@ translation guidelines.
 - **Description**: The harness does not support WITH clauses, LIMIT scoping, or
   mid-query variable pipelines.
 - **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
-  `match3-26`, `match3-27`, `match3-28`, `match4-8`
+  `match3-26`, `match3-27`, `match3-28`, `match4-8`, `match6-18`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -212,11 +212,25 @@ translation guidelines.
   patterns (`*`, `*min..max`) in MATCH, including length bounds, zero-length
   paths, and variable-length relationship lists.
 - **Affected scenarios**: `match4-1`, `match4-2`, `match4-3`, `match4-4`,
-  `match4-5`, `match4-6`, `match4-7`, `match4-8`
+  `match4-5`, `match4-6`, `match4-7`, `match4-8`, `match6-14`, `match6-15`,
+  `match6-16`, `match6-17`, `match6-19`, `match6-20`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add variable-length matching support to GFQL translation and
   row-level validation for projected paths/lists.
+
+### G18: Named path returns
+- **Status**: Open
+- **Description**: The harness cannot return or validate named path values
+  (e.g., `p = (...)` with `RETURN p`), including path ordering and formatting.
+- **Affected scenarios**: `match6-1`, `match6-2`, `match6-3`, `match6-4`,
+  `match6-5`, `match6-6`, `match6-7`, `match6-8`, `match6-9`, `match6-10`,
+  `match6-11`, `match6-12`, `match6-13`, `match6-14`, `match6-15`, `match6-16`,
+  `match6-17`, `match6-18`, `match6-19`, `match6-20`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add path materialization support in GFQL and extend the runner
+  to normalize and compare path outputs.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
