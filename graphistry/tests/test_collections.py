@@ -77,6 +77,12 @@ def test_collection_helpers_build_sets_and_intersections():
     assert decoded[1]["expr"] == {"type": "intersection", "sets": ["vip"]}
 
 
+def test_collection_set_wraps_ast_expr():
+    collection = collection_set(expr=graphistry.n({"vip": True}), id="vip")
+    assert collection["expr"]["type"] == "gfql_chain"
+    assert collection["expr"]["gfql"][0]["type"] == "Node"
+
+
 def test_collections_accepts_chain_and_preserves_dataset_id():
     chain = graphistry.Chain([graphistry.n({"type": "user"})])
     g1 = graphistry.bind(dataset_id="dataset_123")
