@@ -62,6 +62,13 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     from_cugraph
 )
 
+from graphistry.collections_helpers import (
+    collection_set,
+    collection_intersection,
+    CollectionSet,
+    CollectionIntersection,
+)
+
 from graphistry.compute import (
     n, e, e_forward, e_reverse, e_undirected,
     let, ref,

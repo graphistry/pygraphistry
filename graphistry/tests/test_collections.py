@@ -5,6 +5,7 @@ import pytest
 from urllib.parse import quote, unquote
 
 import graphistry
+from graphistry.collections_helpers import collection_intersection, collection_set
 from graphistry.validate.validate_collections import normalize_collections_url_params
 
 
@@ -51,6 +52,29 @@ def test_collections_encodes_and_normalizes():
     assert g2._url_params["showCollections"] is True
     assert g2._url_params["collectionsGlobalNodeColor"] == "00FF00"
     assert g2._url_params["collectionsGlobalEdgeColor"] == "00AA00"
+
+
+def test_collection_helpers_build_sets_and_intersections():
+    collections = [
+        collection_set(
+            expr=[graphistry.n({"vip": True})],
+            id="vip",
+            name="VIP",
+            node_color="#FFAA00",
+        ),
+        collection_intersection(
+            sets=["vip"],
+            name="VIP Intersection",
+            node_color="#00BFFF",
+        ),
+    ]
+
+    g2 = graphistry.bind().collections(collections=collections)
+    decoded = decode_collections(g2._url_params["collections"])
+    assert decoded[0]["type"] == "set"
+    assert decoded[0]["expr"]["type"] == "gfql_chain"
+    assert decoded[1]["type"] == "intersection"
+    assert decoded[1]["expr"] == {"type": "intersection", "sets": ["vip"]}
 
 
 def test_collections_accepts_chain_and_preserves_dataset_id():
