@@ -121,7 +121,7 @@ translation guidelines.
   projection validation.
 - **Affected scenarios**: `match-where3-1`, `match-where3-2`, `match-where3-3`,
   `match-where4-1`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
-  `match-where6-8`, `match7-11`
+  `match-where6-8`, `match7-11`, `match9-8`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add join-aware translation support (variable comparison
@@ -144,7 +144,7 @@ translation guidelines.
   `>`, `<`), label predicates in WHERE (e.g., `i:TextNode`), or null checks
   (`IS NOT NULL`) with Cypher's tri-valued logic.
 - **Affected scenarios**: `match-where5-1`, `match-where5-2`, `match-where5-3`,
-  `match-where5-4`, `match7-25`
+  `match-where5-4`, `match7-25`, `match9-8`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add predicate operators and null-handling semantics to the
@@ -157,7 +157,7 @@ translation guidelines.
 - **Affected scenarios**: `match-where6-1`, `match-where6-2`, `match-where6-3`,
   `match-where6-4`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
   `match-where6-8`, `match3-27`, `match3-28`, `match7-1..match7-31`,
-  `match8-2`
+  `match8-2`, `match9-8`, `match9-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add OPTIONAL MATCH semantics to the translation layer and
@@ -170,7 +170,7 @@ translation guidelines.
 - **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
   `match3-26`, `match3-27`, `match3-28`, `match4-8`, `match6-18`, `match7-4`,
   `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`,
-  `match8-1`, `match8-2`, `match8-3`
+  `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -192,7 +192,7 @@ translation guidelines.
   not reliably supported; label boolean columns can trigger schema/type
   mismatches during multi-hop GFQL filtering.
 - **Affected scenarios**: `match2-2`, `match3-6`, `match3-7`, `match3-25`,
-  `match3-26`, `match7-23`, `match7-28`
+  `match3-26`, `match7-23`, `match7-28`, `match9-5`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Ensure label predicate columns remain boolean across GFQL
@@ -221,7 +221,8 @@ translation guidelines.
   `match5-3`, `match5-4`, `match5-5`, `match5-6`, `match5-7`, `match5-8`,
   `match5-9`, `match5-10`, `match5-11..match5-29`, `match6-14`, `match6-15`,
   `match6-16`, `match6-17`, `match6-19`, `match6-20`, `match7-12`,
-  `match7-13`, `match7-14`, `match7-15`, `match7-19`, `match7-20`
+  `match7-13`, `match7-14`, `match7-15`, `match7-19`, `match7-20`,
+  `match9-1..match9-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add variable-length matching support to GFQL translation and
@@ -235,7 +236,7 @@ translation guidelines.
   `match6-5`, `match6-6`, `match6-7`, `match6-8`, `match6-9`, `match6-10`,
   `match6-11`, `match6-12`, `match6-13`, `match6-14`, `match6-15`,
   `match6-16`, `match6-17`, `match6-18`, `match6-19`, `match6-20`,
-  `match7-16`, `match7-17`, `match7-18`, `match7-19`, `match7-20`
+  `match7-16`, `match7-17`, `match7-18`, `match7-19`, `match7-20`, `match9-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add path materialization support in GFQL and extend the runner
@@ -245,8 +246,8 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support aggregations (e.g., `count(*)`)
   or boolean projections in `RETURN` (e.g., `s IS NULL`).
-- **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`
-  `match7-29`, `match7-30`, `match7-31`, `match8-2`, `match8-3`
+- **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`, `match8-2`,
+  `match8-3`, `match9-5`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -256,7 +257,7 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not translate `IN` predicate list
   membership for node/relationship properties.
-- **Affected scenarios**: `match7-17`
+- **Affected scenarios**: `match7-17`, `match9-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add `IN` predicate translation to the GFQL predicate layer
@@ -271,6 +272,19 @@ translation guidelines.
   metadata.
 - **Next steps**: Add MERGE support to the translation layer (or precompute
   fixture states) and extend the runner to validate resulting graph state.
+
+### G22: Relationship list returns + list functions
+- **Status**: Open
+- **Description**: The harness cannot materialize relationship lists for
+  variable-length matches, evaluate list functions (e.g., `last(r)`), or return
+  list-valued relationship variables in projections.
+- **Affected scenarios**: `match9-1`, `match9-2`, `match9-3`, `match9-4`,
+  `match9-6`, `match9-7`, `match9-9`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add list materialization support for variable-length
+  relationships, define list/relationship projection normalization, and
+  implement list function evaluation in the runner.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
