@@ -4918,4 +4918,24 @@ SCENARIOS = [
         reason="Compile-time validation for RETURN * without scoped variables is not enforced",
         tags=("return", "syntax-error", "xfail"),
     ),
+    Scenario(
+        key="return8-1",
+        feature_path="tck/features/clauses/return/Return8.feature",
+        scenario="[1] Return aggregation after With filtering",
+        cypher="MATCH (n)\nWITH n\nWHERE n.num = 42\nRETURN count(*)",
+        graph=graph_fixture_from_create(
+            """
+            CREATE ({num: 43}), ({num: 42})
+            """
+        ),
+        expected=Expected(
+            rows=[
+                {"count(*)": 1},
+            ],
+        ),
+        gfql=None,
+        status="xfail",
+        reason="WITH pipelines, WHERE filtering, and aggregations are not supported",
+        tags=("return", "with", "aggregation", "xfail"),
+    ),
 ]

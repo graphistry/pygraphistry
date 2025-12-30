@@ -175,7 +175,8 @@ translation guidelines.
   `match3-26`, `match3-27`, `match3-28`, `match4-8`, `match6-18`, `match7-4`,
   `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`,
   `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`, `return4-1`,
-  `return4-11`, `return6-3`, `return6-13`, `return6-16`, `return6-18`
+  `return4-11`, `return6-3`, `return6-13`, `return6-16`, `return6-18`,
+  `return8-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -255,7 +256,8 @@ translation guidelines.
 - **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`, `match8-2`,
   `match8-3`, `match9-5`, `return2-10`, `return4-4`, `return4-6`, `return4-7`,
   `return4-8`, `return4-9`, `return4-11`, `return5-1`, `return5-3`,
-  `return5-4`, `return5-5`, `return6-1..return6-13`, `return6-16..return6-19`
+  `return5-4`, `return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
+  `return8-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -302,7 +304,7 @@ translation guidelines.
 - **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
   `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`,
   `return5-1..return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
-  `return7-1`
+  `return7-1`, `return8-1`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection
