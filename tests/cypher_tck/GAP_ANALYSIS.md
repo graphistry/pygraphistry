@@ -93,7 +93,8 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not model Cypher compile-time validation
   errors (e.g., invalid path property predicates, aggregation in WHERE).
-- **Affected scenarios**: `match-where1-14`, `match-where1-15`
+- **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
+  `match3-30`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -153,7 +154,7 @@ translation guidelines.
   null propagation, or WHERE filtering behavior for optional patterns.
 - **Affected scenarios**: `match-where6-1`, `match-where6-2`, `match-where6-3`,
   `match-where6-4`, `match-where6-5`, `match-where6-6`, `match-where6-7`,
-  `match-where6-8`
+  `match-where6-8`, `match3-27`, `match3-28`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add OPTIONAL MATCH semantics to the translation layer and
@@ -163,7 +164,8 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support WITH clauses, LIMIT scoping, or
   mid-query variable pipelines.
-- **Affected scenarios**: `match-where6-5`
+- **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
+  `match3-26`, `match3-27`, `match3-28`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -184,11 +186,25 @@ translation guidelines.
 - **Description**: Label predicates on both sides of relationship patterns are
   not reliably supported; label boolean columns can trigger schema/type
   mismatches during multi-hop GFQL filtering.
-- **Affected scenarios**: `match2-2`, `match3-6`, `match3-7`
+- **Affected scenarios**: `match2-2`, `match3-6`, `match3-7`, `match3-25`,
+  `match3-26`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Ensure label predicate columns remain boolean across GFQL
   chain operations and allow endpoint label filtering on relationship matches.
+
+### G16: Pattern-level variable binding
+- **Status**: Open
+- **Description**: The harness cannot enforce repeated node/relationship
+  variables across pattern parts or MATCH clauses (self-references, cyclic
+  patterns, and shared-variable joins).
+- **Affected scenarios**: `match3-10`, `match3-12`, `match3-14`, `match3-17`,
+  `match3-18`, `match3-19`, `match3-20`, `match3-21`, `match3-22`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add variable binding semantics across pattern parts (shared
+  variables in a single pattern or across comma-separated patterns/MATCH
+  clauses) and extend row-level validation.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
