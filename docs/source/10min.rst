@@ -177,9 +177,11 @@ For advanced, subset-based coloring, use Collections with GFQL AST helpers:
 
 .. code-block:: python
 
+    from graphistry import collection_set, n
+
     collections = [
-        graphistry.collection_set(
-            expr=graphistry.n({"vip": True}),
+        collection_set(
+            expr=n({"vip": True}),
             name="VIP",
             node_color="#FF8800",
         )

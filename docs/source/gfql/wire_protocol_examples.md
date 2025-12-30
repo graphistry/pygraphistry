@@ -521,10 +521,10 @@ Collections accept GFQL wire protocol dicts inside the `expr` field for set defi
 You can pass the dict directly or through the helper constructors:
 
 ```python
-import graphistry
+from graphistry import collection_set
 
 collections = [
-    graphistry.collection_set(
+    collection_set(
         expr={
             "type": "gfql_chain",
             "gfql": [
