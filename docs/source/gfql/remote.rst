@@ -17,6 +17,11 @@ Run chain remotely and fetch results
     g2 = g1.gfql_remote([n(), e(), n()])
     assert len(g2._nodes) <= len(g1._nodes)
 
+.. note::
+   Collections are visualization URL settings; apply them after GFQL results
+   (for example, ``g2.collections(...)``). The GFQL remote/upload APIs do not
+   accept collections payloads yet.
+
 Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
 
 - **chain**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
