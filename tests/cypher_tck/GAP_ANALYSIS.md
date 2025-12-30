@@ -97,7 +97,7 @@ translation guidelines.
   errors (e.g., invalid path property predicates, aggregation in WHERE).
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
   `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`,
-  `return2-18`
+  `return2-18`, `return4-10`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -171,7 +171,8 @@ translation guidelines.
 - **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
   `match3-26`, `match3-27`, `match3-28`, `match4-8`, `match6-18`, `match7-4`,
   `match7-5`, `match7-6`, `match7-10`, `match7-21`, `match7-22`, `match7-27`,
-  `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`
+  `match8-1`, `match8-2`, `match8-3`, `match9-6`, `match9-7`, `return4-1`,
+  `return4-11`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -248,7 +249,8 @@ translation guidelines.
 - **Description**: The harness does not support aggregations (e.g., `count(*)`)
   or boolean projections in `RETURN` (e.g., `s IS NULL`).
 - **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`, `match8-2`,
-  `match8-3`, `match9-5`, `return2-10`
+  `match8-3`, `match9-5`, `return2-10`, `return4-4`, `return4-6`, `return4-7`,
+  `return4-8`, `return4-9`, `return4-11`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -293,7 +295,7 @@ translation guidelines.
   projections, including property access, arithmetic, list/map construction,
   label predicates, and literal expressions.
 - **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`,
-  `return3-1`, `return3-2`, `return3-3`
+  `return3-1`, `return3-2`, `return3-3`, `return4-1..return4-9`, `return4-11`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add RETURN expression evaluation and row-level projection
@@ -311,6 +313,16 @@ translation guidelines.
   scenario metadata.
 - **Next steps**: Add DELETE support to the translation layer, track side
   effects, and validate deleted-entity access errors.
+
+### G25: ORDER BY semantics
+- **Status**: Open
+- **Description**: The harness does not support ORDER BY clauses or ordering
+  guarantees across WITH/RETURN pipelines.
+- **Affected scenarios**: `return4-11`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add ORDER BY support to the translation layer and extend the
+  runner to validate ordered outputs.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
