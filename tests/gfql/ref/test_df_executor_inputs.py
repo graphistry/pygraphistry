@@ -3992,6 +3992,278 @@ class TestMinHopsEdgeFiltering:
         assert "d" in result_ids, "Should find path a->b<-c->d"
 
 
+class TestMultiplePathLengths:
+    """
+    Tests for scenarios where same node is reachable at different hop distances.
+
+    Derived from depth-wise 5-whys on Bug 7:
+    - Why: goal_nodes missed nodes reachable via longer paths
+    - Why: node_hop_records only tracks min hop (anti-join discards duplicates)
+    - Why: BFS optimizes for "first seen" not "all paths"
+    - Why: No test existed for "same node reachable at multiple distances"
+
+    These tests verify the Yannakakis semijoin property holds when nodes
+    appear at multiple hop distances.
+    """
+
+    def test_diamond_with_shortcut(self):
+        """
+        Node 'c' reachable at hop 1 (shortcut) AND hop 2 (via b).
+        With min_hops=2, both paths to 'c' should be preserved.
+
+        Graph: a -> b -> c
+               a -> c (shortcut)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "a", "dst": "c"},  # Shortcut
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # min_hops=2 should still include the 2-hop path a->b->c
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_ids, "b is intermediate on valid 2-hop path"
+        assert "c" in result_ids, "c is endpoint of valid 2-hop path"
+
+    def test_triple_paths_different_lengths(self):
+        """
+        Node 'd' reachable at hop 1, 2, AND 3.
+        Each path length should work independently.
+
+        Graph: a -> d (1 hop)
+               a -> b -> d (2 hops)
+               a -> b -> c -> d (3 hops)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "d"},  # Direct
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "d"},  # 2-hop
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},  # 3-hop
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # Test min_hops=2: should include 2-hop and 3-hop paths
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_ids, "b is on 2-hop and 3-hop paths"
+        assert "c" in result_ids, "c is on 3-hop path"
+        assert "d" in result_ids, "d is endpoint"
+
+    def test_triple_paths_exact_min_hops_3(self):
+        """
+        Same graph as above but with min_hops=3.
+        Only the 3-hop path should be included.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 3},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "d"},  # Direct (1 hop)
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "d"},  # 2-hop
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},  # 3-hop
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=3, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        # Only 3-hop path a->b->c->d should be included
+        assert "b" in result_ids, "b is on 3-hop path"
+        assert "c" in result_ids, "c is on 3-hop path"
+        assert "d" in result_ids, "d is endpoint of 3-hop path"
+
+    def test_cycle_multiple_path_lengths(self):
+        """
+        Cycle where 'a' is reachable at hop 0 (start) and hop 3 (via cycle).
+
+        Graph: a -> b -> c -> a (cycle)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "a"},  # Back to a
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # 3-hop path a->b->c->a exists
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=3, max_hops=3),
+            n(name="end"),
+        ]
+        # start.v < end.v would be 1 < 1 = False, so use <=
+        where = [compare(col("start", "v"), "<=", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        # All nodes on cycle should be included
+        assert "a" in result_ids, "a is start and end of 3-hop cycle"
+        assert "b" in result_ids, "b is on cycle"
+        assert "c" in result_ids, "c is on cycle"
+
+    def test_parallel_paths_with_min_hops_filter(self):
+        """
+        Two parallel paths of different lengths, filter by min_hops.
+
+        Graph: a -> x -> d (2 hops)
+               a -> y -> z -> d (3 hops)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "x", "v": 2},
+            {"id": "y", "v": 3},
+            {"id": "z", "v": 4},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "x"},
+            {"src": "x", "dst": "d"},  # 2-hop path
+            {"src": "a", "dst": "y"},
+            {"src": "y", "dst": "z"},
+            {"src": "z", "dst": "d"},  # 3-hop path
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # min_hops=3 should only include the y->z->d path
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=3, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "y" in result_ids, "y is on 3-hop path"
+        assert "z" in result_ids, "z is on 3-hop path"
+        assert "d" in result_ids, "d is endpoint"
+        # x should NOT be in results (only on 2-hop path)
+        assert "x" not in result_ids, "x is only on 2-hop path, excluded by min_hops=3"
+
+    def test_undirected_multiple_routes(self):
+        """
+        Undirected graph where same node reachable via different routes.
+
+        Graph edges: a-b, b-c, a-c (triangle)
+        Undirected: c reachable from a in 1 hop (a-c) or 2 hops (a-b-c)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # Undirected with min_hops=2
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        # 2-hop path a-b-c should be found
+        assert "b" in result_ids, "b is on 2-hop undirected path"
+        assert "c" in result_ids, "c is endpoint of 2-hop path"
+
+    def test_reverse_multiple_path_lengths(self):
+        """
+        Reverse traversal with node reachable at multiple distances.
+
+        Graph: c -> b -> a (reverse from a: a <- b <- c)
+               c -> a (shortcut, reverse: a <- c)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 10},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 1},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},
+            {"src": "c", "dst": "b"},
+            {"src": "c", "dst": "a"},  # Shortcut
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # Reverse with min_hops=2
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_reverse(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), ">", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_ids, "b is on 2-hop reverse path"
+        assert "c" in result_ids, "c is endpoint of 2-hop reverse path"
+
+
 class TestPredicateTypes:
     """
     Tests for different data types in WHERE predicates.
