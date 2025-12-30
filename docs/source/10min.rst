@@ -189,6 +189,7 @@ For advanced, subset-based coloring, use Collections with GFQL AST helpers:
 
 See :ref:`Layout settings <layout-settings>` and the
 :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+Tip: order matters (earlier collections override later ones) and intersections require set IDs.
 
 Additional settings, such as background colors and logo watermarks, can also be configured.
 
