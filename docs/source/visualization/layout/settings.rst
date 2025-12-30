@@ -69,6 +69,40 @@ For full schema details, see `Collections URL options <https://hub.graphistry.co
 For a full walkthrough, see the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
 For color encoding basics, see the :doc:`Color encodings notebook </demos/more_examples/graphistry_features/encodings-colors>`.
 
+Notes and validation
+^^^^^^^^^^^^^^^^^^^^
+
+- Order matters: earlier collections have higher priority and override later ones.
+- Intersections reference set IDs; provide ``id`` for any set used in an intersection.
+- Omitting ``node_color`` or ``edge_color`` leaves encodings as passthrough.
+- ``collections_global_node_color`` and ``collections_global_edge_color`` apply to nodes/edges
+  not in any collection (leading ``#`` is optional).
+- Accepted inputs for ``expr`` include GFQL AST helpers, ``Chain`` objects, and wire-protocol dicts.
+- Use ``validate='strict'`` to raise on invalid collections; the default ``autofix`` warns and
+  drops invalid entries. Use ``warn=False`` to silence warnings.
+- If you already have an encoded collections string, pass ``encode=False``. When using
+  ``settings(url_params=...)`` directly, provide an encoded ``collections`` value.
+
+Wire protocol example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   collections_wire = [
+       {
+           "type": "set",
+           "name": "Wire Protocol Example",
+           "node_color": "#AA00AA",
+           "expr": {
+               "type": "gfql_chain",
+               "gfql": [
+                   {"type": "Node", "filter_dict": {"status": "purchased"}}
+               ]
+           }
+       }
+   ]
+   g.collections(collections=collections_wire)
+
 
 Styling the Background and Foreground
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
