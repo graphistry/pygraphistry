@@ -188,7 +188,7 @@ For advanced, subset-based coloring, use Collections with GFQL AST helpers:
     g.collections(collections=collections, show_collections=True).plot()
 
 See :ref:`Layout settings <layout-settings>` and the
-`Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
+:doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
 
 Additional settings, such as background colors and logo watermarks, can also be configured.
 

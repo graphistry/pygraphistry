@@ -239,7 +239,7 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
       g.collections(collections=collections, show_collections=True).plot()
 
   See :doc:`Layout settings <layout/settings>` and the
-  `Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
+  :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
 
 * **Bind**: Simpler data-driven settings are done through :meth:`graphistry.PlotterBase.PlotterBase.bind`:
 

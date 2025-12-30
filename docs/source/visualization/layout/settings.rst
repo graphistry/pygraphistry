@@ -64,10 +64,10 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.collections` to define collections
    g2.plot()
 
 The collections list is JSON-minified and URL-encoded automatically. GFQL operations use the
-Python AST helpers; see `GFQL documentation <https://pygraphistry.readthedocs.io/en/latest/gfql/index.html>`_.
+Python AST helpers; see :doc:`GFQL documentation </gfql/index>`.
 For full schema details, see `Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
-For a full walkthrough, see the `Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
-For color encoding basics, see the `Color encodings notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-colors.ipynb>`_.
+For a full walkthrough, see the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+For color encoding basics, see the :doc:`Color encodings notebook </demos/more_examples/graphistry_features/encodings-colors>`.
 
 
 Styling the Background and Foreground
