@@ -94,7 +94,7 @@ translation guidelines.
 - **Description**: The harness does not model Cypher compile-time validation
   errors (e.g., invalid path property predicates, aggregation in WHERE).
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
-  `match3-30`
+  `match3-30`, `match4-9`, `match4-10`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -165,7 +165,7 @@ translation guidelines.
 - **Description**: The harness does not support WITH clauses, LIMIT scoping, or
   mid-query variable pipelines.
 - **Affected scenarios**: `match-where6-5`, `match3-24`, `match3-25`,
-  `match3-26`, `match3-27`, `match3-28`
+  `match3-26`, `match3-27`, `match3-28`, `match4-8`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add pipeline support (WITH, LIMIT, variable scoping) and
@@ -205,6 +205,18 @@ translation guidelines.
 - **Next steps**: Add variable binding semantics across pattern parts (shared
   variables in a single pattern or across comma-separated patterns/MATCH
   clauses) and extend row-level validation.
+
+### G17: Variable-length patterns in MATCH
+- **Status**: Open
+- **Description**: The harness does not support variable-length relationship
+  patterns (`*`, `*min..max`) in MATCH, including length bounds, zero-length
+  paths, and variable-length relationship lists.
+- **Affected scenarios**: `match4-1`, `match4-2`, `match4-3`, `match4-4`,
+  `match4-5`, `match4-6`, `match4-7`, `match4-8`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add variable-length matching support to GFQL translation and
+  row-level validation for projected paths/lists.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
