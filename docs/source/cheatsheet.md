@@ -557,8 +557,8 @@ g.encode_point_color('type', as_categorical=True,
 
 For subset-based coloring and conditional styling across multiple encodings, use Collections
 via `g.collections(...)` with GFQL AST helpers. See the
-[layout settings](https://pygraphistry.readthedocs.io/en/latest/visualization/layout/settings.html)
-and the [Collections tutorial notebook](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb).
+[layout settings](visualization/layout/settings.html)
+and the [Collections tutorial notebook](demos/more_examples/graphistry_features/collections.ipynb).
 
 For more in-depth examples, check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-colors.ipynb).
 
