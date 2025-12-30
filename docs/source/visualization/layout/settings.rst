@@ -67,6 +67,7 @@ The collections list is JSON-minified and URL-encoded automatically. GFQL operat
 Python AST helpers; see `GFQL documentation <https://pygraphistry.readthedocs.io/en/latest/gfql/index.html>`_.
 For full schema details, see `Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
 For a full walkthrough, see the `Collections tutorial notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/collections.ipynb>`_.
+For color encoding basics, see the `Color encodings notebook <https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/encodings-colors.ipynb>`_.
 
 
 Styling the Background and Foreground
