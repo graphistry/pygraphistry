@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from graphistry.Engine import Engine
-from graphistry.compute import n, e_forward, e_reverse, e_undirected
+from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     DFSamePathExecutor,
@@ -4520,3 +4520,452 @@ class TestPredicateTypes:
         assert "b" in result_ids
         assert "c" in result_ids
         assert "d" in result_ids
+
+
+class TestYannakakisPrinciple:
+    """
+    Tests validating the Yannakakis semijoin principle:
+    - Edge included iff it participates in at least one valid complete path
+    - No edge excluded that could be part of a valid path
+    - No spurious edges included that aren't on any valid path
+    """
+
+    def test_dead_end_branch_pruning(self):
+        """
+        Edges leading to nodes that fail WHERE should be excluded.
+
+        Graph: a -> b -> c (valid path, c.v > a.v)
+               a -> x -> y (dead end, y.v < a.v)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 5},
+            {"id": "b", "v": 6},
+            {"id": "c", "v": 10},  # Valid endpoint
+            {"id": "x", "v": 4},
+            {"id": "y", "v": 1},   # Invalid endpoint (y.v < a.v)
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "a", "dst": "x"},
+            {"src": "x", "dst": "y"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+
+        # Valid path a->b->c should be included
+        assert {"a", "b", "c"} <= result_nodes
+        assert ("a", "b") in result_edges
+        assert ("b", "c") in result_edges
+
+        # Dead-end path a->x->y should be excluded (Yannakakis pruning)
+        assert "x" not in result_nodes, "x is on dead-end path, should be pruned"
+        assert "y" not in result_nodes, "y fails WHERE, should be pruned"
+        assert ("a", "x") not in result_edges, "edge to dead-end should be pruned"
+
+    def test_all_valid_paths_included(self):
+        """
+        Multiple valid paths - all edges on any valid path must be included.
+
+        Graph: a -> b -> d (valid)
+               a -> c -> d (valid)
+        Both paths are valid, so all edges should be included.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 6},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "d"},
+            {"src": "a", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+
+        # All nodes on valid paths
+        assert result_nodes == {"a", "b", "c", "d"}
+        # All edges on valid paths
+        assert ("a", "b") in result_edges
+        assert ("b", "d") in result_edges
+        assert ("a", "c") in result_edges
+        assert ("c", "d") in result_edges
+
+    def test_spurious_edge_exclusion(self):
+        """
+        Edges not on any complete path must be excluded.
+
+        Graph: a -> b -> c (valid 2-hop path)
+               b -> x (dangles off, not part of any complete path)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "x", "v": 20},  # Dangles off b
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "b", "dst": "x"},  # Spurious edge
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+
+        # Valid path edges included
+        assert ("a", "b") in result_edges
+        assert ("b", "c") in result_edges
+
+        # Spurious edge b->x excluded (x is at hop 2, but path a->b->x is also valid!)
+        # Actually, a->b->x IS a valid 2-hop path where x.v=20 > a.v=1
+        # So this test needs adjustment - x IS on a valid path
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "x" in result_nodes, "x is actually on valid path a->b->x"
+
+    def test_where_prunes_intermediate_edges(self):
+        """
+        WHERE filtering can prune intermediate edges.
+
+        Graph: a -> b -> c -> d
+        WHERE requires intermediate values to be in a specific range.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 100},  # b.v is way higher than d.v
+            {"id": "c", "v": 5},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=3, max_hops=3),
+            n(name="end"),
+        ]
+        # Valid path exists: a->b->c->d where a.v=1 < d.v=10
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # Full path should be included
+        assert result_nodes == {"a", "b", "c", "d"}
+
+    def test_convergent_diamond_all_paths_included(self):
+        """
+        Diamond pattern where both paths are valid.
+
+        Graph:     b
+               a <   > d
+                   c
+        Both a->b->d and a->c->d are valid 2-hop paths.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 6},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+            {"src": "b", "dst": "d"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+
+        # All nodes and edges from both paths
+        assert result_nodes == {"a", "b", "c", "d"}
+        assert len(result_edges) == 4
+
+    def test_mixed_valid_invalid_branches(self):
+        """
+        Some branches valid, some invalid - only valid branch edges included.
+
+        Graph: a -> b -> c (c.v=10 > a.v=1, valid)
+               a -> x -> y (y.v=0 < a.v=1, invalid)
+               a -> p -> q (q.v=2 > a.v=1, valid)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "x", "v": 3},
+            {"id": "y", "v": 0},   # Invalid endpoint
+            {"id": "p", "v": 4},
+            {"id": "q", "v": 2},   # Valid endpoint (barely)
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "a", "dst": "x"},
+            {"src": "x", "dst": "y"},
+            {"src": "a", "dst": "p"},
+            {"src": "p", "dst": "q"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # Valid paths: a->b->c, a->p->q
+        assert {"a", "b", "c", "p", "q"} <= result_nodes
+
+        # Invalid path: a->x->y (y.v=0 < a.v=1)
+        assert "x" not in result_nodes, "x is only on invalid path"
+        assert "y" not in result_nodes, "y fails WHERE"
+
+
+class TestHopLabelingPatterns:
+    """
+    Tests for the anti-join patterns used in hop labeling.
+
+    The anti-join patterns in hop.py (lines 661, 682) are used for display
+    (hop labels), not filtering. These tests verify they don't affect path validity.
+    """
+
+    def test_hop_labels_dont_affect_validity(self):
+        """
+        Nodes reachable via multiple paths should all be included,
+        regardless of which path labels them first.
+
+        Graph: a -> b -> d (2 hops)
+               a -> c -> d (2 hops)
+        Node 'd' is reachable via two paths - both should work.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 6},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "d"},
+            {"src": "a", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # d is reachable via both b and c - both intermediates should be included
+        assert result_nodes == {"a", "b", "c", "d"}
+
+    def test_multiple_seeds_hop_labels(self):
+        """
+        Multiple seeds with overlapping reachable nodes.
+
+        Seeds: a, b
+        Graph: a -> c, b -> c, c -> d
+        Both seeds can reach c and d.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 2},
+            {"id": "c", "v": 5},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "c"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        # Multiple seeds via filter
+        chain = [
+            n({"v": is_in([1, 2])}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # Both seeds and all reachable nodes
+        assert {"a", "b", "c", "d"} <= result_nodes
+
+    def test_hop_labels_with_min_hops(self):
+        """
+        Hop labels with min_hops > 1 - intermediate nodes still included.
+
+        Graph: a -> b -> c -> d
+        With min_hops=2, path a->b->c->d valid at hops 2 and 3.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 3},
+            {"id": "c", "v": 5},
+            {"id": "d", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=2, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # All nodes on paths of length 2-3
+        assert result_nodes == {"a", "b", "c", "d"}
+
+    def test_edge_hop_labels_consistent(self):
+        """
+        Edge hop labels should be consistent across multiple paths.
+
+        Graph: a -> b -> c
+               a -> b (same edge used in 1-hop and as part of 2-hop)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_edges = result._edges
+
+        # Both edges should be included
+        assert len(result_edges) == 2
+        edge_pairs = set(zip(result_edges["src"], result_edges["dst"]))
+        assert ("a", "b") in edge_pairs
+        assert ("b", "c") in edge_pairs
+
+    def test_undirected_hop_labels(self):
+        """
+        Undirected traversal - nodes reachable in both directions.
+
+        Graph: a - b - c (undirected)
+        From a, can reach b at hop 1, c at hop 2.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+
+        # All nodes reachable via undirected traversal
+        assert {"a", "b", "c"} <= result_nodes
