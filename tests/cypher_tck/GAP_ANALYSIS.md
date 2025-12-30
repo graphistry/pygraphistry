@@ -212,8 +212,10 @@ translation guidelines.
   patterns (`*`, `*min..max`) in MATCH, including length bounds, zero-length
   paths, and variable-length relationship lists.
 - **Affected scenarios**: `match4-1`, `match4-2`, `match4-3`, `match4-4`,
-  `match4-5`, `match4-6`, `match4-7`, `match4-8`, `match6-14`, `match6-15`,
-  `match6-16`, `match6-17`, `match6-19`, `match6-20`
+  `match4-5`, `match4-6`, `match4-7`, `match4-8`, `match5-1`, `match5-2`,
+  `match5-3`, `match5-4`, `match5-5`, `match5-6`, `match5-7`, `match5-8`,
+  `match5-9`, `match5-10`, `match6-14`, `match6-15`, `match6-16`, `match6-17`,
+  `match6-19`, `match6-20`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add variable-length matching support to GFQL translation and
