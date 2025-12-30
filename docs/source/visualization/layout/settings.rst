@@ -73,6 +73,7 @@ Notes and validation
 ^^^^^^^^^^^^^^^^^^^^
 
 - Order matters: earlier collections have higher priority and override later ones.
+- Use collections for priority-based subsets and overlaps; use encode_* for simple column-driven colors.
 - Intersections reference set IDs; provide ``id`` for any set used in an intersection.
 - Omitting ``node_color`` or ``edge_color`` leaves encodings as passthrough.
 - ``collections_global_node_color`` and ``collections_global_edge_color`` apply to nodes/edges
