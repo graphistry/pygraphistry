@@ -229,12 +229,11 @@ You can encode your graph attributes visually using colors, sizes, icons, and mo
   .. code-block:: python
 
       collections = [
-          {
-              "type": "set",
-              "name": "Subscribers",
-              "node_color": "#32CD32",
-              "expr": [graphistry.n({"subscribed_to_newsletter": True})],
-          }
+          graphistry.collection_set(
+              expr=graphistry.n({"subscribed_to_newsletter": True}),
+              name="Subscribers",
+              node_color="#32CD32",
+          )
       ]
       g.collections(collections=collections, show_collections=True).plot()
 
