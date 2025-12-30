@@ -96,7 +96,8 @@ translation guidelines.
 - **Description**: The harness does not model Cypher compile-time validation
   errors (e.g., invalid path property predicates, aggregation in WHERE).
 - **Affected scenarios**: `match-where1-14`, `match-where1-15`, `match3-29`,
-  `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`
+  `match3-30`, `match4-9`, `match4-10`, `match6-21`, `match6-22`, `return1-2`,
+  `return2-18`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -247,7 +248,7 @@ translation guidelines.
 - **Description**: The harness does not support aggregations (e.g., `count(*)`)
   or boolean projections in `RETURN` (e.g., `s IS NULL`).
 - **Affected scenarios**: `match7-29`, `match7-30`, `match7-31`, `match8-2`,
-  `match8-3`, `match9-5`
+  `match8-3`, `match9-5`, `return2-10`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add aggregation support to the translation layer and extend
@@ -285,6 +286,30 @@ translation guidelines.
 - **Next steps**: Add list materialization support for variable-length
   relationships, define list/relationship projection normalization, and
   implement list function evaluation in the runner.
+
+### G23: RETURN expression projections
+- **Status**: Open
+- **Description**: The harness does not evaluate RETURN expressions or
+  projections, including property access, arithmetic, list/map construction,
+  label predicates, and literal expressions.
+- **Affected scenarios**: `return2-1..return2-9`, `return2-11..return2-13`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add RETURN expression evaluation and row-level projection
+  validation in the runner (property access, arithmetic operators, list/map
+  projections, label predicates, and literal expressions).
+
+### G24: DELETE clause semantics + deleted entity access
+- **Status**: Open
+- **Description**: The harness does not support DELETE clause semantics, side
+  effect validation, or runtime errors for accessing deleted nodes and
+  relationships.
+- **Affected scenarios**: `return2-14`, `return2-15`, `return2-16`,
+  `return2-17`
+- **Workaround**: Mark as xfail and capture expected rows/side effects in the
+  scenario metadata.
+- **Next steps**: Add DELETE support to the translation layer, track side
+  effects, and validate deleted-entity access errors.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
