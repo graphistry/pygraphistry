@@ -437,6 +437,19 @@ translation guidelines.
 - **Next steps**: Add temporal literal/function support in the parser and
   expression evaluation/ordering layers.
 
+### G30: CALL clause + procedure support
+- **Status**: Open
+- **Description**: The harness does not support CALL clause execution,
+  procedure registry/lookup, argument validation, or YIELD projections.
+- **Affected scenarios**: `call1-1..call1-13`, `call2-1..call2-6`,
+  `call3-1..call3-6`, `call4-1..call4-2`, `call5-1..call5-2`,
+  `call5-3-1..call5-3-2`, `call5-4-1..call5-4-11`, `call5-5..call5-8`,
+  `call6-1..call6-3`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add procedure registry stubs, CALL clause translation, and
+  YIELD projection validation, then extend the runner to compare row outputs.
+
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.
