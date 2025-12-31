@@ -82,6 +82,21 @@ def enumerate_chain(
         )
         node_frame = _build_node_frame(nodes_df, node_id, node_step, alias_requirements)
 
+        # Apply source_node_match filter: restrict which source nodes can be traversed from
+        source_node_match = edge_step.get("source_node_match")
+        if source_node_match:
+            valid_sources = filter_by_dict(nodes_df, source_node_match, engine="pandas")
+            valid_source_ids = set(valid_sources[node_id])
+            paths = paths[paths[current].isin(valid_source_ids)]
+
+        # Apply destination_node_match filter: restrict which destination nodes can be reached
+        dest_node_match = edge_step.get("destination_node_match")
+        if dest_node_match:
+            valid_dests = filter_by_dict(nodes_df, dest_node_match, engine="pandas")
+            valid_dest_ids = set(valid_dests[node_id])
+            # Filter node_frame to only include valid destinations
+            node_frame = node_frame[node_frame[node_step["id_col"]].isin(valid_dest_ids)]
+
         min_hops = edge_step["min_hops"]
         max_hops = edge_step["max_hops"]
         if min_hops == 1 and max_hops == 1:
