@@ -1052,7 +1052,7 @@ class DFSamePathExecutor:
                 if self._is_single_hop(edge_op):
                     # Single-hop: filter edges directly
                     filtered = self._filter_edges_by_clauses(
-                        filtered, left_alias, right_alias, allowed_nodes, is_reverse
+                        filtered, left_alias, right_alias, allowed_nodes, is_reverse, is_undirected
                     )
                 else:
                     # Multi-hop: filter nodes first, then keep connecting edges
@@ -1126,11 +1126,13 @@ class DFSamePathExecutor:
         right_alias: str,
         allowed_nodes: Dict[int, Set[Any]],
         is_reverse: bool = False,
+        is_undirected: bool = False,
     ) -> DataFrameT:
         """Filter edges using WHERE clauses that connect adjacent aliases.
 
         For forward edges: left_alias matches src, right_alias matches dst.
         For reverse edges: left_alias matches dst, right_alias matches src.
+        For undirected edges: try both orientations, keep edges matching either.
         """
         # Early return for empty edges - no filtering needed
         if len(edges_df) == 0:
@@ -1149,7 +1151,6 @@ class DFSamePathExecutor:
         if left_frame is None or right_frame is None or self._node_column is None:
             return edges_df
 
-        out_df = edges_df
         left_allowed = allowed_nodes.get(self.inputs.alias_bindings[left_alias].step_index)
         right_allowed = allowed_nodes.get(self.inputs.alias_bindings[right_alias].step_index)
 
@@ -1170,6 +1171,36 @@ class DFSamePathExecutor:
         lf = lf[[self._node_column] + left_cols].rename(columns={self._node_column: "__left_id__"})
         rf = rf[[self._node_column] + right_cols].rename(columns={self._node_column: "__right_id__"})
 
+        # For undirected edges, we need to try both orientations
+        if is_undirected:
+            # Orientation 1: src=left, dst=right (forward)
+            fwd_df = self._merge_and_filter_edges(
+                edges_df, lf, rf, left_alias, right_alias, relevant,
+                left_merge_col=self._source_column,
+                right_merge_col=self._destination_column
+            )
+            # Orientation 2: dst=left, src=right (reverse)
+            rev_df = self._merge_and_filter_edges(
+                edges_df, lf, rf, left_alias, right_alias, relevant,
+                left_merge_col=self._destination_column,
+                right_merge_col=self._source_column
+            )
+            # Combine both orientations - keep edges that match either
+            if len(fwd_df) == 0 and len(rev_df) == 0:
+                return fwd_df  # Empty dataframe with correct schema
+            elif len(fwd_df) == 0:
+                out_df = rev_df
+            elif len(rev_df) == 0:
+                out_df = fwd_df
+            else:
+                from graphistry.compute.concat import concat
+                out_df = concat([fwd_df, rev_df], ignore_index=True, sort=False)
+                # Deduplicate by edge columns (src, dst) to avoid double-counting
+                out_df = out_df.drop_duplicates(
+                    subset=[self._source_column, self._destination_column]
+                )
+            return out_df
+
         # For reverse edges, left_alias is reached via dst column, right_alias via src column
         # For forward edges, left_alias is reached via src column, right_alias via dst column
         if is_reverse:
@@ -1179,7 +1210,27 @@ class DFSamePathExecutor:
             left_merge_col = self._source_column
             right_merge_col = self._destination_column
 
-        out_df = out_df.merge(
+        out_df = self._merge_and_filter_edges(
+            edges_df, lf, rf, left_alias, right_alias, relevant,
+            left_merge_col=left_merge_col,
+            right_merge_col=right_merge_col
+        )
+
+        return out_df
+
+    def _merge_and_filter_edges(
+        self,
+        edges_df: DataFrameT,
+        lf: DataFrameT,
+        rf: DataFrameT,
+        left_alias: str,
+        right_alias: str,
+        relevant: List[WhereComparison],
+        left_merge_col: str,
+        right_merge_col: str,
+    ) -> DataFrameT:
+        """Helper to merge edges with alias frames and apply WHERE clauses."""
+        out_df = edges_df.merge(
             lf,
             left_on=left_merge_col,
             right_on="__left_id__",
