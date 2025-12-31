@@ -53,6 +53,12 @@ Test amplification found and fixed 4 bugs (Bug 6, Bug 7, Oracle Bug, Bug 8). Add
 - Added `TestSensitivePhenomena` class based on deep 5-whys analysis
 - Found and fixed Bug 8: `_filter_edges_by_clauses` didn't handle undirected edges
 - Tests cover: asymmetric reachability, filter cascades, non-adjacent WHERE, path length boundaries, shared edge semantics, self-loops, cycles
+- **Commit**: `e8780035`
+
+### 10. Oracle Node/Edge Match Filter Support + Tests (7 tests)
+- Fixed oracle enumerator to support `source_node_match`, `destination_node_match`, `edge_match` filters
+- Added `TestNodeEdgeMatchFilters` class with 7 tests
+- Tests cover: single-hop filters, multi-hop filters, combined filters, edge match, undirected with filters
 - **Commit**: (pending)
 
 ## Test Results (All Passing)
@@ -63,7 +69,8 @@ Test amplification found and fixed 4 bugs (Bug 6, Bug 7, Oracle Bug, Bug 8). Add
 - `TestYannakakisPrinciple`: 6/6
 - `TestHopLabelingPatterns`: 5/5
 - `TestSensitivePhenomena`: 14/14
-- Full `test_df_executor_inputs.py`: 161 passed
+- `TestNodeEdgeMatchFilters`: 7/7
+- Full `test_df_executor_inputs.py`: 168 passed
 - `test_compute_hops.py`: 58 passed
 
 ## 5-Whys Summary

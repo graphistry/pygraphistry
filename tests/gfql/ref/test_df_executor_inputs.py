@@ -5508,3 +5508,252 @@ class TestSensitivePhenomena:
         assert "b" in result_nodes
         assert "c" in result_nodes
         assert "d" in result_nodes
+
+
+class TestNodeEdgeMatchFilters:
+    """
+    Tests for source_node_match, destination_node_match, and edge_match filters.
+
+    These filters restrict traversal based on node/edge attributes, independent
+    of the endpoint node filters or WHERE clauses.
+    """
+
+    def test_destination_node_match_single_hop(self):
+        """
+        destination_node_match restricts which nodes can be reached.
+
+        Graph: a -> b (target), a -> c (other)
+        With destination_node_match={'type': 'target'}, only b should be reached.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "type": "source"},
+            {"id": "b", "v": 10, "type": "target"},
+            {"id": "c", "v": 20, "type": "other"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "a", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(destination_node_match={"type": "target"}, min_hops=1, max_hops=1),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_nodes, "should reach target type node"
+        assert "c" not in result_nodes, "should not reach other type node"
+
+    def test_source_node_match_single_hop(self):
+        """
+        source_node_match restricts which nodes can be traversed FROM.
+
+        Graph: a (good) -> c, b (bad) -> c
+        With source_node_match={'type': 'good'}, only path from a should exist.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "type": "good"},
+            {"id": "b", "v": 5, "type": "bad"},
+            {"id": "c", "v": 10, "type": "target"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "c"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(source_node_match={"type": "good"}, min_hops=1, max_hops=1),
+            n({"id": "c"}, name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "a" in result_nodes, "good type source should be included"
+        assert "b" not in result_nodes, "bad type source should be excluded"
+
+    def test_edge_match_single_hop(self):
+        """
+        edge_match restricts which edges can be traversed.
+
+        Graph: a -friend-> b, a -enemy-> c
+        With edge_match={'type': 'friend'}, only path via friend edge should exist.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 10},
+            {"id": "c", "v": 20},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b", "type": "friend"},
+            {"src": "a", "dst": "c", "type": "enemy"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(edge_match={"type": "friend"}, min_hops=1, max_hops=1),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_nodes, "should reach via friend edge"
+        assert "c" not in result_nodes, "should not reach via enemy edge"
+
+    def test_destination_node_match_multi_hop(self):
+        """
+        destination_node_match applies at EACH hop, not just final.
+
+        Graph: a -> b (target) -> c (target)
+        With destination_node_match={'type': 'target'}, b and c must both be targets.
+        Note: destination_node_match filters destinations at every hop step,
+        so intermediate nodes must also match.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "type": "source"},
+            {"id": "b", "v": 5, "type": "target"},  # intermediate must also be target
+            {"id": "c", "v": 10, "type": "target"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(destination_node_match={"type": "target"}, min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_nodes, "should reach b (target) at hop 1"
+        assert "c" in result_nodes, "should reach c (target) at hop 2"
+
+    def test_combined_source_and_dest_match(self):
+        """
+        Both source_node_match and destination_node_match together.
+
+        Graph: a (sender) -> c, b (receiver) -> c, a -> d
+        source_node_match={'role': 'sender'}, destination_node_match={'type': 'target'}
+        Only a->c path should work (a is sender, c would need to be target)
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "role": "sender", "type": "node"},
+            {"id": "b", "v": 5, "role": "receiver", "type": "node"},
+            {"id": "c", "v": 10, "role": "none", "type": "target"},
+            {"id": "d", "v": 15, "role": "none", "type": "other"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "c"},
+            {"src": "b", "dst": "c"},
+            {"src": "a", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(
+                source_node_match={"role": "sender"},
+                destination_node_match={"type": "target"},
+                min_hops=1, max_hops=1
+            ),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "a" in result_nodes, "sender a should be included"
+        assert "c" in result_nodes, "target c should be reached"
+        assert "b" not in result_nodes, "receiver b should be excluded as source"
+        assert "d" not in result_nodes, "other d should be excluded as destination"
+
+    def test_edge_match_multi_hop(self):
+        """
+        edge_match restricts which edges can be used in multi-hop.
+
+        Graph: a -good-> b -good-> c, b -bad-> d
+        With edge_match={'quality': 'good'}, only a-b-c path should work.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 15},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b", "quality": "good"},
+            {"src": "b", "dst": "c", "quality": "good"},
+            {"src": "b", "dst": "d", "quality": "bad"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_forward(edge_match={"quality": "good"}, min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_nodes, "should reach b via good edge"
+        assert "c" in result_nodes, "should reach c via good edges"
+        assert "d" not in result_nodes, "should not reach d via bad edge"
+
+    def test_undirected_with_destination_match(self):
+        """
+        destination_node_match with undirected traversal.
+
+        Graph: b -> a, b -> c (both targets)
+        Undirected from a with destination_node_match={'type': 'target'}
+        should find b and c (all targets along the path).
+        Note: destination_node_match applies at each hop, so b must also be target.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "type": "source"},
+            {"id": "b", "v": 5, "type": "target"},  # must also be target for multi-hop
+            {"id": "c", "v": 10, "type": "target"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "b", "dst": "a"},  # Points TO a
+            {"src": "b", "dst": "c"},  # Points TO c
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),
+            e_undirected(destination_node_match={"type": "target"}, min_hops=1, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        _assert_parity(graph, chain, where)
+
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        assert "b" in result_nodes, "should reach b (target) at hop 1"
+        assert "c" in result_nodes, "should reach c (target) at hop 2"
