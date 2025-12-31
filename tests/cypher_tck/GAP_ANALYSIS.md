@@ -105,7 +105,8 @@ translation guidelines.
   `return2-18`, `return4-10`, `return6-14`, `return6-15`, `return6-20`,
   `return6-21`, `return7-2`, `with4-4`, `with4-5`, `with6-8`, `with6-9`,
   `with-orderby1-46-1..with-orderby1-46-10`,
-  `with-orderby2-25-1..with-orderby2-25-25`
+  `with-orderby2-25-1..with-orderby2-25-25`,
+  `with-orderby3-8-1..with-orderby3-8-30`
 - **Workaround**: Mark as xfail with explicit syntax-error reasons.
 - **Next steps**: Map Cypher error classes to GFQL validation and assert
   exception types in the runner.
@@ -194,7 +195,7 @@ translation guidelines.
   `with-skip-limit1-1..with-skip-limit1-2`, `with-skip-limit2-1..with-skip-limit2-4`,
   `with-skip-limit3-1..with-skip-limit3-3`, `with-orderby1-1..with-orderby1-46`,
   `with-orderby2-1..with-orderby2-10`, `with-orderby2-11..with-orderby2-20`,
-  `with-orderby2-21..with-orderby2-25`, `with-orderby3-1..with-orderby3-4`,
+  `with-orderby2-21..with-orderby2-25`, `with-orderby3-1..with-orderby3-8`,
   `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
@@ -329,7 +330,7 @@ translation guidelines.
   `return5-1..return5-5`, `return6-1..return6-13`, `return6-16..return6-19`,
   `return7-1`, `return8-1`, `with-orderby1-23..with-orderby1-45`,
   `with-orderby2-1..with-orderby2-10`, `with-orderby2-11..with-orderby2-20`,
-  `with-orderby2-21..with-orderby2-24`, `with-orderby3-1..with-orderby3-4`,
+  `with-orderby2-21..with-orderby2-24`, `with-orderby3-1..with-orderby3-7`,
   `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
@@ -366,7 +367,7 @@ translation guidelines.
   `with-skip-limit2-4`, `with-skip-limit3-1..with-skip-limit3-3`,
   `with-orderby1-1..with-orderby1-46`, `with-orderby2-1..with-orderby2-10`,
   `with-orderby2-11..with-orderby2-20`, `with-orderby2-21..with-orderby2-25`,
-  `with-orderby3-1..with-orderby3-4`, `with-orderby4-1..with-orderby4-9`
+  `with-orderby3-1..with-orderby3-8`, `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add ORDER BY support to the translation layer and extend the
@@ -397,7 +398,7 @@ translation guidelines.
   `with-skip-limit2-1..with-skip-limit2-4`,
   `with-skip-limit3-1..with-skip-limit3-3`, `with-orderby1-1..with-orderby1-46`,
   `with-orderby2-1..with-orderby2-10`, `with-orderby2-11..with-orderby2-20`,
-  `with-orderby2-21..with-orderby2-24`, `with-orderby3-1..with-orderby3-4`,
+  `with-orderby2-21..with-orderby2-24`, `with-orderby3-1..with-orderby3-8`,
   `with-orderby4-1..with-orderby4-9`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
@@ -411,7 +412,7 @@ translation guidelines.
 - **Affected scenarios**: `return-orderby1-1..return-orderby1-12`,
   `return-orderby4-1`, `return-skip-limit1-3`, `return-skip-limit2-1`,
   `return-skip-limit2-6`, `return-skip-limit3-3`, `with-orderby1-1..with-orderby1-22`,
-  `with-orderby1-43..with-orderby1-45`
+  `with-orderby1-43..with-orderby1-45`, `with-orderby3-7-1..with-orderby3-7-10`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add UNWIND translation/execution support and row-level
