@@ -418,7 +418,7 @@ translation guidelines.
   `return-orderby4-1`, `return-skip-limit1-3`, `return-skip-limit2-1`,
   `return-skip-limit2-6`, `return-skip-limit3-3`, `with-orderby1-1..with-orderby1-22`,
   `with-orderby1-43..with-orderby1-45`, `with-orderby3-7-1..with-orderby3-7-10`,
-  `unwind1-1..unwind1-13`
+  `unwind1-1..unwind1-13`, `union1-3`, `union2-3`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add UNWIND translation/execution support and row-level
@@ -449,6 +449,17 @@ translation guidelines.
   metadata.
 - **Next steps**: Add procedure registry stubs, CALL clause translation, and
   YIELD projection validation, then extend the runner to compare row outputs.
+
+### G31: UNION / UNION ALL semantics
+- **Status**: Open
+- **Description**: The harness does not support UNION/UNION ALL composition,
+  distinct handling, or column alignment validation across union branches.
+- **Affected scenarios**: `union1-1..union1-5`, `union2-1..union2-5`,
+  `union3-1..union3-2`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add UNION clause translation, row normalization, and
+  column alignment validation for UNION / UNION ALL branches.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
