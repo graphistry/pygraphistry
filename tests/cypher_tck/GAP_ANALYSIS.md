@@ -527,3 +527,20 @@ translation guidelines.
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
   `plans/cypher-tck-conformance/plan.md`.
+
+## Coverage impact snapshot (tag-based)
+Counts below are rough, tag-based xfail totals from `tests/cypher_tck/scenarios.py`.
+Tags overlap, so totals are not additive.
+
+- **Expression evaluation (G35)**: 2,599 xfail scenarios tagged `expr` (temporal
+  1,069; list 219; string 32; typeConversion 47; boolean 150; comparison 84;
+  aggregation 142).
+- **Pipeline semantics (G13/G25/G26/G27)**: `with` 372, `orderby` 339, `limit`
+  241, `skip` 19, `distinct` 21 (all xfail).
+- **Row projection + bindings (G1/G2/G23)**: `match` 138 xfail, `return` 134
+  xfail (row-level comparison and join/binding semantics missing).
+- **Update clauses (G21/G32/G33/G34/G24)**: `create` 78, `merge` 77, `set` 53,
+  `remove` 33, `delete` 45 (all xfail).
+- **Procedures / union / unwind (G30/G31/G28)**: `call` 49, `union` 12,
+  `unwind` 76 (all xfail).
+- **UseCases suite (G36)**: `usecase` 30 (all xfail).
