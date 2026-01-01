@@ -304,7 +304,10 @@ translation guidelines.
 - **Status**: Open
 - **Description**: The harness does not support `MERGE` clause write semantics
   or the ability to match-or-create nodes/relationships.
-- **Affected scenarios**: `match8-2`, `unwind1-6`
+- **Affected scenarios**: `merge1-1..merge1-17`, `merge2-1..merge2-6`,
+  `merge3-1..merge3-5`, `merge4-1..merge4-2`, `merge5-1..merge5-25`,
+  `merge6-1..merge6-4`, `merge6-6..merge6-7`, `merge7-1..merge7-5`,
+  `merge8-1`, `merge9-1..merge9-4`, plus `match8-2`, `unwind1-6`
 - **Workaround**: Mark as xfail and capture expected rows in the scenario
   metadata.
 - **Next steps**: Add MERGE support to the translation layer (or precompute
@@ -347,7 +350,9 @@ translation guidelines.
 - **Description**: The harness does not support DELETE clause semantics, side
   effect validation, or runtime errors for accessing deleted nodes and
   relationships.
-- **Affected scenarios**: `return2-14`, `return2-15`, `return2-16`,
+- **Affected scenarios**: `delete1-1..delete1-8`, `delete2-1..delete2-5`,
+  `delete3-1..delete3-2`, `delete4-1..delete4-3`, `delete5-1..delete5-9`,
+  `delete6-1..delete6-14`, plus `return2-14`, `return2-15`, `return2-16`,
   `return2-17`
 - **Workaround**: Mark as xfail and capture expected rows/side effects in the
   scenario metadata.
@@ -460,6 +465,64 @@ translation guidelines.
   metadata.
 - **Next steps**: Add UNION clause translation, row normalization, and
   column alignment validation for UNION / UNION ALL branches.
+
+### G32: CREATE clause semantics
+- **Status**: Open
+- **Description**: The harness does not support `CREATE` clause write semantics
+  (node/relationship creation, property/label side effects).
+- **Affected scenarios**: `create1-1..create1-20`, `create2-1..create2-24`,
+  `create3-1..create3-13`, `create4-1`, `create5-1..create5-5`,
+  `create6-1..create6-10`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add CREATE support to the translation layer and validate
+  side effects on nodes/edges/properties.
+
+### G33: SET clause semantics
+- **Status**: Open
+- **Description**: The harness does not support `SET` clause updates for
+  properties or labels, nor side effect validation.
+- **Affected scenarios**: `set1-1..set1-11`, `set2-1..set2-3`,
+  `set3-1..set3-8`, `set4-1..set4-5`, `set5-1..set5-5`,
+  `set6-1..set6-21`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add SET support to the translation layer and validate
+  property/label updates with side effects.
+
+### G34: REMOVE clause semantics
+- **Status**: Open
+- **Description**: The harness does not support `REMOVE` clause updates for
+  properties or labels, nor side effect validation.
+- **Affected scenarios**: `remove1-1..remove1-7`, `remove2-1..remove2-5`,
+  `remove3-1..remove3-21`
+- **Workaround**: Mark as xfail and capture expected rows in the scenario
+  metadata.
+- **Next steps**: Add REMOVE support to the translation layer and validate
+  property/label removals with side effects.
+
+### G35: Expression evaluation (expressions suite)
+- **Status**: Open
+- **Description**: The harness does not evaluate expression-only queries from
+  the TCK expressions suite (boolean/list/map/string/null/temporal/etc), so
+  standalone RETURN expression semantics are not validated.
+- **Affected scenarios**: `tck/features/expressions/**` (keys `expr-*`)
+- **Workaround**: Mark as xfail with expected rows captured in scenario
+  metadata.
+- **Next steps**: Implement expression evaluation + row-level comparison in the
+  runner (including list/map/temporal semantics) and hook into GFQL execution.
+
+### G36: UseCases suite coverage
+- **Status**: Open
+- **Description**: The harness does not execute the TCK use case scenarios
+  (counting subgraph matches, triadic selection), which depend on full pattern
+  matching, optional matches, aggregation, and row-level projections.
+- **Affected scenarios**: `tck/features/useCases/**` (keys `usecase-*`)
+- **Workaround**: Mark as xfail with expected rows captured in scenario
+  metadata.
+- **Next steps**: Implement row-level evaluation + optional match semantics and
+  translate use case patterns to GFQL once bindings and projection checks are
+  in place.
 
 ## Notes
 - Keep this doc aligned with `tests/cypher_tck/scenarios.py` and plan updates in
