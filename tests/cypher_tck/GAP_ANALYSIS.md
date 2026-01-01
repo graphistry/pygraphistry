@@ -544,3 +544,36 @@ Tags overlap, so totals are not additive.
 - **Procedures / union / unwind (G30/G31/G28)**: `call` 49, `union` 12,
   `unwind` 76 (all xfail).
 - **UseCases suite (G36)**: `usecase` 30 (all xfail).
+
+## Implementation lift + risk notes
+Heuristic guidance for staging work: prioritize high-lift, low-risk items that
+vectorize cleanly in pandas/cuDF. "Lift" reflects rough xfail counts above.
+
+- **Row projection + bindings (G1/G2/G8/G9/G23)**: Lift high (`match` 138 +
+  `return` 134 xfail) with spillover into many clause suites. Risk medium-high
+  due to join semantics, alias scoping, null handling, and row order rules.
+  Vectorization: join/merge + projection, but requires careful row normalization.
+- **Pipeline semantics (G13/G25/G26/G27)**: Lift high (`with` 372, `orderby` 339,
+  `limit` 241, `skip` 19, `distinct` 21). Risk medium: variable scoping and
+  aggregation boundaries are tricky, but core operations map to
+  sort/groupby/drop_duplicates/iloc.
+- **UNWIND (G28)**: Lift medium (`unwind` 76). Risk medium: explode semantics
+  are vector-friendly, but null/empty-list behavior and pipeline placement need
+  care.
+- **Expression evaluation (G35)**: Lift very high (`expr` 2,599) but risk high.
+  Recommend staging: start with pure, deterministic scalar ops (literals,
+  boolean/comparison, basic arithmetic) before lists/strings, then temporal and
+  error semantics last.
+- **OPTIONAL MATCH (G12)**: Lift high (touches many MATCH/WHERE scenarios) with
+  high risk: left-join + null propagation across multi-hop bindings; sensitive
+  to Cypher's tri-valued logic.
+- **UNION (G31)**: Lift low-medium (`union` 12). Risk low-medium: concat +
+  distinct with column alignment; vectorization straightforward once row
+  projection normalization exists.
+- **Update clauses (G21/G32/G33/G34/G24)**: Lift medium (node/edge creation and
+  mutation: `create` 78, `merge` 77, `set` 53, `remove` 33, `delete` 45). Risk
+  high: side effects, transactional semantics, and post-mutation validation.
+- **CALL procedures (G30)**: Lift low-medium (`call` 49). Risk high: external
+  procedure registry, signature/side-effect semantics.
+- **UseCases suite (G36)**: Lift low-medium (`usecase` 30). Risk high: depends
+  on OPTIONAL MATCH, aggregation, and row projections.
