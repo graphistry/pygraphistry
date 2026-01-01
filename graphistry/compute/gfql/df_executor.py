@@ -1,42 +1,9 @@
 """DataFrame-based GFQL executor with same-path WHERE planning.
 
-This module hosts the execution path for GFQL chains that require
-same-path predicate enforcement. Works with both pandas and cuDF
-DataFrames.
+Implements Yannakakis-style semijoin pruning for graph queries.
+Works with both pandas (CPU) and cuDF (GPU) via vectorized operations.
 
-ARCHITECTURE NOTE FOR AI ASSISTANTS
-====================================
-This executor implements Yannakakis-style semijoin pruning for graph queries.
-The same code path must work for BOTH pandas (CPU) and cuDF (GPU).
-
-CRITICAL: ALL operations must be VECTORIZED using DataFrame operations:
-- Use merge() for joins
-- Use groupby().agg() for summaries (min/max for </>; value sets for ==)
-- Use boolean masks for filtering
-- Use .isin() for set membership
-
-NEVER use these anti-patterns (they break GPU and are slow on CPU):
-- for loops over DataFrame rows (for row in df.iterrows())
-- for loops with zip over columns (for a, b in zip(df[x], df[y]))
-- while loops for BFS/DFS graph traversal
-- Building Python dicts/adjacency lists from DataFrame data
-- .tolist() conversions followed by Python iteration
-
-For same-path predicates across multiple hops (e.g., a.val > c.threshold):
-- Monotone (<, >, <=, >=): Propagate min/max summaries hop-by-hop via groupby
-- Equality (==, !=): Propagate value sets via state tables (merge + groupby)
-
-Example of CORRECT vectorized multi-hop summary propagation:
-    # Forward: propagate max(a.val) through edges to node c
-    e1_with_a = edges_e1.merge(nodes_a[['id', 'val']], left_on='src', right_on='id')
-    max_at_b = e1_with_a.groupby('dst')['val'].max().reset_index()
-    e2_with_b = edges_e2.merge(max_at_b, left_on='src', right_on='id')
-    max_at_c = e2_with_b.groupby('dst')['val'].max().reset_index()
-    # Filter: keep c nodes where max_a_val > threshold
-    valid_c = nodes_c.merge(max_at_c, on='id')
-    valid_c = valid_c[valid_c['val'] > valid_c['threshold']]
-
-See plan.md for full Yannakakis algorithm explanation and refactoring notes.
+All operations use DataFrame merge/groupby/masks - no row iteration.
 """
 
 from __future__ import annotations
@@ -182,8 +149,6 @@ class DFSamePathExecutor:
         self._capture_equality_values(alias, alias_frame)
         self._apply_ready_clauses()
 
-    # --- Execution selection helpers -------------------------------------------------
-
     def _should_attempt_gpu(self) -> bool:
         """Decide whether to try GPU kernels for same-path execution."""
 
@@ -209,8 +174,6 @@ class DFSamePathExecutor:
             return False
         return True
 
-    # --- Oracle (CPU) fallback -------------------------------------------------------
-
     def _run_oracle(self) -> Plottable:
         oracle = enumerate_chain(
             self.inputs.graph,
@@ -225,18 +188,12 @@ class DFSamePathExecutor:
         self._update_alias_frames_from_oracle(oracle.tags)
         return self._materialize_from_oracle(nodes_df, edges_df)
 
-    # --- Native vectorized path (pandas + cuDF) ---------------------------------------
-
     def _run_native(self) -> Plottable:
-        """Native vectorized path using backward-prune for same-path filtering.
-
-        Works for both pandas and cuDF engines. Uses Yannakakis-style semijoin
-        pruning to filter nodes/edges that participate in valid paths.
-        """
+        """Native vectorized path using backward-prune for same-path filtering."""
         allowed_tags = self._compute_allowed_tags()
         path_state = self._backward_prune(allowed_tags)
-        # Apply non-adjacent equality constraints after backward prune
         path_state = self._apply_non_adjacent_where_post_prune(path_state)
+        path_state = self._apply_edge_where_post_prune(path_state)
         return self._materialize_filtered(path_state)
 
     # Alias for backwards compatibility
@@ -299,8 +256,6 @@ class DFSamePathExecutor:
         g_out = g_out.edges(edges_df, source=src, destination=dst, edge=edge_id)
         return g_out
 
-    # --- GPU helpers ---------------------------------------------------------------
-
     def _compute_allowed_tags(self) -> Dict[str, Set[Any]]:
         """Seed allowed ids from alias frames (post-forward pruning)."""
 
@@ -321,26 +276,17 @@ class DFSamePathExecutor:
         binding2 = self.inputs.alias_bindings.get(alias2)
         if binding1 is None or binding2 is None:
             return False
-        # Only consider node aliases for adjacency
         if binding1.kind != "node" or binding2.kind != "node":
             return False
-        # Adjacent nodes are exactly 2 step indices apart (n-e-n pattern)
         return abs(binding1.step_index - binding2.step_index) == 2
 
     def _apply_non_adjacent_where_post_prune(
         self, path_state: "_PathState"
     ) -> "_PathState":
-        """
-        Apply WHERE constraints between non-adjacent aliases after backward prune.
-
-        For equality clauses like a.id == c.id where a and c are 2+ edges apart,
-        we need to trace actual paths to find which (start, end) pairs satisfy
-        the constraint, then filter nodes/edges accordingly.
-        """
+        """Apply WHERE on non-adjacent node aliases by tracing paths."""
         if not self.inputs.where:
             return path_state
 
-        # Find non-adjacent WHERE clauses
         non_adjacent_clauses = []
         for clause in self.inputs.where:
             left_alias = clause.left.alias
@@ -355,7 +301,6 @@ class DFSamePathExecutor:
         if not non_adjacent_clauses:
             return path_state
 
-        # Get node and edge indices in chain order
         node_indices: List[int] = []
         edge_indices: List[int] = []
         for idx, op in enumerate(self.inputs.chain):
@@ -364,8 +309,6 @@ class DFSamePathExecutor:
             elif isinstance(op, ASTEdge):
                 edge_indices.append(idx)
 
-        # Build adjacency for path tracing (forward direction only for now)
-        # Maps (src_node_id) -> list of (edge_step_idx, edge_id, dst_node_id)
         src_col = self._source_column
         dst_col = self._destination_column
         edge_id_col = self._edge_column
@@ -373,14 +316,12 @@ class DFSamePathExecutor:
         if not src_col or not dst_col:
             return path_state
 
-        # For each non-adjacent clause, trace paths and filter
         for clause in non_adjacent_clauses:
             left_alias = clause.left.alias
             right_alias = clause.right.alias
             left_binding = self.inputs.alias_bindings[left_alias]
             right_binding = self.inputs.alias_bindings[right_alias]
 
-            # Ensure left is before right in chain
             if left_binding.step_index > right_binding.step_index:
                 left_alias, right_alias = right_alias, left_alias
                 left_binding, right_binding = right_binding, left_binding
@@ -388,23 +329,16 @@ class DFSamePathExecutor:
             start_node_idx = left_binding.step_index
             end_node_idx = right_binding.step_index
 
-            # Get edge indices between start and end node positions
             relevant_edge_indices = [
                 idx for idx in edge_indices
                 if start_node_idx < idx < end_node_idx
             ]
 
-            # Trace paths from start nodes to end nodes
             start_nodes = path_state.allowed_nodes.get(start_node_idx, set())
             end_nodes = path_state.allowed_nodes.get(end_node_idx, set())
-
             if not start_nodes or not end_nodes:
                 continue
 
-            # Get column values for the constraint
-            # IMPORTANT: Use the original graph's node DataFrame, not alias_frames,
-            # because alias_frames can be incomplete (populated during forward phase
-            # but backward prune may add more allowed nodes).
             left_col = clause.left.column
             right_col = clause.right.column
             node_id_col = self._node_column
@@ -415,12 +349,9 @@ class DFSamePathExecutor:
             if nodes_df is None or node_id_col not in nodes_df.columns:
                 continue
 
-            # Build value DataFrames from the original graph nodes
-            # Filter to start_nodes/end_nodes for efficiency
             left_values_df = None
             if left_col in nodes_df.columns:
                 if node_id_col == left_col:
-                    # Same column - just use node IDs
                     left_values_df = nodes_df[nodes_df[node_id_col].isin(start_nodes)][[node_id_col]].drop_duplicates().copy()
                     left_values_df.columns = ['__start__']
                     left_values_df['__start_val__'] = left_values_df['__start__']
@@ -432,7 +363,6 @@ class DFSamePathExecutor:
             right_values_df = None
             if right_col in nodes_df.columns:
                 if node_id_col == right_col:
-                    # Same column - just use node IDs
                     right_values_df = nodes_df[nodes_df[node_id_col].isin(end_nodes)][[node_id_col]].drop_duplicates().copy()
                     right_values_df.columns = ['__current__']
                     right_values_df['__end_val__'] = right_values_df['__current__']
@@ -441,9 +371,7 @@ class DFSamePathExecutor:
                         columns={node_id_col: '__current__', right_col: '__end_val__'}
                     )
 
-            # Vectorized path tracing using state table propagation
-            # State table: (current_node, start_node) pairs - which starts can reach each node
-            # left_values_df is already filtered to start_nodes
+            # State table propagation: (current_node, start_node) pairs
             if left_values_df is not None and len(left_values_df) > 0:
                 state_df = left_values_df[['__start__']].copy()
                 state_df['__current__'] = state_df['__start__']
@@ -455,7 +383,6 @@ class DFSamePathExecutor:
                 if edges_df is None or len(state_df) == 0:
                     break
 
-                # Filter edges to allowed edges
                 allowed_edges = path_state.allowed_edges.get(edge_idx, None)
                 if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
                     edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
@@ -466,7 +393,6 @@ class DFSamePathExecutor:
                 is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
 
                 if is_multihop and isinstance(edge_op, ASTEdge):
-                    # For multi-hop, propagate state through multiple hops
                     min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
                     max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
                         edge_op.hops if edge_op.hops is not None else 1
@@ -567,6 +493,216 @@ class DFSamePathExecutor:
 
         return path_state
 
+    def _apply_edge_where_post_prune(
+        self, path_state: "_PathState"
+    ) -> "_PathState":
+        """Apply WHERE on edge columns by enumerating paths."""
+        if not self.inputs.where:
+            return path_state
+
+        edge_clauses = [
+            clause for clause in self.inputs.where
+            if (b1 := self.inputs.alias_bindings.get(clause.left.alias))
+            and (b2 := self.inputs.alias_bindings.get(clause.right.alias))
+            and (b1.kind == "edge" or b2.kind == "edge")
+        ]
+        if not edge_clauses:
+            return path_state
+
+        src_col = self._source_column
+        dst_col = self._destination_column
+        node_id_col = self._node_column
+        if not src_col or not dst_col or not node_id_col:
+            return path_state
+
+        node_indices: List[int] = []
+        edge_indices: List[int] = []
+        for idx, op in enumerate(self.inputs.chain):
+            if isinstance(op, ASTNode):
+                node_indices.append(idx)
+            elif isinstance(op, ASTEdge):
+                edge_indices.append(idx)
+
+        seed_nodes = path_state.allowed_nodes.get(node_indices[0], set())
+        if not seed_nodes:
+            return path_state
+
+        paths_df = pd.DataFrame({f'n{node_indices[0]}': list(seed_nodes)})
+
+        for i, edge_idx in enumerate(edge_indices):
+            left_node_idx = node_indices[i]
+            right_node_idx = node_indices[i + 1]
+
+            edges_df = self.forward_steps[edge_idx]._edges
+            if edges_df is None or len(edges_df) == 0:
+                paths_df = paths_df.iloc[0:0]  # Empty paths
+                break
+
+            edge_op = self.inputs.chain[edge_idx]
+            is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
+            is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
+
+            edge_alias = self._alias_for_step(edge_idx)
+            edge_cols_needed = {
+                ref.column for clause in edge_clauses
+                for ref in [clause.left, clause.right] if ref.alias == edge_alias
+            }
+
+            edge_cols = [src_col, dst_col] + [c for c in edge_cols_needed if c in edges_df.columns]
+            edges_subset = edges_df[list(set(edge_cols))].copy()
+
+            rename_map = {
+                col: f'e{edge_idx}_{col}' for col in edge_cols_needed
+                if col in edges_subset.columns and col not in [src_col, dst_col]
+            }
+            edges_subset = edges_subset.rename(columns=rename_map)
+
+            left_col = f'n{left_node_idx}'
+            if is_undirected:
+                join1 = paths_df.merge(
+                    edges_subset, left_on=left_col, right_on=src_col, how='inner'
+                )
+                join1[f'n{right_node_idx}'] = join1[dst_col]
+                join2 = paths_df.merge(
+                    edges_subset, left_on=left_col, right_on=dst_col, how='inner'
+                )
+                join2[f'n{right_node_idx}'] = join2[src_col]
+                paths_df = pd.concat([join1, join2], ignore_index=True)
+            elif is_reverse:
+                paths_df = paths_df.merge(
+                    edges_subset, left_on=left_col, right_on=dst_col, how='inner'
+                )
+                paths_df[f'n{right_node_idx}'] = paths_df[src_col]
+            else:
+                paths_df = paths_df.merge(
+                    edges_subset, left_on=left_col, right_on=src_col, how='inner'
+                )
+                paths_df[f'n{right_node_idx}'] = paths_df[dst_col]
+
+            right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
+            if right_allowed:
+                paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(list(right_allowed))]
+
+            paths_df = paths_df.drop(columns=[src_col, dst_col], errors='ignore')
+
+        if len(paths_df) == 0:
+            for idx in node_indices:
+                path_state.allowed_nodes[idx] = set()
+            return path_state
+
+        nodes_df = self.inputs.graph._nodes
+        if nodes_df is not None:
+            for clause in edge_clauses:
+                for ref in [clause.left, clause.right]:
+                    binding = self.inputs.alias_bindings.get(ref.alias)
+                    if binding and binding.kind == "node" and ref.column != node_id_col:
+                        step_idx = binding.step_index
+                        col_name = f'n{step_idx}_{ref.column}'
+                        if col_name not in paths_df.columns and ref.column in nodes_df.columns:
+                            node_attr = nodes_df[[node_id_col, ref.column]].rename(
+                                columns={node_id_col: f'n{step_idx}', ref.column: col_name}
+                            )
+                            paths_df = paths_df.merge(node_attr, on=f'n{step_idx}', how='left')
+
+        mask = pd.Series(True, index=paths_df.index)
+        for clause in edge_clauses:
+            left_binding = self.inputs.alias_bindings[clause.left.alias]
+            right_binding = self.inputs.alias_bindings[clause.right.alias]
+
+            if left_binding.kind == "edge":
+                left_col_name = f'e{left_binding.step_index}_{clause.left.column}'
+            else:
+                if clause.left.column == node_id_col or clause.left.column == "id":
+                    left_col_name = f'n{left_binding.step_index}'
+                else:
+                    left_col_name = f'n{left_binding.step_index}_{clause.left.column}'
+
+            if right_binding.kind == "edge":
+                right_col_name = f'e{right_binding.step_index}_{clause.right.column}'
+            else:
+                if clause.right.column == node_id_col or clause.right.column == "id":
+                    right_col_name = f'n{right_binding.step_index}'
+                else:
+                    right_col_name = f'n{right_binding.step_index}_{clause.right.column}'
+
+            if left_col_name not in paths_df.columns or right_col_name not in paths_df.columns:
+                continue
+
+            left_vals = paths_df[left_col_name]
+            right_vals = paths_df[right_col_name]
+
+            # SQL NULL semantics: any comparison with NULL is NULL (treated as False)
+            # We need to check for NULL before comparing, because pandas != returns True for X != NaN
+            valid = left_vals.notna() & right_vals.notna()
+
+            if clause.op == "==":
+                clause_mask = valid & (left_vals == right_vals)
+            elif clause.op == "!=":
+                clause_mask = valid & (left_vals != right_vals)
+            elif clause.op == "<":
+                clause_mask = valid & (left_vals < right_vals)
+            elif clause.op == "<=":
+                clause_mask = valid & (left_vals <= right_vals)
+            elif clause.op == ">":
+                clause_mask = valid & (left_vals > right_vals)
+            elif clause.op == ">=":
+                clause_mask = valid & (left_vals >= right_vals)
+            else:
+                continue
+
+            mask &= clause_mask.fillna(False)
+
+        # Filter paths
+        valid_paths = paths_df[mask]
+
+        # Update allowed nodes based on valid paths
+        for node_idx in node_indices:
+            col_name = f'n{node_idx}'
+            if col_name in valid_paths.columns:
+                valid_node_ids = set(valid_paths[col_name].unique())
+                current = path_state.allowed_nodes.get(node_idx, set())
+                path_state.allowed_nodes[node_idx] = current & valid_node_ids if current else valid_node_ids
+
+        for i, edge_idx in enumerate(edge_indices):
+            left_node_idx = node_indices[i]
+            right_node_idx = node_indices[i + 1]
+            left_col = f'n{left_node_idx}'
+            right_col = f'n{right_node_idx}'
+
+            if left_col in valid_paths.columns and right_col in valid_paths.columns:
+                valid_pairs = valid_paths[[left_col, right_col]].drop_duplicates()
+                edges_df = self.forward_steps[edge_idx]._edges
+                if edges_df is not None:
+                    edge_op = self.inputs.chain[edge_idx]
+                    is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
+                    is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
+
+                    if is_undirected:
+                        fwd = edges_df.merge(
+                            valid_pairs.rename(columns={left_col: src_col, right_col: dst_col}),
+                            on=[src_col, dst_col], how='inner'
+                        )
+                        rev = edges_df.merge(
+                            valid_pairs.rename(columns={left_col: dst_col, right_col: src_col}),
+                            on=[src_col, dst_col], how='inner'
+                        )
+                        edges_df = pd.concat([fwd, rev], ignore_index=True).drop_duplicates(
+                            subset=[src_col, dst_col]
+                        )
+                    elif is_reverse:
+                        edges_df = edges_df.merge(
+                            valid_pairs.rename(columns={left_col: dst_col, right_col: src_col}),
+                            on=[src_col, dst_col], how='inner'
+                        )
+                    else:
+                        edges_df = edges_df.merge(
+                            valid_pairs.rename(columns={left_col: src_col, right_col: dst_col}),
+                            on=[src_col, dst_col], how='inner'
+                        )
+                    self.forward_steps[edge_idx]._edges = edges_df
+
+        return path_state
+
     def _re_propagate_backward(
         self,
         path_state: "_PathState",
@@ -583,11 +719,9 @@ class DFSamePathExecutor:
         if not src_col or not dst_col:
             return
 
-        # Walk backward from end to start
         relevant_edge_indices = [idx for idx in edge_indices if start_idx < idx < end_idx]
 
         for edge_idx in reversed(relevant_edge_indices):
-            # Find the node indices this edge connects
             edge_pos = edge_indices.index(edge_idx)
             left_node_idx = node_indices[edge_pos]
             right_node_idx = node_indices[edge_pos + 1]
@@ -597,37 +731,27 @@ class DFSamePathExecutor:
                 continue
 
             original_len = len(edges_df)
-
-            # Filter by allowed edges
             allowed_edges = path_state.allowed_edges.get(edge_idx, None)
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
                 edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
 
-            # Get edge direction and check if multi-hop
             edge_op = self.inputs.chain[edge_idx]
             is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
             is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
 
-            # Filter edges by allowed left (src) and right (dst) nodes
             left_allowed = path_state.allowed_nodes.get(left_node_idx, set())
             right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
 
             is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
             if is_multihop and isinstance(edge_op, ASTEdge):
-                # For multi-hop edges, we need to trace valid paths from left_allowed
-                # to right_allowed, keeping all edges that participate in valid paths.
-                # Simple src/dst filtering would incorrectly remove intermediate edges.
                 edges_df = self._filter_multihop_edges_by_endpoints(
                     edges_df, edge_op, left_allowed, right_allowed, is_reverse, is_undirected
                 )
             else:
-                # Single-hop: filter by src/dst directly
                 if is_undirected:
-                    # Undirected: edge connects left and right in either direction
                     if left_allowed and right_allowed:
                         left_set = list(left_allowed)
                         right_set = list(right_allowed)
-                        # Keep edges where (src in left and dst in right) OR (dst in left and src in right)
                         mask = (
                             (edges_df[src_col].isin(left_set) & edges_df[dst_col].isin(right_set))
                             | (edges_df[dst_col].isin(left_set) & edges_df[src_col].isin(right_set))
@@ -644,19 +768,16 @@ class DFSamePathExecutor:
                             edges_df[src_col].isin(right_set) | edges_df[dst_col].isin(right_set)
                         ]
                 elif is_reverse:
-                    # Reverse: src is right side, dst is left side
                     if right_allowed:
                         edges_df = edges_df[edges_df[src_col].isin(list(right_allowed))]
                     if left_allowed:
                         edges_df = edges_df[edges_df[dst_col].isin(list(left_allowed))]
                 else:
-                    # Forward: src is left side, dst is right side
                     if left_allowed:
                         edges_df = edges_df[edges_df[src_col].isin(list(left_allowed))]
                     if right_allowed:
                         edges_df = edges_df[edges_df[dst_col].isin(list(right_allowed))]
 
-            # Update allowed edges
             if edge_id_col and edge_id_col in edges_df.columns:
                 new_edge_ids = set(edges_df[edge_id_col].tolist())
                 if edge_idx in path_state.allowed_edges:
@@ -664,10 +785,7 @@ class DFSamePathExecutor:
                 else:
                     path_state.allowed_edges[edge_idx] = new_edge_ids
 
-            # Update allowed left (src) nodes based on filtered edges
             if is_multihop and isinstance(edge_op, ASTEdge):
-                # For multi-hop, the "left" nodes are those that can START paths
-                # to reach right_allowed within the hop constraints
                 new_src_nodes = self._find_multihop_start_nodes(
                     edges_df, edge_op, right_allowed, is_reverse, is_undirected
                 )
@@ -713,7 +831,7 @@ class DFSamePathExecutor:
         if not src_col or not dst_col or not left_allowed or not right_allowed:
             return edges_df
 
-        min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
+        # Only max_hops needed here - min_hops is enforced at path level, not per-edge
         max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
             edge_op.hops if edge_op.hops is not None else 1
         )
