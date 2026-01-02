@@ -62,7 +62,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     from_cugraph
 )
 
-from graphistry.collections_helpers import (
+from graphistry.collections import (
     collection_set,
     collection_intersection,
     CollectionSet,

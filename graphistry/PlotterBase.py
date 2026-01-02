@@ -2,6 +2,7 @@ from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
@@ -1848,7 +1849,7 @@ class PlotterBase(Plottable):
 
     def collections(
         self,
-        collections: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None,
+        collections: Optional[CollectionsInput] = None,
         show_collections: Optional[bool] = None,
         collections_global_node_color: Optional[str] = None,
         collections_global_edge_color: Optional[str] = None,
