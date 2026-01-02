@@ -97,45 +97,7 @@ class DFSamePathExecutor:
         if mode == "strict":
             self._should_attempt_gpu()  # Raises if cudf unavailable in strict mode
 
-        # Fall back to oracle for cases where native path can't handle:
-        # - Unfiltered start node + multi-hop edge + WHERE clause
-        # In this case, hop labels become meaningless (all edges are "hop 1" from some start)
-        if self._needs_oracle_fallback():
-            return self._run_oracle()
-
         return self._run_native()
-
-    def _needs_oracle_fallback(self) -> bool:
-        """Check if this query needs oracle fallback due to native path limitations.
-
-        Returns True for: unfiltered start node + multi-hop edge + WHERE clause.
-        The native path relies on hop labels to identify path positions, but hop labels
-        are ambiguous when the start node is unfiltered (every edge becomes "hop 1"
-        from some starting node).
-        """
-        if not self.inputs.where:
-            return False  # No WHERE clause, native path works fine
-
-        # Check if any edge step is multi-hop
-        has_multihop = False
-        for op in self.inputs.chain:
-            if isinstance(op, ASTEdge) and not self._is_single_hop(op):
-                has_multihop = True
-                break
-
-        if not has_multihop:
-            return False  # Single-hop only, native path works fine
-
-        # Check if the first node step is unfiltered
-        first_node_step = self.inputs.chain[0] if self.inputs.chain else None
-        if not isinstance(first_node_step, ASTNode):
-            return False
-
-        # ASTNode with no filter_dict means unfiltered (matches all nodes)
-        if first_node_step.filter_dict:
-            return False  # Has filter, native path can use hop labels correctly
-
-        return True  # Unfiltered start + multi-hop + WHERE = needs oracle
 
     def _forward(self) -> None:
         graph = self.inputs.graph
@@ -1961,36 +1923,9 @@ class DFSamePathExecutor:
         for clause in ready:
             self._prune_clause(clause)
 
-    def _aliases_span_multihop(self, alias1: str, alias2: str) -> bool:
-        """Check if two node aliases are connected by a multi-hop edge step."""
-        binding1 = self.inputs.alias_bindings.get(alias1)
-        binding2 = self.inputs.alias_bindings.get(alias2)
-        if binding1 is None or binding2 is None:
-            return False
-        if binding1.kind != "node" or binding2.kind != "node":
-            return False
-        # Find the edge step between them
-        idx1, idx2 = binding1.step_index, binding2.step_index
-        if abs(idx1 - idx2) != 2:
-            return False  # Not adjacent (one edge apart)
-        edge_idx = min(idx1, idx2) + 1
-        if edge_idx >= len(self.inputs.chain):
-            return False
-        edge_op = self.inputs.chain[edge_idx]
-        if not isinstance(edge_op, ASTEdge):
-            return False
-        return not self._is_single_hop(edge_op)
-
     def _prune_clause(self, clause: WhereComparison) -> None:
         if clause.op == "!=":
             return  # No global prune for inequality-yet
-
-        # Skip min/max inequality pruning for aliases connected by multi-hop edges.
-        # Multi-hop pruning requires path-aware filtering done in _filter_multihop_by_where.
-        # Only equality pruning is safe for multi-hop (same value must exist on both sides).
-        if clause.op != "==" and self._aliases_span_multihop(clause.left.alias, clause.right.alias):
-            return
-
         lhs = self.alias_frames[clause.left.alias]
         rhs = self.alias_frames[clause.right.alias]
         left_col = clause.left.column
