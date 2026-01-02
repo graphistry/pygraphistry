@@ -36,10 +36,22 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.scene_settings` to modify the appe
 - ``edge_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 - ``point_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 
+Encodings (Color, Size, Icons)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the ``encode_*`` methods to style nodes and edges based on columns (for example, color by entity type).
+See the :doc:`Color encodings notebook </demos/more_examples/graphistry_features/encodings-colors>` for full examples.
+
 Collections
 ~~~~~~~~~~~
 
-Use :meth:`graphistry.PlotterBase.PlotterBase.collections` to define collections (subsets) with optional encodings:
+Collections define labeled subsets (nodes, edges, or subgraphs) using full GFQL and apply layered styling
+that overrides base encodings. Use them to call out alerts or critical paths on top of your standard color
+encodings, with priority-based overrides when subsets overlap.
+
+For a full walkthrough, see the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+For GFQL syntax, see :doc:`GFQL documentation </gfql/index>`.
+For schema details, see `Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
 
 .. code-block:: python
 
@@ -61,49 +73,6 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.collections` to define collections
        collections_global_edge_color="CCCCCC",
    )
    g2.plot()
-
-The collections list is JSON-minified and URL-encoded automatically. GFQL operations use the
-Python AST helpers; see :doc:`GFQL documentation </gfql/index>`.
-For full schema details, see `Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
-For a full walkthrough, see the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
-For color encoding basics, see the :doc:`Color encodings notebook </demos/more_examples/graphistry_features/encodings-colors>`.
-
-Notes and validation
-^^^^^^^^^^^^^^^^^^^^
-
-- Order matters: earlier collections have higher priority and override later ones.
-- Use collections for priority-based subsets and overlaps; use encode_* for simple column-driven colors.
-- Helper constructors: ``graphistry.collection_set(...)`` and ``graphistry.collection_intersection(...)``
-  return JSON-friendly dicts (AST inputs are wrapped into ``gfql_chain``) for ``collections=``.
-- Intersections reference set IDs; provide ``id`` for any set used in an intersection.
-- Omitting ``node_color`` or ``edge_color`` leaves encodings as passthrough.
-- ``collections_global_node_color`` and ``collections_global_edge_color`` apply to nodes/edges
-  not in any collection (leading ``#`` is optional).
-- Accepted inputs for ``expr`` include GFQL AST helpers, ``Chain`` objects, and wire-protocol dicts.
-- Use ``validate='strict'`` to raise on invalid collections; the default ``autofix`` warns and
-  drops invalid entries. Use ``warn=False`` to silence warnings.
-- If you already have an encoded collections string, pass ``encode=False``. When using
-  ``settings(url_params=...)`` directly, provide an encoded ``collections`` value.
-
-Wire protocol example
-^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   collections_wire = [
-       {
-           "type": "set",
-           "name": "Wire Protocol Example",
-           "node_color": "#AA00AA",
-           "expr": {
-               "type": "gfql_chain",
-               "gfql": [
-                   {"type": "Node", "filter_dict": {"status": "purchased"}}
-               ]
-           }
-       }
-   ]
-   g.collections(collections=collections_wire)
 
 
 Styling the Background and Foreground

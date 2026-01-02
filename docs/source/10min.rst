@@ -161,19 +161,11 @@ Example visualization:
 
 Now, edges are colored based on the type of vulnerability, helping you distinguish different attack types.
 
-Adjusting Sizes, Labels, Icons, Badges, and More
-------------------------------------------------
+Advanced: Collections for layered highlights
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can adjust further node and edge settings using data. Sample calls include:
-
-- ``bind(point_title=)``: Assign labels to nodes based on a column
-- ``encode_point_size()``: Adjust node sizes based on a column
-- ``encode_point_icon()``: Assign different icons to nodes based on a column
-- ``encode_point_badge()``: Add badges to nodes based on a column
-- ``encode_point_weight()``: Adjust node weights based on a column
-- Equivalent functions for edges: ``encode_edge_size()``, ``encode_edge_icon()``, ``encode_edge_badge()``
-
-For advanced, subset-based coloring, use Collections with GFQL AST helpers:
+Use collections when you want GFQL-driven subsets (nodes, edges, or subgraphs) to override base encodings.
+This is useful for overlays like alerts or critical paths that take precedence over your normal color rules.
 
 .. code-block:: python
 
@@ -188,9 +180,20 @@ For advanced, subset-based coloring, use Collections with GFQL AST helpers:
     ]
     g.collections(collections=collections, show_collections=True).plot()
 
-See :ref:`Layout settings <layout-settings>` and the
-:doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
-Tip: order matters (earlier collections override later ones) and intersections require set IDs.
+See the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>` and
+:doc:`GFQL docs </gfql/index>` for full details.
+
+Adjusting Sizes, Labels, Icons, Badges, and More
+------------------------------------------------
+
+You can adjust further node and edge settings using data. Sample calls include:
+
+- ``bind(point_title=)``: Assign labels to nodes based on a column
+- ``encode_point_size()``: Adjust node sizes based on a column
+- ``encode_point_icon()``: Assign different icons to nodes based on a column
+- ``encode_point_badge()``: Add badges to nodes based on a column
+- ``encode_point_weight()``: Adjust node weights based on a column
+- Equivalent functions for edges: ``encode_edge_size()``, ``encode_edge_icon()``, ``encode_edge_badge()``
 
 Additional settings, such as background colors and logo watermarks, can also be configured.
 

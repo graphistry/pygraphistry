@@ -2,7 +2,7 @@ Visualize
 =============
 
 We recommend getting started with :ref:`10 Minutes to PyGraphistry <10min>`, :ref:`10 Minutes to Graphistry Visualization<10min-viz>`, and the :ref:`layout guide <layout-guide>`.
-For advanced, subset-based coloring, see :ref:`Layout settings <layout-settings>` and the
+For advanced, subset-based coloring, see the
 :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
 
 For static image export (documentation, reports), see the `static rendering tutorial <../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_.
