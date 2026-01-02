@@ -17,7 +17,7 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
-from graphistry.gfql.same_path_types import parse_where_json
+from graphistry.compute.gfql.same_path_types import parse_where_json
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,

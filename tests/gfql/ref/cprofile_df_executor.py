@@ -12,7 +12,7 @@ from typing import Tuple
 
 import graphistry
 from graphistry.compute.ast import n, e_forward
-from graphistry.gfql.same_path_types import col, compare, where_to_json
+from graphistry.compute.gfql.same_path_types import col, compare, where_to_json
 
 
 def make_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:

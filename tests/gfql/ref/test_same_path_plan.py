@@ -1,5 +1,5 @@
-from graphistry.gfql.same_path_plan import plan_same_path
-from graphistry.gfql.same_path_types import col, compare
+from graphistry.compute.gfql.same_path_plan import plan_same_path
+from graphistry.compute.gfql.same_path_types import col, compare
 
 
 def test_plan_minmax_and_bitset():

@@ -2,7 +2,7 @@ import pandas as pd
 
 from graphistry.compute import n, e_forward
 from graphistry.compute.chain import Chain
-from graphistry.gfql.same_path_types import col, compare
+from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.tests.test_compute import CGFull
 
 
