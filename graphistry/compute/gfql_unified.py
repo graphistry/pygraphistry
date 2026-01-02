@@ -320,11 +320,12 @@ def _chain_dispatch(
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
-    """Dispatch chain execution, including cuDF same-path executor when applicable."""
+    """Dispatch chain execution, using same-path executor for WHERE clauses."""
 
-    is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
-    if is_cudf and chain_obj.where:
-        engine_enum = Engine.CUDF
+    # Use same-path Yannakakis executor for ANY engine with WHERE clause
+    if chain_obj.where:
+        is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
+        engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
         inputs = build_same_path_inputs(
             g,
             chain_obj.chain,

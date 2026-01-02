@@ -75,16 +75,29 @@ class DFSamePathExecutor:
         self._equality_values: Dict[str, Dict[str, Set[Any]]] = defaultdict(dict)
 
     def run(self) -> Plottable:
-        """Execute full cuDF traversal.
+        """Execute same-path traversal with Yannakakis-style pruning.
 
-        Currently defaults to an oracle-backed path unless GPU kernels are
-        explicitly enabled and available. Alias frames are updated from the
-        oracle tags so downstream consumers can inspect per-alias bindings.
+        Uses native vectorized implementation for both pandas and cuDF.
+        The oracle path is only used for testing/debugging via environment variable.
+
+        Environment variable GRAPHISTRY_CUDF_SAME_PATH_MODE controls behavior:
+        - 'auto' (default): Use native path for all engines
+        - 'strict': Require cudf when Engine.CUDF is requested, raise if unavailable
+        - 'oracle': Use O(n!) reference implementation (testing only)
         """
         self._forward()
-        if self._should_attempt_gpu():
-            return self._run_gpu()
-        return self._run_oracle()
+        import os
+        mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
+
+        if mode == "oracle":
+            return self._run_oracle()
+
+        # Check strict mode before running native
+        # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
+        if mode == "strict":
+            self._should_attempt_gpu()  # Raises if cudf unavailable in strict mode
+
+        return self._run_native()
 
     def _forward(self) -> None:
         graph = self.inputs.graph
