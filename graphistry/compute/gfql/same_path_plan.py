@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence, Set
 
-from graphistry.gfql.same_path_types import WhereComparison
+from graphistry.compute.gfql.same_path_types import WhereComparison
 
 
 @dataclass

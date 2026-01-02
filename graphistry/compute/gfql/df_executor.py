@@ -19,8 +19,8 @@ from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.gfql.same_path_plan import SamePathPlan, plan_same_path
-from graphistry.gfql.same_path_types import WhereComparison
+from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
+from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.typing import DataFrameT
 
 AliasKind = Literal["node", "edge"]

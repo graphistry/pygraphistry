@@ -14,7 +14,7 @@ from dataclasses import dataclass
 # Import the executor and test utilities
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
-from graphistry.gfql.same_path_types import WhereComparison, StepColumnRef, col, compare, where_to_json
+from graphistry.compute.gfql.same_path_types import WhereComparison, StepColumnRef, col, compare, where_to_json
 
 
 @dataclass

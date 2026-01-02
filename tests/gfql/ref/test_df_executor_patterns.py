@@ -11,7 +11,7 @@ from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
     execute_same_path_chain,
 )
-from graphistry.gfql.same_path_types import col, compare
+from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
