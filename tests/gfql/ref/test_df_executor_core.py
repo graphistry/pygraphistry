@@ -2055,6 +2055,116 @@ class TestP0MultipleStarts:
 
 
 # ============================================================================
+# ENTRYPOINT TESTS: Verify production paths use Yannakakis, NOT oracle
+# ============================================================================
+
+
+class TestProductionEntrypointsUseNative:
+    """Verify g.gfql() and g.chain() with WHERE use native Yannakakis executor.
+
+    These are "no-shit" tests - if they fail, production is either:
+    1. Using the O(n!) oracle enumerator instead of vectorized Yannakakis
+    2. Not using the same-path executor at all (skipping WHERE optimization)
+    """
+
+    def test_gfql_pandas_where_uses_yannakakis_executor(self, monkeypatch):
+        """Production g.gfql() with pandas + WHERE must use Yannakakis executor."""
+        native_called = False
+
+        original_run_native = DFSamePathExecutor._run_native
+
+        def spy_run_native(self):
+            nonlocal native_called
+            native_called = True
+            return original_run_native(self)
+
+        monkeypatch.setattr(DFSamePathExecutor, "_run_native", spy_run_native)
+
+        graph = _make_graph()
+        query = Chain(
+            chain=[
+                n({"type": "account"}, name="a"),
+                e_forward(name="r"),
+                n({"type": "user"}, name="c"),
+            ],
+            where=[compare(col("a", "owner_id"), "==", col("c", "id"))],
+        )
+        result = gfql(graph, query, engine="pandas")
+
+        assert native_called, (
+            "Production g.gfql(engine='pandas') with WHERE did not use Yannakakis executor! "
+            "The same-path executor should be used for pandas+WHERE, not just cudf."
+        )
+        # Sanity check: result should have data
+        assert result._nodes is not None
+        assert len(result._nodes) > 0
+
+    def test_chain_pandas_where_uses_yannakakis_executor(self, monkeypatch):
+        """Production g.chain() with pandas + WHERE must use Yannakakis executor."""
+        native_called = False
+
+        original_run_native = DFSamePathExecutor._run_native
+
+        def spy_run_native(self):
+            nonlocal native_called
+            native_called = True
+            return original_run_native(self)
+
+        monkeypatch.setattr(DFSamePathExecutor, "_run_native", spy_run_native)
+
+        graph = _make_graph()
+        chain_obj = Chain(
+            chain=[
+                n({"type": "account"}, name="a"),
+                e_forward(name="r"),
+                n({"type": "user"}, name="c"),
+            ],
+            where=[compare(col("a", "owner_id"), "==", col("c", "id"))],
+        )
+        from graphistry.compute.chain import chain as chain_fn
+        result = chain_fn(graph, chain_obj, engine="pandas")
+
+        assert native_called, (
+            "Production g.chain(engine='pandas') with WHERE did not use Yannakakis executor! "
+            "The same-path executor should be used for pandas+WHERE, not just cudf."
+        )
+        assert result._nodes is not None
+        assert len(result._nodes) > 0
+
+    def test_executor_run_pandas_uses_native_not_oracle(self, monkeypatch):
+        """DFSamePathExecutor.run() with pandas must use _run_native, not oracle."""
+        oracle_called = False
+
+        import graphistry.compute.gfql.df_executor as df_executor_module
+        original_enumerate = df_executor_module.enumerate_chain
+
+        def spy_enumerate(*args, **kwargs):
+            nonlocal oracle_called
+            oracle_called = True
+            return original_enumerate(*args, **kwargs)
+
+        monkeypatch.setattr(df_executor_module, "enumerate_chain", spy_enumerate)
+
+        graph = _make_graph()
+        chain = [
+            n({"type": "account"}, name="a"),
+            e_forward(name="r"),
+            n({"type": "user"}, name="c"),
+        ]
+        where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+
+        inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+        executor = DFSamePathExecutor(inputs)
+        result = executor.run()  # This is the method that currently falls back to oracle!
+
+        assert not oracle_called, (
+            "DFSamePathExecutor.run() with Engine.PANDAS called oracle! "
+            "Should use _run_native() for pandas too."
+        )
+        assert result._nodes is not None
+
+
+# ============================================================================
 # P1 TESTS: Operators × Single-hop Systematic
 # ============================================================================
 
