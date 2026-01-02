@@ -3,10 +3,18 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
-
-CollectionsInput = Union[str, Dict[str, Any], List[Dict[str, Any]]]
+_ALLOWED_COLLECTION_FIELDS = {
+    'type',
+    'id',
+    'name',
+    'description',
+    'node_color',
+    'edge_color',
+    'expr',
+}
 
 
 def normalize_validation_params(
@@ -41,15 +49,43 @@ def _issue(
         emit_warn(f"Collections validation warning: {message} ({data})")
 
 
+def _reparse_collections_payload(
+    collections: Union[Dict[str, Any], List[Dict[str, Any]]],
+    validate_mode: ValidationMode,
+    warn: bool
+) -> List[Dict[str, Any]]:
+    from graphistry.compute.ast import ASTObject
+    from graphistry.compute.chain import Chain
+
+    def _default(obj: Any) -> Any:
+        if isinstance(obj, Chain):
+            return obj.to_json()
+        if isinstance(obj, ASTObject):
+            return obj.to_json()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON-serializable")
+
+    try:
+        parsed = json.loads(json.dumps(collections, default=_default, ensure_ascii=True))
+    except (TypeError, ValueError) as exc:
+        _issue('Collections must be JSON-serializable', {'error': str(exc)}, validate_mode, warn)
+        return []
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        return [parsed]
+    _issue('Collections JSON must be a list or dict', {'type': type(parsed).__name__}, validate_mode, warn)
+    return []
+
+
 def _parse_collections_input(
     collections: CollectionsInput,
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
     if isinstance(collections, list):
-        return collections
+        return _reparse_collections_payload(collections, validate_mode, warn)
     if isinstance(collections, dict):
-        return [collections]
+        return _reparse_collections_payload(collections, validate_mode, warn)
     if isinstance(collections, str):
         try:
             parsed = json.loads(collections)
@@ -297,7 +333,16 @@ def normalize_collections(
                 continue
             return []
 
-        normalized_entry = dict(entry)
+        unexpected_fields = [key for key in entry.keys() if key not in _ALLOWED_COLLECTION_FIELDS]
+        if unexpected_fields:
+            _issue(
+                'Unexpected fields in collection',
+                {'index': idx, 'fields': unexpected_fields},
+                validate_mode,
+                warn
+            )
+
+        normalized_entry = {key: entry[key] for key in _ALLOWED_COLLECTION_FIELDS if key in entry}
         collection_type = normalized_entry.get('type', 'set')
         if not isinstance(collection_type, str):
             _issue(

@@ -5,7 +5,7 @@ import pytest
 from urllib.parse import quote, unquote
 
 import graphistry
-from graphistry.collections_helpers import collection_intersection, collection_set
+from graphistry.collections import collection_intersection, collection_set
 from graphistry.validate.validate_collections import normalize_collections_url_params
 
 
@@ -13,8 +13,11 @@ def decode_collections(encoded: str):
     return json.loads(unquote(encoded))
 
 
+def collections_url_params(collections, **kwargs):
+    return graphistry.bind().collections(collections=collections, **kwargs)._url_params
+
+
 def test_collections_encodes_and_normalizes():
-    g = graphistry.bind()
     node_filter = graphistry.n({"subscribed_to_newsletter": True})
     collections = [
         {
@@ -29,14 +32,14 @@ def test_collections_encodes_and_normalizes():
         }
     ]
 
-    g2 = g.collections(
-        collections=collections,
+    url_params = collections_url_params(
+        collections,
         show_collections=True,
         collections_global_node_color="#00FF00",
         collections_global_edge_color="#00AA00",
     )
 
-    decoded = decode_collections(g2._url_params["collections"])
+    decoded = decode_collections(url_params["collections"])
     assert decoded == [
         {
             "type": "set",
@@ -49,53 +52,40 @@ def test_collections_encodes_and_normalizes():
             },
         }
     ]
-    assert g2._url_params["showCollections"] is True
-    assert g2._url_params["collectionsGlobalNodeColor"] == "00FF00"
-    assert g2._url_params["collectionsGlobalEdgeColor"] == "00AA00"
+    assert url_params["showCollections"] is True
+    assert url_params["collectionsGlobalNodeColor"] == "00FF00"
+    assert url_params["collectionsGlobalEdgeColor"] == "00AA00"
 
 
-def test_collection_helpers_build_sets_and_intersections():
-    collections = [
-        collection_set(
-            expr=[graphistry.n({"vip": True})],
-            id="vip",
-            name="VIP",
-            node_color="#FFAA00",
-        ),
-        collection_intersection(
-            sets=["vip"],
-            name="VIP Intersection",
-            node_color="#00BFFF",
-        ),
-    ]
-
-    g2 = graphistry.bind().collections(collections=collections)
-    decoded = decode_collections(g2._url_params["collections"])
-    assert decoded[0]["type"] == "set"
-    assert decoded[0]["expr"]["type"] == "gfql_chain"
-    assert decoded[1]["type"] == "intersection"
-    assert decoded[1]["expr"] == {"type": "intersection", "sets": ["vip"]}
-
-
-def test_collection_set_wraps_ast_expr():
-    collection = collection_set(expr=graphistry.n({"vip": True}), id="vip")
+@pytest.mark.parametrize("expr", [graphistry.n({"vip": True}), [graphistry.n({"vip": True})]])
+def test_collection_set_wraps_ast_expr(expr):
+    collection = collection_set(expr=expr, id="vip")
     assert collection["expr"]["type"] == "gfql_chain"
     assert collection["expr"]["gfql"][0]["type"] == "Node"
 
 
+def test_collection_helpers_build_sets_and_intersections():
+    collections = [
+        collection_set(expr=[graphistry.n({"vip": True})], id="vip", name="VIP", node_color="#FFAA00"),
+        collection_intersection(sets=["vip"], name="VIP Intersection", node_color="#00BFFF"),
+    ]
+    decoded = decode_collections(collections_url_params(collections)["collections"])
+    assert decoded[0]["type"] == "set"
+    assert decoded[0]["expr"]["type"] == "gfql_chain"
+    assert decoded[1]["expr"] == {"type": "intersection", "sets": ["vip"]}
+
+
 def test_collections_accepts_chain_and_preserves_dataset_id():
-    chain = graphistry.Chain([graphistry.n({"type": "user"})])
-    g1 = graphistry.bind(dataset_id="dataset_123")
-
-    g2 = g1.collections(collections={"type": "set", "expr": chain})
-
+    node = graphistry.n({"type": "user"})
+    chain = graphistry.Chain([node])
+    g2 = graphistry.bind(dataset_id="dataset_123").collections(collections={"type": "set", "expr": chain})
     decoded = decode_collections(g2._url_params["collections"])
     assert decoded == [
         {
             "type": "set",
             "expr": {
                 "type": "gfql_chain",
-                "gfql": [graphistry.n({"type": "user"}).to_json()],
+                "gfql": [node.to_json()],
             },
         }
     ]
@@ -103,10 +93,10 @@ def test_collections_accepts_chain_and_preserves_dataset_id():
 
 
 def test_collections_encode_false_keeps_string():
-    raw = json.dumps([{"type": "intersection", "expr": {"type": "intersection", "sets": ["a"]}}], separators=(",", ":"))
+    raw = '[{"type":"intersection","expr":{"type":"intersection","sets":["a"]}}]'
     encoded = quote(raw, safe="")
-    g2 = graphistry.bind().collections(collections=encoded, encode=False)
-    assert g2._url_params["collections"] == encoded
+    url_params = collections_url_params(encoded, encode=False)
+    assert url_params["collections"] == encoded
 
 
 def test_collections_accepts_wire_protocol_chain():
@@ -121,8 +111,9 @@ def test_collections_accepts_wire_protocol_chain():
             }
         ]
     }
-    g2 = graphistry.bind().collections(collections={"type": "set", "expr": chain_json})
-    decoded = decode_collections(g2._url_params["collections"])
+    decoded = decode_collections(
+        collections_url_params({"type": "set", "expr": chain_json})["collections"]
+    )
     assert decoded == [
         {
             "type": "set",
@@ -132,6 +123,20 @@ def test_collections_accepts_wire_protocol_chain():
             },
         }
     ]
+
+
+def test_collections_drop_unexpected_fields_autofix():
+    collections = [
+        {
+            "type": "set",
+            "expr": [graphistry.n({"vip": True})],
+            "unexpected": "drop-me",
+        }
+    ]
+    decoded = decode_collections(
+        collections_url_params(collections, validate="autofix", warn=False)["collections"]
+    )
+    assert "unexpected" not in decoded[0]
 
 
 def test_collections_validation_strict_raises():
