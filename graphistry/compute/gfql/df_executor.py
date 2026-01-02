@@ -83,14 +83,14 @@ class DFSamePathExecutor:
         Environment variable GRAPHISTRY_CUDF_SAME_PATH_MODE controls behavior:
         - 'auto' (default): Use native path for all engines
         - 'strict': Require cudf when Engine.CUDF is requested, raise if unavailable
-        - 'oracle': Use O(n!) reference implementation (testing only)
+        - 'oracle': Use O(n!) reference implementation (TESTING ONLY - never use in production)
         """
         self._forward()
         import os
         mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
 
         if mode == "oracle":
-            return self._run_oracle()
+            return self._run_test_only_oracle()
 
         # Check strict mode before running native
         # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
@@ -187,7 +187,8 @@ class DFSamePathExecutor:
             return False
         return True
 
-    def _run_oracle(self) -> Plottable:
+    def _run_test_only_oracle(self) -> Plottable:
+        """O(n!) reference implementation - TESTING ONLY, never call from production code."""
         oracle = enumerate_chain(
             self.inputs.graph,
             self.inputs.chain,
