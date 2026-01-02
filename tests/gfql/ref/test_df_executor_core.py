@@ -1690,6 +1690,136 @@ class TestUnfilteredStarts:
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
+    def test_unfiltered_start_multihop_reverse(self):
+        """
+        Unfiltered start node with multi-hop REVERSE traversal + WHERE.
+
+        Tests the reverse direction code path with unfiltered starts.
+        Chain: n() <-[min_hops=2, max_hops=2]- n()
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 15},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),  # No filter
+            e_reverse(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), ">", col("end", "v"))]
+
+        oracle = enumerate_chain(
+            graph, chain, where=where, include_paths=False,
+            caps=OracleCaps(max_nodes=50, max_edges=50),
+        )
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+
+    def test_unfiltered_start_multihop_undirected(self):
+        """
+        Unfiltered start node with multi-hop UNDIRECTED traversal + WHERE.
+
+        Tests undirected edges with unfiltered starts.
+        Chain: n() -[undirected, min_hops=2, max_hops=2]- n()
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),  # No filter
+            e_undirected(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        oracle = enumerate_chain(
+            graph, chain, where=where, include_paths=False,
+            caps=OracleCaps(max_nodes=50, max_edges=50),
+        )
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+
+    def test_filtered_start_multihop_reverse_where(self):
+        """
+        Filtered start node with multi-hop REVERSE + WHERE.
+
+        Ensures hop labels work correctly for reverse direction.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+            {"id": "d", "v": 15},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+            {"src": "c", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "d"}, name="start"),  # Filtered to 'd'
+            e_reverse(min_hops=2, max_hops=3),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), ">", col("end", "v"))]
+
+        oracle = enumerate_chain(
+            graph, chain, where=where, include_paths=False,
+            caps=OracleCaps(max_nodes=50, max_edges=50),
+        )
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+
+    def test_filtered_start_multihop_undirected_where(self):
+        """
+        Filtered start with multi-hop UNDIRECTED + WHERE.
+
+        Ensures hop labels work correctly for undirected edges.
+        """
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 5},
+            {"id": "c", "v": 10},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b"},
+            {"src": "b", "dst": "c"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"id": "a"}, name="start"),  # Filtered to 'a'
+            e_undirected(min_hops=2, max_hops=2),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        oracle = enumerate_chain(
+            graph, chain, where=where, include_paths=False,
+            caps=OracleCaps(max_nodes=50, max_edges=50),
+        )
+        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        assert set(result._nodes["id"]) == set(oracle.nodes["id"])
+
 
 # ============================================================================
 # ORACLE LIMITATIONS - These are actual oracle limitations, not executor bugs
