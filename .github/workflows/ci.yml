@@ -124,6 +124,7 @@ jobs:
         source pygraphistry/bin/activate
         git clone --depth 1 https://github.com/graphistry/tck-gfql.git
         cd tck-gfql
+        echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
         PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
 
   python-lint-types:
