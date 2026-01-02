@@ -6,6 +6,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 from graphistry.Engine import EngineAbstractType
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
@@ -2379,7 +2380,7 @@ class GraphistryClient(AuthManagerProtocol):
 
     def collections(
         self,
-        collections: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None,
+        collections: Optional[CollectionsInput] = None,
         show_collections: Optional[bool] = None,
         collections_global_node_color: Optional[str] = None,
         collections_global_edge_color: Optional[str] = None,

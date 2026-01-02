@@ -17,6 +17,7 @@ from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
 
 if TYPE_CHECKING:
@@ -785,7 +786,7 @@ class Plottable(Protocol):
 
     def collections(
         self,
-        collections: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None,
+        collections: Optional[CollectionsInput] = None,
         show_collections: Optional[bool] = None,
         collections_global_node_color: Optional[str] = None,
         collections_global_edge_color: Optional[str] = None,
