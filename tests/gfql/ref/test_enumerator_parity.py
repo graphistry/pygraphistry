@@ -559,3 +559,73 @@ class TestTrickyHopBounds:
         oracle = _run_parity_case(nodes, edges, ops)
         assert oracle.nodes.empty or len(oracle.nodes) == 0
         assert oracle.edges.empty or len(oracle.edges) == 0
+
+    def test_hop_label_uses_shortest_path_not_valid_path(self):
+        """Hop labels should use minimum distance across ALL paths, not just valid paths.
+
+        This is a regression test for a bug where hop labeling only considered
+        paths that satisfied min_hops, causing incorrect minimum distances.
+
+        Graph:
+          a -> b -> c -> d (3 hops to d via long path)
+          a -> x -> d      (2 hops to d via short path)
+
+        With min_hops=3, max_hops=3:
+        - Only the 3-hop path a->b->c->d satisfies min_hops
+        - But node d's minimum hop distance is 2 (via the short path a->x->d)
+        - The hop label for d should be 2, NOT 3
+
+        The bug was: only saving paths >= min_hops caused d to get hop=3.
+        """
+        nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
+        edges = [
+            {"edge_id": "e1", "src": "a", "dst": "b"},
+            {"edge_id": "e2", "src": "b", "dst": "c"},
+            {"edge_id": "e3", "src": "c", "dst": "d"},
+            {"edge_id": "short1", "src": "a", "dst": "x"},
+            {"edge_id": "short2", "src": "x", "dst": "d"},
+        ]
+        g = (
+            CGFull()
+            .nodes(pd.DataFrame(nodes), "id")
+            .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+        )
+        ops = [
+            n({"id": "a"}),
+            e_forward(min_hops=3, max_hops=3, label_node_hops="hop"),
+            n(),
+        ]
+
+        # Get GFQL result
+        gfql_result = g.gfql(ops)
+        gfql_nodes = _to_pandas(gfql_result._nodes)
+        gfql_node_hops = {
+            row["id"]: int(row["hop"])
+            for _, row in gfql_nodes.iterrows()
+            if pd.notna(row["hop"])
+        }
+
+        # d should have hop=2 (minimum distance via short path)
+        # even though only the 3-hop path satisfies min_hops
+        assert gfql_node_hops.get("d") == 2, (
+            f"Node d should have hop=2 (shortest path), got {gfql_node_hops.get('d')}"
+        )
+
+        # x should NOT be in output (short path doesn't satisfy min_hops=3)
+        assert "x" not in set(gfql_nodes["id"]), (
+            "Node x should not be in output (short path doesn't satisfy min_hops)"
+        )
+
+        # Now verify oracle matches
+        oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
+        oracle_node_hops = oracle.node_hop_labels or {}
+
+        # Oracle should also have d at hop=2
+        assert oracle_node_hops.get("d") == 2, (
+            f"Oracle: node d should have hop=2, got {oracle_node_hops.get('d')}"
+        )
+
+        # Oracle should also exclude x
+        assert "x" not in set(oracle.nodes["id"]), (
+            "Oracle: node x should not be in output"
+        )
