@@ -23,6 +23,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 - **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
 - **CI / typecheck**: Stop forcing `PYTHON_VERSION` for mypy; rely on the job interpreter and `mypy.ini` defaults.
+- **CI / GFQL**: Run the external `tck-gfql` conformance harness only when GFQL-related paths change (or on manual/scheduled runs).
 
 ## [0.50.0 - 2025-12-24]
 
