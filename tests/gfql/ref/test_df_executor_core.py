@@ -1591,11 +1591,10 @@ class TestUnfilteredStarts:
     """
     Tests for unfiltered start nodes.
 
-    These document known limitations of the native Yannakakis path.
-    The native path prunes too aggressively when start nodes are unfiltered.
+    The native path handles unfiltered start + multihop by using alias frames
+    instead of hop labels (which become ambiguous when all nodes can be starts).
     """
 
-    @pytest.mark.xfail(reason="Native path limitation: unfiltered start + multihop")
     def test_unfiltered_start_node_multihop(self):
         """
         Unfiltered start node with multi-hop works via public API.

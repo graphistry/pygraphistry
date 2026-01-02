@@ -90,7 +90,7 @@ class DFSamePathExecutor:
         mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
 
         if mode == "oracle":
-            return self._run_test_only_oracle()
+            return self._unsafe_run_test_only_oracle()
 
         # Check strict mode before running native
         # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
@@ -187,7 +187,7 @@ class DFSamePathExecutor:
             return False
         return True
 
-    def _run_test_only_oracle(self) -> Plottable:
+    def _unsafe_run_test_only_oracle(self) -> Plottable:
         """O(n!) reference implementation - TESTING ONLY, never call from production code."""
         oracle = enumerate_chain(
             self.inputs.graph,
@@ -1442,60 +1442,57 @@ class DFSamePathExecutor:
 
         # Get hop label column to identify first/last hop edges
         node_label, edge_label = self._resolve_label_cols(edge_op)
-        if edge_label is None or edge_label not in edges_df.columns:
-            # No hop labels - can't distinguish first/last hop edges
-            return edges_df
 
-        # Identify first-hop edges and valid endpoint edges
-        hop_col = edges_df[edge_label]
-        min_hop = hop_col.min()
-
-        first_hop_edges = edges_df[hop_col == min_hop]
-
-        # Get chain min_hops to find valid endpoints
-        chain_min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
-        # Valid endpoints are at hop >= chain_min_hops (hop label is 1-indexed)
-        valid_endpoint_edges = edges_df[hop_col >= chain_min_hops]
-
-        # For reverse edges, the logical direction is opposite to physical direction
-        # Forward: start -> hop 1 -> hop 2 -> end (start=src of hop 1, end=dst of last hop)
-        # Reverse: start <- hop 1 <- hop 2 <- end (start=dst of hop 1, end=src of last hop)
-        # Undirected: edges can be traversed both ways, so both src and dst are potential starts/ends
         is_reverse = edge_op.direction == "reverse"
         is_undirected = edge_op.direction == "undirected"
 
-        # Extract start/end nodes using DataFrame operations (vectorized)
-        if is_undirected:
-            # Undirected: start can be either src or dst of first hop
-            start_nodes_df = pd.concat([
-                first_hop_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
-                first_hop_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
-            ], ignore_index=True).drop_duplicates()
-            # End can be either src or dst of edges at hop >= min_hops
-            end_nodes_df = pd.concat([
-                valid_endpoint_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
-                valid_endpoint_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
-            ], ignore_index=True).drop_duplicates()
-        elif is_reverse:
-            # Reverse: start is dst of first hop, end is src of edges at hop >= min_hops
-            start_nodes_df = first_hop_edges[[self._destination_column]].rename(
-                columns={self._destination_column: '__node__'}
-            ).drop_duplicates()
-            end_nodes_df = valid_endpoint_edges[[self._source_column]].rename(
-                columns={self._source_column: '__node__'}
-            ).drop_duplicates()
-        else:
-            # Forward: start is src of first hop, end is dst of edges at hop >= min_hops
-            start_nodes_df = first_hop_edges[[self._source_column]].rename(
-                columns={self._source_column: '__node__'}
-            ).drop_duplicates()
-            end_nodes_df = valid_endpoint_edges[[self._destination_column]].rename(
-                columns={self._destination_column: '__node__'}
-            ).drop_duplicates()
+        # Check if hop labels are usable (filtered start node gives unambiguous labels)
+        # For unfiltered starts, all edges have hop_label=1, making them useless for identification
+        first_node_step = self.inputs.chain[0] if self.inputs.chain else None
+        has_filtered_start = (
+            isinstance(first_node_step, ASTNode) and first_node_step.filter_dict
+        )
 
-        # Convert to sets for intersection with allowed_nodes (caller uses sets)
-        start_nodes = set(start_nodes_df['__node__'].tolist())
-        end_nodes = set(end_nodes_df['__node__'].tolist())
+        if edge_label and edge_label in edges_df.columns and has_filtered_start:
+            # Use hop labels to identify start/end nodes (accurate when start is filtered)
+            hop_col = edges_df[edge_label]
+            min_hop = hop_col.min()
+            first_hop_edges = edges_df[hop_col == min_hop]
+
+            chain_min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
+            valid_endpoint_edges = edges_df[hop_col >= chain_min_hops]
+
+            if is_undirected:
+                start_nodes_df = pd.concat([
+                    first_hop_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
+                    first_hop_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
+                ], ignore_index=True).drop_duplicates()
+                end_nodes_df = pd.concat([
+                    valid_endpoint_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
+                    valid_endpoint_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
+                ], ignore_index=True).drop_duplicates()
+            elif is_reverse:
+                start_nodes_df = first_hop_edges[[self._destination_column]].rename(
+                    columns={self._destination_column: '__node__'}
+                ).drop_duplicates()
+                end_nodes_df = valid_endpoint_edges[[self._source_column]].rename(
+                    columns={self._source_column: '__node__'}
+                ).drop_duplicates()
+            else:
+                start_nodes_df = first_hop_edges[[self._source_column]].rename(
+                    columns={self._source_column: '__node__'}
+                ).drop_duplicates()
+                end_nodes_df = valid_endpoint_edges[[self._destination_column]].rename(
+                    columns={self._destination_column: '__node__'}
+                ).drop_duplicates()
+
+            start_nodes = set(start_nodes_df['__node__'].tolist())
+            end_nodes = set(end_nodes_df['__node__'].tolist())
+        else:
+            # Fallback: use alias frames directly when hop labels are ambiguous
+            # (unfiltered start makes all edges "hop 1" from some start)
+            start_nodes = self._series_values(left_frame[self._node_column])
+            end_nodes = self._series_values(right_frame[self._node_column])
 
         # Filter to allowed nodes
         left_step_idx = self.inputs.alias_bindings[left_alias].step_index
