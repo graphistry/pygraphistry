@@ -1311,8 +1311,8 @@ class DFSamePathExecutor:
             elif len(rev_df) == 0:
                 out_df = fwd_df
             else:
-                from graphistry.compute.concat import concat
-                out_df = concat([fwd_df, rev_df], ignore_index=True, sort=False)
+                from graphistry.Engine import safe_concat
+                out_df = safe_concat([fwd_df, rev_df], ignore_index=True, sort=False)
                 # Deduplicate by edge columns (src, dst) to avoid double-counting
                 out_df = out_df.drop_duplicates(
                     subset=[self._source_column, self._destination_column]
