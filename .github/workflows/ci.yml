@@ -24,6 +24,7 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
+      gfql: ${{ steps.filter.outputs.gfql }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
@@ -50,6 +51,15 @@ jobs:
             - 'mypy.ini'
             - 'bin/lint.sh'
             - 'bin/typecheck.sh'
+
+          # GFQL-specific changes
+          gfql:
+            - 'graphistry/gfql/**'
+            - 'graphistry/compute/gfql/**'
+            - 'graphistry/compute/gfql_unified.py'
+            - 'graphistry/models/gfql/**'
+            - 'graphistry/Plottable.py'
+            - 'tests/gfql/**'
             
           # Documentation changes
           docs:
@@ -83,6 +93,38 @@ jobs:
           fi
         done
         echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
+
+  tck-gfql:
+    needs: changes
+    if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .
+        python -m pip install pytest pandas
+
+    - name: Run tck-gfql
+      run: |
+        source pygraphistry/bin/activate
+        git clone --depth 1 https://github.com/graphistry/tck-gfql.git
+        cd tck-gfql
+        PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
 
   python-lint-types:
     needs: changes
