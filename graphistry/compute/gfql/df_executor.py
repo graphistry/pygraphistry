@@ -36,6 +36,48 @@ __all__ = [
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
 
 
+def _build_edge_pairs(
+    edges_df: DataFrameT, src_col: str, dst_col: str, is_reverse: bool, is_undirected: bool
+) -> DataFrameT:
+    """Build normalized edge pairs for BFS traversal based on direction."""
+    if is_undirected:
+        fwd = edges_df[[src_col, dst_col]].copy()
+        fwd.columns = pd.Index(['__from__', '__to__'])
+        rev = edges_df[[dst_col, src_col]].copy()
+        rev.columns = pd.Index(['__from__', '__to__'])
+        return pd.concat([fwd, rev], ignore_index=True).drop_duplicates()
+    elif is_reverse:
+        pairs = edges_df[[dst_col, src_col]].copy()
+        pairs.columns = pd.Index(['__from__', '__to__'])
+        return pairs
+    else:
+        pairs = edges_df[[src_col, dst_col]].copy()
+        pairs.columns = pd.Index(['__from__', '__to__'])
+        return pairs
+
+
+def _bfs_reachability(
+    edge_pairs: DataFrameT, start_nodes: Set[Any], max_hops: int, hop_col: str
+) -> DataFrameT:
+    """Compute BFS reachability with hop distance tracking. Returns DataFrame with __node__ and hop_col."""
+    result = pd.DataFrame({'__node__': list(start_nodes), hop_col: 0})
+    all_visited = result.copy()
+    for hop in range(1, max_hops):
+        frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
+        if len(frontier) == 0:
+            break
+        next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
+        next_df = next_df.rename(columns={'__to__': '__node__'})
+        next_df[hop_col] = hop
+        merged = next_df.merge(all_visited[['__node__']], on='__node__', how='left', indicator=True)
+        new_nodes = merged[merged['_merge'] == 'left_only'][['__node__', hop_col]]
+        if len(new_nodes) == 0:
+            break
+        result = pd.concat([result, new_nodes], ignore_index=True)
+        all_visited = pd.concat([all_visited, new_nodes], ignore_index=True)
+    return result
+
+
 @dataclass(frozen=True)
 class AliasBinding:
     """Metadata describing which chain step an alias refers to."""
@@ -413,15 +455,7 @@ class DFSamePathExecutor:
                     )
 
                     # Build edge pairs based on direction
-                    if is_undirected:
-                        edge_pairs = pd.concat([
-                            edges_df[[src_col, dst_col]].rename(columns={src_col: '__from__', dst_col: '__to__'}),
-                            edges_df[[dst_col, src_col]].rename(columns={dst_col: '__from__', src_col: '__to__'})
-                        ], ignore_index=True).drop_duplicates()
-                    elif is_reverse:
-                        edge_pairs = edges_df[[dst_col, src_col]].rename(columns={dst_col: '__from__', src_col: '__to__'})
-                    else:
-                        edge_pairs = edges_df[[src_col, dst_col]].rename(columns={src_col: '__from__', dst_col: '__to__'})
+                    edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, is_reverse, is_undirected)
 
                     # Propagate state through hops
                     all_reachable = [state_df.copy()]
@@ -850,67 +884,11 @@ class DFSamePathExecutor:
             edge_op.hops if edge_op.hops is not None else 1
         )
 
-        # Build edge pairs for traversal based on direction
-        if is_undirected:
-            edges_fwd = edges_df[[src_col, dst_col]].copy()
-            edges_fwd.columns = pd.Index(['__from__', '__to__'])
-            edges_rev = edges_df[[dst_col, src_col]].copy()
-            edges_rev.columns = pd.Index(['__from__', '__to__'])
-            edge_pairs = pd.concat([edges_fwd, edges_rev], ignore_index=True).drop_duplicates()
-        elif is_reverse:
-            edge_pairs = edges_df[[dst_col, src_col]].copy()
-            edge_pairs.columns = pd.Index(['__from__', '__to__'])
-        else:
-            edge_pairs = edges_df[[src_col, dst_col]].copy()
-            edge_pairs.columns = pd.Index(['__from__', '__to__'])
-
-        # Forward reachability: nodes reachable from left_allowed at each hop distance
-        # Use DataFrame-based tracking throughout (no Python sets)
-        # fwd_df tracks (node, min_hop) for all reachable nodes
-        fwd_df = pd.DataFrame({'__node__': list(left_allowed), '__fwd_hop__': 0})
-        all_fwd_df = fwd_df.copy()
-
-        for hop in range(1, max_hops):  # max_hops-1 because edge adds 1 more
-            # Get frontier (nodes at previous hop)
-            frontier_df = fwd_df[fwd_df['__fwd_hop__'] == hop - 1][['__node__']].rename(
-                columns={'__node__': '__from__'}
-            )
-            if len(frontier_df) == 0:
-                break
-            # Propagate through edges
-            next_nodes_df = edge_pairs.merge(frontier_df, on='__from__', how='inner')[['__to__']].drop_duplicates()
-            next_nodes_df = next_nodes_df.rename(columns={'__to__': '__node__'})
-            next_nodes_df['__fwd_hop__'] = hop
-            # Anti-join: keep only nodes not yet seen
-            merged = next_nodes_df.merge(all_fwd_df[['__node__']], on='__node__', how='left', indicator=True)
-            new_nodes_df = merged[merged['_merge'] == 'left_only'][['__node__', '__fwd_hop__']]
-            if len(new_nodes_df) == 0:
-                break
-            fwd_df = pd.concat([fwd_df, new_nodes_df], ignore_index=True)
-            all_fwd_df = pd.concat([all_fwd_df, new_nodes_df], ignore_index=True)
-
-        # Backward reachability: nodes that can reach right_allowed at each hop distance
+        # Build edge pairs and compute bidirectional reachability
+        edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, is_reverse, is_undirected)
+        fwd_df = _bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
         rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
-
-        bwd_df = pd.DataFrame({'__node__': list(right_allowed), '__bwd_hop__': 0})
-        all_bwd_df = bwd_df.copy()
-
-        for hop in range(1, max_hops):  # max_hops-1 because edge adds 1 more
-            frontier_df = bwd_df[bwd_df['__bwd_hop__'] == hop - 1][['__node__']].rename(
-                columns={'__node__': '__from__'}
-            )
-            if len(frontier_df) == 0:
-                break
-            next_nodes_df = rev_edge_pairs.merge(frontier_df, on='__from__', how='inner')[['__to__']].drop_duplicates()
-            next_nodes_df = next_nodes_df.rename(columns={'__to__': '__node__'})
-            next_nodes_df['__bwd_hop__'] = hop
-            # Anti-join: keep only nodes not yet seen
-            merged = next_nodes_df.merge(all_bwd_df[['__node__']], on='__node__', how='left', indicator=True)
-            new_nodes_df = merged[merged['_merge'] == 'left_only'][['__node__', '__bwd_hop__']]
-            if len(new_nodes_df) == 0:
-                break
-            bwd_df = pd.concat([bwd_df, new_nodes_df], ignore_index=True)
-            all_bwd_df = pd.concat([all_bwd_df, new_nodes_df], ignore_index=True)
+        bwd_df = _bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
 
         # An edge (u, v) is valid if:
         # - u is forward-reachable at hop h_fwd (path length from left_allowed to u)
@@ -1000,30 +978,9 @@ class DFSamePathExecutor:
             edge_op.hops if edge_op.hops is not None else 1
         )
 
-        # Determine edge direction for backward traversal
-        # Forward edges: src->dst, backward: dst->src
-        # Reverse edges: dst->src, backward: src->dst
-        # Undirected: both directions
-        if is_undirected:
-            # For undirected, we need edges in both directions
-            # Create a DataFrame with both (src, dst) and (dst, src) as edges
-            edges_fwd = edges_df[[src_col, dst_col]].rename(
-                columns={src_col: '__from__', dst_col: '__to__'}
-            )
-            edges_rev = edges_df[[dst_col, src_col]].rename(
-                columns={dst_col: '__from__', src_col: '__to__'}
-            )
-            edge_pairs = pd.concat([edges_fwd, edges_rev], ignore_index=True).drop_duplicates()
-        elif is_reverse:
-            # Reverse: traversal goes dst->src, backward trace goes src->dst
-            edge_pairs = edges_df[[src_col, dst_col]].rename(
-                columns={src_col: '__from__', dst_col: '__to__'}
-            ).drop_duplicates()
-        else:
-            # Forward: traversal goes src->dst, backward trace goes dst->src
-            edge_pairs = edges_df[[dst_col, src_col]].rename(
-                columns={dst_col: '__from__', src_col: '__to__'}
-            ).drop_duplicates()
+        # Build edge pairs for backward traversal (inverted direction)
+        # For forward edges, backward trace goes dst->src, so we invert is_reverse
+        edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, not is_reverse, is_undirected)
 
         # Vectorized backward BFS: propagate reachability hop by hop
         # Use DataFrame-based tracking throughout (no Python sets internally)
