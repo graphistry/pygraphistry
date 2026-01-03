@@ -196,42 +196,126 @@ def combine_steps(
 
     logger.debug('combine_steps ops pre: %s', [op for (op, _) in steps])
     if kind == 'edges':
-        logger.debug('EDGES << recompute forwards given reduced set')
         node_id = getattr(g, '_node')
+        src_col = getattr(g, '_source')
+        dst_col = getattr(g, '_destination')
         full_nodes = getattr(g, '_nodes', None)
 
-        # For edges, we need to re-run forward ops but use the PREVIOUS forward step's nodes
-        # as prev_node_wavefront (not the current reverse step's nodes which include
-        # nodes reached during reverse traversal).
-        new_steps = []
-        for idx, (op, g_step) in enumerate(steps):
-            # Get prev_node_wavefront from the previous forward step (label_steps), not reverse result
-            if label_steps is not None and idx > 0:
-                prev_fwd_step = label_steps[idx - 1][1]
-                prev_wavefront_source = prev_fwd_step._nodes
-            else:
-                prev_wavefront_source = g_step._nodes
-
-            prev_node_wavefront = (
-                safe_merge(
-                    full_nodes,
-                    prev_wavefront_source[[node_id]],
-                    on=node_id,
-                    how='inner',
-                    engine=engine,
-                ) if full_nodes is not None and node_id is not None and prev_wavefront_source is not None else prev_wavefront_source
+        # Check if any edge op is multi-hop - if so, fall back to original re-run approach
+        # Multi-hop edges span multiple nodes, so simple endpoint filtering doesn't work
+        has_multihop = any(
+            isinstance(op, ASTEdge) and (
+                getattr(op, 'hops', 1) != 1 or
+                getattr(op, 'min_hops', None) is not None or
+                getattr(op, 'max_hops', None) is not None or
+                getattr(op, 'to_fixed_point', False)
             )
+            for op, _ in steps
+        )
 
-            new_steps.append((
-                op,  # forward op
-                op(
-                    g=g.edges(g_step._edges),  # transition via any found edge
-                    prev_node_wavefront=prev_node_wavefront,
-                    target_wave_front=None,
-                    engine=engine
+        if has_multihop:
+            # Original approach: re-run forward ops (needed for multi-hop correctness)
+            logger.debug('EDGES << recompute forwards given reduced set (multihop)')
+            new_steps = []
+            for idx, (op, g_step) in enumerate(steps):
+                if label_steps is not None and idx > 0:
+                    prev_fwd_step = label_steps[idx - 1][1]
+                    prev_wavefront_source = prev_fwd_step._nodes
+                else:
+                    prev_wavefront_source = g_step._nodes
+
+                prev_node_wavefront = (
+                    safe_merge(
+                        full_nodes,
+                        prev_wavefront_source[[node_id]],
+                        on=node_id,
+                        how='inner',
+                        engine=engine,
+                    ) if full_nodes is not None and node_id is not None and prev_wavefront_source is not None else prev_wavefront_source
                 )
-            ))
-        steps = new_steps
+
+                new_steps.append((
+                    op,
+                    op(
+                        g=g.edges(g_step._edges),
+                        prev_node_wavefront=prev_node_wavefront,
+                        target_wave_front=None,
+                        engine=engine
+                    )
+                ))
+            steps = new_steps
+        else:
+            # Optimization for single-hop: filter by valid endpoints using vectorized merge
+            logger.debug('EDGES << filter by valid endpoints (optimized)')
+            new_steps = []
+            for idx, (op, g_step) in enumerate(steps):
+                edges_df = g_step._edges
+                if edges_df is None or len(edges_df) == 0:
+                    new_steps.append((op, g_step))
+                    continue
+
+                # Get valid source nodes from previous NODE step in label_steps (forward pass)
+                if label_steps is not None and idx > 0:
+                    prev_node_step = label_steps[idx - 1][1]
+                    prev_nodes = prev_node_step._nodes
+                else:
+                    prev_nodes = g._nodes
+
+                # Get valid destination nodes from next NODE step in label_steps
+                if label_steps is not None and idx + 1 < len(label_steps):
+                    next_node_step = label_steps[idx + 1][1]
+                    next_nodes = next_node_step._nodes
+                else:
+                    next_nodes = None
+
+                # Determine edge direction from the operation
+                is_reverse = isinstance(op, ASTEdge) and getattr(op, 'direction', 'forward') == 'reverse'
+                is_undirected = isinstance(op, ASTEdge) and getattr(op, 'direction', 'forward') == 'undirected'
+
+                # Use vectorized merge instead of set + isin for better performance on large graphs
+                if is_undirected:
+                    # Undirected: either endpoint can be prev or next
+                    if prev_nodes is not None and next_nodes is not None and node_id:
+                        prev_ids = prev_nodes[[node_id]].drop_duplicates()
+                        next_ids = next_nodes[[node_id]].drop_duplicates()
+                        if src_col in edges_df.columns and dst_col in edges_df.columns:
+                            # Forward direction: src in prev, dst in next
+                            fwd = edges_df.merge(
+                                prev_ids.rename(columns={node_id: src_col}),
+                                on=src_col, how='inner'
+                            ).merge(
+                                next_ids.rename(columns={node_id: dst_col}),
+                                on=dst_col, how='inner'
+                            )
+                            # Reverse direction: dst in prev, src in next
+                            rev = edges_df.merge(
+                                prev_ids.rename(columns={node_id: dst_col}),
+                                on=dst_col, how='inner'
+                            ).merge(
+                                next_ids.rename(columns={node_id: src_col}),
+                                on=src_col, how='inner'
+                            )
+                            edges_df = df_concat(engine)([fwd, rev]).drop_duplicates()
+                elif is_reverse:
+                    # Reverse: traversal goes dst -> src, so prev matches dst, next matches src
+                    if prev_nodes is not None and node_id and dst_col and dst_col in edges_df.columns:
+                        prev_ids = prev_nodes[[node_id]].drop_duplicates().rename(columns={node_id: dst_col})
+                        edges_df = edges_df.merge(prev_ids, on=dst_col, how='inner')
+                    if next_nodes is not None and node_id and src_col and src_col in edges_df.columns:
+                        next_ids = next_nodes[[node_id]].drop_duplicates().rename(columns={node_id: src_col})
+                        edges_df = edges_df.merge(next_ids, on=src_col, how='inner')
+                else:
+                    # Forward: traversal goes src -> dst
+                    if prev_nodes is not None and node_id and src_col and src_col in edges_df.columns:
+                        prev_ids = prev_nodes[[node_id]].drop_duplicates().rename(columns={node_id: src_col})
+                        edges_df = edges_df.merge(prev_ids, on=src_col, how='inner')
+                    if next_nodes is not None and node_id and dst_col and dst_col in edges_df.columns:
+                        next_ids = next_nodes[[node_id]].drop_duplicates().rename(columns={node_id: dst_col})
+                        edges_df = edges_df.merge(next_ids, on=dst_col, how='inner')
+
+                g_filtered = g_step.edges(edges_df)
+                new_steps.append((op, g_filtered))
+            steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
 
