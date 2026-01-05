@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
-from graphistry.models.collections import CollectionsInput
+from graphistry.models.collections import Collection, CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 _ALLOWED_COLLECTION_FIELDS = {
@@ -50,7 +50,7 @@ def _issue(
 
 
 def _reparse_collections_payload(
-    collections: Union[Dict[str, Any], List[Dict[str, Any]]],
+    collections: Union[Collection, List[Collection]],
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
