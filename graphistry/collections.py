@@ -12,7 +12,21 @@ CollectionDict = TypeVar("CollectionDict", CollectionSet, CollectionIntersection
 
 
 def _apply_collection_metadata(collection: CollectionDict, **metadata: Optional[str]) -> CollectionDict:
-    collection.update({key: value for key, value in metadata.items() if value is not None})
+    value = metadata.get("id")
+    if value is not None:
+        collection["id"] = value
+    value = metadata.get("name")
+    if value is not None:
+        collection["name"] = value
+    value = metadata.get("description")
+    if value is not None:
+        collection["description"] = value
+    value = metadata.get("node_color")
+    if value is not None:
+        collection["node_color"] = value
+    value = metadata.get("edge_color")
+    if value is not None:
+        collection["edge_color"] = value
     return collection
 
 
@@ -21,34 +35,38 @@ def _wrap_gfql_expr(expr: GFQLChainInput) -> GFQLChainWire:
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.chain import Chain
 
+    def _normalize_ops(raw: object) -> List[GFQLWireOp]:
+        if isinstance(raw, list):
+            ops: List[GFQLWireOp] = []
+            for op in raw:
+                if isinstance(op, ASTObject):
+                    ops.append(op.to_json())
+                else:
+                    ops.append(cast(GFQLWireOp, op))
+            return ops
+        if isinstance(raw, ASTObject):
+            return [raw.to_json()]
+        return [cast(GFQLWireOp, raw)]
+
     if isinstance(expr, dict):
         expr_type = expr.get("type")
         if expr_type == "gfql_chain" and "gfql" in expr:
-            return expr
+            return {"type": "gfql_chain", "gfql": _normalize_ops(expr.get("gfql"))}
         if expr_type == "Chain" and "chain" in expr:
-            return {"type": "gfql_chain", "gfql": expr.get("chain", [])}
+            return {"type": "gfql_chain", "gfql": _normalize_ops(expr.get("chain"))}
         if "gfql" in expr:
-            return {"type": "gfql_chain", "gfql": expr.get("gfql")}
+            return {"type": "gfql_chain", "gfql": _normalize_ops(expr.get("gfql"))}
         if "chain" in expr:
-            return {"type": "gfql_chain", "gfql": expr.get("chain")}
-        return {"type": "gfql_chain", "gfql": [expr]}
+            return {"type": "gfql_chain", "gfql": _normalize_ops(expr.get("chain"))}
+        return {"type": "gfql_chain", "gfql": _normalize_ops(expr)}
 
     if isinstance(expr, Chain):
-        return {"type": "gfql_chain", "gfql": expr.to_json().get("chain", [])}
+        return {"type": "gfql_chain", "gfql": _normalize_ops(expr.to_json().get("chain", []))}
 
     if isinstance(expr, ASTObject):
         return {"type": "gfql_chain", "gfql": [expr.to_json()]}
 
-    if isinstance(expr, list):
-        ops: List[GFQLWireOp] = []
-        for op in expr:
-            if isinstance(op, ASTObject):
-                ops.append(op.to_json())
-            else:
-                ops.append(cast(GFQLWireOp, op))
-        return {"type": "gfql_chain", "gfql": ops}
-
-    return {"type": "gfql_chain", "gfql": [cast(GFQLWireOp, expr)]}
+    return {"type": "gfql_chain", "gfql": _normalize_ops(expr)}
 
 
 def collection_set(
