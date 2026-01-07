@@ -10,27 +10,12 @@ if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
 
 
-GFQLWireOp = Dict[str, JSONVal]
-
-
-class GFQLChainWire(TypedDict):
-    type: Literal["gfql_chain"]
-    gfql: List[GFQLWireOp]
-
-
-class GFQLChainJSON(TypedDict):
-    type: Literal["Chain"]
-    chain: List[GFQLWireOp]
-
-
-GFQLOpInput = Union["ASTObject", GFQLWireOp]
-GFQLChainInput = Union[
+CollectionExprInput = Union[
     "Chain",
     "ASTObject",
-    GFQLChainWire,
-    GFQLChainJSON,
-    List[GFQLOpInput],
-    GFQLWireOp,
+    List["ASTObject"],
+    Dict[str, JSONVal],
+    List[Dict[str, JSONVal]],
 ]
 
 
@@ -49,7 +34,7 @@ class CollectionBase(TypedDict, total=False):
 
 class CollectionSet(CollectionBase):
     type: NotRequired[Literal["set"]]
-    expr: Required[GFQLChainInput]
+    expr: Required[CollectionExprInput]
 
 
 class CollectionIntersection(CollectionBase):
