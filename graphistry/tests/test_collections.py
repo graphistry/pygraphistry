@@ -139,6 +139,16 @@ def test_collections_drop_unexpected_fields_autofix():
     assert "unexpected" not in decoded[0]
 
 
+def test_collections_show_collections_coerces_autofix():
+    g2 = graphistry.bind().collections(show_collections="true", validate="autofix")
+    assert g2._url_params["showCollections"] is True
+
+
+def test_collections_show_collections_strict_raises():
+    with pytest.raises(ValueError):
+        graphistry.bind().collections(show_collections="maybe", validate="strict")
+
+
 def test_collections_validation_strict_raises():
     bad_collections = [{"type": "set", "expr": [{"filter_dict": {"a": 1}}]}]
     with pytest.raises(ValueError):
