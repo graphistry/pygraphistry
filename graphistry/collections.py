@@ -1,12 +1,11 @@
-from typing import List, Optional, Sequence, TypeVar, cast
+from typing import Dict, List, Optional, Sequence, TypeVar
 
 from graphistry.models.collections import (
     CollectionIntersection,
+    CollectionExprInput,
     CollectionSet,
-    GFQLChainInput,
-    GFQLChainWire,
-    GFQLWireOp,
 )
+from graphistry.utils.json import JSONVal
 
 CollectionDict = TypeVar("CollectionDict", CollectionSet, CollectionIntersection)
 
@@ -30,23 +29,27 @@ def _apply_collection_metadata(collection: CollectionDict, **metadata: Optional[
     return collection
 
 
-def _wrap_gfql_expr(expr: GFQLChainInput) -> GFQLChainWire:
+def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
 
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.chain import Chain
 
-    def _normalize_ops(raw: object) -> List[GFQLWireOp]:
+    def _normalize_ops(raw: object) -> List[Dict[str, JSONVal]]:
         if isinstance(raw, list):
-            ops: List[GFQLWireOp] = []
+            ops: List[Dict[str, JSONVal]] = []
             for op in raw:
                 if isinstance(op, ASTObject):
                     ops.append(op.to_json())
+                elif isinstance(op, dict):
+                    ops.append(op)
                 else:
-                    ops.append(cast(GFQLWireOp, op))
+                    raise TypeError("Collection GFQL operations must be AST objects or dictionaries")
             return ops
         if isinstance(raw, ASTObject):
             return [raw.to_json()]
-        return [cast(GFQLWireOp, raw)]
+        if isinstance(raw, dict):
+            return [raw]
+        raise TypeError("Collection GFQL operations must be a list, AST object, or dictionary")
 
     if isinstance(expr, dict):
         expr_type = expr.get("type")
@@ -71,7 +74,7 @@ def _wrap_gfql_expr(expr: GFQLChainInput) -> GFQLChainWire:
 
 def collection_set(
     *,
-    expr: GFQLChainInput,
+    expr: CollectionExprInput,
     id: Optional[str] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
