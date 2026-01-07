@@ -1867,24 +1867,31 @@ class PlotterBase(Plottable):
         :param validate: Validation mode. 'autofix' (default) warns on issues, 'strict' raises on issues.
         :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
         """
-        from graphistry.validate.validate_collections import encode_collections, normalize_collections
+        from graphistry.validate.validate_collections import (
+            encode_collections,
+            normalize_collections,
+            normalize_collections_url_params,
+            normalize_validation_params,
+        )
 
-        def strip_hash(value: str) -> str:
-            return value[1:] if value.startswith('#') else value
-
+        validate_mode, warn = normalize_validation_params(validate, warn)
         settings: Dict[str, Any] = {}
         if collections is not None:
-            normalized = normalize_collections(collections, validate=validate, warn=warn)
+            normalized = normalize_collections(collections, validate=validate_mode, warn=warn)
             if isinstance(collections, str) and not encode:
                 settings['collections'] = collections
             else:
                 settings['collections'] = encode_collections(normalized, encode=encode)
+        extras: Dict[str, Any] = {}
         if show_collections is not None:
-            settings['showCollections'] = show_collections
+            extras['showCollections'] = show_collections
         if collections_global_node_color is not None:
-            settings['collectionsGlobalNodeColor'] = strip_hash(collections_global_node_color)
+            extras['collectionsGlobalNodeColor'] = collections_global_node_color
         if collections_global_edge_color is not None:
-            settings['collectionsGlobalEdgeColor'] = strip_hash(collections_global_edge_color)
+            extras['collectionsGlobalEdgeColor'] = collections_global_edge_color
+        if extras:
+            extras = normalize_collections_url_params(extras, validate=validate_mode, warn=warn)
+            settings.update(extras)
 
         if len(settings.keys()) > 0:
             return self.settings(url_params={**self._url_params, **settings})
