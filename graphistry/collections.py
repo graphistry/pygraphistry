@@ -31,53 +31,43 @@ def _apply_collection_metadata(collection: CollectionDict, **metadata: Optional[
 
 def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
 
-    from graphistry.compute.ast import ASTObject
+    from graphistry.compute.ast import ASTLet, ASTObject, from_json as ast_from_json
     from graphistry.compute.chain import Chain
 
-    def _gfql_chain_from_ops(ops: Sequence[ASTObject]) -> Dict[str, JSONVal]:
-        chain_json = Chain(list(ops)).to_json()
-        return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
+    def _normalize_op(op: object) -> Dict[str, JSONVal]:
+        if isinstance(op, ASTLet):
+            raise TypeError("Collection GFQL does not support Let/DAG expressions")
+        if isinstance(op, ASTObject):
+            return op.to_json()
+        if isinstance(op, dict):
+            if op.get("type") == "Let" or "bindings" in op:
+                raise TypeError("Collection GFQL does not support Let/DAG expressions")
+            parsed = ast_from_json(op, validate=True)
+            if isinstance(parsed, ASTLet):
+                raise TypeError("Collection GFQL does not support Let/DAG expressions")
+            return parsed.to_json()
+        raise TypeError("Collection GFQL operations must be AST objects or dictionaries")
 
-    def _gfql_chain_from_wire_ops(ops: List[Dict[str, JSONVal]]) -> Dict[str, JSONVal]:
-        chain = Chain.from_json({"chain": ops}, validate=True)
-        chain_json = chain.to_json()
-        return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
-
-    def _list_to_wire_ops(raw: Sequence[object]) -> List[Dict[str, JSONVal]]:
-        ops: List[Dict[str, JSONVal]] = []
-        for op in raw:
-            if isinstance(op, ASTObject):
-                ops.append(op.to_json())
-            elif isinstance(op, dict):
-                ops.append(op)
-            else:
-                raise TypeError("Collection GFQL operations must be AST objects or dictionaries")
-        return ops
-
-    def _wrap_ops_value(raw: object) -> List[Dict[str, JSONVal]]:
+    def _normalize_ops_value(raw: object) -> List[Dict[str, JSONVal]]:
         if isinstance(raw, list):
-            return _list_to_wire_ops(raw)
-        if isinstance(raw, (ASTObject, dict)):
-            return _list_to_wire_ops([raw])
-        raise TypeError("Collection GFQL operations must be a list, AST object, or dictionary")
+            if len(raw) == 0:
+                raise ValueError("Collection GFQL operations list cannot be empty")
+            return [_normalize_op(op) for op in raw]
+        return [_normalize_op(raw)]
 
     if isinstance(expr, dict):
         expr_type = expr.get("type")
         if expr_type == "gfql_chain" and "gfql" in expr:
             gfql_ops = expr.get("gfql")
-            return _gfql_chain_from_wire_ops(_wrap_ops_value(gfql_ops))
+            return {"type": "gfql_chain", "gfql": _normalize_ops_value(gfql_ops)}
         if expr_type == "Chain" and "chain" in expr:
-            chain = Chain.from_json(expr, validate=True)
-            chain_json = chain.to_json()
-            return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
+            return {"type": "gfql_chain", "gfql": _normalize_ops_value(expr.get("chain"))}
         if "gfql" in expr:
             gfql_ops = expr.get("gfql")
-            return _gfql_chain_from_wire_ops(_wrap_ops_value(gfql_ops))
+            return {"type": "gfql_chain", "gfql": _normalize_ops_value(gfql_ops)}
         if "chain" in expr:
-            chain = Chain.from_json(expr, validate=True)
-            chain_json = chain.to_json()
-            return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
-        return _gfql_chain_from_wire_ops([expr])
+            return {"type": "gfql_chain", "gfql": _normalize_ops_value(expr.get("chain"))}
+        return {"type": "gfql_chain", "gfql": _normalize_ops_value(expr)}
 
     if isinstance(expr, Chain):
         chain_json = expr.to_json()
@@ -87,10 +77,7 @@ def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
         return {"type": "gfql_chain", "gfql": [expr.to_json()]}
 
     if isinstance(expr, list):
-        ops_ast = [op for op in expr if isinstance(op, ASTObject)]
-        if len(ops_ast) == len(expr):
-            return _gfql_chain_from_ops(ops_ast)
-        return _gfql_chain_from_wire_ops(_list_to_wire_ops(expr))
+        return {"type": "gfql_chain", "gfql": _normalize_ops_value(expr)}
 
     raise TypeError("Collection expr must be an AST object, chain, list, or dict")
 
