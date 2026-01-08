@@ -363,11 +363,26 @@ def combine_steps(
             label_col = hop_like[0]
         if label_col not in df.columns:
             return df
-        mask = df[label_col].notna()
+        # Per Cypher semantics, seed nodes should ALWAYS be included in results,
+        # regardless of output_min_hops/output_max_hops which only filter destinations.
+        #
+        # Seed identification:
+        # - hop=0 (when label_seeds=True)
+        # - hop=NA: Could be a seed (label_seeds=False) OR just an edge endpoint.
+        #   We MUST keep hop=NA nodes because we can't distinguish seeds from endpoints
+        #   until the final output where named tags are available.
+        #
+        # Strategy: Keep hop=NA nodes here; the final pass with tags will handle them.
+        is_seed_or_unknown = (df[label_col] == 0) | df[label_col].isna()
+        # Apply hop range filter: nodes with valid hop values (> 0) in range
+        has_hop = df[label_col].notna() & (df[label_col] > 0)
+        in_range = has_hop.copy()
         if out_min is not None:
-            mask = mask & (df[label_col] >= out_min)
+            in_range = in_range & (df[label_col] >= out_min)
         if out_max is not None:
-            mask = mask & (df[label_col] <= out_max)
+            in_range = in_range & (df[label_col] <= out_max)
+        # Keep seeds/unknown (hop=0 or NA) OR nodes in the output range
+        mask = is_seed_or_unknown | in_range
         return df[mask]
 
     dfs_to_concat = []
@@ -486,6 +501,47 @@ def combine_steps(
 
                     if allowed_ids is not None and id in out_df.columns:
                         out_df[op._name] = out_df[op._name] & out_df[id].isin(allowed_ids)
+
+    # Final output_min/max_hops filter: Now that tags are set, we can properly filter
+    # nodes that came through edge endpoint coverage but aren't actual seeds or valid hops.
+    # With output_min_hops, nodes with hop=NA should NOT be kept (including seeds) - they'll
+    # be re-added through edge endpoint coverage if they're on output edges.
+    if kind == 'nodes':
+        # Find hop column (could be label_node_hops or internal __gfql_output_node_hop__)
+        hop_cols = [c for c in out_df.columns if 'hop' in c.lower()]
+        has_output_min = any(
+            isinstance(op, ASTEdge) and getattr(op, 'output_min_hops', None) is not None
+            for op, _ in steps
+        )
+        has_output_max = any(
+            isinstance(op, ASTEdge) and getattr(op, 'output_max_hops', None) is not None
+            for op, _ in steps
+        )
+        has_output_slice = has_output_min or has_output_max
+        if has_output_slice and hop_cols:
+            hop_col = hop_cols[0]
+            has_na_hop = out_df[hop_col].isna()
+            if has_output_min:
+                # With output_min_hops, only keep nodes with valid hop values in range
+                # Seeds and edge endpoints with hop=NA will be re-added through edge endpoint coverage
+                keep_mask = ~has_na_hop
+                out_df = out_df[keep_mask]
+            elif any(has_na_hop):
+                # With only output_max_hops, keep seeds (nodes with True tag and hop=NA)
+                tag_cols = [c for c in out_df.columns if c not in [id, hop_col] + hop_cols and c != 'id']
+                has_true_tag = pd.Series([False] * len(out_df), index=out_df.index)
+                for col in tag_cols:
+                    try:
+                        col_vals = out_df[col].fillna(False)
+                        if col_vals.dtype == 'bool' or str(col_vals.dtype) == 'boolean':
+                            has_true_tag = has_true_tag | col_vals
+                        elif col_vals.dtype == 'object':
+                            has_true_tag = has_true_tag | (col_vals == True)
+                    except (TypeError, ValueError):
+                        pass
+                # Keep: hop is NOT NA, OR hop is NA but has a True tag (seed)
+                keep_mask = ~has_na_hop | (has_na_hop & has_true_tag)
+                out_df = out_df[keep_mask]
 
     # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
@@ -1090,35 +1146,30 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     #   target_wave_front = valid dst nodes
 
                     if is_undirected:
-                        # Undirected: keep edges where either endpoint is in prev_wavefront
-                        # and the other is in target_wave_front (if specified)
-                        if prev_wavefront_nodes is not None:
-                            prev_ids = prev_wavefront_nodes[[node_id]].drop_duplicates()
-                            # Edges touching prev_wavefront on either end
-                            mask_src = edges_df[[src_col]].merge(
-                                prev_ids.rename(columns={node_id: src_col}),
-                                on=src_col, how='inner'
-                            ).index
-                            mask_dst = edges_df[[dst_col]].merge(
-                                prev_ids.rename(columns={node_id: dst_col}),
-                                on=dst_col, how='inner'
-                            ).index
-                            valid_idx = mask_src.union(mask_dst)
-                            edges_df = edges_df.loc[edges_df.index.isin(valid_idx)]
+                        # Undirected: keep edges where ONE endpoint is in prev_wavefront
+                        # AND the OTHER endpoint is in target_wave_front (if specified)
+                        # This is the proper "bridge" condition for backward pass.
+                        if prev_wavefront_nodes is not None and target_wave_front_nodes is not None:
+                            prev_set = set(prev_wavefront_nodes[node_id].tolist())
+                            target_set = set(target_wave_front_nodes[node_id].tolist())
 
-                        if target_wave_front_nodes is not None:
-                            target_ids = target_wave_front_nodes[[node_id]].drop_duplicates()
-                            # Keep if other endpoint is in target
-                            mask_src = edges_df[[src_col]].merge(
-                                target_ids.rename(columns={node_id: src_col}),
-                                on=src_col, how='inner'
-                            ).index
-                            mask_dst = edges_df[[dst_col]].merge(
-                                target_ids.rename(columns={node_id: dst_col}),
-                                on=dst_col, how='inner'
-                            ).index
-                            valid_idx = mask_src.union(mask_dst)
-                            edges_df = edges_df.loc[edges_df.index.isin(valid_idx)]
+                            # Case 1: src in prev AND dst in target (edge flows prev -> target)
+                            # Case 2: src in target AND dst in prev (edge flows target -> prev)
+                            mask = (
+                                (edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set)) |
+                                (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set))
+                            )
+                            edges_df = edges_df[mask]
+                        elif prev_wavefront_nodes is not None:
+                            # Only prev_wavefront specified - keep edges touching it
+                            prev_set = set(prev_wavefront_nodes[node_id].tolist())
+                            mask = edges_df[src_col].isin(prev_set) | edges_df[dst_col].isin(prev_set)
+                            edges_df = edges_df[mask]
+                        elif target_wave_front_nodes is not None:
+                            # Only target specified - keep edges touching it
+                            target_set = set(target_wave_front_nodes[node_id].tolist())
+                            mask = edges_df[src_col].isin(target_set) | edges_df[dst_col].isin(target_set)
+                            edges_df = edges_df[mask]
                     else:
                         # Directed: filter by the appropriate column
                         # For forward edge: dst matches prev_wavefront, src matches target
