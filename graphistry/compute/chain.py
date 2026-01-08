@@ -225,10 +225,7 @@ def combine_steps(
         # Multi-hop edges span multiple nodes, so simple endpoint filtering doesn't work
         has_multihop = any(
             isinstance(op, ASTEdge) and (
-                getattr(op, 'hops', 1) != 1 or
-                getattr(op, 'min_hops', None) is not None or
-                getattr(op, 'max_hops', None) is not None or
-                getattr(op, 'to_fixed_point', False)
+                not _is_simple_single_hop(op) or getattr(op, 'to_fixed_point', False)
             )
             for op, _ in steps
         )
