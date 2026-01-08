@@ -49,26 +49,11 @@ def _issue(
         emit_warn(f"Collections validation warning: {message} ({data})")
 
 
-def _reparse_collections_payload(
-    collections: Union[Collection, List[Collection]],
+def _coerce_collection_list(
+    parsed: Any,
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
-    from graphistry.compute.ast import ASTObject
-    from graphistry.compute.chain import Chain
-
-    def _default(obj: Any) -> Any:
-        if isinstance(obj, Chain):
-            return obj.to_json()
-        if isinstance(obj, ASTObject):
-            return obj.to_json()
-        raise TypeError(f"Object of type {type(obj).__name__} is not JSON-serializable")
-
-    try:
-        parsed = json.loads(json.dumps(collections, default=_default, ensure_ascii=True))
-    except (TypeError, ValueError) as exc:
-        _issue('Collections must be JSON-serializable', {'error': str(exc)}, validate_mode, warn)
-        return []
     if isinstance(parsed, list):
         return parsed
     if isinstance(parsed, dict):
@@ -82,10 +67,16 @@ def _parse_collections_input(
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
-    if isinstance(collections, list):
-        return _reparse_collections_payload(collections, validate_mode, warn)
-    if isinstance(collections, dict):
-        return _reparse_collections_payload(collections, validate_mode, warn)
+    from graphistry.compute.ast import ASTObject
+    from graphistry.compute.chain import Chain
+
+    def _default(obj: Any) -> Any:
+        if isinstance(obj, Chain):
+            return obj.to_json()
+        if isinstance(obj, ASTObject):
+            return obj.to_json()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON-serializable")
+
     if isinstance(collections, str):
         try:
             parsed = json.loads(collections)
@@ -95,14 +86,14 @@ def _parse_collections_input(
             except json.JSONDecodeError as exc:
                 _issue('Collections string must be JSON or URL-encoded JSON', {'error': str(exc)}, validate_mode, warn)
                 return []
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict):
-            return [parsed]
-        _issue('Collections JSON must be a list or dict', {'type': type(parsed).__name__}, validate_mode, warn)
+        return _coerce_collection_list(parsed, validate_mode, warn)
+
+    try:
+        parsed = json.loads(json.dumps(collections, default=_default, ensure_ascii=True))
+    except (TypeError, ValueError) as exc:
+        _issue('Collections must be JSON-serializable', {'error': str(exc)}, validate_mode, warn)
         return []
-    _issue('Collections must be a list, dict, or JSON string', {'type': type(collections).__name__}, validate_mode, warn)
-    return []
+    return _coerce_collection_list(parsed, validate_mode, warn)
 
 
 def _coerce_str_field(
@@ -225,22 +216,26 @@ def _normalize_gfql_ops(
         )
         return None
 
-    if isinstance(gfql_ops, Chain):
-        return _normalize_ops_list(gfql_ops.chain)
-    if isinstance(gfql_ops, ASTObject):
-        return _normalize_ops_list(gfql_ops)
-    if isinstance(gfql_ops, dict):
-        if gfql_ops.get('type') == 'Chain' and 'chain' in gfql_ops:
-            return _normalize_ops_list(gfql_ops.get('chain'))
-        if gfql_ops.get('type') == 'gfql_chain' and 'gfql' in gfql_ops:
-            return _normalize_ops_list(gfql_ops.get('gfql'))
-        if 'chain' in gfql_ops:
-            return _normalize_ops_list(gfql_ops.get('chain'))
-        if 'gfql' in gfql_ops:
-            return _normalize_ops_list(gfql_ops.get('gfql'))
-        return _normalize_ops_list(gfql_ops)
-    if isinstance(gfql_ops, list):
-        return _normalize_ops_list(gfql_ops)
+    def _extract_ops_value(raw: object) -> object:
+        if isinstance(raw, Chain):
+            return raw.chain
+        if isinstance(raw, ASTObject):
+            return raw
+        if isinstance(raw, dict):
+            if raw.get('type') == 'gfql_chain' and 'gfql' in raw:
+                return raw.get('gfql')
+            if raw.get('type') == 'Chain' and 'chain' in raw:
+                return raw.get('chain')
+            if 'gfql' in raw:
+                return raw.get('gfql')
+            if 'chain' in raw:
+                return raw.get('chain')
+            return raw
+        if isinstance(raw, list):
+            return raw
+        return raw
+
+    return _normalize_ops_list(_extract_ops_value(gfql_ops))
 
     _issue(
         'GFQL operations must be a Chain, AST object, list, or dict',
@@ -258,25 +253,9 @@ def _normalize_gfql_expr(
     warn: bool,
     entry_index: int
 ) -> Optional[Dict[str, Any]]:
-    if isinstance(expr, dict):
-        if expr.get('type') == 'intersection':
-            _issue('Set collection expr cannot be intersection', {'index': entry_index}, validate_mode, warn)
-            return None
-        if 'gfql' in expr or expr.get('type') == 'gfql_chain':
-            ops = _normalize_gfql_ops(expr.get('gfql'), validate_mode, warn, entry_index)
-            if ops is None:
-                return None
-            return {'type': 'gfql_chain', 'gfql': ops}
-        if 'chain' in expr:
-            ops = _normalize_gfql_ops(expr, validate_mode, warn, entry_index)
-            if ops is None:
-                return None
-            return {'type': 'gfql_chain', 'gfql': ops}
-        if 'type' in expr:
-            ops = _normalize_gfql_ops(expr, validate_mode, warn, entry_index)
-            if ops is None:
-                return None
-            return {'type': 'gfql_chain', 'gfql': ops}
+    if isinstance(expr, dict) and expr.get('type') == 'intersection':
+        _issue('Set collection expr cannot be intersection', {'index': entry_index}, validate_mode, warn)
+        return None
     ops = _normalize_gfql_ops(expr, validate_mode, warn, entry_index)
     if ops is None:
         return None
