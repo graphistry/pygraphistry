@@ -185,6 +185,11 @@ class TestOptimizationEligibility:
         op = e_forward(output_min_hops=1)
         assert _is_simple_single_hop(op) is False
 
+    def test_to_fixed_point_not_eligible(self):
+        """e_forward(to_fixed_point=True) is NOT eligible (unbounded traversal)."""
+        op = e_forward(to_fixed_point=True)
+        assert _is_simple_single_hop(op) is False
+
     def test_reverse_is_eligible(self):
         """e_reverse() is eligible."""
         op = e_reverse()

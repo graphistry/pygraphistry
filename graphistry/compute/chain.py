@@ -37,6 +37,9 @@ def _is_simple_single_hop(op: ASTEdge) -> bool:
     )
     if hop_min != 1 or hop_max != 1:
         return False
+    # No fixed-point (unbounded) traversal
+    if getattr(op, 'to_fixed_point', False):
+        return False
     # No hop labels that require traversal to compute
     if op.label_node_hops or op.label_edge_hops or op.label_seeds:
         return False
@@ -224,9 +227,7 @@ def combine_steps(
         # Check if any edge op is multi-hop - if so, fall back to original re-run approach
         # Multi-hop edges span multiple nodes, so simple endpoint filtering doesn't work
         has_multihop = any(
-            isinstance(op, ASTEdge) and (
-                not _is_simple_single_hop(op) or getattr(op, 'to_fixed_point', False)
-            )
+            isinstance(op, ASTEdge) and not _is_simple_single_hop(op)
             for op, _ in steps
         )
 
