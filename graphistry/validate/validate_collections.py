@@ -162,7 +162,7 @@ def _normalize_gfql_ops(
     warn: bool,
     entry_index: int
 ) -> Optional[List[Dict[str, Any]]]:
-    from graphistry.compute.ast import ASTLet, ASTObject
+    from graphistry.compute.ast import ASTLet, ASTObject, from_json as ast_from_json
     from graphistry.compute.chain import Chain
 
     if gfql_ops is None:
@@ -183,29 +183,57 @@ def _normalize_gfql_ops(
             warn
         )
 
-    def _coerce_ops_list(raw: Any) -> Optional[List[Dict[str, Any]]]:
+    def _normalize_op(op: object) -> Optional[Dict[str, Any]]:
+        if isinstance(op, ASTLet):
+            _issue_let_not_supported(op)
+            return None
+        if isinstance(op, ASTObject):
+            return op.to_json()
+        if isinstance(op, dict):
+            if op.get('type') == 'Let' or 'bindings' in op:
+                _issue_let_not_supported(op)
+                return None
+            try:
+                parsed = ast_from_json(op, validate=True)
+            except Exception as exc:
+                _issue(
+                    'Invalid GFQL operation in collection',
+                    {'index': entry_index, 'op': op, 'error': str(exc)},
+                    validate_mode,
+                    warn
+                )
+                return None
+            if isinstance(parsed, ASTLet):
+                _issue_let_not_supported(op)
+                return None
+            return parsed.to_json()
+        _issue(
+            'GFQL operations must be AST objects or dicts',
+            {'index': entry_index, 'value': op, 'type': type(op).__name__},
+            validate_mode,
+            warn
+        )
+        return None
+
+    def _normalize_ops_list(raw: object) -> Optional[List[Dict[str, Any]]]:
         if isinstance(raw, list):
-            ops: List[Dict[str, Any]] = []
+            normalized_ops: List[Dict[str, Any]] = []
             for op in raw:
-                if isinstance(op, ASTObject):
-                    ops.append(op.to_json())
-                elif isinstance(op, dict):
-                    ops.append(op)
-                else:
-                    _issue(
-                        'GFQL operations must be AST objects or dicts',
-                        {'index': entry_index, 'value': op, 'type': type(op).__name__},
-                        validate_mode,
-                        warn
-                    )
+                normalized_op = _normalize_op(op)
+                if normalized_op is None:
                     if validate_mode == 'autofix':
                         continue
                     return None
-            return ops
-        if isinstance(raw, ASTObject):
-            return [raw.to_json()]
-        if isinstance(raw, dict):
-            return [raw]
+                normalized_ops.append(normalized_op)
+            if len(normalized_ops) == 0:
+                _issue('GFQL chain is empty', {'index': entry_index}, validate_mode, warn)
+                return None
+            return normalized_ops
+        if isinstance(raw, (ASTObject, dict)):
+            normalized_op = _normalize_op(raw)
+            if normalized_op is None:
+                return None
+            return [normalized_op]
         _issue(
             'GFQL operations must be a list, AST object, or dict',
             {'index': entry_index, 'value': raw, 'type': type(raw).__name__},
@@ -214,71 +242,29 @@ def _normalize_gfql_ops(
         )
         return None
 
-    def _normalize_chain_ops(raw_ops: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
-        if not isinstance(raw_ops, list):
-            _issue(
-                'GFQL operations must be a list',
-                {'index': entry_index, 'value': raw_ops, 'type': type(raw_ops).__name__},
-                validate_mode,
-                warn
-            )
-            return None
-        try:
-            chain_obj = Chain.from_json({'chain': raw_ops}, validate=True)
-        except Exception as exc:
-            _issue(
-                'Invalid GFQL chain in collection',
-                {'index': entry_index, 'error': str(exc)},
-                validate_mode,
-                warn
-            )
-            return None
-        if any(isinstance(op, ASTLet) for op in chain_obj.chain):
-            _issue_let_not_supported(raw_ops)
-            return None
-        normalized_ops = _coerce_ops_list(chain_obj.to_json().get('chain', []))
-        if normalized_ops is None:
-            return None
-        if len(normalized_ops) == 0:
-            _issue('GFQL chain is empty', {'index': entry_index}, validate_mode, warn)
-            return None
-        return normalized_ops
-
     if isinstance(gfql_ops, ASTLet):
         _issue_let_not_supported(gfql_ops)
         return None
 
     if isinstance(gfql_ops, Chain):
-        if any(isinstance(op, ASTLet) for op in gfql_ops.chain):
-            _issue_let_not_supported(gfql_ops)
-            return None
-        ops_raw = _coerce_ops_list(gfql_ops.to_json().get('chain', []))
-        if ops_raw is None:
-            return None
-        return _normalize_chain_ops(ops_raw)
+        return _normalize_ops_list(gfql_ops.chain)
     if isinstance(gfql_ops, ASTObject):
-        ops_raw = _coerce_ops_list(gfql_ops)
-        if ops_raw is None:
-            return None
-        return _normalize_chain_ops(ops_raw)
+        return _normalize_ops_list(gfql_ops)
     if isinstance(gfql_ops, dict):
         if gfql_ops.get('type') == 'Let' or 'bindings' in gfql_ops:
             _issue_let_not_supported(gfql_ops)
             return None
+        if gfql_ops.get('type') == 'Chain' and 'chain' in gfql_ops:
+            return _normalize_ops_list(gfql_ops.get('chain'))
+        if gfql_ops.get('type') == 'gfql_chain' and 'gfql' in gfql_ops:
+            return _normalize_ops_list(gfql_ops.get('gfql'))
         if 'chain' in gfql_ops:
-            ops_raw = _coerce_ops_list(gfql_ops.get('chain'))
-        elif 'gfql' in gfql_ops:
-            ops_raw = _coerce_ops_list(gfql_ops.get('gfql'))
-        else:
-            ops_raw = _coerce_ops_list(gfql_ops)
-        if ops_raw is None:
-            return None
-        return _normalize_chain_ops(ops_raw)
+            return _normalize_ops_list(gfql_ops.get('chain'))
+        if 'gfql' in gfql_ops:
+            return _normalize_ops_list(gfql_ops.get('gfql'))
+        return _normalize_ops_list(gfql_ops)
     if isinstance(gfql_ops, list):
-        ops_raw = _coerce_ops_list(gfql_ops)
-        if ops_raw is None:
-            return None
-        return _normalize_chain_ops(ops_raw)
+        return _normalize_ops_list(gfql_ops)
 
     _issue(
         'GFQL operations must be a Chain, AST object, list, or dict',
