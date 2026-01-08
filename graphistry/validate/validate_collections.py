@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
-from graphistry.models.collections import Collection, CollectionsInput
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 _ALLOWED_COLLECTION_FIELDS = {
@@ -67,16 +67,10 @@ def _parse_collections_input(
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
-    from graphistry.compute.ast import ASTObject
-    from graphistry.compute.chain import Chain
-
-    def _default(obj: Any) -> Any:
-        if isinstance(obj, Chain):
-            return obj.to_json()
-        if isinstance(obj, ASTObject):
-            return obj.to_json()
-        raise TypeError(f"Object of type {type(obj).__name__} is not JSON-serializable")
-
+    if isinstance(collections, list):
+        return _coerce_collection_list(collections, validate_mode, warn)
+    if isinstance(collections, dict):
+        return _coerce_collection_list(collections, validate_mode, warn)
     if isinstance(collections, str):
         try:
             parsed = json.loads(collections)
@@ -87,13 +81,8 @@ def _parse_collections_input(
                 _issue('Collections string must be JSON or URL-encoded JSON', {'error': str(exc)}, validate_mode, warn)
                 return []
         return _coerce_collection_list(parsed, validate_mode, warn)
-
-    try:
-        parsed = json.loads(json.dumps(collections, default=_default, ensure_ascii=True))
-    except (TypeError, ValueError) as exc:
-        _issue('Collections must be JSON-serializable', {'error': str(exc)}, validate_mode, warn)
-        return []
-    return _coerce_collection_list(parsed, validate_mode, warn)
+    _issue('Collections must be a list, dict, or JSON string', {'type': type(collections).__name__}, validate_mode, warn)
+    return []
 
 
 def _coerce_str_field(
