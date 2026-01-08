@@ -162,7 +162,7 @@ def _normalize_gfql_ops(
     warn: bool,
     entry_index: int
 ) -> Optional[List[Dict[str, Any]]]:
-    from graphistry.compute.ast import ASTLet, ASTObject, from_json as ast_from_json
+    from graphistry.compute.ast import ASTObject, from_json as ast_from_json
     from graphistry.compute.chain import Chain
 
     if gfql_ops is None:
@@ -175,24 +175,10 @@ def _normalize_gfql_ops(
             _issue('GFQL chain string must be JSON', {'index': entry_index, 'error': str(exc)}, validate_mode, warn)
             return None
 
-    def _issue_let_not_supported(payload: Any) -> None:
-        _issue(
-            'Collections do not support GFQL Let/DAG expressions',
-            {'index': entry_index, 'value': payload, 'type': type(payload).__name__},
-            validate_mode,
-            warn
-        )
-
     def _normalize_op(op: object) -> Optional[Dict[str, Any]]:
-        if isinstance(op, ASTLet):
-            _issue_let_not_supported(op)
-            return None
         if isinstance(op, ASTObject):
             return op.to_json()
         if isinstance(op, dict):
-            if op.get('type') == 'Let' or 'bindings' in op:
-                _issue_let_not_supported(op)
-                return None
             try:
                 parsed = ast_from_json(op, validate=True)
             except Exception as exc:
@@ -202,9 +188,6 @@ def _normalize_gfql_ops(
                     validate_mode,
                     warn
                 )
-                return None
-            if isinstance(parsed, ASTLet):
-                _issue_let_not_supported(op)
                 return None
             return parsed.to_json()
         _issue(
@@ -242,18 +225,11 @@ def _normalize_gfql_ops(
         )
         return None
 
-    if isinstance(gfql_ops, ASTLet):
-        _issue_let_not_supported(gfql_ops)
-        return None
-
     if isinstance(gfql_ops, Chain):
         return _normalize_ops_list(gfql_ops.chain)
     if isinstance(gfql_ops, ASTObject):
         return _normalize_ops_list(gfql_ops)
     if isinstance(gfql_ops, dict):
-        if gfql_ops.get('type') == 'Let' or 'bindings' in gfql_ops:
-            _issue_let_not_supported(gfql_ops)
-            return None
         if gfql_ops.get('type') == 'Chain' and 'chain' in gfql_ops:
             return _normalize_ops_list(gfql_ops.get('chain'))
         if gfql_ops.get('type') == 'gfql_chain' and 'gfql' in gfql_ops:

@@ -125,6 +125,15 @@ def test_collections_accepts_wire_protocol_chain():
     ]
 
 
+def test_collections_accepts_let_expr():
+    dag = graphistry.let({"seed": graphistry.n({"type": "user"})})
+    decoded = decode_collections(
+        collections_url_params({"type": "set", "expr": dag})["collections"]
+    )
+    assert decoded[0]["expr"]["type"] == "gfql_chain"
+    assert decoded[0]["expr"]["gfql"][0]["type"] == "Let"
+
+
 def test_collections_drop_unexpected_fields_autofix():
     collections = [
         {
