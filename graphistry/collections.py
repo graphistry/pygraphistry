@@ -34,8 +34,8 @@ def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.chain import Chain
 
-    def _gfql_chain_from_ops(ops: List[ASTObject]) -> Dict[str, JSONVal]:
-        chain_json = Chain(ops).to_json()
+    def _gfql_chain_from_ops(ops: Sequence[ASTObject]) -> Dict[str, JSONVal]:
+        chain_json = Chain(list(ops)).to_json()
         return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
 
     def _gfql_chain_from_wire_ops(ops: List[Dict[str, JSONVal]]) -> Dict[str, JSONVal]:
@@ -43,7 +43,7 @@ def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
         chain_json = chain.to_json()
         return {"type": "gfql_chain", "gfql": chain_json.get("chain", [])}
 
-    def _list_to_wire_ops(raw: List[object]) -> List[Dict[str, JSONVal]]:
+    def _list_to_wire_ops(raw: Sequence[object]) -> List[Dict[str, JSONVal]]:
         ops: List[Dict[str, JSONVal]] = []
         for op in raw:
             if isinstance(op, ASTObject):
@@ -87,8 +87,9 @@ def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
         return {"type": "gfql_chain", "gfql": [expr.to_json()]}
 
     if isinstance(expr, list):
-        if all(isinstance(op, ASTObject) for op in expr):
-            return _gfql_chain_from_ops(expr)
+        ops_ast = [op for op in expr if isinstance(op, ASTObject)]
+        if len(ops_ast) == len(expr):
+            return _gfql_chain_from_ops(ops_ast)
         return _gfql_chain_from_wire_ops(_list_to_wire_ops(expr))
 
     raise TypeError("Collection expr must be an AST object, chain, list, or dict")
