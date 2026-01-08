@@ -31,20 +31,14 @@ def _apply_collection_metadata(collection: CollectionDict, **metadata: Optional[
 
 def _wrap_gfql_expr(expr: CollectionExprInput) -> Dict[str, JSONVal]:
 
-    from graphistry.compute.ast import ASTLet, ASTObject, from_json as ast_from_json
+    from graphistry.compute.ast import ASTObject, from_json as ast_from_json
     from graphistry.compute.chain import Chain
 
     def _normalize_op(op: object) -> Dict[str, JSONVal]:
-        if isinstance(op, ASTLet):
-            raise TypeError("Collection GFQL does not support Let/DAG expressions")
         if isinstance(op, ASTObject):
             return op.to_json()
         if isinstance(op, dict):
-            if op.get("type") == "Let" or "bindings" in op:
-                raise TypeError("Collection GFQL does not support Let/DAG expressions")
             parsed = ast_from_json(op, validate=True)
-            if isinstance(parsed, ASTLet):
-                raise TypeError("Collection GFQL does not support Let/DAG expressions")
             return parsed.to_json()
         raise TypeError("Collection GFQL operations must be AST objects or dictionaries")
 
