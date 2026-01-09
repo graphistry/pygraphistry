@@ -60,6 +60,12 @@ def parse_where_json(
         op_name, payload = next(iter(entry.items()))
         if op_name not in {"eq", "neq", "gt", "lt", "ge", "le"}:
             raise ValueError(f"Unsupported WHERE operator '{op_name}'")
+        if not isinstance(payload, dict):
+            raise ValueError(f"WHERE clause payload must be a dict, got {type(payload).__name__}")
+        if "left" not in payload or "right" not in payload:
+            raise ValueError(f"WHERE clause must have 'left' and 'right' keys, got {list(payload.keys())}")
+        if not isinstance(payload["left"], str) or not isinstance(payload["right"], str):
+            raise ValueError(f"WHERE clause 'left' and 'right' must be strings")
         op_map: Dict[str, ComparisonOp] = {
             "eq": "==",
             "neq": "!=",
