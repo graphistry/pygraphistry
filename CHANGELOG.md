@@ -20,6 +20,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
+- **GFQL / chain**: Fixed `output_min_hops`/`output_max_hops` semantics to correctly slice output nodes/edges matching oracle behavior.
+- **GFQL / chain**: Fixed multi-hop detection in `_is_simple_single_hop` to check `to_fixed_point` flag and correctly identify optimization-eligible edges.
+- **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
+- **GFQL / enumerator**: Fixed hop labeling for paths outside `min_hops` range to use shortest path distance instead of enumeration order.
+- **Compute / hop**: Fixed `min_hops` goal node calculation to use edge endpoints instead of lossy node merge, ensuring correct branch pruning.
 
 ### Tests
 - **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
