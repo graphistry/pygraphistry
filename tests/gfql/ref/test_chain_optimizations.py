@@ -26,7 +26,7 @@ import pytest
 from typing import Set
 
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, ASTEdge
-from graphistry.compute.chain import Chain, _is_simple_single_hop
+from graphistry.compute.chain import Chain
 
 # Import test fixtures
 from tests.gfql.ref.conftest import CGFull
@@ -138,67 +138,67 @@ def parallel_edges_graph():
 
 
 class TestOptimizationEligibility:
-    """Test that _is_simple_single_hop correctly identifies eligible edges."""
+    """Test that is_simple_single_hop correctly identifies eligible edges."""
 
     def test_single_hop_default_is_eligible(self):
         """Default e_forward() is eligible for optimization."""
         op = e_forward()
-        assert _is_simple_single_hop(op) is True
+        assert op.is_simple_single_hop() is True
 
     def test_single_hop_explicit_is_eligible(self):
         """e_forward(hops=1) is eligible."""
         op = e_forward(hops=1)
-        assert _is_simple_single_hop(op) is True
+        assert op.is_simple_single_hop() is True
 
     def test_single_hop_min_max_is_eligible(self):
         """e_forward(min_hops=1, max_hops=1) is eligible."""
         op = e_forward(min_hops=1, max_hops=1)
-        assert _is_simple_single_hop(op) is True
+        assert op.is_simple_single_hop() is True
 
     def test_multihop_range_not_eligible(self):
         """e_forward(min_hops=1, max_hops=3) is NOT eligible."""
         op = e_forward(min_hops=1, max_hops=3)
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_multihop_fixed_not_eligible(self):
         """e_forward(hops=2) is NOT eligible."""
         op = e_forward(hops=2)
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_node_hop_labels_not_eligible(self):
         """e_forward(label_node_hops='hop') is NOT eligible."""
         op = e_forward(label_node_hops='hop')
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_edge_hop_labels_not_eligible(self):
         """e_forward(label_edge_hops='hop') is NOT eligible."""
         op = e_forward(label_edge_hops='hop')
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_seed_labels_not_eligible(self):
         """e_forward(label_seeds=True) is NOT eligible."""
         op = e_forward(label_seeds=True)
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_output_slice_not_eligible(self):
         """e_forward(output_min_hops=1) is NOT eligible."""
         op = e_forward(output_min_hops=1)
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_to_fixed_point_not_eligible(self):
         """e_forward(to_fixed_point=True) is NOT eligible (unbounded traversal)."""
         op = e_forward(to_fixed_point=True)
-        assert _is_simple_single_hop(op) is False
+        assert op.is_simple_single_hop() is False
 
     def test_reverse_is_eligible(self):
         """e_reverse() is eligible."""
         op = e_reverse()
-        assert _is_simple_single_hop(op) is True
+        assert op.is_simple_single_hop() is True
 
     def test_undirected_is_eligible(self):
         """e_undirected() is eligible."""
         op = e_undirected()
-        assert _is_simple_single_hop(op) is True
+        assert op.is_simple_single_hop() is True
 
 
 class TestDirectionSemantics:
@@ -398,7 +398,7 @@ class TestResultCorrectness:
 # =============================================================================
 # These tests specifically exercise the fast path optimization in the backward
 # pass that uses vectorized merge filtering instead of calling hop().
-# Fast path is triggered when: _is_simple_single_hop(op) returns True
+# Fast path is triggered when: op.is_simple_single_hop() returns True
 # (i.e., hops=1, no labels, no output slicing)
 
 
@@ -997,7 +997,7 @@ class TestSlowPathBackwardPass:
     Test backward pass with multi-hop edges (slow path).
 
     These tests force the slow path by using min_hops/max_hops > 1 or labels,
-    which disables the _is_simple_single_hop() optimization.
+    which disables the is_simple_single_hop() optimization.
     """
 
     def test_multihop_forward_reaches_correct_nodes(self, linear_graph):

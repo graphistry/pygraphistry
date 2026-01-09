@@ -26,29 +26,6 @@ if TYPE_CHECKING:
 logger = setup_logger(__name__)
 
 
-def _is_simple_single_hop(op: ASTEdge) -> bool:
-    """Check if edge is single-hop without hop labels (safe to skip backward hop call)."""
-    # Check hop count is exactly 1
-    hop_min = op.min_hops if op.min_hops is not None else (
-        op.hops if isinstance(op.hops, int) else 1
-    )
-    hop_max = op.max_hops if op.max_hops is not None else (
-        op.hops if isinstance(op.hops, int) else hop_min
-    )
-    if hop_min != 1 or hop_max != 1:
-        return False
-    # No fixed-point (unbounded) traversal
-    if op.to_fixed_point:
-        return False
-    # No hop labels that require traversal to compute
-    if op.label_node_hops or op.label_edge_hops or op.label_seeds:
-        return False
-    # No output slicing
-    if op.output_min_hops is not None or op.output_max_hops is not None:
-        return False
-    return True
-
-
 ###############################################################################
 
 
@@ -224,7 +201,7 @@ def combine_steps(
         # Check if any edge op is multi-hop - if so, fall back to original re-run approach
         # Multi-hop edges span multiple nodes, so simple endpoint filtering doesn't work
         has_multihop = any(
-            isinstance(op, ASTEdge) and not _is_simple_single_hop(op)
+            isinstance(op, ASTEdge) and not op.is_simple_single_hop()
             for op, _ in steps
         )
 
@@ -1117,7 +1094,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 # and use vectorized merge filtering instead. This saves ~50% time on small graphs.
                 use_fast_backward = (
                     isinstance(op, ASTEdge)
-                    and _is_simple_single_hop(op)
+                    and op.is_simple_single_hop()
                     and g_step._edges is not None
                     and len(g_step._edges) > 0
                     and g._node is not None
