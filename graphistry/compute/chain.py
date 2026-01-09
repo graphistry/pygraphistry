@@ -155,6 +155,11 @@ class Chain(ASTSerializable):
             )
         
         where_raw = d.get('where')
+        if where_raw is not None and not isinstance(where_raw, (list, tuple)):
+            raise GFQLSyntaxError(
+                ErrorCode.E101,
+                f"Chain 'where' field must be a list, got {type(where_raw).__name__}"
+            )
         where = parse_where_json(
             cast(Optional[Sequence[Dict[str, Dict[str, str]]]], where_raw)
         )
