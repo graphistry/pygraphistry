@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Compute / hop**: `hop()` supports `min_hops`/`max_hops` traversal bounds plus optional hop labels for nodes, edges, and seeds, and post-traversal slicing via `output_min_hops`/`output_max_hops` to keep outputs compact while traversing wider ranges.
 - **Docs / hop**: Added bounded-hop walkthrough notebook (`docs/source/gfql/hop_bounds.ipynb`), cheatsheet and GFQL spec updates, and examples showing how to combine hop ranges, labels, and output slicing.
 - **GFQL / reference**: Extended the pandas reference enumerator and parity tests to cover hop ranges, labeling, and slicing so GFQL correctness checks include the new traversal shapes.
+- **Collections**: New `g.collections(...)` API for defining subsets via GFQL expressions with priority-based visual encodings. Includes helper constructors `graphistry.collection_set(...)` and `graphistry.collection_intersection(...)`, support for `showCollections`, `collectionsGlobalNodeColor`, and `collectionsGlobalEdgeColor` URL params, and automatic JSON encoding. Accepts GFQL AST, Chain objects, or wire-protocol dicts (#874).
+- **Docs / Collections**: Added collections usage guide in visualization/layout/settings, tutorial notebook (`demos/more_examples/graphistry_features/collections.ipynb`), and cross-references in 10-minute guides, cheatsheet, and GFQL docs (#875).
 
 ### Fixed
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
@@ -19,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Tests
 - **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
 - **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
+- **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
 
 ### Infra
 - **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
