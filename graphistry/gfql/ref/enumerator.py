@@ -1,9 +1,10 @@
 """Minimal GFQL reference enumerator used as the correctness oracle."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
@@ -16,21 +17,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.filter_by_dict import filter_by_dict
-ComparisonOp = Literal["==", "!=", "<", "<=", ">", ">="]
-
-
-
-@dataclass(frozen=True)
-class StepColumnRef:
-    alias: str
-    column: str
-
-
-@dataclass(frozen=True)
-class WhereComparison:
-    left: StepColumnRef
-    op: ComparisonOp
-    right: StepColumnRef
+from graphistry.compute.gfql.same_path_types import ComparisonOp, WhereComparison
 
 
 @dataclass(frozen=True)
@@ -50,14 +37,6 @@ class OracleResult:
     # Hop labels: node_id -> hop_distance, edge_id -> hop_distance
     node_hop_labels: Optional[Dict[Any, int]] = None
     edge_hop_labels: Optional[Dict[Any, int]] = None
-
-
-def col(alias: str, column: str) -> StepColumnRef:
-    return StepColumnRef(alias, column)
-
-
-def compare(left: StepColumnRef, op: ComparisonOp, right: StepColumnRef) -> WhereComparison:
-    return WhereComparison(left, op, right)
 
 
 def enumerate_chain(
@@ -140,11 +119,9 @@ def enumerate_chain(
             paths = paths.drop(columns=[current])
             current = node_step["id_col"]
         else:
-            if where:
-                raise ValueError("WHERE clauses not supported for multi-hop edges in enumerator")
-            if edge_step["alias"] or node_step["alias"]:
-                # Alias tagging for multi-hop not yet supported in enumerator
-                raise ValueError("Aliases not supported for multi-hop edges in enumerator")
+            if edge_step["alias"]:
+                # Edge alias tagging for multi-hop not yet supported in enumerator
+                raise ValueError("Edge aliases not supported for multi-hop edges in enumerator")
 
             dest_allowed: Optional[Set[Any]] = None
             if not node_frame.empty:
@@ -164,6 +141,12 @@ def enumerate_chain(
                 for dst in bp_result.seed_to_nodes.get(seed_id, set()):
                     new_rows.append([*row, dst])
             paths = pd.DataFrame(new_rows, columns=[*base_cols, node_step["id_col"]])
+            paths = paths.merge(
+                node_frame,
+                on=node_step["id_col"],
+                how="inner",
+                validate="m:1",
+            )
             current = node_step["id_col"]
 
             # Stash edges/nodes and hop labels for final selection
@@ -182,6 +165,72 @@ def enumerate_chain(
 
     if where:
         paths = paths[_apply_where(paths, where)]
+
+        # After WHERE filtering, prune collected_nodes/edges to only those in surviving paths
+        # For multi-hop edges, we stored all reachable nodes/edges before WHERE filtering
+        # Now we need to keep only those that participate in valid paths
+        if len(paths) > 0:
+            for i, edge_step in enumerate(edge_steps):
+                if "collected_nodes" not in edge_step:
+                    continue
+                start_col = node_steps[i]["id_col"]
+                end_col = node_steps[i + 1]["id_col"]
+                if start_col not in paths.columns or end_col not in paths.columns:
+                    continue
+                valid_starts = set(paths[start_col].tolist())
+                valid_ends = set(paths[end_col].tolist())
+
+                # Re-trace paths from valid_starts to valid_ends to find valid nodes/edges
+                # Build adjacency from original edges, respecting direction
+                direction = edge_step.get("direction", "forward")
+                adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
+                for _, row in edges_df.iterrows():  # type: ignore[assignment]
+                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]  # type: ignore[call-overload]
+                    if direction == "reverse":
+                        # Reverse: traverse dst -> src
+                        adjacency.setdefault(dst, []).append((eid, src))
+                    elif direction == "undirected":
+                        # Undirected: traverse both ways
+                        adjacency.setdefault(src, []).append((eid, dst))
+                        adjacency.setdefault(dst, []).append((eid, src))
+                    else:
+                        # Forward: traverse src -> dst
+                        adjacency.setdefault(src, []).append((eid, dst))
+
+                # BFS from valid_starts to find paths to valid_ends
+                valid_nodes: Set[Any] = set()
+                valid_edge_ids: Set[Any] = set()
+                min_hops = edge_step.get("min_hops", 1)
+                max_hops = edge_step.get("max_hops", 10)
+
+                for start in valid_starts:
+                    # Track paths: (current_node, path_edges, path_nodes)
+                    stack: List[Tuple[Any, List[Any], List[Any]]] = [(start, [], [start])]
+                    while stack:
+                        node, path_edges, path_nodes = stack.pop()
+                        if len(path_edges) >= max_hops:
+                            continue
+                        for eid, dst in adjacency.get(node, []):
+                            new_edges = path_edges + [eid]
+                            new_nodes = path_nodes + [dst]
+                            # Only include paths within [min_hops, max_hops] range
+                            if dst in valid_ends and len(new_edges) >= min_hops:
+                                # This path reaches a valid end - include all nodes/edges
+                                valid_nodes.update(new_nodes)
+                                valid_edge_ids.update(new_edges)
+                            if len(new_edges) < max_hops:
+                                stack.append((dst, new_edges, new_nodes))
+
+                edge_step["collected_nodes"] = valid_nodes
+                edge_step["collected_edges"] = valid_edge_ids
+        else:
+            # No surviving paths - clear all collected nodes/edges
+            for edge_step in edge_steps:
+                if "collected_nodes" in edge_step:
+                    edge_step["collected_nodes"] = set()
+                if "collected_edges" in edge_step:
+                    edge_step["collected_edges"] = set()
+
     seq_cols: List[str] = []
     for i, node_step in enumerate(node_steps):
         seq_cols.append(node_step["id_col"])
