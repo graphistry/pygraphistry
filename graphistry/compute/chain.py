@@ -38,7 +38,7 @@ def _is_simple_single_hop(op: ASTEdge) -> bool:
     if hop_min != 1 or hop_max != 1:
         return False
     # No fixed-point (unbounded) traversal
-    if getattr(op, 'to_fixed_point', False):
+    if op.to_fixed_point:
         return False
     # No hop labels that require traversal to compute
     if op.label_node_hops or op.label_edge_hops or op.label_seeds:
