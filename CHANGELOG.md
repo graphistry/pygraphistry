@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `same_path_plan.py`, `df_executor.py` implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
+- **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
+
+### Fixed
+- **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
+- **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
+- **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
+- **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
+
+### Tests
+- **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
+- **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
+
 ## [0.50.4 - 2026-01-15]
 
 ### Fixed
@@ -52,8 +66,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Docs / hop**: Added bounded-hop walkthrough notebook (`docs/source/gfql/hop_bounds.ipynb`), cheatsheet and GFQL spec updates, and examples showing how to combine hop ranges, labels, and output slicing.
 - **GFQL / reference**: Extended the pandas reference enumerator and parity tests to cover hop ranges, labeling, and slicing so GFQL correctness checks include the new traversal shapes.
 - **Docs / GFQL**: Documented the external `tck-gfql` conformance harness and local run instructions in GFQL docs.
-- **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `same_path_plan.py`, `df_executor.py` implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
-- **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 
 ### Performance
 - **GFQL / chain**: Optimized backward pass for simple single-hop edges by skipping full `hop()` call and using vectorized merge filtering instead (~50% faster on small graphs). Added `is_simple_single_hop()` method on `ASTEdge` for optimization eligibility checks.
@@ -62,19 +74,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
 - **GFQL / chain**: Fixed `output_min_hops`/`output_max_hops` semantics to correctly slice output nodes/edges matching oracle behavior.
 - **GFQL / chain**: Fixed multi-hop detection in `_is_simple_single_hop` to check `to_fixed_point` flag and correctly identify optimization-eligible edges.
-- **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
 - **GFQL / enumerator**: Fixed hop labeling for paths outside `min_hops` range to use shortest path distance instead of enumeration order.
 - **Compute / hop**: Fixed `min_hops` goal node calculation to use edge endpoints instead of lossy node merge, ensuring correct branch pruning.
-- **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
-- **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
-- **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
 
 ### Tests
 - **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
 - **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
 - **GFQL / chain**: Added 78 tests for backward pass and combine_steps optimizations covering edge cases, direction semantics, hop labels, and multi-step chains.
-- **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
-- **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
 
 ### Infra
 - **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
