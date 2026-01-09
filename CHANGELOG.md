@@ -8,10 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Compute / hop**: `hop()` supports `min_hops`/`max_hops` traversal bounds plus optional hop labels for nodes, edges, and seeds, and post-traversal slicing via `output_min_hops`/`output_max_hops` to keep outputs compact while traversing wider ranges.
+- **Docs / hop**: Added bounded-hop walkthrough notebook (`docs/source/gfql/hop_bounds.ipynb`), cheatsheet and GFQL spec updates, and examples showing how to combine hop ranges, labels, and output slicing.
+- **GFQL / reference**: Extended the pandas reference enumerator and parity tests to cover hop ranges, labeling, and slicing so GFQL correctness checks include the new traversal shapes.
+- **Docs / GFQL**: Documented the external `tck-gfql` conformance harness and local run instructions in GFQL docs.
+
 ### Performance
 - **GFQL / chain**: Optimized backward pass for simple single-hop edges by skipping full `hop()` call and using vectorized merge filtering instead (~50% faster on small graphs). Added `is_simple_single_hop()` method on `ASTEdge` for optimization eligibility checks.
 
 ### Fixed
+- **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
 - **GFQL / chain**: Fixed `output_min_hops`/`output_max_hops` semantics to correctly slice output nodes/edges matching oracle behavior.
 - **GFQL / chain**: Fixed multi-hop detection in `_is_simple_single_hop` to check `to_fixed_point` flag and correctly identify optimization-eligible edges.
 - **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
@@ -19,7 +26,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Compute / hop**: Fixed `min_hops` goal node calculation to use edge endpoints instead of lossy node merge, ensuring correct branch pruning.
 
 ### Tests
+- **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
+- **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
 - **GFQL / chain**: Added 78 tests for backward pass and combine_steps optimizations covering edge cases, direction semantics, hop labels, and multi-step chains.
+
+### Infra
+- **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
+- **CI / typecheck**: Stop forcing `PYTHON_VERSION` for mypy; rely on the job interpreter and `mypy.ini` defaults.
+- **CI / GFQL**: Run the external `tck-gfql` conformance harness only when GFQL-related paths change (or on manual/scheduled runs).
 
 ## [0.50.0 - 2025-12-24]
 
