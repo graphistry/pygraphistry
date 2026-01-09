@@ -214,38 +214,17 @@ def combine_steps(
         )
 
         if has_multihop:
-            # Original approach: re-run forward ops (needed for multi-hop correctness)
+            # Multi-hop: re-run forward ops (can't use simple endpoint filtering)
             logger.debug('EDGES << recompute forwards given reduced set (multihop)')
             new_steps = []
             for idx, (op, g_step) in enumerate(steps):
-                if label_steps is not None and idx > 0:
-                    prev_fwd_step = label_steps[idx - 1][1]
-                    prev_wavefront_source = prev_fwd_step._nodes
-                else:
-                    prev_wavefront_source = g_step._nodes
-
-                prev_node_wavefront = (
-                    safe_merge(
-                        full_nodes,
-                        prev_wavefront_source[[node_id]],
-                        on=node_id,
-                        how='inner',
-                        engine=engine,
-                    ) if full_nodes is not None and node_id is not None and prev_wavefront_source is not None else prev_wavefront_source
-                )
-
-                new_steps.append((
-                    op,
-                    op(
-                        g=g.edges(g_step._edges),
-                        prev_node_wavefront=prev_node_wavefront,
-                        target_wave_front=None,
-                        engine=engine
-                    )
-                ))
+                prev_src = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g_step._nodes
+                prev_wf = safe_merge(full_nodes, prev_src[[node_id]], on=node_id, how='inner', engine=engine) \
+                          if full_nodes is not None and node_id and prev_src is not None else prev_src
+                new_steps.append((op, op(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
             steps = new_steps
         else:
-            # Optimization for single-hop: filter by valid endpoints using vectorized merge
+            # Optimization: filter by valid endpoints instead of re-running op
             logger.debug('EDGES << filter by valid endpoints (optimized)')
             new_steps = []
             for idx, (op, g_step) in enumerate(steps):
@@ -254,56 +233,25 @@ def combine_steps(
                     new_steps.append((op, g_step))
                     continue
 
-                # Get valid source nodes from previous NODE step in label_steps (forward pass)
-                if label_steps is not None and idx > 0:
-                    prev_node_step = label_steps[idx - 1][1]
-                    prev_nodes = prev_node_step._nodes
-                else:
-                    prev_nodes = g._nodes
+                prev_nodes = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g._nodes
+                next_nodes = label_steps[idx + 1][1]._nodes if label_steps and idx + 1 < len(label_steps) else None
+                direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
-                # Get valid destination nodes from next NODE step in label_steps
-                if label_steps is not None and idx + 1 < len(label_steps):
-                    next_node_step = label_steps[idx + 1][1]
-                    next_nodes = next_node_step._nodes
+                if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
+                    prev_ids = prev_nodes[[node_id]].drop_duplicates()
+                    next_ids = next_nodes[[node_id]].drop_duplicates()
+                    # Either direction: (src in prev, dst in next) OR (dst in prev, src in next)
+                    fwd = edges_df.merge(prev_ids.rename(columns={node_id: src_col}), on=src_col, how='inner') \
+                                  .merge(next_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner')
+                    rev = edges_df.merge(prev_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner') \
+                                  .merge(next_ids.rename(columns={node_id: src_col}), on=src_col, how='inner')
+                    edges_df = df_concat(engine)([fwd, rev]).drop_duplicates()
                 else:
-                    next_nodes = None
-
-                # Determine edge direction from the operation
-                is_reverse = isinstance(op, ASTEdge) and getattr(op, 'direction', 'forward') == 'reverse'
-                is_undirected = isinstance(op, ASTEdge) and getattr(op, 'direction', 'forward') == 'undirected'
-
-                # Use vectorized merge instead of set + isin for better performance on large graphs
-                if is_undirected:
-                    # Undirected: either endpoint can be prev or next
-                    if prev_nodes is not None and next_nodes is not None and node_id:
-                        prev_ids = prev_nodes[[node_id]].drop_duplicates()
-                        next_ids = next_nodes[[node_id]].drop_duplicates()
-                        if src_col in edges_df.columns and dst_col in edges_df.columns:
-                            # Forward direction: src in prev, dst in next
-                            fwd = edges_df.merge(
-                                prev_ids.rename(columns={node_id: src_col}),
-                                on=src_col, how='inner'
-                            ).merge(
-                                next_ids.rename(columns={node_id: dst_col}),
-                                on=dst_col, how='inner'
-                            )
-                            # Reverse direction: dst in prev, src in next
-                            rev = edges_df.merge(
-                                prev_ids.rename(columns={node_id: dst_col}),
-                                on=dst_col, how='inner'
-                            ).merge(
-                                next_ids.rename(columns={node_id: src_col}),
-                                on=src_col, how='inner'
-                            )
-                            edges_df = df_concat(engine)([fwd, rev]).drop_duplicates()
-                else:
-                    # Directed: prev_col is where traversal starts, next_col is where it ends
-                    prev_col, next_col = (dst_col, src_col) if is_reverse else (src_col, dst_col)
+                    prev_col, next_col = (dst_col, src_col) if direction == 'reverse' else (src_col, dst_col)
                     edges_df = _filter_edges_by_endpoint(edges_df, prev_nodes, node_id, prev_col)
                     edges_df = _filter_edges_by_endpoint(edges_df, next_nodes, node_id, next_col)
 
-                g_filtered = g_step.edges(edges_df)
-                new_steps.append((op, g_filtered))
+                new_steps.append((op, g_step.edges(edges_df)))
             steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
@@ -315,44 +263,24 @@ def combine_steps(
     def apply_output_slice(op: ASTObject, op_label: ASTObject, df):
         if not isinstance(op_label, ASTEdge):
             return df
-        out_min = getattr(op, 'output_min_hops', None)
-        out_max = getattr(op, 'output_max_hops', None)
-        # Fall back to forward op (with labels) when reverse op drops slice info
-        if out_min is None and out_max is None:
-            out_min = getattr(op_label, 'output_min_hops', None)
-            out_max = getattr(op_label, 'output_max_hops', None)
+        out_min = getattr(op, 'output_min_hops', None) or getattr(op_label, 'output_min_hops', None)
+        out_max = getattr(op, 'output_max_hops', None) or getattr(op_label, 'output_max_hops', None)
         if out_min is None and out_max is None:
             return df
         label_col = op_label.label_node_hops if kind == 'nodes' else op_label.label_edge_hops
         if label_col is None:
-            # best-effort fallback to any hop-like column
             hop_like = [c for c in df.columns if 'hop' in c]
-            if not hop_like:
-                return df
-            label_col = hop_like[0]
-        if label_col not in df.columns:
+            label_col = hop_like[0] if hop_like else None
+        if not label_col or label_col not in df.columns:
             return df
-        # Per Cypher semantics, seed nodes should ALWAYS be included in results,
-        # regardless of output_min_hops/output_max_hops which only filter destinations.
-        #
-        # Seed identification:
-        # - hop=0 (when label_seeds=True)
-        # - hop=NA: Could be a seed (label_seeds=False) OR just an edge endpoint.
-        #   We MUST keep hop=NA nodes because we can't distinguish seeds from endpoints
-        #   until the final output where named tags are available.
-        #
-        # Strategy: Keep hop=NA nodes here; the final pass with tags will handle them.
-        is_seed_or_unknown = (df[label_col] == 0) | df[label_col].isna()
-        # Apply hop range filter: nodes with valid hop values (> 0) in range
-        has_hop = df[label_col].notna() & (df[label_col] > 0)
-        in_range = has_hop.copy()
+        # Keep seeds (hop=0 or NA) and hops in range
+        is_seed = (df[label_col] == 0) | df[label_col].isna()
+        in_range = df[label_col].notna() & (df[label_col] > 0)
         if out_min is not None:
-            in_range = in_range & (df[label_col] >= out_min)
+            in_range &= df[label_col] >= out_min
         if out_max is not None:
-            in_range = in_range & (df[label_col] <= out_max)
-        # Keep seeds/unknown (hop=0 or NA) OR nodes in the output range
-        mask = is_seed_or_unknown | in_range
-        return df[mask]
+            in_range &= df[label_col] <= out_max
+        return df[is_seed | in_range]
 
     dfs_to_concat = []
     extra_step_dfs = []
@@ -1086,33 +1014,26 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 if use_fast_backward:
                     edges_df = g_step._edges
                     node_id, src_col, dst_col = g._node, g._source, g._destination
-                    is_reverse = op.direction == 'reverse'
                     is_undirected = op.direction == 'undirected'
+                    prev_set = set(prev_wavefront_nodes[node_id]) if prev_wavefront_nodes is not None else None
+                    target_set = set(target_wave_front_nodes[node_id]) if target_wave_front_nodes is not None else None
 
                     # Filter edges by wavefronts
                     if is_undirected:
-                        # Undirected: bridge between prev and target (either direction)
-                        if prev_wavefront_nodes is not None and target_wave_front_nodes is not None:
-                            prev_set = set(prev_wavefront_nodes[node_id])
-                            target_set = set(target_wave_front_nodes[node_id])
-                            mask = (
-                                (edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set)) |
-                                (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set))
-                            )
+                        if prev_set and target_set:
+                            mask = ((edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set)) |
+                                    (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set)))
                             edges_df = edges_df[mask]
-                        elif prev_wavefront_nodes is not None:
-                            prev_set = set(prev_wavefront_nodes[node_id])
+                        elif prev_set:
                             edges_df = edges_df[edges_df[src_col].isin(prev_set) | edges_df[dst_col].isin(prev_set)]
-                        elif target_wave_front_nodes is not None:
-                            target_set = set(target_wave_front_nodes[node_id])
+                        elif target_set:
                             edges_df = edges_df[edges_df[src_col].isin(target_set) | edges_df[dst_col].isin(target_set)]
                     else:
-                        # Directed: backward from next_col to prev_col
-                        next_col, prev_col = (src_col, dst_col) if is_reverse else (dst_col, src_col)
+                        next_col, prev_col = (src_col, dst_col) if op.direction == 'reverse' else (dst_col, src_col)
                         edges_df = _filter_edges_by_endpoint(edges_df, prev_wavefront_nodes, node_id, next_col)
                         edges_df = _filter_edges_by_endpoint(edges_df, target_wave_front_nodes, node_id, prev_col)
 
-                    # Get result nodes from filtered edges
+                    # Get result nodes
                     if len(edges_df) > 0:
                         if is_undirected:
                             target_node_ids = df_concat(engine_concrete)([
@@ -1120,7 +1041,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                                 edges_df[[dst_col]].rename(columns={dst_col: node_id})
                             ]).drop_duplicates()
                         else:
-                            target_col = dst_col if is_reverse else src_col
+                            target_col = dst_col if op.direction == 'reverse' else src_col
                             target_node_ids = edges_df[[target_col]].rename(columns={target_col: node_id}).drop_duplicates()
                         nodes_df = safe_merge(g._nodes, target_node_ids, on=node_id, how='inner', engine=engine_concrete) if g._nodes is not None else target_node_ids
                     else:
@@ -1129,22 +1050,11 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     g_step_reverse = g_step.nodes(nodes_df).edges(edges_df)
                 else:
                     # Fall back to full hop() traversal for complex cases
-                    g_step_reverse = (
-                        (op.reverse())(
-
-                            # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
-                            # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
-                            g=g_step,
-
-                            # check for hits against fully valid targets
-                            # ast will replace g.node() with this as its starting points
-                            prev_node_wavefront=prev_wavefront_nodes,
-
-                            # only allow transitions to these nodes (vs prev_node_wavefront)
-                            target_wave_front=target_wave_front_nodes,
-
-                            engine=engine_concrete
-                        )
+                    g_step_reverse = op.reverse()(
+                        g=g_step,
+                        prev_node_wavefront=prev_wavefront_nodes,
+                        target_wave_front=target_wave_front_nodes,
+                        engine=engine_concrete
                     )
                 g_stack_reverse.append(g_step_reverse)
 
