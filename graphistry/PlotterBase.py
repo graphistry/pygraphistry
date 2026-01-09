@@ -2,6 +2,7 @@ from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
@@ -1846,6 +1847,58 @@ class PlotterBase(Plottable):
         return res
 
 
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        encode: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        """Set collections URL parameters. Additive over previous settings.
+
+        :param collections: List/dict of collections or JSON/URL-encoded JSON string.
+        :param show_collections: Toggle collections panel display.
+        :param collections_global_node_color: Hex color for non-collection nodes (leading # stripped).
+        :param collections_global_edge_color: Hex color for non-collection edges (leading # stripped).
+        :param encode: If True, JSON-minify and URL-encode collections. Use False for pre-encoded strings.
+        :param validate: Validation mode. 'autofix' (default) warns on issues, 'strict' raises on issues.
+        :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
+        """
+        from graphistry.validate.validate_collections import (
+            encode_collections,
+            normalize_collections,
+            normalize_collections_url_params,
+            normalize_validation_params,
+        )
+
+        validate_mode, warn = normalize_validation_params(validate, warn)
+        settings: Dict[str, Any] = {}
+        if collections is not None:
+            normalized = normalize_collections(collections, validate=validate_mode, warn=warn)
+            if isinstance(collections, str) and not encode:
+                settings['collections'] = collections
+            else:
+                settings['collections'] = encode_collections(normalized, encode=encode)
+        extras: Dict[str, Any] = {}
+        if show_collections is not None:
+            extras['showCollections'] = show_collections
+        if collections_global_node_color is not None:
+            extras['collectionsGlobalNodeColor'] = collections_global_node_color
+        if collections_global_edge_color is not None:
+            extras['collectionsGlobalEdgeColor'] = collections_global_edge_color
+        if extras:
+            extras = normalize_collections_url_params(extras, validate=validate_mode, warn=warn)
+            settings.update(extras)
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
+
+
     def privacy(
         self, 
         mode: Optional[Mode] = None, 
@@ -2191,7 +2244,10 @@ class PlotterBase(Plottable):
             'viztoken': str(uuid.uuid4())
         }
 
-        viz_url = self._pygraphistry._viz_url(info, self._url_params)
+        from graphistry.validate.validate_collections import normalize_collections_url_params
+
+        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
+        viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
         full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
