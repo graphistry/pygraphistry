@@ -207,8 +207,8 @@ def combine_steps(
             new_steps = []
             for idx, (op, g_step) in enumerate(steps):
                 prev_src = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g_step._nodes
-                prev_wf = safe_merge(full_nodes, prev_src[[node_id]], on=node_id, how='inner', engine=engine) \
-                          if full_nodes is not None and node_id and prev_src is not None else prev_src
+                prev_wf = (safe_merge(full_nodes, prev_src[[node_id]], on=node_id, how='inner', engine=engine)
+                           if full_nodes is not None and node_id and prev_src is not None else prev_src)
                 new_steps.append((op, op(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
             steps = new_steps
         else:
@@ -1009,8 +1009,8 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     # Filter edges by wavefronts
                     if is_undirected:
                         if prev_set and target_set:
-                            mask = ((edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set)) |
-                                    (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set)))
+                            mask = ((edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set))
+                                    | (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set)))
                             edges_df = edges_df[mask]
                         elif prev_set:
                             edges_df = edges_df[edges_df[src_col].isin(prev_set) | edges_df[dst_col].isin(prev_set)]
