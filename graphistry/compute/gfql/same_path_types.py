@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional, Sequence
 
 
 ComparisonOp = Literal[
@@ -49,10 +49,12 @@ def parse_column_ref(ref: str) -> StepColumnRef:
 
 
 def parse_where_json(
-    where_json: Optional[Sequence[Dict[str, Dict[str, str]]]]
+    where_json: Any
 ) -> List[WhereComparison]:
-    if not where_json:
+    if where_json is None:
         return []
+    if not isinstance(where_json, (list, tuple)):
+        raise ValueError(f"WHERE clauses must be a list, got {type(where_json).__name__}")
     clauses: List[WhereComparison] = []
     for entry in where_json:
         if not isinstance(entry, dict) or len(entry) != 1:
