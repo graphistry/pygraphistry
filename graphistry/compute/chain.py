@@ -1000,8 +1000,10 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 )
 
                 if use_fast_backward:
+                    assert isinstance(op, ASTEdge)  # type narrowing for mypy
                     edges_df = g_step._edges
                     node_id, src_col, dst_col = g._node, g._source, g._destination
+                    assert node_id is not None and src_col is not None and dst_col is not None
                     is_undirected = op.direction == 'undirected'
                     prev_set = set(prev_wavefront_nodes[node_id]) if prev_wavefront_nodes is not None else None
                     target_set = set(target_wave_front_nodes[node_id]) if target_wave_front_nodes is not None else None
