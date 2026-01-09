@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from graphistry.Engine import Engine
-from graphistry.compute.ast import ASTEdge
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     DFSamePathExecutor,
@@ -47,17 +46,6 @@ def requires_gpu(func):
         return func(*args, **kwargs)
 
     return wrapper
-
-
-def _has_multihop(chain) -> bool:
-    """Check if chain has any multi-hop edges (oracle doesn't support multi-hop + WHERE)."""
-    for op in chain:
-        if isinstance(op, ASTEdge):
-            min_h = op.min_hops if op.min_hops is not None else (op.hops if isinstance(op.hops, int) else 1)
-            max_h = op.max_hops if op.max_hops is not None else (op.hops if isinstance(op.hops, int) else min_h)
-            if min_h != 1 or max_h != 1:
-                return True
-    return False
 
 
 def make_simple_graph():
@@ -102,25 +90,13 @@ def make_hop_graph():
 
 
 def assert_executor_parity(graph, chain, where):
-    """Assert executor parity with oracle. Tests pandas, and cudf if TEST_CUDF=1.
-
-    For multi-hop + WHERE, oracle comparison is skipped (oracle doesn't support it).
-    We just verify the executor runs and produces valid output.
-    """
+    """Assert executor parity with oracle. Tests pandas, and cudf if TEST_CUDF=1."""
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
     executor = DFSamePathExecutor(inputs)
     executor._forward()
     result = executor._run_native()
 
     assert result._nodes is not None and result._edges is not None
-
-    # Oracle doesn't support multi-hop + WHERE, skip comparison
-    if where and _has_multihop(chain):
-        # Just verify executor produced valid output
-        assert "id" in result._nodes.columns
-        assert "src" in result._edges.columns
-        assert "dst" in result._edges.columns
-        return
 
     oracle = enumerate_chain(
         graph,
