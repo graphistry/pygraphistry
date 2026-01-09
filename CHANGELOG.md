@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.50.1 - 2026-01-09]
+
 ### Added
 - **Compute / hop**: `hop()` supports `min_hops`/`max_hops` traversal bounds plus optional hop labels for nodes, edges, and seeds, and post-traversal slicing via `output_min_hops`/`output_max_hops` to keep outputs compact while traversing wider ranges.
 - **Docs / hop**: Added bounded-hop walkthrough notebook (`docs/source/gfql/hop_bounds.ipynb`), cheatsheet and GFQL spec updates, and examples showing how to combine hop ranges, labels, and output slicing.
