@@ -5,8 +5,7 @@ from typing import Set
 from types import SimpleNamespace
 
 from graphistry.compute import n, e_forward, e_undirected
-from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
-from graphistry.compute.gfql.same_path_types import col, compare
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain, col, compare
 
 
 def _plottable(nodes, edges):
