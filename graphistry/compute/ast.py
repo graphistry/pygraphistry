@@ -319,6 +319,27 @@ class ASTEdge(ASTObject):
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
 
+    def is_simple_single_hop(self) -> bool:
+        """Check if edge is single-hop without hop labels (safe to skip backward hop call)."""
+        hop_min = self.min_hops if self.min_hops is not None else (
+            self.hops if isinstance(self.hops, int) else 1
+        )
+        hop_max = self.max_hops if self.max_hops is not None else (
+            self.hops if isinstance(self.hops, int) else hop_min
+        )
+        if hop_min != 1 or hop_max != 1:
+            return False
+        # No fixed-point (unbounded) traversal
+        if self.to_fixed_point:
+            return False
+        # No hop labels that require traversal to compute
+        if self.label_node_hops or self.label_edge_hops or self.label_seeds:
+            return False
+        # No output slicing
+        if self.output_min_hops is not None or self.output_max_hops is not None:
+            return False
+        return True
+
     def _validate_fields(self) -> None:
         """Validate edge fields."""
         # Validate hops

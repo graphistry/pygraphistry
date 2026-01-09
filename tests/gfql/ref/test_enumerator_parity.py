@@ -44,9 +44,13 @@ def _run_parity_case(nodes, edges, ops, check_hop_labels=False):
         if not alias:
             continue
         if isinstance(op, ASTNode):
-            assert oracle.tags.get(alias, set()) == _alias_bindings(gfql_nodes, g._node, alias)
+            assert oracle.tags.get(alias, set()) == _alias_bindings(
+                gfql_nodes, g._node, alias
+            )
         elif isinstance(op, ASTEdge):
-            assert oracle.tags.get(alias, set()) == _alias_bindings(gfql_edges, g._edge, alias)
+            assert oracle.tags.get(alias, set()) == _alias_bindings(
+                gfql_edges, g._edge, alias
+            )
 
     # Check hop labels if requested
     if check_hop_labels:
@@ -100,7 +104,8 @@ CASES = [
             {"edge_id": "e2", "src": "acct2", "dst": "acct3", "type": "txn"},
             {"edge_id": "e3", "src": "acct3", "dst": "acct1", "type": "txn"},
         ],
-        [n({"type": "account"}, name="start"), e_forward({"type": "txn"}, name="hop"), n({"type": "account"}, name="end")],
+        [n({"type": "account"}, name="start"), e_forward({"type": "txn"}, name="hop"),
+n({"type": "account"}, name="end")],
     ),
     (
         "reverse",
@@ -113,7 +118,8 @@ CASES = [
             {"edge_id": "owns1", "src": "acct1", "dst": "user1", "type": "owns"},
             {"edge_id": "owns2", "src": "acct2", "dst": "user1", "type": "owns"},
         ],
-        [n({"type": "user"}, name="u"), e_reverse({"type": "owns"}, name="owns_rev"), n({"type": "account"}, name="acct")],
+        [n({"type": "user"}, name="u"), e_reverse({"type": "owns"}, name="owns_rev"),
+n({"type": "account"}, name="acct")],
     ),
     (
         "two_hop",
@@ -147,7 +153,11 @@ CASES = [
             {"edge_id": "e12", "src": "n1", "dst": "n2", "type": "path"},
             {"edge_id": "e23", "src": "n2", "dst": "n3", "type": "path"},
         ],
-        [n({"type": "node"}, name="start"), e_undirected({"type": "path"}, name="hop"), n({"type": "node"}, name="end")],
+        [
+            n({"type": "node"}, name="start"),
+            e_undirected({"type": "path"}, name="hop"),
+            n({"type": "node"}, name="end"),
+        ],
     ),
     (
         "empty",
@@ -156,7 +166,8 @@ CASES = [
             {"id": "acct2", "type": "account"},
         ],
         [{"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"}],
-        [n({"type": "user"}, name="start"), e_forward({"type": "txn"}, name="hop"), n({"type": "user"}, name="end")],
+        [n({"type": "user"}, name="start"), e_forward({"type": "txn"}, name="hop"),
+n({"type": "user"}, name="end")],
     ),
     (
         "cycle",
@@ -189,7 +200,8 @@ CASES = [
             {"edge_id": "e2", "src": "acct1", "dst": "acct3", "type": "txn"},
             {"edge_id": "e3", "src": "acct3", "dst": "acct4", "type": "txn"},
         ],
-        [n({"type": "account"}, name="root"), e_forward({"type": "txn"}, name="first_hop"), n({"type": "account"}, name="child")],
+        [n({"type": "account"}, name="root"), e_forward({"type": "txn"},
+name="first_hop"), n({"type": "account"}, name="child")],
     ),
     (
         "forward_labels",
@@ -547,3 +559,180 @@ class TestTrickyHopBounds:
         oracle = _run_parity_case(nodes, edges, ops)
         assert oracle.nodes.empty or len(oracle.nodes) == 0
         assert oracle.edges.empty or len(oracle.edges) == 0
+
+    def test_hop_label_uses_shortest_path_not_valid_path(self):
+        """Hop labels should use minimum distance across ALL paths, not just valid paths.
+
+        This is a regression test for a bug where hop labeling only considered
+        paths that satisfied min_hops, causing incorrect minimum distances.
+
+        Graph:
+          a -> b -> c -> d (3 hops to d via long path)
+          a -> x -> d      (2 hops to d via short path)
+
+        With min_hops=3, max_hops=3:
+        - Only the 3-hop path a->b->c->d satisfies min_hops
+        - But node d's minimum hop distance is 2 (via the short path a->x->d)
+        - The hop label for d should be 2, NOT 3
+
+        The bug was: only saving paths >= min_hops caused d to get hop=3.
+        """
+        nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
+        edges = [
+            {"edge_id": "e1", "src": "a", "dst": "b"},
+            {"edge_id": "e2", "src": "b", "dst": "c"},
+            {"edge_id": "e3", "src": "c", "dst": "d"},
+            {"edge_id": "short1", "src": "a", "dst": "x"},
+            {"edge_id": "short2", "src": "x", "dst": "d"},
+        ]
+        g = (
+            CGFull()
+            .nodes(pd.DataFrame(nodes), "id")
+            .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+        )
+        ops = [
+            n({"id": "a"}),
+            e_forward(min_hops=3, max_hops=3, label_node_hops="hop"),
+            n(),
+        ]
+
+        # Get GFQL result
+        gfql_result = g.gfql(ops)
+        gfql_nodes = _to_pandas(gfql_result._nodes)
+        gfql_node_hops = {
+            row["id"]: int(row["hop"])
+            for _, row in gfql_nodes.iterrows()
+            if pd.notna(row["hop"])
+        }
+
+        # d should have hop=2 (minimum distance via short path)
+        # even though only the 3-hop path satisfies min_hops
+        assert gfql_node_hops.get("d") == 2, (
+            f"Node d should have hop=2 (shortest path), got {gfql_node_hops.get('d')}"
+        )
+
+        # x should NOT be in output (short path doesn't satisfy min_hops=3)
+        assert "x" not in set(gfql_nodes["id"]), (
+            "Node x should not be in output (short path doesn't satisfy min_hops)"
+        )
+
+        # Now verify oracle matches
+        oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
+        oracle_node_hops = oracle.node_hop_labels or {}
+
+        # Oracle should also have d at hop=2
+        assert oracle_node_hops.get("d") == 2, (
+            f"Oracle: node d should have hop=2, got {oracle_node_hops.get('d')}"
+        )
+
+        # Oracle should also exclude x
+        assert "x" not in set(oracle.nodes["id"]), (
+            "Oracle: node x should not be in output"
+        )
+
+    def test_edge_hop_label_uses_shortest_path(self):
+        """Edge hop labels should also use minimum distance across ALL paths.
+
+        Same pattern as node hop labels - edges on shorter invalid paths
+        should still contribute to minimum distance calculation.
+
+        Graph:
+          a -> b -> c -> d (3 edges to reach d)
+          a -> x -> d      (2 edges to reach d)
+
+        With min_hops=3: edge "short2" (x->d) is at hop 2, even though
+        that path doesn't satisfy min_hops.
+        """
+        nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
+        edges = [
+            {"edge_id": "e1", "src": "a", "dst": "b"},
+            {"edge_id": "e2", "src": "b", "dst": "c"},
+            {"edge_id": "e3", "src": "c", "dst": "d"},
+            {"edge_id": "short1", "src": "a", "dst": "x"},
+            {"edge_id": "short2", "src": "x", "dst": "d"},
+        ]
+        g = (
+            CGFull()
+            .nodes(pd.DataFrame(nodes), "id")
+            .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+        )
+        ops = [
+            n({"id": "a"}),
+            e_forward(min_hops=3, max_hops=3, label_edge_hops="ehop"),
+            n(),
+        ]
+
+        gfql_result = g.gfql(ops)
+        gfql_edges = _to_pandas(gfql_result._edges)
+
+        # Only edges from valid path should be in output
+        output_edge_ids = set(gfql_edges["edge_id"])
+        assert output_edge_ids == {"e1", "e2", "e3"}, (
+            f"Expected only long path edges, got {output_edge_ids}"
+        )
+
+        # short1, short2 should NOT be in output
+        assert "short1" not in output_edge_ids
+        assert "short2" not in output_edge_ids
+
+        # Verify oracle matches
+        oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
+        oracle_edge_ids = set(oracle.edges["edge_id"])
+        assert oracle_edge_ids == {"e1", "e2", "e3"}, (
+            f"Oracle: expected only long path edges, got {oracle_edge_ids}"
+        )
+
+    def test_reverse_hop_label_shortest_path(self):
+        """Reverse traversal should also use shortest path for hop labels.
+
+        Graph: a -> b -> c -> d
+               a -> x -> d
+
+        Starting from d with e_reverse, min_hops=3:
+        - Valid path: d <- c <- b <- a (3 reverse hops)
+        - Invalid path: d <- x <- a (2 reverse hops)
+        - Node a's hop label should be 2 (shortest), not 3
+        """
+        nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
+        edges = [
+            {"edge_id": "e1", "src": "a", "dst": "b"},
+            {"edge_id": "e2", "src": "b", "dst": "c"},
+            {"edge_id": "e3", "src": "c", "dst": "d"},
+            {"edge_id": "short1", "src": "a", "dst": "x"},
+            {"edge_id": "short2", "src": "x", "dst": "d"},
+        ]
+        g = (
+            CGFull()
+            .nodes(pd.DataFrame(nodes), "id")
+            .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+        )
+        ops = [
+            n({"id": "d"}),
+            e_reverse(min_hops=3, max_hops=3, label_node_hops="hop"),
+            n(),
+        ]
+
+        gfql_result = g.gfql(ops)
+        gfql_nodes = _to_pandas(gfql_result._nodes)
+        gfql_node_hops = {
+            row["id"]: int(row["hop"])
+            for _, row in gfql_nodes.iterrows()
+            if pd.notna(row["hop"])
+        }
+
+        # a should have hop=2 (via short reverse path d<-x<-a)
+        assert gfql_node_hops.get("a") == 2, (
+            f"Node a should have hop=2 (shortest reverse path), got {gfql_node_hops.get('a')}"
+        )
+
+        # x should NOT be in output (short path doesn't satisfy min_hops=3)
+        assert "x" not in set(gfql_nodes["id"]), (
+            "Node x should not be in output"
+        )
+
+        # Verify oracle matches
+        oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
+        oracle_node_hops = oracle.node_hop_labels or {}
+        assert oracle_node_hops.get("a") == 2, (
+            f"Oracle: node a should have hop=2, got {oracle_node_hops.get('a')}"
+        )

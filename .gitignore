@@ -101,6 +101,7 @@ docs/source/demos
 # Legacy - kept for backward compatibility
 AI_PROGRESS/
 /PLAN.md
+/plan.md
 plans/
 tmp/
 test_env/

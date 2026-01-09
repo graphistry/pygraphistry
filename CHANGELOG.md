@@ -14,12 +14,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / reference**: Extended the pandas reference enumerator and parity tests to cover hop ranges, labeling, and slicing so GFQL correctness checks include the new traversal shapes.
 - **Docs / GFQL**: Documented the external `tck-gfql` conformance harness and local run instructions in GFQL docs.
 
+### Performance
+- **GFQL / chain**: Optimized backward pass for simple single-hop edges by skipping full `hop()` call and using vectorized merge filtering instead (~50% faster on small graphs). Added `is_simple_single_hop()` method on `ASTEdge` for optimization eligibility checks.
+
 ### Fixed
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
+- **GFQL / chain**: Fixed `output_min_hops`/`output_max_hops` semantics to correctly slice output nodes/edges matching oracle behavior.
+- **GFQL / chain**: Fixed multi-hop detection in `_is_simple_single_hop` to check `to_fixed_point` flag and correctly identify optimization-eligible edges.
+- **GFQL / enumerator**: Fixed hop labeling for paths outside `min_hops` range to use shortest path distance instead of enumeration order.
+- **Compute / hop**: Fixed `min_hops` goal node calculation to use edge endpoints instead of lossy node merge, ensuring correct branch pruning.
 
 ### Tests
 - **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
 - **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
+- **GFQL / chain**: Added 78 tests for backward pass and combine_steps optimizations covering edge cases, direction semantics, hop labels, and multi-step chains.
 
 ### Infra
 - **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.

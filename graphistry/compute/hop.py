@@ -763,12 +763,29 @@ def hop(self: Plottable,
         and edge_hop_col is not None
         and max_reached_hop >= resolved_min_hops
     ):
-        # Find goal nodes (nodes at hop >= min_hops)
-        goal_nodes = set(
-            node_hop_records[node_hop_records[node_hop_col] >= resolved_min_hops][g2._node].tolist()
+        # Yannakakis: use edge endpoints, not node_hop_records (lossy min-hop-per-node)
+        # A node reachable at hop 1 AND hop 2 only records hop 1 in node_hop_records,
+        # but IS a valid goal if reached via a longer path at hop >= min_hops.
+        valid_endpoint_edges = edge_hop_records[edge_hop_records[edge_hop_col] >= resolved_min_hops]
+        valid_endpoint_edges_with_nodes = safe_merge(
+            valid_endpoint_edges,
+            edges_indexed[[EDGE_ID, g2._source, g2._destination]],
+            on=EDGE_ID,
+            how='inner'
         )
+        # Use Series instead of set() to avoid GPU->CPU transfers for cudf
+        if direction == 'forward':
+            goal_node_series = valid_endpoint_edges_with_nodes[g2._destination].drop_duplicates()
+        elif direction == 'reverse':
+            goal_node_series = valid_endpoint_edges_with_nodes[g2._source].drop_duplicates()
+        else:
+            # Undirected: either endpoint could be a goal
+            goal_node_series = concat([
+                valid_endpoint_edges_with_nodes[g2._source],
+                valid_endpoint_edges_with_nodes[g2._destination]
+            ], ignore_index=True, sort=False).drop_duplicates()
 
-        if goal_nodes:
+        if len(goal_node_series) > 0:
             # Backtrack from goal nodes to find all edges/nodes on valid paths
             # We need to traverse backwards through the edge records to find which edges lead to goals
             edge_records_with_endpoints = safe_merge(
@@ -778,12 +795,13 @@ def hop(self: Plottable,
                 how='inner'
             )
 
-            # Build sets of valid nodes and edges by backtracking from goal nodes
-            valid_nodes = set(goal_nodes)
-            valid_edges = set()
+            # Build Series of valid nodes and edges by backtracking from goal nodes
+            # Using Series + concat avoids GPU->CPU transfers for cudf
+            valid_node_series = goal_node_series
+            valid_edge_list = []  # Collect edge Series to concat at end
 
             # Start with edges that lead TO goal nodes
-            current_targets = goal_nodes
+            current_targets = goal_node_series
 
             # Backtrack through hops from max edge hop down to 1
             # Use actual max edge hop, not max_reached_hop which may include extra traversal steps
@@ -797,27 +815,35 @@ def hop(self: Plottable,
                 if direction == 'forward':
                     # Forward: edges go src->dst, so dst should be in targets
                     reaching_edges = hop_edges[hop_edges[g2._destination].isin(current_targets)]
-                    new_sources = set(reaching_edges[g2._source].tolist())
+                    new_source_series = reaching_edges[g2._source]
                 elif direction == 'reverse':
                     # Reverse: edges go dst->src conceptually, so src should be in targets
                     reaching_edges = hop_edges[hop_edges[g2._source].isin(current_targets)]
-                    new_sources = set(reaching_edges[g2._destination].tolist())
+                    new_source_series = reaching_edges[g2._destination]
                 else:
                     # Undirected: either endpoint could be in targets
                     reaching_fwd = hop_edges[hop_edges[g2._destination].isin(current_targets)]
                     reaching_rev = hop_edges[hop_edges[g2._source].isin(current_targets)]
                     reaching_edges = concat([reaching_fwd, reaching_rev], ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
-                    new_sources = set(reaching_fwd[g2._source].tolist()) | set(reaching_rev[g2._destination].tolist())
+                    new_source_series = concat([
+                        reaching_fwd[g2._source],
+                        reaching_rev[g2._destination]
+                    ], ignore_index=True, sort=False)
 
-                valid_edges.update(reaching_edges[EDGE_ID].tolist())
-                valid_nodes.update(new_sources)
-                current_targets = new_sources
+                valid_edge_list.append(reaching_edges[EDGE_ID])
+                valid_node_series = concat([valid_node_series, new_source_series], ignore_index=True, sort=False)
+                current_targets = new_source_series.drop_duplicates()
+
+            # Deduplicate collected nodes and edges
+            valid_node_series = valid_node_series.drop_duplicates()
+            valid_edge_series = concat(valid_edge_list, ignore_index=True, sort=False).drop_duplicates() if valid_edge_list else goal_node_series[:0]
+
             # Filter records to only valid paths
-            edge_hop_records = edge_hop_records[edge_hop_records[EDGE_ID].isin(valid_edges)]
-            node_hop_records = node_hop_records[node_hop_records[g2._node].isin(valid_nodes)]
-            matches_edges = matches_edges[matches_edges[EDGE_ID].isin(valid_edges)]
+            edge_hop_records = edge_hop_records[edge_hop_records[EDGE_ID].isin(valid_edge_series)]
+            node_hop_records = node_hop_records[node_hop_records[g2._node].isin(valid_node_series)]
+            matches_edges = matches_edges[matches_edges[EDGE_ID].isin(valid_edge_series)]
             if matches_nodes is not None:
-                matches_nodes = matches_nodes[matches_nodes[g2._node].isin(valid_nodes)]
+                matches_nodes = matches_nodes[matches_nodes[g2._node].isin(valid_node_series)]
 
     #hydrate edges
     if track_edge_hops and edge_hop_col is not None:

@@ -569,8 +569,10 @@ def _bounded_paths(
 
     for seed in seeds:
         # Phase 1: Explore all paths and find valid destinations (reachable within [min_hops, max_hops])
-        # Also collect ALL paths to ALL nodes (will filter in phase 2)
-        all_paths: List[Tuple[Any, List[Any], List[Any]]] = []  # (destination, edge_ids, node_ids)
+        # Track both valid paths (for nodes/edges) and all paths (for hop labeling)
+        # A path is "valid" if it satisfies min_hops constraint and reaches an allowed destination
+        valid_paths: List[Tuple[Any, List[Any], List[Any]]] = []  # (destination, edge_ids, node_ids)
+        all_paths: List[Tuple[Any, List[Any], List[Any]]] = []  # for hop labeling
         valid_destinations: Set[Any] = set()
 
         stack: List[Tuple[Any, int, List[Any], List[Any]]] = [(seed, 0, [], [seed])]
@@ -583,28 +585,34 @@ def _bounded_paths(
                 new_path = path_edges + [edge_id]
                 new_nodes = path_nodes + [dst]
 
-                # Save every path
+                # Save every path for hop labeling (minimum hop distance needs all paths)
                 all_paths.append((dst, list(new_path), list(new_nodes)))
 
+                # Only mark as valid path/destination if within [min_hops, max_hops] range
                 if new_depth >= min_hops:
                     if dest_allowed is None or dst in dest_allowed:
                         valid_destinations.add(dst)
                         seed_to_nodes.setdefault(seed, set()).add(dst)
+                        valid_paths.append((dst, list(new_path), list(new_nodes)))
 
                 if new_depth < max_hops:
                     stack.append((dst, new_depth, new_path, new_nodes))
 
-        # Phase 2: Include nodes/edges from paths that lead to valid destinations
+        # Phase 2: Include nodes/edges from valid paths only
         if valid_destinations:
             # Include seed in output since we have valid paths
             nodes_used.add(seed)
             if label_seeds and seed not in node_hops:
                 node_hops[seed] = 0
 
+            # Add nodes/edges from valid paths only
+            for dst, path_edges, path_nodes in valid_paths:
+                edges_used.update(path_edges)
+                nodes_used.update(path_nodes)
+
+            # Compute hop labels from ALL paths that reach valid destinations
             for dst, path_edges, path_nodes in all_paths:
                 if dst in valid_destinations:
-                    edges_used.update(path_edges)
-                    nodes_used.update(path_nodes)
                     # Track hop distances
                     for i, eid in enumerate(path_edges):
                         hop_dist = i + 1

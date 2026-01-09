@@ -5,7 +5,7 @@ from typing import Set
 from types import SimpleNamespace
 
 from graphistry.compute import n, e_forward, e_undirected
-from graphistry.gfql.ref.enumerator import OracleCaps, col, compare, enumerate_chain
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain, col, compare
 
 
 def _plottable(nodes, edges):
@@ -35,7 +35,8 @@ CASES = [
             {"edge_id": "e1", "src": "acct1", "dst": "acct2", "type": "txn"},
             {"edge_id": "e2", "src": "acct2", "dst": "user1", "type": "owns"},
         ],
-        "ops": [n({"type": "account"}, name="a"), e_forward({"type": "txn"}), n(name="b")],
+        "ops": [n({"type": "account"}, name="a"), e_forward({"type": "txn"}),
+        n(name="b")],
         "expect": {"nodes": {"acct1", "acct2"}, "edges": {"e1"}},
     },
     {
@@ -48,8 +49,10 @@ CASES = [
         ],
         "edges": [
             {"edge_id": "e_good", "src": "acct_good", "dst": "user1", "type": "owns"},
-            {"edge_id": "e_bad_match", "src": "acct_bad", "dst": "user2", "type": "owns"},
-            {"edge_id": "e_bad_wrong", "src": "acct_bad", "dst": "user1", "type": "owns"},
+            {"edge_id": "e_bad_match", "src": "acct_bad", "dst": "user2", "type":
+            "owns"},
+            {"edge_id": "e_bad_wrong", "src": "acct_bad", "dst": "user1", "type":
+            "owns"},
         ],
         "ops": [
             n({"type": "account"}, name="a"),
@@ -61,7 +64,8 @@ CASES = [
         "expect": {
             "nodes": {"acct_good", "acct_bad", "user1", "user2"},
             "edges": {"e_good", "e_bad_match"},
-            "tags": {"a": {"acct_good", "acct_bad"}, "r": {"e_good", "e_bad_match"}, "c": {"user1", "user2"}},
+            "tags": {"a": {"acct_good", "acct_bad"}, "r": {"e_good", "e_bad_match"},
+            "c": {"user1", "user2"}},
             "paths": [
                 {"a": "acct_good", "c": "user1", "r": "e_good"},
                 {"a": "acct_bad", "c": "user2", "r": "e_bad_match"},
@@ -152,8 +156,10 @@ def test_enumerator_supports_to_pandas_frames():
         def to_pandas(self):
             return self._df.copy()
 
-    g = _plottable(Dummy(pd.DataFrame([{"id": "n1"}])), Dummy(pd.DataFrame([{"edge_id": "e1", "src": "n1", "dst": "n1"}])))
-    result = enumerate_chain(g, [n(name="a")], caps=OracleCaps(max_nodes=20, max_edges=20))
+    g = _plottable(Dummy(pd.DataFrame([{"id": "n1"}])), Dummy(pd.DataFrame([{"edge_id":
+    "e1", "src": "n1", "dst": "n1"}])))
+    result = enumerate_chain(g, [n(name="a")], caps=OracleCaps(max_nodes=20,
+    max_edges=20))
     assert _col_set(result.nodes, "id") == {"n1"}
 
 
@@ -241,9 +247,11 @@ EDGE_POOL = [f"e{i}" for i in range(8)]
 
 @st.composite
 def small_graph_cases(draw):
-    nodes = draw(st.lists(st.sampled_from(NODE_POOL), min_size=2, max_size=4, unique=True))
+    nodes = draw(st.lists(st.sampled_from(NODE_POOL), min_size=2, max_size=4,
+    unique=True))
     node_rows = [{"id": node, "value": draw(st.integers(0, 3))} for node in nodes]
-    edges = draw(st.lists(st.tuples(st.sampled_from(nodes), st.sampled_from(nodes)), min_size=1, max_size=5))
+    edges = draw(st.lists(st.tuples(st.sampled_from(nodes), st.sampled_from(nodes)),
+    min_size=1, max_size=5))
     edge_rows = [
         {"edge_id": EDGE_POOL[i % len(EDGE_POOL)], "src": src, "dst": dst}
         for i, (src, dst) in enumerate(edges)
@@ -273,7 +281,8 @@ def test_enumerator_paths_cover_outputs(case):
         [n(name="a"), e_forward(name="rel"), n(name="c")],
         where=case["where"],
         include_paths=True,
-        caps=OracleCaps(max_nodes=10, max_edges=10, max_length=4, max_partial_rows=10_000),
+        caps=OracleCaps(max_nodes=10, max_edges=10, max_length=4,
+        max_partial_rows=10_000),
     )
 
     path_nodes = {
