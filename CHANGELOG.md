@@ -117,8 +117,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Tests
 - **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
 - **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
-- **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior to keep CI stable while GPU kernels are wired up.
-- **GFQL / cuDF same-path**: Added GPU-path parity tests (equality/inequality) over CPU data to guard semantics while GPU CI remains unavailable.
 - **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
 
 ### Infra
