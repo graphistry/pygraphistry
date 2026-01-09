@@ -1,0 +1,107 @@
+"""Shared data structures for same-path WHERE comparisons."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Literal, Optional, Sequence
+
+
+ComparisonOp = Literal[
+    "==",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">=",
+]
+
+
+@dataclass(frozen=True)
+class StepColumnRef:
+    alias: str
+    column: str
+
+
+@dataclass(frozen=True)
+class WhereComparison:
+    left: StepColumnRef
+    op: ComparisonOp
+    right: StepColumnRef
+
+
+def col(alias: str, column: str) -> StepColumnRef:
+    return StepColumnRef(alias, column)
+
+
+def compare(
+    left: StepColumnRef, op: ComparisonOp, right: StepColumnRef
+) -> WhereComparison:
+    return WhereComparison(left, op, right)
+
+
+def parse_column_ref(ref: str) -> StepColumnRef:
+    if "." not in ref:
+        raise ValueError(f"Column reference '{ref}' must be alias.column")
+    alias, column = ref.split(".", 1)
+    if not alias or not column:
+        raise ValueError(f"Invalid column reference '{ref}'")
+    return StepColumnRef(alias, column)
+
+
+def parse_where_json(
+    where_json: Any
+) -> List[WhereComparison]:
+    if where_json is None:
+        return []
+    if not isinstance(where_json, (list, tuple)):
+        raise ValueError(f"WHERE clauses must be a list, got {type(where_json).__name__}")
+    clauses: List[WhereComparison] = []
+    for entry in where_json:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            raise ValueError(f"Invalid WHERE clause: {entry}")
+        op_name, payload = next(iter(entry.items()))
+        if op_name not in {"eq", "neq", "gt", "lt", "ge", "le"}:
+            raise ValueError(f"Unsupported WHERE operator '{op_name}'")
+        if not isinstance(payload, dict):
+            raise ValueError(f"WHERE clause payload must be a dict, got {type(payload).__name__}")
+        if "left" not in payload or "right" not in payload:
+            raise ValueError(f"WHERE clause must have 'left' and 'right' keys, got {list(payload.keys())}")
+        if not isinstance(payload["left"], str) or not isinstance(payload["right"], str):
+            raise ValueError(f"WHERE clause 'left' and 'right' must be strings")
+        op_map: Dict[str, ComparisonOp] = {
+            "eq": "==",
+            "neq": "!=",
+            "gt": ">",
+            "lt": "<",
+            "ge": ">=",
+            "le": "<=",
+        }
+        left = parse_column_ref(payload["left"])
+        right = parse_column_ref(payload["right"])
+        clauses.append(WhereComparison(left, op_map[op_name], right))
+    return clauses
+
+
+def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, str]]]:
+    result: List[Dict[str, Dict[str, str]]] = []
+    op_map: Dict[str, str] = {
+        "==": "eq",
+        "!=": "neq",
+        ">": "gt",
+        "<": "lt",
+        ">=": "ge",
+        "<=": "le",
+    }
+    for clause in where:
+        op_name = op_map.get(clause.op)
+        if not op_name:
+            continue
+        result.append(
+            {
+                op_name: {
+                    "left": f"{clause.left.alias}.{clause.left.column}",
+                    "right": f"{clause.right.alias}.{clause.right.column}",
+                }
+            }
+        )
+    return result

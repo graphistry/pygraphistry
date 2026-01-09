@@ -1,6 +1,6 @@
 import logging
 import pandas as pd
-from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -12,6 +12,11 @@ from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.gfql.same_path_types import (
+    WhereComparison,
+    parse_where_json,
+    where_to_json,
+)
 from .gfql.policy import PolicyContext, PolicyException
 from .gfql.policy.stats import extract_graph_stats
 
@@ -37,9 +42,11 @@ class Chain(ASTSerializable):
     def __init__(
         self,
         chain: List[ASTObject],
+        where: Optional[Sequence[WhereComparison]] = None,
         validate: bool = True,
     ) -> None:
         self.chain = chain
+        self.where = list(where or [])
         if validate:
             # Fail fast on invalid chains; matches documented automatic validation behavior
             self.validate(collect_all=False)
@@ -132,8 +139,10 @@ class Chain(ASTSerializable):
                 f"Chain field must be a list, got {type(d['chain']).__name__}"
             )
         
+        where = parse_where_json(d.get('where'))
         out = cls(
             [ASTObject_from_json(op, validate=validate) for op in d['chain']],
+            where=where,
             validate=validate,
         )
         return out
@@ -144,10 +153,13 @@ class Chain(ASTSerializable):
         """
         if validate:
             self.validate()
-        return {
+        data: Dict[str, JSONVal] = {
             'type': self.__class__.__name__,
             'chain': [op.to_json() for op in self.chain]
         }
+        if self.where:
+            data['where'] = where_to_json(self.where)
+        return data
 
     def validate_schema(self, g: Plottable, collect_all: bool = False) -> Optional[List['GFQLSchemaError']]:
         """Validate this chain against a graph's schema without executing.

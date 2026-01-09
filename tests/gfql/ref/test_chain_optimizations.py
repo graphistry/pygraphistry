@@ -896,6 +896,55 @@ class TestMultiStepChains:
         assert 'c' in node_ids
 
 
+# =============================================================================
+# TestChainDFExecutorParity
+# =============================================================================
+
+
+class TestBasicParity:
+    """Test that chain produces same results with and without WHERE."""
+
+    def test_same_nodes_with_and_without_where(self, linear_graph):
+        """Node sets should match between chain and df_executor paths."""
+        from graphistry.compute.gfql.same_path_types import col, compare
+
+        ops = [n(name='a'), e_forward(name='e'), n(name='b')]
+
+        # Without WHERE (uses chain.py)
+        chain_no_where = Chain(ops)
+        result_no_where = linear_graph.gfql(chain_no_where)
+
+        # With trivial WHERE that doesn't filter (uses df_executor)
+        # a.value <= b.value is always true since values increase
+        where = [compare(col('a', 'value'), '<=', col('b', 'value'))]
+        chain_with_where = Chain(ops, where=where)
+        result_with_where = linear_graph.gfql(chain_with_where)
+
+        nodes_no_where = set(result_no_where._nodes['id'].tolist())
+        nodes_with_where = set(result_with_where._nodes['id'].tolist())
+
+        assert nodes_no_where == nodes_with_where
+
+    def test_same_edges_with_and_without_where(self, linear_graph):
+        """Edge sets should match between chain and df_executor paths."""
+        from graphistry.compute.gfql.same_path_types import col, compare
+
+        ops = [n(name='a'), e_forward(name='e'), n(name='b')]
+
+        chain_no_where = Chain(ops)
+        result_no_where = linear_graph.gfql(chain_no_where)
+
+        # a.value <= b.value is always true since values increase
+        where = [compare(col('a', 'value'), '<=', col('b', 'value'))]
+        chain_with_where = Chain(ops, where=where)
+        result_with_where = linear_graph.gfql(chain_with_where)
+
+        edges_no_where = set(result_no_where._edges['eid'].tolist())
+        edges_with_where = set(result_with_where._edges['eid'].tolist())
+
+        assert edges_no_where == edges_with_where
+
+
 class TestComplexPatterns:
     """Test complex graph patterns."""
 
@@ -932,6 +981,38 @@ class TestComplexPatterns:
         assert 'b' in node_ids  # left branch
         assert 'c' not in node_ids  # right branch filtered
         assert 'd' in node_ids
+
+
+class TestWHEREVariants:
+    """Test various WHERE clause configurations."""
+
+    def test_adjacent_node_where(self, linear_graph):
+        """WHERE on adjacent nodes should filter correctly."""
+        from graphistry.compute.gfql.same_path_types import col, compare
+
+        ops = [n(name='a'), e_forward(name='e'), n(name='b')]
+        # Filter: a.value < b.value (always true for linear graph)
+        where = [compare(col('a', 'value'), '<', col('b', 'value'))]
+
+        chain = Chain(ops, where=where)
+        result = linear_graph.gfql(chain)
+
+        # All edges should pass since values increase
+        assert len(result._edges) == 3
+
+    def test_adjacent_node_where_filters(self, linear_graph):
+        """WHERE should actually filter when condition fails."""
+        from graphistry.compute.gfql.same_path_types import col, compare
+
+        ops = [n(name='a'), e_forward(name='e'), n(name='b')]
+        # Filter: a.value > b.value (never true for linear graph)
+        where = [compare(col('a', 'value'), '>', col('b', 'value'))]
+
+        chain = Chain(ops, where=where)
+        result = linear_graph.gfql(chain)
+
+        # No edges should pass
+        assert len(result._edges) == 0
 
 
 # =============================================================================
