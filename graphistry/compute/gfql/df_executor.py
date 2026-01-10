@@ -22,6 +22,7 @@ from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_c
 from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
+from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.typing import DataFrameT
 
 AliasKind = Literal["node", "edge"]
@@ -37,10 +38,30 @@ __all__ = [
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
 
 
+def _build_edge_pairs_from_semantics(
+    edges_df: DataFrameT, src_col: str, dst_col: str, sem: EdgeSemantics
+) -> DataFrameT:
+    """Build normalized edge pairs for BFS traversal based on EdgeSemantics."""
+    if sem.is_undirected:
+        fwd = edges_df[[src_col, dst_col]].copy()
+        fwd.columns = pd.Index(['__from__', '__to__'])
+        rev = edges_df[[dst_col, src_col]].copy()
+        rev.columns = pd.Index(['__from__', '__to__'])
+        return pd.concat([fwd, rev], ignore_index=True).drop_duplicates()
+    else:
+        join_col, result_col = sem.join_cols(src_col, dst_col)
+        pairs = edges_df[[join_col, result_col]].copy()
+        pairs.columns = pd.Index(['__from__', '__to__'])
+        return pairs
+
+
 def _build_edge_pairs(
     edges_df: DataFrameT, src_col: str, dst_col: str, is_reverse: bool, is_undirected: bool
 ) -> DataFrameT:
-    """Build normalized edge pairs for BFS traversal based on direction."""
+    """Build normalized edge pairs for BFS traversal based on direction.
+
+    DEPRECATED: Use _build_edge_pairs_from_semantics with EdgeSemantics instead.
+    """
     if is_undirected:
         fwd = edges_df[[src_col, dst_col]].copy()
         fwd.columns = pd.Index(['__from__', '__to__'])
@@ -434,24 +455,19 @@ class DFSamePathExecutor:
                     edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
 
                 edge_op = self.inputs.chain[edge_idx]
-                is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
-                is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
-                is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
+                if not isinstance(edge_op, ASTEdge):
+                    continue
+                sem = EdgeSemantics.from_edge(edge_op)
 
-                if is_multihop and isinstance(edge_op, ASTEdge):
-                    min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
-                    max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
-                        edge_op.hops if edge_op.hops is not None else 1
-                    )
-
+                if sem.is_multihop:
                     # Build edge pairs based on direction
-                    edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, is_reverse, is_undirected)
+                    edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, sem)
 
                     # Propagate state through hops
                     all_reachable = [state_df.copy()]
                     current_state = state_df.copy()
 
-                    for hop in range(1, max_hops + 1):
+                    for hop in range(1, sem.max_hops + 1):
                         # Propagate current_state through one hop
                         next_state = edge_pairs.merge(
                             current_state, left_on='__from__', right_on='__current__', how='inner'
@@ -460,7 +476,7 @@ class DFSamePathExecutor:
                         if len(next_state) == 0:
                             break
 
-                        if hop >= min_hops:
+                        if hop >= sem.min_hops:
                             all_reachable.append(next_state)
                         current_state = next_state
 
@@ -471,7 +487,8 @@ class DFSamePathExecutor:
                         state_df = pd.DataFrame(columns=['__current__', '__start__'])
                 else:
                     # Single-hop: propagate state through one hop
-                    if is_undirected:
+                    join_col, result_col = sem.join_cols(src_col, dst_col)
+                    if sem.is_undirected:
                         # Both directions
                         next1 = edges_df.merge(
                             state_df, left_on=src_col, right_on='__current__', how='inner'
@@ -480,14 +497,10 @@ class DFSamePathExecutor:
                             state_df, left_on=dst_col, right_on='__current__', how='inner'
                         )[[src_col, '__start__']].rename(columns={src_col: '__current__'})
                         state_df = pd.concat([next1, next2], ignore_index=True).drop_duplicates()
-                    elif is_reverse:
-                        state_df = edges_df.merge(
-                            state_df, left_on=dst_col, right_on='__current__', how='inner'
-                        )[[src_col, '__start__']].rename(columns={src_col: '__current__'}).drop_duplicates()
                     else:
                         state_df = edges_df.merge(
-                            state_df, left_on=src_col, right_on='__current__', how='inner'
-                        )[[dst_col, '__start__']].rename(columns={dst_col: '__current__'}).drop_duplicates()
+                            state_df, left_on=join_col, right_on='__current__', how='inner'
+                        )[[result_col, '__start__']].rename(columns={result_col: '__current__'}).drop_duplicates()
 
             # state_df now has (current_node=end_node, start_node) pairs
             # Filter to valid end nodes
@@ -572,8 +585,9 @@ class DFSamePathExecutor:
                 break
 
             edge_op = self.inputs.chain[edge_idx]
-            is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
-            is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
+            if not isinstance(edge_op, ASTEdge):
+                continue
+            sem = EdgeSemantics.from_edge(edge_op)
 
             edge_alias = self.meta.alias_for_step(edge_idx)
             edge_cols_needed = {
@@ -591,7 +605,8 @@ class DFSamePathExecutor:
             edges_subset = edges_subset.rename(columns=rename_map)
 
             left_col = f'n{left_node_idx}'
-            if is_undirected:
+            join_on, result_col = sem.join_cols(src_col, dst_col)
+            if sem.is_undirected:
                 join1 = paths_df.merge(
                     edges_subset, left_on=left_col, right_on=src_col, how='inner'
                 )
@@ -601,16 +616,11 @@ class DFSamePathExecutor:
                 )
                 join2[f'n{right_node_idx}'] = join2[src_col]
                 paths_df = pd.concat([join1, join2], ignore_index=True)
-            elif is_reverse:
-                paths_df = paths_df.merge(
-                    edges_subset, left_on=left_col, right_on=dst_col, how='inner'
-                )
-                paths_df[f'n{right_node_idx}'] = paths_df[src_col]
             else:
                 paths_df = paths_df.merge(
-                    edges_subset, left_on=left_col, right_on=src_col, how='inner'
+                    edges_subset, left_on=left_col, right_on=join_on, how='inner'
                 )
-                paths_df[f'n{right_node_idx}'] = paths_df[dst_col]
+                paths_df[f'n{right_node_idx}'] = paths_df[result_col]
 
             right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
             if right_allowed:
@@ -707,10 +717,11 @@ class DFSamePathExecutor:
                 edges_df = self.forward_steps[edge_idx]._edges
                 if edges_df is not None:
                     edge_op = self.inputs.chain[edge_idx]
-                    is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
-                    is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
+                    if not isinstance(edge_op, ASTEdge):
+                        continue
+                    sem = EdgeSemantics.from_edge(edge_op)
 
-                    if is_undirected:
+                    if sem.is_undirected:
                         fwd = edges_df.merge(
                             valid_pairs.rename(columns={left_col: src_col, right_col: dst_col}),
                             on=[src_col, dst_col], how='inner'
@@ -722,14 +733,11 @@ class DFSamePathExecutor:
                         edges_df = pd.concat([fwd, rev], ignore_index=True).drop_duplicates(
                             subset=[src_col, dst_col]
                         )
-                    elif is_reverse:
-                        edges_df = edges_df.merge(
-                            valid_pairs.rename(columns={left_col: dst_col, right_col: src_col}),
-                            on=[src_col, dst_col], how='inner'
-                        )
                     else:
+                        # For directed edges, use endpoint_cols to get proper src/dst mapping
+                        start_endpoint, end_endpoint = sem.endpoint_cols(src_col, dst_col)
                         edges_df = edges_df.merge(
-                            valid_pairs.rename(columns={left_col: src_col, right_col: dst_col}),
+                            valid_pairs.rename(columns={left_col: start_endpoint, right_col: end_endpoint}),
                             on=[src_col, dst_col], how='inner'
                         )
                     self.forward_steps[edge_idx]._edges = edges_df
@@ -769,19 +777,19 @@ class DFSamePathExecutor:
                 edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
 
             edge_op = self.inputs.chain[edge_idx]
-            is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
-            is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
+            if not isinstance(edge_op, ASTEdge):
+                continue
+            sem = EdgeSemantics.from_edge(edge_op)
 
             left_allowed = path_state.allowed_nodes.get(left_node_idx, set())
             right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
 
-            is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
-            if is_multihop and isinstance(edge_op, ASTEdge):
+            if sem.is_multihop:
                 edges_df = self._filter_multihop_edges_by_endpoints(
-                    edges_df, edge_op, left_allowed, right_allowed, is_reverse, is_undirected
+                    edges_df, edge_op, left_allowed, right_allowed, sem.is_reverse, sem.is_undirected
                 )
             else:
-                if is_undirected:
+                if sem.is_undirected:
                     if left_allowed and right_allowed:
                         left_set = list(left_allowed)
                         right_set = list(right_allowed)
@@ -800,16 +808,13 @@ class DFSamePathExecutor:
                         edges_df = edges_df[
                             edges_df[src_col].isin(right_set) | edges_df[dst_col].isin(right_set)
                         ]
-                elif is_reverse:
-                    if right_allowed:
-                        edges_df = edges_df[edges_df[src_col].isin(list(right_allowed))]
-                    if left_allowed:
-                        edges_df = edges_df[edges_df[dst_col].isin(list(left_allowed))]
                 else:
+                    # For directed edges, use endpoint_cols to determine filter columns
+                    start_col, end_col = sem.endpoint_cols(src_col, dst_col)
                     if left_allowed:
-                        edges_df = edges_df[edges_df[src_col].isin(list(left_allowed))]
+                        edges_df = edges_df[edges_df[start_col].isin(list(left_allowed))]
                     if right_allowed:
-                        edges_df = edges_df[edges_df[dst_col].isin(list(right_allowed))]
+                        edges_df = edges_df[edges_df[end_col].isin(list(right_allowed))]
 
             if edge_id_col and edge_id_col in edges_df.columns:
                 new_edge_ids = set(edges_df[edge_id_col].tolist())
@@ -818,18 +823,12 @@ class DFSamePathExecutor:
                 else:
                     path_state.allowed_edges[edge_idx] = new_edge_ids
 
-            if is_multihop and isinstance(edge_op, ASTEdge):
+            if sem.is_multihop:
                 new_src_nodes = self._find_multihop_start_nodes(
-                    edges_df, edge_op, right_allowed, is_reverse, is_undirected
+                    edges_df, edge_op, right_allowed, sem.is_reverse, sem.is_undirected
                 )
             else:
-                if is_undirected:
-                    # Undirected: source nodes can be either src or dst
-                    new_src_nodes = set(edges_df[src_col].tolist()) | set(edges_df[dst_col].tolist())
-                elif is_reverse:
-                    new_src_nodes = set(edges_df[dst_col].tolist())
-                else:
-                    new_src_nodes = set(edges_df[src_col].tolist())
+                new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
 
             if left_node_idx in path_state.allowed_nodes:
                 path_state.allowed_nodes[left_node_idx] &= new_src_nodes
@@ -1081,18 +1080,18 @@ class DFSamePathExecutor:
 
             filtered = edges_df
             edge_op = self.inputs.chain[edge_idx]
-            is_multihop = isinstance(edge_op, ASTEdge) and not self._is_single_hop(edge_op)
-            is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
-            is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
+            if not isinstance(edge_op, ASTEdge):
+                continue
+            sem = EdgeSemantics.from_edge(edge_op)
 
             # For single-hop edges, filter by allowed dst first
             # For multi-hop, defer dst filtering to _filter_multihop_by_where
             # For reverse edges, "dst" in traversal = "src" in edge data
             # For undirected edges, "dst" can be either src or dst column
-            if not is_multihop:
+            if not sem.is_multihop:
                 allowed_dst = allowed_nodes.get(right_node_idx)
                 if allowed_dst is not None:
-                    if is_undirected:
+                    if sem.is_undirected:
                         # Undirected: right node can be reached via either src or dst column
                         if self._source_column and self._destination_column:
                             dst_list = list(allowed_dst)
@@ -1100,25 +1099,22 @@ class DFSamePathExecutor:
                                 filtered[self._source_column].isin(dst_list)
                                 | filtered[self._destination_column].isin(dst_list)
                             ]
-                    elif is_reverse:
-                        if self._source_column and self._source_column in filtered.columns:
-                            filtered = filtered[
-                                filtered[self._source_column].isin(list(allowed_dst))
-                            ]
                     else:
-                        if self._destination_column and self._destination_column in filtered.columns:
+                        # For directed edges, filter by the "end" column
+                        _, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
+                        if end_col and end_col in filtered.columns:
                             filtered = filtered[
-                                filtered[self._destination_column].isin(list(allowed_dst))
+                                filtered[end_col].isin(list(allowed_dst))
                             ]
 
             # Apply value-based clauses between adjacent aliases
             left_alias = self.meta.alias_for_step(left_node_idx)
             right_alias = self.meta.alias_for_step(right_node_idx)
-            if isinstance(edge_op, ASTEdge) and left_alias and right_alias:
-                if self._is_single_hop(edge_op):
+            if left_alias and right_alias:
+                if not sem.is_multihop:
                     # Single-hop: filter edges directly
                     filtered = self._filter_edges_by_clauses(
-                        filtered, left_alias, right_alias, allowed_nodes, is_reverse, is_undirected
+                        filtered, left_alias, right_alias, allowed_nodes, sem.is_reverse, sem.is_undirected
                     )
                 else:
                     # Multi-hop: filter nodes first, then keep connecting edges
@@ -1136,7 +1132,7 @@ class DFSamePathExecutor:
             # Update allowed_nodes based on filtered edges
             # For reverse edges, swap src/dst semantics
             # For undirected edges, both src and dst can be either left or right node
-            if is_undirected:
+            if sem.is_undirected:
                 # Undirected: both src and dst can be left or right nodes
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
@@ -1151,28 +1147,17 @@ class DFSamePathExecutor:
                     # Left node is any node in the filtered edges
                     current = allowed_nodes.get(left_node_idx, set())
                     allowed_nodes[left_node_idx] = current & all_nodes_in_edges if current else all_nodes_in_edges
-            elif is_reverse:
-                # Reverse: right node reached via src, left node via dst
-                if self._source_column and self._source_column in filtered.columns:
-                    allowed_dst_actual = self._series_values(filtered[self._source_column])
-                    current_dst = allowed_nodes.get(right_node_idx, set())
-                    allowed_nodes[right_node_idx] = (
-                        current_dst & allowed_dst_actual if current_dst else allowed_dst_actual
-                    )
-                if self._destination_column and self._destination_column in filtered.columns:
-                    allowed_src = self._series_values(filtered[self._destination_column])
-                    current = allowed_nodes.get(left_node_idx, set())
-                    allowed_nodes[left_node_idx] = current & allowed_src if current else allowed_src
             else:
-                # Forward: right node reached via dst, left node via src
-                if self._destination_column and self._destination_column in filtered.columns:
-                    allowed_dst_actual = self._series_values(filtered[self._destination_column])
+                # Directed: use endpoint_cols to get proper column mapping
+                start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
+                if end_col and end_col in filtered.columns:
+                    allowed_dst_actual = self._series_values(filtered[end_col])
                     current_dst = allowed_nodes.get(right_node_idx, set())
                     allowed_nodes[right_node_idx] = (
                         current_dst & allowed_dst_actual if current_dst else allowed_dst_actual
                     )
-                if self._source_column and self._source_column in filtered.columns:
-                    allowed_src = self._series_values(filtered[self._source_column])
+                if start_col and start_col in filtered.columns:
+                    allowed_src = self._series_values(filtered[start_col])
                     current = allowed_nodes.get(left_node_idx, set())
                     allowed_nodes[left_node_idx] = current & allowed_src if current else allowed_src
 
@@ -1377,8 +1362,7 @@ class DFSamePathExecutor:
         # Get hop label column to identify first/last hop edges
         node_label, edge_label = self._resolve_label_cols(edge_op)
 
-        is_reverse = edge_op.direction == "reverse"
-        is_undirected = edge_op.direction == "undirected"
+        sem = EdgeSemantics.from_edge(edge_op)
 
         # Check if hop labels are usable (filtered start node gives unambiguous labels)
         # For unfiltered starts, all edges have hop_label=1, making them useless for identification
@@ -1396,7 +1380,7 @@ class DFSamePathExecutor:
             chain_min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
             valid_endpoint_edges = edges_df[hop_col >= chain_min_hops]
 
-            if is_undirected:
+            if sem.is_undirected:
                 start_nodes_df = pd.concat([
                     first_hop_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
                     first_hop_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
@@ -1405,19 +1389,14 @@ class DFSamePathExecutor:
                     valid_endpoint_edges[[self._source_column]].rename(columns={self._source_column: '__node__'}),
                     valid_endpoint_edges[[self._destination_column]].rename(columns={self._destination_column: '__node__'})
                 ], ignore_index=True).drop_duplicates()
-            elif is_reverse:
-                start_nodes_df = first_hop_edges[[self._destination_column]].rename(
-                    columns={self._destination_column: '__node__'}
-                ).drop_duplicates()
-                end_nodes_df = valid_endpoint_edges[[self._source_column]].rename(
-                    columns={self._source_column: '__node__'}
-                ).drop_duplicates()
             else:
-                start_nodes_df = first_hop_edges[[self._source_column]].rename(
-                    columns={self._source_column: '__node__'}
+                # For directed edges, use endpoint_cols to get proper src/dst mapping
+                start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
+                start_nodes_df = first_hop_edges[[start_col]].rename(
+                    columns={start_col: '__node__'}
                 ).drop_duplicates()
-                end_nodes_df = valid_endpoint_edges[[self._destination_column]].rename(
-                    columns={self._destination_column: '__node__'}
+                end_nodes_df = valid_endpoint_edges[[end_col]].rename(
+                    columns={end_col: '__node__'}
                 ).drop_duplicates()
 
             start_nodes = set(start_nodes_df['__node__'].tolist())
@@ -1481,7 +1460,7 @@ class DFSamePathExecutor:
         # Use vectorized bidirectional reachability to filter edges
         # This reuses the same logic as _filter_multihop_edges_by_endpoints
         return self._filter_multihop_edges_by_endpoints(
-            edges_df, edge_op, valid_starts, valid_ends, is_reverse, is_undirected
+            edges_df, edge_op, valid_starts, valid_ends, sem.is_reverse, sem.is_undirected
         )
 
     @staticmethod
