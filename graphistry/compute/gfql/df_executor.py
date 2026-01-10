@@ -1103,7 +1103,7 @@ class DFSamePathExecutor:
                 if not sem.is_multihop:
                     # Single-hop: filter edges directly
                     filtered = self._filter_edges_by_clauses(
-                        filtered, left_alias, right_alias, allowed_nodes, sem.is_reverse, sem.is_undirected
+                        filtered, left_alias, right_alias, allowed_nodes, sem
                     )
                 else:
                     # Multi-hop: filter nodes first, then keep connecting edges
@@ -1165,8 +1165,7 @@ class DFSamePathExecutor:
         left_alias: str,
         right_alias: str,
         allowed_nodes: Dict[int, Set[Any]],
-        is_reverse: bool = False,
-        is_undirected: bool = False,
+        sem: EdgeSemantics,
     ) -> DataFrameT:
         """Filter edges using WHERE clauses that connect adjacent aliases.
 
@@ -1212,7 +1211,7 @@ class DFSamePathExecutor:
         rf = rf[[self._node_column] + right_cols].rename(columns={self._node_column: "__right_id__"})
 
         # For undirected edges, we need to try both orientations
-        if is_undirected:
+        if sem.is_undirected:
             # Orientation 1: src=left, dst=right (forward)
             fwd_df = self._merge_and_filter_edges(
                 edges_df, lf, rf, left_alias, right_alias, relevant,
@@ -1243,7 +1242,7 @@ class DFSamePathExecutor:
 
         # For reverse edges, left_alias is reached via dst column, right_alias via src column
         # For forward edges, left_alias is reached via src column, right_alias via dst column
-        if is_reverse:
+        if sem.is_reverse:
             left_merge_col = self._destination_column
             right_merge_col = self._source_column
         else:
