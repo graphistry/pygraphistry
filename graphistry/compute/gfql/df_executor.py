@@ -142,6 +142,9 @@ class DFSamePathExecutor:
             self.forward_steps.append(g_step)
             self._capture_alias_frame(op, g_step, idx)
 
+        # Forward pruning: apply WHERE clause constraints to captured frames
+        self._apply_forward_where_pruning()
+
     def _capture_alias_frame(
         self, op: ASTObject, step_result: Plottable, step_index: int
     ) -> None:
@@ -172,6 +175,117 @@ class DFSamePathExecutor:
         subset_cols = [col for col in required]
         alias_frame = frame[subset_cols].copy()
         self.alias_frames[alias] = alias_frame
+
+    def _apply_forward_where_pruning(self) -> None:
+        """Apply WHERE clause constraints to prune alias frames forward.
+
+        For each WHERE clause, if one alias has known values from pattern filters,
+        propagate those constraints to other aliases in the clause.
+
+        This handles cases like:
+        - Chain: a:account -> r -> c:user{id=user1}
+        - WHERE: a.owner_id == c.id
+        - Since c.id is constrained to {user1}, we prune a to owner_id IN {user1}
+        """
+        if not self.inputs.where:
+            return
+
+        # Iterate until no more pruning happens (fixed-point)
+        changed = True
+        while changed:
+            changed = False
+            for clause in self.inputs.where:
+                left_alias = clause.left.alias
+                right_alias = clause.right.alias
+                left_col = clause.left.column
+                right_col = clause.right.column
+
+                left_frame = self.alias_frames.get(left_alias)
+                right_frame = self.alias_frames.get(right_alias)
+
+                if left_frame is None or right_frame is None:
+                    continue
+                if left_col not in left_frame.columns or right_col not in right_frame.columns:
+                    continue
+
+                if clause.op == "==":
+                    # Equality: values must match
+                    left_values = series_values(left_frame[left_col])
+                    right_values = series_values(right_frame[right_col])
+                    common = left_values & right_values
+
+                    # Prune left frame
+                    if left_values != common:
+                        new_left = left_frame[left_frame[left_col].isin(common)]
+                        if len(new_left) < len(left_frame):
+                            self.alias_frames[left_alias] = new_left
+                            changed = True
+
+                    # Prune right frame
+                    if right_values != common:
+                        new_right = right_frame[right_frame[right_col].isin(common)]
+                        if len(new_right) < len(right_frame):
+                            self.alias_frames[right_alias] = new_right
+                            changed = True
+
+                elif clause.op == "!=":
+                    # Inequality: no simple pruning possible without full join
+                    pass
+
+                elif clause.op in {"<", "<=", ">", ">="}:
+                    # Min/max constraints: prune based on range overlap
+                    self._apply_minmax_forward_prune(
+                        clause, left_alias, right_alias, left_col, right_col
+                    )
+                    # Don't set changed for minmax - it's a one-shot prune
+
+    def _apply_minmax_forward_prune(
+        self,
+        clause: "WhereComparison",
+        left_alias: str,
+        right_alias: str,
+        left_col: str,
+        right_col: str,
+    ) -> None:
+        """Apply min/max constraint pruning for inequality comparisons.
+
+        For a.score < c.score:
+        - Prune a to rows where a.score < max(c.score)
+        - Prune c to rows where c.score > min(a.score)
+        """
+        left_frame = self.alias_frames.get(left_alias)
+        right_frame = self.alias_frames.get(right_alias)
+        if left_frame is None or right_frame is None:
+            return
+
+        left_vals = left_frame[left_col]
+        right_vals = right_frame[right_col]
+
+        # Get bounds
+        left_min, left_max = left_vals.min(), left_vals.max()
+        right_min, right_max = right_vals.min(), right_vals.max()
+
+        if clause.op == "<":
+            # left < right: left must be < max(right), right must be > min(left)
+            new_left = left_frame[left_vals < right_max]
+            new_right = right_frame[right_vals > left_min]
+        elif clause.op == "<=":
+            new_left = left_frame[left_vals <= right_max]
+            new_right = right_frame[right_vals >= left_min]
+        elif clause.op == ">":
+            # left > right: left must be > min(right), right must be < max(left)
+            new_left = left_frame[left_vals > right_min]
+            new_right = right_frame[right_vals < left_max]
+        elif clause.op == ">=":
+            new_left = left_frame[left_vals >= right_min]
+            new_right = right_frame[right_vals <= left_max]
+        else:
+            return
+
+        if len(new_left) < len(left_frame):
+            self.alias_frames[left_alias] = new_left
+        if len(new_right) < len(right_frame):
+            self.alias_frames[right_alias] = new_right
 
     def _should_attempt_gpu(self) -> bool:
         """Decide whether to try GPU kernels for same-path execution."""
