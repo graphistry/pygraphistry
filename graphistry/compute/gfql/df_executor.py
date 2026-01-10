@@ -1413,18 +1413,6 @@ class DFSamePathExecutor:
             edges_df, edge_op, valid_starts, valid_ends, sem
         )
 
-    @staticmethod
-    def _is_single_hop(op: ASTEdge) -> bool:
-        hop_min = op.min_hops if op.min_hops is not None else (
-            op.hops if isinstance(op.hops, int) else 1
-        )
-        hop_max = op.max_hops if op.max_hops is not None else (
-            op.hops if isinstance(op.hops, int) else hop_min
-        )
-        if hop_min is None or hop_max is None:
-            return False
-        return hop_min == 1 and hop_max == 1
-
     def _apply_inequality_clause(
         self,
         out_df: DataFrameT,
@@ -1545,7 +1533,7 @@ class DFSamePathExecutor:
         # For multi-hop edges, include all intermediate nodes from the edge frames
         # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
         has_multihop = any(
-            isinstance(op, ASTEdge) and not self._is_single_hop(op)
+            isinstance(op, ASTEdge) and EdgeSemantics.from_edge(op).is_multihop
             for op in self.inputs.chain
         )
         if has_multihop and src in edges_df.columns and dst in edges_df.columns:
