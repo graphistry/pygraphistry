@@ -17,6 +17,7 @@ from .df_utils import (
     concat_frames,
 )
 from .bfs import build_edge_pairs, bfs_reachability
+from .post_prune import apply_non_adjacent_where_post_prune, apply_edge_where_post_prune
 
 __all__ = [
     "ChainMeta",
@@ -31,4 +32,6 @@ __all__ = [
     "concat_frames",
     "build_edge_pairs",
     "bfs_reachability",
+    "apply_non_adjacent_where_post_prune",
+    "apply_edge_where_post_prune",
 ]
