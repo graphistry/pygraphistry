@@ -5,7 +5,9 @@ GFQL chains with WHERE clause constraints.
 """
 
 from .chain_meta import ChainMeta
+from .edge_semantics import EdgeSemantics
 
 __all__ = [
     "ChainMeta",
+    "EdgeSemantics",
 ]
