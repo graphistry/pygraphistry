@@ -25,30 +25,51 @@ def series_values(series: Any) -> Set[Any]:
     return set(pandas_series.dropna().unique().tolist())
 
 
-def evaluate_clause(series_left: Any, op: str, series_right: Any) -> Any:
+def evaluate_clause(
+    series_left: Any, op: str, series_right: Any, *, null_safe: bool = False
+) -> Any:
     """Evaluate comparison clause between two series.
 
     Args:
         series_left: Left operand series
         op: Comparison operator ('==', '!=', '>', '>=', '<', '<=')
         series_right: Right operand series
+        null_safe: If True, use SQL NULL semantics where NULL comparisons return False
 
     Returns:
         Boolean series with comparison result
     """
-    if op == "==":
-        return series_left == series_right
-    if op == "!=":
-        return series_left != series_right
-    if op == ">":
-        return series_left > series_right
-    if op == ">=":
-        return series_left >= series_right
-    if op == "<":
-        return series_left < series_right
-    if op == "<=":
-        return series_left <= series_right
-    return False
+    if null_safe:
+        # SQL NULL semantics: any comparison with NULL is NULL (treated as False)
+        # pandas != returns True for X != NaN, so we need to check for NULL first
+        valid = series_left.notna() & series_right.notna()
+        if op == "==":
+            return valid & (series_left == series_right)
+        if op == "!=":
+            return valid & (series_left != series_right)
+        if op == ">":
+            return valid & (series_left > series_right)
+        if op == ">=":
+            return valid & (series_left >= series_right)
+        if op == "<":
+            return valid & (series_left < series_right)
+        if op == "<=":
+            return valid & (series_left <= series_right)
+        return valid & False
+    else:
+        if op == "==":
+            return series_left == series_right
+        if op == "!=":
+            return series_left != series_right
+        if op == ">":
+            return series_left > series_right
+        if op == ">=":
+            return series_left >= series_right
+        if op == "<":
+            return series_left < series_right
+        if op == "<=":
+            return series_left <= series_right
+        return False
 
 
 def concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
