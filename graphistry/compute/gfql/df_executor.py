@@ -21,6 +21,7 @@ from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
 from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
+from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.typing import DataFrameT
 
 AliasKind = Literal["node", "edge"]
@@ -107,6 +108,7 @@ class DFSamePathExecutor:
 
     def __init__(self, inputs: SamePathExecutorInputs) -> None:
         self.inputs = inputs
+        self.meta = ChainMeta.from_chain(inputs.chain, inputs.alias_bindings)
         self.forward_steps: List[Plottable] = []
         self.alias_frames: Dict[str, DataFrameT] = {}
         self._node_column = inputs.graph._node
@@ -326,16 +328,6 @@ class DFSamePathExecutor:
             out[alias] = self._series_values(frame[id_col])
         return out
 
-    def _are_aliases_adjacent(self, alias1: str, alias2: str) -> bool:
-        """Check if two node aliases are exactly one edge apart in the chain."""
-        binding1 = self.inputs.alias_bindings.get(alias1)
-        binding2 = self.inputs.alias_bindings.get(alias2)
-        if binding1 is None or binding2 is None:
-            return False
-        if binding1.kind != "node" or binding2.kind != "node":
-            return False
-        return abs(binding1.step_index - binding2.step_index) == 2
-
     def _apply_non_adjacent_where_post_prune(
         self, path_state: "_PathState"
     ) -> "_PathState":
@@ -347,23 +339,21 @@ class DFSamePathExecutor:
         for clause in self.inputs.where:
             left_alias = clause.left.alias
             right_alias = clause.right.alias
-            if not self._are_aliases_adjacent(left_alias, right_alias):
-                left_binding = self.inputs.alias_bindings.get(left_alias)
-                right_binding = self.inputs.alias_bindings.get(right_alias)
-                if left_binding and right_binding:
-                    if left_binding.kind == "node" and right_binding.kind == "node":
+            left_binding = self.inputs.alias_bindings.get(left_alias)
+            right_binding = self.inputs.alias_bindings.get(right_alias)
+            if left_binding and right_binding:
+                if left_binding.kind == "node" and right_binding.kind == "node":
+                    # Non-adjacent = step indices differ by more than 2
+                    if not self.meta.are_steps_adjacent_nodes(
+                        left_binding.step_index, right_binding.step_index
+                    ):
                         non_adjacent_clauses.append(clause)
 
         if not non_adjacent_clauses:
             return path_state
 
-        node_indices: List[int] = []
-        edge_indices: List[int] = []
-        for idx, op in enumerate(self.inputs.chain):
-            if isinstance(op, ASTNode):
-                node_indices.append(idx)
-            elif isinstance(op, ASTEdge):
-                edge_indices.append(idx)
+        node_indices = self.meta.node_indices
+        edge_indices = self.meta.edge_indices
 
         src_col = self._source_column
         dst_col = self._destination_column
@@ -563,13 +553,8 @@ class DFSamePathExecutor:
         if not src_col or not dst_col or not node_id_col:
             return path_state
 
-        node_indices: List[int] = []
-        edge_indices: List[int] = []
-        for idx, op in enumerate(self.inputs.chain):
-            if isinstance(op, ASTNode):
-                node_indices.append(idx)
-            elif isinstance(op, ASTEdge):
-                edge_indices.append(idx)
+        node_indices = self.meta.node_indices
+        edge_indices = self.meta.edge_indices
 
         seed_nodes = path_state.allowed_nodes.get(node_indices[0], set())
         if not seed_nodes:
@@ -590,7 +575,7 @@ class DFSamePathExecutor:
             is_reverse = isinstance(edge_op, ASTEdge) and edge_op.direction == "reverse"
             is_undirected = isinstance(edge_op, ASTEdge) and edge_op.direction == "undirected"
 
-            edge_alias = self._alias_for_step(edge_idx)
+            edge_alias = self.meta.alias_for_step(edge_idx)
             edge_cols_needed = {
                 ref.column for clause in edge_clauses
                 for ref in [clause.left, clause.right] if ref.alias == edge_alias
@@ -1068,24 +1053,16 @@ class DFSamePathExecutor:
     def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> "_PathState":
         """Propagate allowed ids backward across edges to enforce path coherence."""
 
-        node_indices: List[int] = []
-        edge_indices: List[int] = []
-        for idx, op in enumerate(self.inputs.chain):
-            if isinstance(op, ASTNode):
-                node_indices.append(idx)
-            elif isinstance(op, ASTEdge):
-                edge_indices.append(idx)
-        if not node_indices:
-            raise ValueError("Same-path executor requires at least one node step")
-        if len(node_indices) != len(edge_indices) + 1:
-            raise ValueError("Chain must alternate node/edge steps for same-path execution")
+        self.meta.validate()  # Raises if chain structure is invalid
+        node_indices = self.meta.node_indices
+        edge_indices = self.meta.edge_indices
 
         allowed_nodes: Dict[int, Set[Any]] = {}
         allowed_edges: Dict[int, Set[Any]] = {}
 
         # Seed node allowances from tags or full frames
         for idx in node_indices:
-            node_alias = self._alias_for_step(idx)
+            node_alias = self.meta.alias_for_step(idx)
             frame = self.forward_steps[idx]._nodes
             if frame is None or self._node_column is None:
                 continue
@@ -1096,7 +1073,7 @@ class DFSamePathExecutor:
 
         # Walk edges backward
         for edge_idx, right_node_idx in reversed(list(zip(edge_indices, node_indices[1:]))):
-            edge_alias = self._alias_for_step(edge_idx)
+            edge_alias = self.meta.alias_for_step(edge_idx)
             left_node_idx = node_indices[node_indices.index(right_node_idx) - 1]
             edges_df = self.forward_steps[edge_idx]._edges
             if edges_df is None:
@@ -1135,8 +1112,8 @@ class DFSamePathExecutor:
                             ]
 
             # Apply value-based clauses between adjacent aliases
-            left_alias = self._alias_for_step(left_node_idx)
-            right_alias = self._alias_for_step(right_node_idx)
+            left_alias = self.meta.alias_for_step(left_node_idx)
+            right_alias = self.meta.alias_for_step(right_node_idx)
             if isinstance(edge_op, ASTEdge) and left_alias and right_alias:
                 if self._is_single_hop(edge_op):
                     # Single-hop: filter edges directly
@@ -1847,12 +1824,6 @@ class DFSamePathExecutor:
             edges_df = self._merge_label_frames(edges_df, edge_frames, edge_id)
 
         return nodes_df, edges_df
-
-    def _alias_for_step(self, step_index: int) -> Optional[str]:
-        for alias, binding in self.inputs.alias_bindings.items():
-            if binding.step_index == step_index:
-                return alias
-        return None
 
     @staticmethod
     def _concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
