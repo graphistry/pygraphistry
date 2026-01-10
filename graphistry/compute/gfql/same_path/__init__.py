@@ -16,6 +16,7 @@ from .df_utils import (
     evaluate_clause,
     concat_frames,
 )
+from .bfs import build_edge_pairs, bfs_reachability
 
 __all__ = [
     "ChainMeta",
@@ -28,4 +29,6 @@ __all__ = [
     "filter_by_values",
     "evaluate_clause",
     "concat_frames",
+    "build_edge_pairs",
+    "bfs_reachability",
 ]
