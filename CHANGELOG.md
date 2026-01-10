@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `same_path_plan.py`, `df_executor.py` implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
+- **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
+
+### Fixed
+- **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
+- **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
+- **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
+- **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
+
+### Tests
+- **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
+- **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
+
 ## [0.50.1 - 2026-01-09]
 
 ### Added

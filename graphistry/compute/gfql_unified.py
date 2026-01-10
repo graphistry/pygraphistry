@@ -1,8 +1,9 @@
 """GFQL unified entrypoint for chains and DAGs"""
+# ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import Engine, EngineAbstract
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
@@ -15,6 +16,11 @@ from .gfql.policy import (
     PolicyDict,
     QueryType,
     expand_policy
+)
+from graphistry.compute.gfql.same_path_types import parse_where_json
+from graphistry.compute.gfql.df_executor import (
+    build_same_path_inputs,
+    execute_same_path_chain,
 )
 
 logger = setup_logger(__name__)
@@ -227,8 +233,22 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
-        # Handle dict convenience first (convert to ASTLet)
-        if isinstance(query, dict):
+        # Handle dict convenience first
+        if isinstance(query, dict) and "chain" in query:
+            chain_items: List[ASTObject] = []
+            for item in query["chain"]:
+                if isinstance(item, dict):
+                    from .ast import from_json
+                    chain_items.append(from_json(item))
+                elif isinstance(item, ASTObject):
+                    chain_items.append(item)
+                else:
+                    raise TypeError(f"Unsupported chain entry type: {type(item)}")
+            where_meta = parse_where_json(
+                cast(Optional[List[Dict[str, Dict[str, str]]]], query.get("where"))
+            )
+            query = Chain(chain_items, where=where_meta)
+        elif isinstance(query, dict):
             # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
             wrapped_dict = {}
             for key, value in query.items():
@@ -256,13 +276,13 @@ def gfql(self: Plottable,
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, query.chain, engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 # Single ASTObject -> execute as single-item chain
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return chain_impl(self, [query], engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, Chain([query]), engine, expanded_policy, context)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -277,7 +297,7 @@ def gfql(self: Plottable,
                     else:
                         converted_query.append(item)
 
-                return chain_impl(self, converted_query, engine, policy=expanded_policy, context=context)
+                return _chain_dispatch(self, Chain(converted_query), engine, expanded_policy, context)
             else:
                 raise TypeError(
                     f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
@@ -291,3 +311,33 @@ def gfql(self: Plottable,
         # Reset policy depth
         if policy:
             context.policy_depth = policy_depth
+
+
+def _chain_dispatch(
+    g: Plottable,
+    chain_obj: Chain,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Dispatch chain execution, using same-path executor for WHERE clauses."""
+
+    # Use same-path Yannakakis executor for ANY engine with WHERE clause
+    if chain_obj.where:
+        is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
+        engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
+        inputs = build_same_path_inputs(
+            g,
+            chain_obj.chain,
+            chain_obj.where,
+            engine=engine_enum,
+            include_paths=False,
+        )
+        return execute_same_path_chain(
+            inputs.graph,
+            inputs.chain,
+            inputs.where,
+            inputs.engine,
+            inputs.include_paths,
+        )
+    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context)
