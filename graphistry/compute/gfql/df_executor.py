@@ -23,20 +23,10 @@ from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-from graphistry.compute.gfql.same_path.df_utils import (
-    series_values,
-    evaluate_clause,
-    concat_frames,
-)
-from graphistry.compute.gfql.same_path.bfs import build_edge_pairs, bfs_reachability
+from graphistry.compute.gfql.same_path.df_utils import series_values, concat_frames
 from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
-    re_propagate_backward,
-)
-from graphistry.compute.gfql.same_path.multihop import (
-    filter_multihop_edges_by_endpoints,
-    find_multihop_start_nodes,
 )
 from graphistry.compute.gfql.same_path.where_filter import (
     filter_edges_by_clauses,
