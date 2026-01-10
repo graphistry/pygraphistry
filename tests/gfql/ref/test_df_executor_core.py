@@ -24,6 +24,7 @@ from tests.gfql.ref.conftest import (
     _make_hop_graph,
     _assert_parity,
     TEST_CUDF,
+    requires_gpu,
 )
 
 def test_build_inputs_collects_alias_metadata():
@@ -380,8 +381,9 @@ def test_topology_parity_scenarios():
                 assert set(result._edges["dst"]) == edge_expect["dst"]
 
 
+@requires_gpu
 def test_cudf_gpu_path_if_available():
-    cudf = pytest.importorskip("cudf")
+    import cudf
     nodes = cudf.DataFrame(
         [
             {"id": "acct1", "type": "account", "owner_id": "user1", "score": 5},

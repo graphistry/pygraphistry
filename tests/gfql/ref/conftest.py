@@ -16,6 +16,38 @@ from graphistry.tests.test_compute import CGFull
 TEST_CUDF = "TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"
 
 
+def has_working_gpu() -> bool:
+    """Check if cuDF is available AND GPU memory allocation works."""
+    try:
+        import cudf
+        # Try to actually allocate GPU memory
+        test_df = cudf.DataFrame({"x": [1, 2, 3]})
+        _ = test_df["x"].sum()  # Force computation
+        return True
+    except Exception:
+        return False
+
+
+# Cache the result at module load time
+_HAS_WORKING_GPU = None
+
+
+def requires_gpu(func):
+    """Decorator to skip tests if GPU is not available."""
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        global _HAS_WORKING_GPU
+        if _HAS_WORKING_GPU is None:
+            _HAS_WORKING_GPU = has_working_gpu()
+        if not _HAS_WORKING_GPU:
+            pytest.skip("GPU not available or cuDF cannot allocate memory")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 def make_simple_graph():
     """Create a simple account->user graph for basic tests."""
     nodes = pd.DataFrame(
