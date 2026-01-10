@@ -19,6 +19,7 @@ from .df_utils import (
 from .bfs import build_edge_pairs, bfs_reachability
 from .post_prune import apply_non_adjacent_where_post_prune, apply_edge_where_post_prune, re_propagate_backward
 from .multihop import filter_multihop_edges_by_endpoints, find_multihop_start_nodes
+from .where_filter import filter_edges_by_clauses, filter_multihop_by_where
 
 __all__ = [
     "ChainMeta",
@@ -38,4 +39,6 @@ __all__ = [
     "re_propagate_backward",
     "filter_multihop_edges_by_endpoints",
     "find_multihop_start_nodes",
+    "filter_edges_by_clauses",
+    "filter_multihop_by_where",
 ]
