@@ -32,6 +32,7 @@ from graphistry.compute.gfql.same_path.df_utils import (
     evaluate_clause,
     concat_frames,
 )
+from graphistry.compute.gfql.same_path.bfs import build_edge_pairs, bfs_reachability
 from graphistry.compute.typing import DataFrameT
 
 AliasKind = Literal["node", "edge"]
@@ -45,45 +46,6 @@ __all__ = [
 ]
 
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
-
-
-def _build_edge_pairs_from_semantics(
-    edges_df: DataFrameT, src_col: str, dst_col: str, sem: EdgeSemantics
-) -> DataFrameT:
-    """Build normalized edge pairs for BFS traversal based on EdgeSemantics."""
-    if sem.is_undirected:
-        fwd = edges_df[[src_col, dst_col]].copy()
-        fwd.columns = pd.Index(['__from__', '__to__'])
-        rev = edges_df[[dst_col, src_col]].copy()
-        rev.columns = pd.Index(['__from__', '__to__'])
-        return pd.concat([fwd, rev], ignore_index=True).drop_duplicates()
-    else:
-        join_col, result_col = sem.join_cols(src_col, dst_col)
-        pairs = edges_df[[join_col, result_col]].copy()
-        pairs.columns = pd.Index(['__from__', '__to__'])
-        return pairs
-
-
-def _bfs_reachability(
-    edge_pairs: DataFrameT, start_nodes: Set[Any], max_hops: int, hop_col: str
-) -> DataFrameT:
-    """Compute BFS reachability with hop distance tracking. Returns DataFrame with __node__ and hop_col."""
-    result = pd.DataFrame({'__node__': list(start_nodes), hop_col: 0})
-    all_visited = result.copy()
-    for hop in range(1, max_hops + 1):
-        frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
-        if len(frontier) == 0:
-            break
-        next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
-        next_df = next_df.rename(columns={'__to__': '__node__'})
-        next_df[hop_col] = hop
-        merged = next_df.merge(all_visited[['__node__']], on='__node__', how='left', indicator=True)
-        new_nodes = merged[merged['_merge'] == 'left_only'][['__node__', hop_col]]
-        if len(new_nodes) == 0:
-            break
-        result = pd.concat([result, new_nodes], ignore_index=True)
-        all_visited = pd.concat([all_visited, new_nodes], ignore_index=True)
-    return result
 
 
 @dataclass(frozen=True)
@@ -447,7 +409,7 @@ class DFSamePathExecutor:
 
                 if sem.is_multihop:
                     # Build edge pairs based on direction
-                    edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, sem)
+                    edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
 
                     # Propagate state through hops
                     all_reachable = [state_df.copy()]
@@ -854,10 +816,10 @@ class DFSamePathExecutor:
         )
 
         # Build edge pairs and compute bidirectional reachability
-        edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, sem)
-        fwd_df = _bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
+        edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
+        fwd_df = bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
         rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
-        bwd_df = _bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
+        bwd_df = bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
 
         # An edge (u, v) is valid if:
         # - u is forward-reachable at hop h_fwd (path length from left_allowed to u)
@@ -953,7 +915,7 @@ class DFSamePathExecutor:
             min_hops=sem.min_hops,
             max_hops=sem.max_hops,
         )
-        edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, inverted_sem)
+        edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, inverted_sem)
 
         # Vectorized backward BFS: propagate reachability hop by hop
         # Use DataFrame-based tracking throughout (no Python sets internally)
