@@ -61,18 +61,8 @@ class ChainMeta:
         )
 
     def alias_for_step(self, step_index: int) -> Optional[str]:
-        """Get alias for a step index, or None if no alias.
-
-        O(1) lookup instead of scanning alias_bindings.
-        """
+        """Get alias for a step index, or None if no alias."""
         return self.step_to_alias.get(step_index)
-
-    def step_for_alias(self, alias: str) -> Optional[int]:
-        """Get step index for an alias, or None if not found.
-
-        O(1) lookup.
-        """
-        return self.alias_to_step.get(alias)
 
     def are_steps_adjacent_nodes(self, step1: int, step2: int) -> bool:
         """Check if two step indices represent adjacent nodes (one edge apart).
