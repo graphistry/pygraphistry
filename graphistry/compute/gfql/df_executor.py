@@ -23,6 +23,15 @@ from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
+from graphistry.compute.gfql.same_path.df_utils import (
+    series_values,
+    common_values,
+    safe_min,
+    safe_max,
+    filter_by_values,
+    evaluate_clause,
+    concat_frames,
+)
 from graphistry.compute.typing import DataFrameT
 
 AliasKind = Literal["node", "edge"]
@@ -346,7 +355,7 @@ class DFSamePathExecutor:
             id_col = self._node_column if binding.kind == "node" else self._edge_column
             if id_col is None or id_col not in frame.columns:
                 continue
-            out[alias] = self._series_values(frame[id_col])
+            out[alias] = series_values(frame[id_col])
         return out
 
     def _apply_non_adjacent_where_post_prune(
@@ -523,7 +532,7 @@ class DFSamePathExecutor:
             pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
 
             # Apply the comparison vectorized
-            mask = self._evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
+            mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
             valid_pairs = pairs_df[mask]
 
             valid_starts = set(valid_pairs['__start__'].tolist())
@@ -1042,7 +1051,7 @@ class DFSamePathExecutor:
             return
         for col in cols:
             if col in frame.columns:
-                self._equality_values[alias][col] = self._series_values(frame[col])
+                self._equality_values[alias][col] = series_values(frame[col])
 
     @dataclass
     class _PathState:
@@ -1068,7 +1077,7 @@ class DFSamePathExecutor:
             if node_alias and node_alias in allowed_tags:
                 allowed_nodes[idx] = set(allowed_tags[node_alias])
             else:
-                allowed_nodes[idx] = self._series_values(frame[self._node_column])
+                allowed_nodes[idx] = series_values(frame[self._node_column])
 
         # Walk edges backward
         for edge_idx, right_node_idx in reversed(list(zip(edge_indices, node_indices[1:]))):
@@ -1136,8 +1145,8 @@ class DFSamePathExecutor:
                 # Undirected: both src and dst can be left or right nodes
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
-                        self._series_values(filtered[self._source_column])
-                        | self._series_values(filtered[self._destination_column])
+                        series_values(filtered[self._source_column])
+                        | series_values(filtered[self._destination_column])
                     )
                     # Right node is constrained by allowed_dst already filtered above
                     current_dst = allowed_nodes.get(right_node_idx, set())
@@ -1151,18 +1160,18 @@ class DFSamePathExecutor:
                 # Directed: use endpoint_cols to get proper column mapping
                 start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
                 if end_col and end_col in filtered.columns:
-                    allowed_dst_actual = self._series_values(filtered[end_col])
+                    allowed_dst_actual = series_values(filtered[end_col])
                     current_dst = allowed_nodes.get(right_node_idx, set())
                     allowed_nodes[right_node_idx] = (
                         current_dst & allowed_dst_actual if current_dst else allowed_dst_actual
                     )
                 if start_col and start_col in filtered.columns:
-                    allowed_src = self._series_values(filtered[start_col])
+                    allowed_src = series_values(filtered[start_col])
                     current = allowed_nodes.get(left_node_idx, set())
                     allowed_nodes[left_node_idx] = current & allowed_src if current else allowed_src
 
             if self._edge_column and self._edge_column in filtered.columns:
-                allowed_edges[edge_idx] = self._series_values(filtered[self._edge_column])
+                allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
 
             # Store filtered edges back to ensure WHERE-pruned edges are removed from output
             if len(filtered) < len(edges_df):
@@ -1322,7 +1331,7 @@ class DFSamePathExecutor:
                     out_df = out_df.rename(columns=rename_map)
 
                 if col_left_name in out_df.columns and col_right_name in out_df.columns:
-                    mask = self._evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
+                    mask = evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
                     out_df = out_df[mask]
 
         return out_df
@@ -1404,8 +1413,8 @@ class DFSamePathExecutor:
         else:
             # Fallback: use alias frames directly when hop labels are ambiguous
             # (unfiltered start makes all edges "hop 1" from some start)
-            start_nodes = self._series_values(left_frame[self._node_column])
-            end_nodes = self._series_values(right_frame[self._node_column])
+            start_nodes = series_values(left_frame[self._node_column])
+            end_nodes = series_values(right_frame[self._node_column])
 
         # Filter to allowed nodes
         left_step_idx = self.inputs.alias_bindings[left_alias].step_index
@@ -1447,7 +1456,7 @@ class DFSamePathExecutor:
             if left_col == right_col and f"{right_col}__r" in pairs_df.columns:
                 actual_right_col = f"{right_col}__r"
             if left_col in pairs_df.columns and actual_right_col in pairs_df.columns:
-                mask = self._evaluate_clause(pairs_df[left_col], clause.op, pairs_df[actual_right_col])
+                mask = evaluate_clause(pairs_df[left_col], clause.op, pairs_df[actual_right_col])
                 pairs_df = pairs_df[mask]
 
         if len(pairs_df) == 0:
@@ -1518,7 +1527,7 @@ class DFSamePathExecutor:
                 f"{right_col}__r" if f"{right_col}__r" in merged.columns else right_col
             )
             if col_left in merged.columns and col_right in merged.columns:
-                mask = self._evaluate_clause(merged[col_left], clause.op, merged[col_right])
+                mask = evaluate_clause(merged[col_left], clause.op, merged[col_right])
                 return merged[mask]
             return merged
 
@@ -1548,22 +1557,6 @@ class DFSamePathExecutor:
         # <=
         return merged[merged[f"{left_col}__max"] <= merged[f"{right_col}__min_r"]]
 
-    @staticmethod
-    def _evaluate_clause(series_left: Any, op: str, series_right: Any) -> Any:
-        if op == "==":
-            return series_left == series_right
-        if op == "!=":
-            return series_left != series_right
-        if op == ">":
-            return series_left > series_right
-        if op == ">=":
-            return series_left >= series_right
-        if op == "<":
-            return series_left < series_right
-        if op == "<=":
-            return series_left <= series_right
-        return False
-
     def _materialize_filtered(self, path_state: "_PathState") -> Plottable:
         """Build result graph from allowed node/edge ids and refresh alias frames."""
 
@@ -1578,7 +1571,7 @@ class DFSamePathExecutor:
             for idx, op in enumerate(self.inputs.chain)
             if isinstance(op, ASTEdge) and self.forward_steps[idx]._edges is not None
         ]
-        concatenated_edges = self._concat_frames(edge_frames)
+        concatenated_edges = concat_frames(edge_frames)
         edges_df = concatenated_edges if concatenated_edges is not None else self.inputs.graph._edges
 
         if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
@@ -1804,18 +1797,6 @@ class DFSamePathExecutor:
 
         return nodes_df, edges_df
 
-    @staticmethod
-    def _concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
-        if not frames:
-            return None
-        first = frames[0]
-        if first.__class__.__module__.startswith("cudf"):
-            import cudf  # type: ignore
-
-            return cudf.concat(frames, ignore_index=True)
-        return pd.concat(frames, ignore_index=True)
-
-
     def _apply_ready_clauses(self) -> None:
         if not self.inputs.where:
             return
@@ -1837,23 +1818,23 @@ class DFSamePathExecutor:
         right_col = clause.right.column
 
         if clause.op == "==":
-            allowed = self._common_values(lhs[left_col], rhs[right_col])
-            self.alias_frames[clause.left.alias] = self._filter_by_values(
+            allowed = common_values(lhs[left_col], rhs[right_col])
+            self.alias_frames[clause.left.alias] = filter_by_values(
                 lhs, left_col, allowed
             )
-            self.alias_frames[clause.right.alias] = self._filter_by_values(
+            self.alias_frames[clause.right.alias] = filter_by_values(
                 rhs, right_col, allowed
             )
         elif clause.op == ">":
-            right_min = self._safe_min(rhs[right_col])
-            left_max = self._safe_max(lhs[left_col])
+            right_min = safe_min(rhs[right_col])
+            left_max = safe_max(lhs[left_col])
             if right_min is not None:
                 self.alias_frames[clause.left.alias] = lhs[lhs[left_col] > right_min]
             if left_max is not None:
                 self.alias_frames[clause.right.alias] = rhs[rhs[right_col] < left_max]
         elif clause.op == ">=":
-            right_min = self._safe_min(rhs[right_col])
-            left_max = self._safe_max(lhs[left_col])
+            right_min = safe_min(rhs[right_col])
+            left_max = safe_max(lhs[left_col])
             if right_min is not None:
                 self.alias_frames[clause.left.alias] = lhs[lhs[left_col] >= right_min]
             if left_max is not None:
@@ -1861,8 +1842,8 @@ class DFSamePathExecutor:
                     rhs[right_col] <= left_max
                 ]
         elif clause.op == "<":
-            right_max = self._safe_max(rhs[right_col])
-            left_min = self._safe_min(lhs[left_col])
+            right_max = safe_max(rhs[right_col])
+            left_min = safe_min(lhs[left_col])
             if right_max is not None:
                 self.alias_frames[clause.left.alias] = lhs[lhs[left_col] < right_max]
             if left_min is not None:
@@ -1870,8 +1851,8 @@ class DFSamePathExecutor:
                     rhs[right_col] > left_min
                 ]
         elif clause.op == "<=":
-            right_max = self._safe_max(rhs[right_col])
-            left_min = self._safe_min(lhs[left_col])
+            right_max = safe_max(rhs[right_col])
+            left_min = safe_min(lhs[left_col])
             if right_max is not None:
                 self.alias_frames[clause.left.alias] = lhs[
                     lhs[left_col] <= right_max
@@ -1881,54 +1862,6 @@ class DFSamePathExecutor:
                     rhs[right_col] >= left_min
                 ]
 
-    @staticmethod
-    def _filter_by_values(
-        frame: DataFrameT, column: str, values: Set[Any]
-    ) -> DataFrameT:
-        if not values:
-            return frame.iloc[0:0]
-        allowed = list(values)
-        mask = frame[column].isin(allowed)
-        return frame[mask]
-
-    @staticmethod
-    def _common_values(series_a: Any, series_b: Any) -> Set[Any]:
-        vals_a = DFSamePathExecutor._series_values(series_a)
-        vals_b = DFSamePathExecutor._series_values(series_b)
-        return vals_a & vals_b
-
-    @staticmethod
-    def _series_values(series: Any) -> Set[Any]:
-        pandas_series = DFSamePathExecutor._to_pandas_series(series)
-        return set(pandas_series.dropna().unique().tolist())
-
-    @staticmethod
-    def _safe_min(series: Any) -> Optional[Any]:
-        pandas_series = DFSamePathExecutor._to_pandas_series(series).dropna()
-        if pandas_series.empty:
-            return None
-        value = pandas_series.min()
-        if pd.isna(value):
-            return None
-        return value
-
-    @staticmethod
-    def _safe_max(series: Any) -> Optional[Any]:
-        pandas_series = DFSamePathExecutor._to_pandas_series(series).dropna()
-        if pandas_series.empty:
-            return None
-        value = pandas_series.max()
-        if pd.isna(value):
-            return None
-        return value
-
-    @staticmethod
-    def _to_pandas_series(series: Any) -> pd.Series:
-        if hasattr(series, "to_pandas"):
-            return series.to_pandas()
-        if isinstance(series, pd.Series):
-            return series
-        return pd.Series(series)
 
 
 def build_same_path_inputs(
