@@ -62,7 +62,7 @@ def _bfs_reachability(
     """Compute BFS reachability with hop distance tracking. Returns DataFrame with __node__ and hop_col."""
     result = pd.DataFrame({'__node__': list(start_nodes), hop_col: 0})
     all_visited = result.copy()
-    for hop in range(1, max_hops):
+    for hop in range(1, max_hops + 1):
         frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
         if len(frontier) == 0:
             break
