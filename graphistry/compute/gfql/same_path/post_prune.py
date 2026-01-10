@@ -367,25 +367,7 @@ def apply_edge_where_post_prune(
         left_vals = paths_df[left_col_name]
         right_vals = paths_df[right_col_name]
 
-        # SQL NULL semantics: any comparison with NULL is NULL (treated as False)
-        # We need to check for NULL before comparing, because pandas != returns True for X != NaN
-        valid = left_vals.notna() & right_vals.notna()
-
-        if clause.op == "==":
-            clause_mask = valid & (left_vals == right_vals)
-        elif clause.op == "!=":
-            clause_mask = valid & (left_vals != right_vals)
-        elif clause.op == "<":
-            clause_mask = valid & (left_vals < right_vals)
-        elif clause.op == "<=":
-            clause_mask = valid & (left_vals <= right_vals)
-        elif clause.op == ">":
-            clause_mask = valid & (left_vals > right_vals)
-        elif clause.op == ">=":
-            clause_mask = valid & (left_vals >= right_vals)
-        else:
-            continue
-
+        clause_mask = evaluate_clause(left_vals, clause.op, right_vals, null_safe=True)
         mask &= clause_mask.fillna(False)
 
     # Filter paths
