@@ -79,19 +79,6 @@ class EdgeSemantics:
         else:
             return (src_col, dst_col)
 
-    def join_cols_backward(self, src_col: str, dst_col: str) -> Tuple[str, str]:
-        """Get (left_on, result_col) for a backward join (inverted direction).
-
-        Backward traversal inverts the direction for tracing paths back.
-
-        Returns:
-            (join_column, result_column) tuple
-        """
-        if self.is_reverse:
-            return (src_col, dst_col)
-        else:
-            return (dst_col, src_col)
-
     def endpoint_cols(self, src_col: str, dst_col: str) -> Tuple[str, str]:
         """Get (start_endpoint, end_endpoint) columns based on direction.
 
@@ -105,46 +92,6 @@ class EdgeSemantics:
             return (dst_col, src_col)
         else:
             return (src_col, dst_col)
-
-    def filter_by_endpoints(
-        self, left_set: set, right_set: set, src_col: str, dst_col: str
-    ) -> Tuple[str, set, str, set]:
-        """Get filter column and values for endpoint filtering.
-
-        For forward edges: filter src by left_set, dst by right_set
-        For reverse edges: filter dst by left_set, src by right_set
-
-        Returns:
-            (left_col, left_vals, right_col, right_vals) tuple
-        """
-        if self.is_reverse:
-            return (dst_col, left_set, src_col, right_set)
-        else:
-            return (src_col, left_set, dst_col, right_set)
-
-    def propagate_new_nodes(
-        self, edges_df, src_col: str, dst_col: str
-    ) -> set:
-        """Get reachable nodes after traversing edges (forward direction).
-
-        For forward: returns dst nodes (where we arrive)
-        For reverse: returns src nodes (where we arrive when going reverse)
-        For undirected: returns both
-
-        Args:
-            edges_df: DataFrame with edge data
-            src_col: Source column name
-            dst_col: Destination column name
-
-        Returns:
-            Set of newly reachable node IDs
-        """
-        if self.is_undirected:
-            return set(edges_df[src_col].tolist()) | set(edges_df[dst_col].tolist())
-        elif self.is_reverse:
-            return set(edges_df[src_col].tolist())
-        else:
-            return set(edges_df[dst_col].tolist())
 
     def start_nodes(
         self, edges_df, src_col: str, dst_col: str

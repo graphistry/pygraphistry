@@ -218,68 +218,7 @@ def _apply_inequality_clause(
     left_col: str,
     right_col: str,
 ) -> DataFrameT:
-    """Apply inequality clause using minmax summaries if available.
-
-    Args:
-        executor: The executor instance for accessing minmax summaries
-        out_df: DataFrame to filter
-        clause: WHERE clause to apply
-        left_alias: Left node alias name
-        right_alias: Right node alias name
-        left_col: Left column name
-        right_col: Right column name
-
-    Returns:
-        Filtered DataFrame
-    """
-    left_summary = executor._minmax_summaries.get(left_alias, {}).get(left_col)
-    right_summary = executor._minmax_summaries.get(right_alias, {}).get(right_col)
-
-    # Fall back to raw values if summaries are missing
-    lsum = None
-    rsum = None
-    if left_summary is not None:
-        lsum = left_summary.rename(
-            columns={
-                left_summary.columns[0]: "__left_id__",
-                "min": f"{left_col}__min",
-                "max": f"{left_col}__max",
-            }
-        )
-    if right_summary is not None:
-        rsum = right_summary.rename(
-            columns={
-                right_summary.columns[0]: "__right_id__",
-                "min": f"{right_col}__min",
-                "max": f"{right_col}__max",
-            }
-        )
-
-    if lsum is not None and rsum is not None:
-        # Both summaries available - use min/max bounds
-        merged = out_df.merge(lsum, on="__left_id__", how="left").merge(
-            rsum, on="__right_id__", how="left"
-        )
-
-        left_min = merged[f"{left_col}__min"]
-        left_max = merged[f"{left_col}__max"]
-        right_min = merged[f"{right_col}__min"]
-        right_max = merged[f"{right_col}__max"]
-
-        if clause.op == ">":
-            mask = left_max > right_min
-        elif clause.op == ">=":
-            mask = left_max >= right_min
-        elif clause.op == "<":
-            mask = left_min < right_max
-        elif clause.op == "<=":
-            mask = left_min <= right_max
-        else:
-            mask = merged.index == merged.index  # all True
-
-        return merged[mask][out_df.columns]
-
-    # Fall back to value-based comparison
+    """Apply inequality clause using direct comparison."""
     col_left_name = f"__val_left_{left_col}"
     col_right_name = f"__val_right_{right_col}"
 
