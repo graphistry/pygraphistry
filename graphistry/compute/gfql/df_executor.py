@@ -25,10 +25,6 @@ from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.gfql.same_path.df_utils import (
     series_values,
-    common_values,
-    safe_min,
-    safe_max,
-    filter_by_values,
     evaluate_clause,
     concat_frames,
 )
@@ -97,8 +93,6 @@ class DFSamePathExecutor:
         self._edge_column = inputs.graph._edge
         self._source_column = inputs.graph._source
         self._destination_column = inputs.graph._destination
-        self._minmax_summaries: Dict[str, Dict[str, DataFrameT]] = defaultdict(dict)
-        self._equality_values: Dict[str, Dict[str, Set[Any]]] = defaultdict(dict)
 
     def run(self) -> Plottable:
         """Execute same-path traversal with Yannakakis-style pruning.
@@ -148,12 +142,6 @@ class DFSamePathExecutor:
             self.forward_steps.append(g_step)
             self._capture_alias_frame(op, g_step, idx)
 
-    def _backward(self) -> None:
-        raise NotImplementedError
-
-    def _finalize(self) -> Plottable:
-        raise NotImplementedError
-
     def _capture_alias_frame(
         self, op: ASTObject, step_result: Plottable, step_index: int
     ) -> None:
@@ -184,9 +172,6 @@ class DFSamePathExecutor:
         subset_cols = [col for col in required]
         alias_frame = frame[subset_cols].copy()
         self.alias_frames[alias] = alias_frame
-        self._capture_minmax(alias, alias_frame, id_col)
-        self._capture_equality_values(alias, alias_frame)
-        self._apply_ready_clauses()
 
     def _should_attempt_gpu(self) -> bool:
         """Decide whether to try GPU kernels for same-path execution."""
@@ -309,62 +294,6 @@ class DFSamePathExecutor:
                 continue
             out[alias] = series_values(frame[id_col])
         return out
-
-    def _filter_multihop_edges_by_endpoints(
-        self,
-        edges_df: DataFrameT,
-        edge_op: ASTEdge,
-        left_allowed: Set[Any],
-        right_allowed: Set[Any],
-        sem: EdgeSemantics,
-    ) -> DataFrameT:
-        """Delegate to module function."""
-        return filter_multihop_edges_by_endpoints(
-            edges_df, edge_op, left_allowed, right_allowed, sem,
-            self._source_column or '', self._destination_column or ''
-        )
-
-    def _find_multihop_start_nodes(
-        self,
-        edges_df: DataFrameT,
-        edge_op: ASTEdge,
-        right_allowed: Set[Any],
-        sem: EdgeSemantics,
-    ) -> Set[Any]:
-        """Delegate to module function."""
-        return find_multihop_start_nodes(
-            edges_df, edge_op, right_allowed, sem,
-            self._source_column or '', self._destination_column or ''
-        )
-
-    def _capture_minmax(
-        self, alias: str, frame: DataFrameT, id_col: Optional[str]
-    ) -> None:
-        if not id_col:
-            return
-        cols = self.inputs.column_requirements.get(alias, set())
-        target_cols = [
-            col for col in cols if self.inputs.plan.requires_minmax(alias) and col in frame.columns
-        ]
-        if not target_cols:
-            return
-        grouped = frame.groupby(id_col)
-        for col in target_cols:
-            summary = grouped[col].agg(["min", "max"]).reset_index()
-            self._minmax_summaries[alias][col] = summary
-
-    def _capture_equality_values(
-        self, alias: str, frame: DataFrameT
-    ) -> None:
-        cols = self.inputs.column_requirements.get(alias, set())
-        participates = any(
-            alias in bitset.aliases for bitset in self.inputs.plan.bitsets.values()
-        )
-        if not participates:
-            return
-        for col in cols:
-            if col in frame.columns:
-                self._equality_values[alias][col] = series_values(frame[col])
 
     @dataclass
     class _PathState:
@@ -731,72 +660,6 @@ class DFSamePathExecutor:
             edges_df = self._merge_label_frames(edges_df, edge_frames, edge_id)
 
         return nodes_df, edges_df
-
-    def _apply_ready_clauses(self) -> None:
-        if not self.inputs.where:
-            return
-        ready = [
-            clause
-            for clause in self.inputs.where
-            if clause.left.alias in self.alias_frames
-            and clause.right.alias in self.alias_frames
-        ]
-        for clause in ready:
-            self._prune_clause(clause)
-
-    def _prune_clause(self, clause: WhereComparison) -> None:
-        if clause.op == "!=":
-            return  # No global prune for inequality-yet
-        lhs = self.alias_frames[clause.left.alias]
-        rhs = self.alias_frames[clause.right.alias]
-        left_col = clause.left.column
-        right_col = clause.right.column
-
-        if clause.op == "==":
-            allowed = common_values(lhs[left_col], rhs[right_col])
-            self.alias_frames[clause.left.alias] = filter_by_values(
-                lhs, left_col, allowed
-            )
-            self.alias_frames[clause.right.alias] = filter_by_values(
-                rhs, right_col, allowed
-            )
-        elif clause.op == ">":
-            right_min = safe_min(rhs[right_col])
-            left_max = safe_max(lhs[left_col])
-            if right_min is not None:
-                self.alias_frames[clause.left.alias] = lhs[lhs[left_col] > right_min]
-            if left_max is not None:
-                self.alias_frames[clause.right.alias] = rhs[rhs[right_col] < left_max]
-        elif clause.op == ">=":
-            right_min = safe_min(rhs[right_col])
-            left_max = safe_max(lhs[left_col])
-            if right_min is not None:
-                self.alias_frames[clause.left.alias] = lhs[lhs[left_col] >= right_min]
-            if left_max is not None:
-                self.alias_frames[clause.right.alias] = rhs[
-                    rhs[right_col] <= left_max
-                ]
-        elif clause.op == "<":
-            right_max = safe_max(rhs[right_col])
-            left_min = safe_min(lhs[left_col])
-            if right_max is not None:
-                self.alias_frames[clause.left.alias] = lhs[lhs[left_col] < right_max]
-            if left_min is not None:
-                self.alias_frames[clause.right.alias] = rhs[
-                    rhs[right_col] > left_min
-                ]
-        elif clause.op == "<=":
-            right_max = safe_max(rhs[right_col])
-            left_min = safe_min(lhs[left_col])
-            if right_max is not None:
-                self.alias_frames[clause.left.alias] = lhs[
-                    lhs[left_col] <= right_max
-                ]
-            if left_min is not None:
-                self.alias_frames[clause.right.alias] = rhs[
-                    rhs[right_col] >= left_min
-                ]
-
 
 
 def build_same_path_inputs(
