@@ -64,29 +64,6 @@ def _build_edge_pairs_from_semantics(
         return pairs
 
 
-def _build_edge_pairs(
-    edges_df: DataFrameT, src_col: str, dst_col: str, is_reverse: bool, is_undirected: bool
-) -> DataFrameT:
-    """Build normalized edge pairs for BFS traversal based on direction.
-
-    DEPRECATED: Use _build_edge_pairs_from_semantics with EdgeSemantics instead.
-    """
-    if is_undirected:
-        fwd = edges_df[[src_col, dst_col]].copy()
-        fwd.columns = pd.Index(['__from__', '__to__'])
-        rev = edges_df[[dst_col, src_col]].copy()
-        rev.columns = pd.Index(['__from__', '__to__'])
-        return pd.concat([fwd, rev], ignore_index=True).drop_duplicates()
-    elif is_reverse:
-        pairs = edges_df[[dst_col, src_col]].copy()
-        pairs.columns = pd.Index(['__from__', '__to__'])
-        return pairs
-    else:
-        pairs = edges_df[[src_col, dst_col]].copy()
-        pairs.columns = pd.Index(['__from__', '__to__'])
-        return pairs
-
-
 def _bfs_reachability(
     edge_pairs: DataFrameT, start_nodes: Set[Any], max_hops: int, hop_col: str
 ) -> DataFrameT:
@@ -795,7 +772,7 @@ class DFSamePathExecutor:
 
             if sem.is_multihop:
                 edges_df = self._filter_multihop_edges_by_endpoints(
-                    edges_df, edge_op, left_allowed, right_allowed, sem.is_reverse, sem.is_undirected
+                    edges_df, edge_op, left_allowed, right_allowed, sem
                 )
             else:
                 if sem.is_undirected:
@@ -834,7 +811,7 @@ class DFSamePathExecutor:
 
             if sem.is_multihop:
                 new_src_nodes = self._find_multihop_start_nodes(
-                    edges_df, edge_op, right_allowed, sem.is_reverse, sem.is_undirected
+                    edges_df, edge_op, right_allowed, sem
                 )
             else:
                 new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
@@ -854,8 +831,7 @@ class DFSamePathExecutor:
         edge_op: ASTEdge,
         left_allowed: Set[Any],
         right_allowed: Set[Any],
-        is_reverse: bool,
-        is_undirected: bool = False,
+        sem: EdgeSemantics,
     ) -> DataFrameT:
         """
         Filter multi-hop edges to only those participating in valid paths
@@ -878,7 +854,7 @@ class DFSamePathExecutor:
         )
 
         # Build edge pairs and compute bidirectional reachability
-        edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, is_reverse, is_undirected)
+        edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, sem)
         fwd_df = _bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
         rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
         bwd_df = _bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
@@ -895,7 +871,7 @@ class DFSamePathExecutor:
         bwd_df = bwd_df.groupby('__node__')['__bwd_hop__'].min().reset_index()
 
         # Join edges with hop distances
-        if is_undirected:
+        if sem.is_undirected:
             # For undirected, check both directions
             # An edge is valid if it lies on ANY valid path from left_allowed to right_allowed.
             # This means: fwd_hop(u) + 1 + bwd_hop(v) <= max_hops
@@ -927,10 +903,7 @@ class DFSamePathExecutor:
             return valid_edges
         else:
             # Determine which column is "source" (fwd) and which is "dest" (bwd)
-            if is_reverse:
-                fwd_col, bwd_col = dst_col, src_col
-            else:
-                fwd_col, bwd_col = src_col, dst_col
+            fwd_col, bwd_col = sem.endpoint_cols(src_col, dst_col)
 
             edges_annotated = edges_df.merge(
                 fwd_df, left_on=fwd_col, right_on='__node__', how='inner'
@@ -952,8 +925,7 @@ class DFSamePathExecutor:
         edges_df: DataFrameT,
         edge_op: ASTEdge,
         right_allowed: Set[Any],
-        is_reverse: bool,
-        is_undirected: bool = False,
+        sem: EdgeSemantics,
     ) -> Set[Any]:
         """
         Find nodes that can start multi-hop paths reaching right_allowed.
@@ -972,8 +944,16 @@ class DFSamePathExecutor:
         )
 
         # Build edge pairs for backward traversal (inverted direction)
-        # For forward edges, backward trace goes dst->src, so we invert is_reverse
-        edge_pairs = _build_edge_pairs(edges_df, src_col, dst_col, not is_reverse, is_undirected)
+        # For forward edges, backward trace goes dst->src
+        # Create inverted semantics for backward traversal
+        inverted_sem = EdgeSemantics(
+            is_reverse=not sem.is_reverse,
+            is_undirected=sem.is_undirected,
+            is_multihop=sem.is_multihop,
+            min_hops=sem.min_hops,
+            max_hops=sem.max_hops,
+        )
+        edge_pairs = _build_edge_pairs_from_semantics(edges_df, src_col, dst_col, inverted_sem)
 
         # Vectorized backward BFS: propagate reachability hop by hop
         # Use DataFrame-based tracking throughout (no Python sets internally)
@@ -1469,7 +1449,7 @@ class DFSamePathExecutor:
         # Use vectorized bidirectional reachability to filter edges
         # This reuses the same logic as _filter_multihop_edges_by_endpoints
         return self._filter_multihop_edges_by_endpoints(
-            edges_df, edge_op, valid_starts, valid_ends, sem.is_reverse, sem.is_undirected
+            edges_df, edge_op, valid_starts, valid_ends, sem
         )
 
     @staticmethod
