@@ -17,7 +17,7 @@ from .df_utils import (
     concat_frames,
 )
 from .bfs import build_edge_pairs, bfs_reachability
-from .post_prune import apply_non_adjacent_where_post_prune, apply_edge_where_post_prune
+from .post_prune import apply_non_adjacent_where_post_prune, apply_edge_where_post_prune, re_propagate_backward
 from .multihop import filter_multihop_edges_by_endpoints, find_multihop_start_nodes
 
 __all__ = [
@@ -35,6 +35,7 @@ __all__ = [
     "bfs_reachability",
     "apply_non_adjacent_where_post_prune",
     "apply_edge_where_post_prune",
+    "re_propagate_backward",
     "filter_multihop_edges_by_endpoints",
     "find_multihop_start_nodes",
 ]
