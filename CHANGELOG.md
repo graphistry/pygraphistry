@@ -8,10 +8,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Performance
+- **Compute / hop**: Use scalar broadcast `Series(True, index=...)` instead of Python list splatting `Series([True] * len(...), ...)` for efficient GPU-friendly constant initialization
+- **Predicates / str**: Use scalar broadcast for constant Series in `startswith`/`endswith` empty tuple edge cases
+- **DGL**: Use `np.ones()` instead of `np.array([1] * len(...))` for efficient array initialization
+
 ### Fixed
 - **Hypergraph**: Fixed engine auto-detection to use input DataFrame type instead of defaulting to cuDF when available
 - **GFQL / chain**: Fixed cuDF compatibility in backward pass by removing `set()` wrappers around Series passed to `.isin()` (cuDF `.isin()` works directly with Series)
-- **Compute / hop**: Fixed cuDF compatibility by making all operations engine-agnostic: vectorized `.isin()` instead of Python `set()`, engine-aware Series/concat construction, and `None` instead of `pd.NA` (fully GPU-accelerated)
+- **GFQL / chain**: Fixed cuDF compatibility by replacing `.combine_first()` with `.where()` pattern (cuDF lacks `combine_first`)
+- **Compute / hop**: Fixed cuDF compatibility by making all operations engine-agnostic: vectorized `.isin()` instead of Python `set()`, engine-aware Series/concat construction, and `s_na(engine)` instead of `pd.NA` (fully GPU-accelerated)
+
+### Infra
+- **Engine.py**: Added `s_to_numeric(engine)` and `s_na(engine)` polymorphic utilities for engine-agnostic numeric conversion and null assignment
 
 ### Tests
 - **GFQL / chain**: Added `engine_mode` parametrized fixture for automatic pandas/cuDF parity testing (enabled via `TEST_CUDF=1`). Chain optimization tests now run 156 tests (78 pandas + 78 cuDF) when GPU is available.
