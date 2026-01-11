@@ -12,7 +12,7 @@ from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs, bfs_reachability
-from .df_utils import series_values, concat_frames
+from .df_utils import series_values, concat_frames, df_cons
 
 
 def filter_multihop_edges_by_endpoints(
@@ -170,15 +170,7 @@ def find_multihop_start_nodes(
     # Start with right_allowed as target destinations (hop 0 means "at the destination")
     # We trace backward to find nodes that can REACH these destinations
 
-    # Create DataFrames of same type as edge_pairs (pandas or cudf)
-    is_cudf = edge_pairs.__class__.__module__.startswith("cudf")
-    if is_cudf:
-        import cudf  # type: ignore
-        df_cons = cudf.DataFrame
-    else:
-        df_cons = pd.DataFrame
-
-    frontier = df_cons({'__node__': list(right_allowed)})
+    frontier = df_cons(edge_pairs, {'__node__': list(right_allowed)})
     all_visited = frontier.copy()
     visited_set: Set[Any] = set(right_allowed)  # Use set for anti-join (cudf doesn't support indicator=True)
     valid_starts_frames: List[DataFrameT] = []
@@ -212,7 +204,7 @@ def find_multihop_start_nodes(
         if not new_node_ids:
             break
 
-        unvisited = df_cons({'__node__': list(new_node_ids)})
+        unvisited = df_cons(edge_pairs, {'__node__': list(new_node_ids)})
         visited_set |= new_node_ids
 
         frontier = unvisited

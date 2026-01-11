@@ -9,15 +9,7 @@ import pandas as pd
 
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
-from .df_utils import concat_frames
-
-
-def _df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
-    """Construct a DataFrame of the same type as template_df."""
-    if template_df.__class__.__module__.startswith("cudf"):
-        import cudf  # type: ignore
-        return cudf.DataFrame(data)
-    return pd.DataFrame(data)
+from .df_utils import concat_frames, df_cons
 
 
 def build_edge_pairs(
@@ -66,7 +58,7 @@ def bfs_reachability(
     from .df_utils import series_values
 
     # Use same DataFrame type as input
-    result = _df_cons(edge_pairs, {'__node__': list(start_nodes), hop_col: 0})
+    result = df_cons(edge_pairs, {'__node__': list(start_nodes), hop_col: 0})
     visited_set: Set[Any] = set(start_nodes)
 
     for hop in range(1, max_hops + 1):
@@ -82,7 +74,7 @@ def bfs_reachability(
         if not new_node_ids:
             break
 
-        new_nodes = _df_cons(edge_pairs, {'__node__': list(new_node_ids), hop_col: hop})
+        new_nodes = df_cons(edge_pairs, {'__node__': list(new_node_ids), hop_col: hop})
         visited_set |= new_node_ids
 
         result = concat_frames([result, new_nodes])

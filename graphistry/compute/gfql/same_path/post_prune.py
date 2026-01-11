@@ -13,7 +13,7 @@ from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
-from .df_utils import evaluate_clause, series_values, concat_frames
+from .df_utils import evaluate_clause, series_values, concat_frames, df_cons, make_bool_series
 from .multihop import filter_multihop_edges_by_endpoints, find_multihop_start_nodes
 
 if TYPE_CHECKING:
@@ -126,7 +126,7 @@ def apply_non_adjacent_where_post_prune(
             state_df = left_values_df[['__start__']].copy()
             state_df['__current__'] = state_df['__start__']
         else:
-            state_df = pd.DataFrame(columns=['__current__', '__start__'])
+            state_df = df_cons(nodes_df, {'__current__': [], '__start__': []})
 
         for edge_idx in relevant_edge_indices:
             edges_df = executor.forward_steps[edge_idx]._edges
@@ -267,16 +267,12 @@ def apply_edge_where_post_prune(
     if not seed_nodes:
         return path_state
 
-    # Detect DataFrame type from graph nodes to create matching DataFrames
-    nodes_df_sample = executor.inputs.graph._nodes
-    is_cudf = nodes_df_sample is not None and nodes_df_sample.__class__.__module__.startswith("cudf")
-    if is_cudf:
-        import cudf  # type: ignore
-        df_cons = cudf.DataFrame
-    else:
-        df_cons = pd.DataFrame
+    # Use graph nodes as template for DataFrame type
+    nodes_df_template = executor.inputs.graph._nodes
+    if nodes_df_template is None:
+        return path_state
 
-    paths_df = df_cons({f'n{node_indices[0]}': list(seed_nodes)})
+    paths_df = df_cons(nodes_df_template, {f'n{node_indices[0]}': list(seed_nodes)})
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]
@@ -355,11 +351,7 @@ def apply_edge_where_post_prune(
                         paths_df = paths_df.merge(node_attr, on=f'n{step_idx}', how='left')
 
     # Create mask series of same type as paths_df
-    if is_cudf:
-        import cudf  # type: ignore
-        mask = cudf.Series([True] * len(paths_df))
-    else:
-        mask = pd.Series(True, index=paths_df.index)
+    mask = make_bool_series(paths_df, True)
     for clause in edge_clauses:
         left_binding = executor.inputs.alias_bindings[clause.left.alias]
         right_binding = executor.inputs.alias_bindings[clause.right.alias]
