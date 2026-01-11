@@ -10,6 +10,38 @@ import pandas as pd
 from graphistry.compute.typing import DataFrameT
 
 
+def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
+    """Construct a DataFrame of the same type as template_df.
+
+    Args:
+        template_df: DataFrame to use as type template (pandas or cudf)
+        data: Dictionary of column data for new DataFrame
+
+    Returns:
+        New DataFrame of same type as template_df
+    """
+    if template_df.__class__.__module__.startswith("cudf"):
+        import cudf  # type: ignore
+        return cudf.DataFrame(data)
+    return pd.DataFrame(data)
+
+
+def make_bool_series(template_df: DataFrameT, value: bool) -> Any:
+    """Create a boolean Series matching template_df's type and length.
+
+    Args:
+        template_df: DataFrame to use as type template
+        value: Boolean value to fill series with
+
+    Returns:
+        Boolean series of same type and length as template_df
+    """
+    if template_df.__class__.__module__.startswith("cudf"):
+        import cudf  # type: ignore
+        return cudf.Series([value] * len(template_df))
+    return pd.Series(value, index=template_df.index)
+
+
 def to_pandas_series(series: Any) -> pd.Series:
     """Convert any series-like object to pandas Series."""
     if hasattr(series, "to_pandas"):

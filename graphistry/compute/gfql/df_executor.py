@@ -23,7 +23,7 @@ from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-from graphistry.compute.gfql.same_path.df_utils import series_values, concat_frames
+from graphistry.compute.gfql.same_path.df_utils import series_values, concat_frames, df_cons
 from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
@@ -671,26 +671,18 @@ class DFSamePathExecutor:
                     )
 
         # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
-        # Collect allowed node IDs from path_state
-        # Detect DataFrame type from nodes_df to create matching DataFrames
-        is_cudf = nodes_df.__class__.__module__.startswith("cudf")
-        if is_cudf:
-            import cudf  # type: ignore
-            df_cons = cudf.DataFrame
-        else:
-            df_cons = pd.DataFrame
-
+        # Collect allowed node IDs from path_state using engine-aware construction
         allowed_node_frames: List[DataFrameT] = []
         if path_state.allowed_nodes:
             for node_set in path_state.allowed_nodes.values():
                 if node_set:
-                    allowed_node_frames.append(df_cons({'__node__': list(node_set)}))
+                    allowed_node_frames.append(df_cons(nodes_df, {'__node__': list(node_set)}))
 
         allowed_edge_frames: List[DataFrameT] = []
         if path_state.allowed_edges:
             for edge_set in path_state.allowed_edges.values():
                 if edge_set:
-                    allowed_edge_frames.append(df_cons({'__edge__': list(edge_set)}))
+                    allowed_edge_frames.append(df_cons(edges_df, {'__edge__': list(edge_set)}))
 
         # For multi-hop edges, include all intermediate nodes from the edge frames
         # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
@@ -881,10 +873,10 @@ class DFSamePathExecutor:
             node_label, edge_label = self._resolve_label_cols(op)
             if node_label and node_id and node_id in nodes_df.columns and node_labels:
                 node_series = nodes_df[node_id].map(node_labels)
-                node_frames.append(pd.DataFrame({node_id: nodes_df[node_id], node_label: node_series}))
+                node_frames.append(df_cons(nodes_df, {node_id: nodes_df[node_id], node_label: node_series}))
             if edge_label and edge_id and edge_id in edges_df.columns and edge_labels:
                 edge_series = edges_df[edge_id].map(edge_labels)
-                edge_frames.append(pd.DataFrame({edge_id: edges_df[edge_id], edge_label: edge_series}))
+                edge_frames.append(df_cons(edges_df, {edge_id: edges_df[edge_id], edge_label: edge_series}))
 
         if node_id is not None and node_frames:
             nodes_df = self._merge_label_frames(nodes_df, node_frames, node_id)
