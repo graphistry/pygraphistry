@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 import pandas as pd
 
 from graphistry.Engine import (
-    EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine, s_series, Engine
+    EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine, s_series, s_to_numeric, Engine
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -1046,11 +1046,8 @@ def hop(self: Plottable,
                 g_out._nodes.loc[zero_seed_mask, node_hop_col] = None
             try:
                 # Engine-agnostic numeric conversion
-                if engine_concrete == Engine.CUDF:
-                    import cudf
-                    g_out._nodes[node_hop_col] = cudf.to_numeric(g_out._nodes[node_hop_col], errors='coerce')
-                else:
-                    g_out._nodes[node_hop_col] = pd.to_numeric(g_out._nodes[node_hop_col], errors='coerce')
+                to_numeric = s_to_numeric(engine_concrete)
+                g_out._nodes[node_hop_col] = to_numeric(g_out._nodes[node_hop_col], errors='coerce')
                 # Check if numeric and convert to nullable int
                 col = g_out._nodes[node_hop_col]
                 if hasattr(col, 'dtype') and hasattr(col.dtype, 'kind') and col.dtype.kind in ('i', 'f'):

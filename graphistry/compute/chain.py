@@ -454,7 +454,9 @@ def combine_steps(
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
-                        out_df[hc] = out_df[hc].combine_first(out_df[id].map(hop_map))
+                        # combine_first not available in cuDF, use .where() as equivalent
+                        mapped_vals = out_df[id].map(hop_map)
+                        out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
 
     # Collapse merge suffixes (_x/_y) into a single column
     cols = list(out_df.columns)

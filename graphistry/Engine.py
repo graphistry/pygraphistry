@@ -256,6 +256,16 @@ def s_maximum(engine: Engine):
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 
+def s_to_numeric(engine: Engine):
+    """Return engine-appropriate to_numeric function."""
+    if engine == Engine.PANDAS:
+        return pd.to_numeric
+    elif engine == Engine.CUDF:
+        import cudf
+        return cudf.to_numeric
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+
 # DataFrame type coercion primitives
 # See issue #784: https://github.com/graphistry/pygraphistry/issues/784
 
