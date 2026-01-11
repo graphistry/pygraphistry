@@ -3,6 +3,7 @@ import pandas as pd
 import graphistry
 from graphistry.compute.ast import n, e_undirected
 from graphistry.compute.chain import Chain
+from tests.gfql.ref.conftest import to_set
 
 
 def test_debug_undirected_chain():
@@ -22,7 +23,7 @@ def test_debug_undirected_chain():
     # Single step should work
     chain1 = Chain([n({'id': 'b'}, name='n1'), e_undirected(name='e1'), n(name='n2')])
     result1 = g.gfql(chain1)
-    nodes1 = set(result1._nodes['id'].tolist())
+    nodes1 = to_set(result1._nodes['id'])
     print(f"\nSingle step from b: {nodes1}")
     print(f"  Expected: {{a, b, c}}")
     assert nodes1 == {'a', 'b', 'c'}, f"Single step failed: {nodes1}"
@@ -36,7 +37,7 @@ def test_debug_undirected_chain():
         n(name='n3')
     ])
     result2 = g.gfql(chain2)
-    nodes2 = set(result2._nodes['id'].tolist())
+    nodes2 = to_set(result2._nodes['id'])
     edges2 = result2._edges
 
     print(f"\nTwo step from b: {nodes2}")
