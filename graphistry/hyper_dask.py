@@ -813,7 +813,8 @@ def hypergraph(
 
     engine_resolved : Engine
     if not isinstance(engine, Engine):
-        engine_resolved = resolve_engine(engine, g)
+        # Use raw_events to detect engine type since g may be a class (PyGraphistry) not a Plottable
+        engine_resolved = resolve_engine(engine, raw_events)
     else:
         engine_resolved = engine
     defs = HyperBindings(**opts)
