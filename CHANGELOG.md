@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.50.2 - 2026-01-11]
+
 ### Performance
 - **Compute / hop**: Use scalar broadcast `Series(True, index=...)` instead of Python list splatting `Series([True] * len(...), ...)` for efficient GPU-friendly constant initialization
 - **Predicates / str**: Use scalar broadcast for constant Series in `startswith`/`endswith` empty tuple edge cases
