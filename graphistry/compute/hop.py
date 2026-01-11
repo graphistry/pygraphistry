@@ -1082,9 +1082,9 @@ def hop(self: Plottable,
 
     if g_out._nodes is not None and (final_output_min is not None or final_output_max is not None):
         try:
-            # Engine-agnostic: create bool series from DataFrame column (same engine)
+            # Engine-agnostic constant True series - scalar broadcast, no Python list
             SeriesCls = s_series(engine_concrete)
-            mask = SeriesCls([True] * len(g_out._nodes), index=g_out._nodes.index)
+            mask = SeriesCls(True, index=g_out._nodes.index)
             if node_hop_col is not None and node_hop_col in g_out._nodes.columns:
                 if final_output_min is not None:
                     mask = mask & (g_out._nodes[node_hop_col] >= final_output_min)
