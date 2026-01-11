@@ -920,8 +920,13 @@ class TestBasicParity:
         chain_with_where = Chain(ops, where=where)
         result_with_where = linear_graph.gfql(chain_with_where)
 
-        nodes_no_where = set(result_no_where._nodes['id'].tolist())
-        nodes_with_where = set(result_with_where._nodes['id'].tolist())
+        # Use to_arrow().to_pylist() for cuDF compatibility
+        try:
+            nodes_no_where = set(result_no_where._nodes['id'].to_arrow().to_pylist())
+            nodes_with_where = set(result_with_where._nodes['id'].to_arrow().to_pylist())
+        except AttributeError:
+            nodes_no_where = set(result_no_where._nodes['id'].tolist())
+            nodes_with_where = set(result_with_where._nodes['id'].tolist())
 
         assert nodes_no_where == nodes_with_where
 
@@ -939,8 +944,13 @@ class TestBasicParity:
         chain_with_where = Chain(ops, where=where)
         result_with_where = linear_graph.gfql(chain_with_where)
 
-        edges_no_where = set(result_no_where._edges['eid'].tolist())
-        edges_with_where = set(result_with_where._edges['eid'].tolist())
+        # Use to_arrow().to_pylist() for cuDF compatibility
+        try:
+            edges_no_where = set(result_no_where._edges['eid'].to_arrow().to_pylist())
+            edges_with_where = set(result_with_where._edges['eid'].to_arrow().to_pylist())
+        except AttributeError:
+            edges_no_where = set(result_no_where._edges['eid'].tolist())
+            edges_with_where = set(result_with_where._edges['eid'].tolist())
 
         assert edges_no_where == edges_with_where
 
