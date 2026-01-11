@@ -159,7 +159,7 @@ class Startswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    result = pd.Series([False] * len(s), index=s.index)
+                    result = pd.Series(False, index=s.index)
                     # Preserve NA values when na=None (default)
                     if self.na is None:
                         result = result.astype(object)
@@ -176,8 +176,8 @@ class Startswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    # Create False for all values
-                    result = cudf.Series([False] * len(s), index=s.index)
+                    # Create False for all values - scalar broadcast, not Python list
+                    result = cudf.Series(False, index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
                     if self.na is None:
                         # cuDF bool dtype can't hold None, so check if we need object dtype
@@ -325,8 +325,8 @@ class Endswith(ASTPredicate):
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    # Create False for all values
-                    result = pd.Series([False] * len(s), index=s.index)
+                    # Create False for all values - scalar broadcast, not Python list
+                    result = pd.Series(False, index=s.index)
                     # Preserve NA values when na=None (default)
                     if self.na is None:
                         result = result.astype(object)
@@ -343,8 +343,8 @@ class Endswith(ASTPredicate):
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
                     import cudf
-                    # Create False for all values
-                    result = cudf.Series([False] * len(s), index=s.index)
+                    # Create False for all values - scalar broadcast, not Python list
+                    result = cudf.Series(False, index=s.index)
                     # Preserve NA values when na=None (default) - match pandas behavior
                     if self.na is None:
                         # cuDF bool dtype can't hold None, so check if we need object dtype

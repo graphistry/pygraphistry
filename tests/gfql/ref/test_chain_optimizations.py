@@ -28,17 +28,16 @@ from typing import Set
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, ASTEdge
 from graphistry.compute.chain import Chain
 
-# Import test fixtures
-from tests.gfql.ref.conftest import CGFull
+# Import test fixtures and cuDF parity helpers
+from tests.gfql.ref.conftest import CGFull, maybe_cudf, to_list, to_set
 
 
 # =============================================================================
-# Test Fixtures
+# Test Fixtures (parametrized by engine_mode for pandas/cuDF parity testing)
 # =============================================================================
 
 
-@pytest.fixture
-def linear_graph():
+def _make_linear_graph():
     """Linear graph: a -> b -> c -> d"""
     nodes = pd.DataFrame({
         'id': ['a', 'b', 'c', 'd'],
@@ -54,8 +53,7 @@ def linear_graph():
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
 
 
-@pytest.fixture
-def branching_graph():
+def _make_branching_graph():
     """Branching graph: a -> b, a -> c, b -> d, c -> d"""
     nodes = pd.DataFrame({
         'id': ['a', 'b', 'c', 'd'],
@@ -71,8 +69,7 @@ def branching_graph():
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
 
 
-@pytest.fixture
-def cyclic_graph():
+def _make_cyclic_graph():
     """Cyclic graph: a -> b -> c -> a"""
     nodes = pd.DataFrame({
         'id': ['a', 'b', 'c'],
@@ -86,8 +83,7 @@ def cyclic_graph():
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
 
 
-@pytest.fixture
-def disconnected_graph():
+def _make_disconnected_graph():
     """Disconnected graph: (a -> b) and (c -> d) with no connection"""
     nodes = pd.DataFrame({
         'id': ['a', 'b', 'c', 'd'],
@@ -101,8 +97,7 @@ def disconnected_graph():
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
 
 
-@pytest.fixture
-def self_loop_graph():
+def _make_self_loop_graph():
     """Graph with self-loop: a -> a, a -> b"""
     nodes = pd.DataFrame({
         'id': ['a', 'b'],
@@ -116,8 +111,7 @@ def self_loop_graph():
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
 
 
-@pytest.fixture
-def parallel_edges_graph():
+def _make_parallel_edges_graph():
     """Graph with parallel edges: a -> b (twice)"""
     nodes = pd.DataFrame({
         'id': ['a', 'b'],
@@ -130,6 +124,42 @@ def parallel_edges_graph():
         'label': ['first', 'second']
     })
     return CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst', edge='eid')
+
+
+@pytest.fixture
+def linear_graph(engine_mode):
+    """Linear graph: a -> b -> c -> d (parametrized by engine_mode)"""
+    return maybe_cudf(_make_linear_graph(), engine_mode)
+
+
+@pytest.fixture
+def branching_graph(engine_mode):
+    """Branching graph: a -> b, a -> c, b -> d, c -> d (parametrized by engine_mode)"""
+    return maybe_cudf(_make_branching_graph(), engine_mode)
+
+
+@pytest.fixture
+def cyclic_graph(engine_mode):
+    """Cyclic graph: a -> b -> c -> a (parametrized by engine_mode)"""
+    return maybe_cudf(_make_cyclic_graph(), engine_mode)
+
+
+@pytest.fixture
+def disconnected_graph(engine_mode):
+    """Disconnected graph: (a -> b) and (c -> d) with no connection (parametrized by engine_mode)"""
+    return maybe_cudf(_make_disconnected_graph(), engine_mode)
+
+
+@pytest.fixture
+def self_loop_graph(engine_mode):
+    """Graph with self-loop: a -> a, a -> b (parametrized by engine_mode)"""
+    return maybe_cudf(_make_self_loop_graph(), engine_mode)
+
+
+@pytest.fixture
+def parallel_edges_graph(engine_mode):
+    """Graph with parallel edges: a -> b (twice) (parametrized by engine_mode)"""
+    return maybe_cudf(_make_parallel_edges_graph(), engine_mode)
 
 
 # =============================================================================
@@ -211,7 +241,7 @@ class TestDirectionSemantics:
         result = linear_graph.gfql(chain)
 
         # Should return nodes a and b
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids  # start node
         assert 'b' in node_ids  # reached node
 
@@ -222,7 +252,7 @@ class TestDirectionSemantics:
         result = linear_graph.gfql(chain)
 
         # Should return nodes d and c
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'd' in node_ids  # start node
         assert 'c' in node_ids  # reached node (via reverse traversal)
 
@@ -233,7 +263,7 @@ class TestDirectionSemantics:
         result = linear_graph.gfql(chain)
 
         # Should return b, a (backward), and c (forward)
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'b' in node_ids
         assert 'a' in node_ids  # can reach via undirected
         assert 'c' in node_ids  # can reach via undirected
@@ -283,7 +313,7 @@ class TestEdgeCases:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = disconnected_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids
         assert 'c' not in node_ids  # different component
@@ -294,8 +324,8 @@ class TestEdgeCases:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = self_loop_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         # Should include self-loop edge and both endpoints
         assert 'a' in node_ids
@@ -308,7 +338,7 @@ class TestEdgeCases:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = parallel_edges_graph.gfql(chain)
 
-        edge_ids = set(result._edges['eid'].tolist())
+        edge_ids = to_set(result._edges['eid'])
         assert 0 in edge_ids
         assert 1 in edge_ids  # both parallel edges
 
@@ -318,7 +348,7 @@ class TestEdgeCases:
         result = cyclic_graph.gfql(chain)
 
         # Single hop from a should reach b
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids
 
@@ -337,12 +367,12 @@ class TestResultCorrectness:
 
         # Check node tags
         assert 'src' in result._nodes.columns
-        src_tagged = result._nodes[result._nodes['src'] == True]['id'].tolist()
+        src_tagged = to_list(result._nodes[result._nodes['src'] == True]['id'])
         assert src_tagged == ['a']
 
         # Check edge tags
         assert 'edge' in result._edges.columns
-        edge_tagged = result._edges[result._edges['edge'] == True]['eid'].tolist()
+        edge_tagged = to_list(result._edges[result._edges['edge'] == True]['eid'])
         assert edge_tagged == [0]
 
     def test_attributes_preserved(self, linear_graph):
@@ -368,8 +398,8 @@ class TestResultCorrectness:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         assert node_ids == {'a', 'b', 'c'}
         assert edge_ids == {0, 1}
@@ -387,7 +417,7 @@ class TestResultCorrectness:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # b -> c (forward), then c -> b (reverse of b->c edge)
         assert 'b' in node_ids
         assert 'c' in node_ids
@@ -410,8 +440,8 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         assert node_ids == {'a', 'b'}
         assert edge_ids == {0}
@@ -421,8 +451,8 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'd'}, name='start'), e_reverse(name='e'), n(name='end')])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         assert node_ids == {'c', 'd'}
         assert edge_ids == {2}  # c->d edge
@@ -432,7 +462,7 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # a -> b and a -> c
         assert node_ids == {'a', 'b', 'c'}
         assert len(result._edges) == 2
@@ -442,7 +472,7 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = cyclic_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b'}
         assert len(result._edges) == 1
 
@@ -451,7 +481,7 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = disconnected_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b'}
         assert 'c' not in node_ids
         assert 'd' not in node_ids
@@ -461,8 +491,8 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = self_loop_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         assert 'a' in node_ids
         assert 'b' in node_ids
@@ -474,7 +504,7 @@ class TestFastPathBackwardPassTopology:
         chain = Chain([n({'id': 'a'}, name='start'), e_forward(name='e'), n(name='end')])
         result = parallel_edges_graph.gfql(chain)
 
-        edge_ids = set(result._edges['eid'].tolist())
+        edge_ids = to_set(result._edges['eid'])
         # Both parallel edges should be included
         assert edge_ids == {0, 1}
 
@@ -491,7 +521,7 @@ class TestFastPathBackwardPassFiltering:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b'}
         assert len(result._edges) == 1
 
@@ -515,7 +545,7 @@ class TestFastPathBackwardPassFiltering:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids  # b has type='mid'
         assert len(result._edges) == 1
@@ -535,8 +565,8 @@ class TestFastPathBackwardPassMultiStep:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
-        edge_ids = set(result._edges['eid'].tolist())
+        node_ids = to_set(result._nodes['id'])
+        edge_ids = to_set(result._edges['eid'])
 
         assert node_ids == {'a', 'b', 'c'}
         assert edge_ids == {0, 1}
@@ -554,7 +584,7 @@ class TestFastPathBackwardPassMultiStep:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b', 'c', 'd'}
         assert len(result._edges) == 3
 
@@ -569,7 +599,7 @@ class TestFastPathBackwardPassMultiStep:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'b' in node_ids
         assert 'c' in node_ids
 
@@ -596,7 +626,7 @@ class TestFastPathBackwardPassMultiStep:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # Without edge uniqueness: all reachable nodes
         assert node_ids == {'a', 'b', 'c', 'd'}, f"Expected {{a,b,c,d}}, got {node_ids}"
 
@@ -617,8 +647,8 @@ class TestFastPathBackwardPassTags:
         assert 'end' in result._nodes.columns
 
         # Check specific tags
-        start_nodes = result._nodes[result._nodes['start'] == True]['id'].tolist()
-        end_nodes = result._nodes[result._nodes['end'] == True]['id'].tolist()
+        start_nodes = to_list(result._nodes[result._nodes['start'] == True]['id'])
+        end_nodes = to_list(result._nodes[result._nodes['end'] == True]['id'])
 
         assert start_nodes == ['a']
         assert 'b' in end_nodes
@@ -633,7 +663,7 @@ class TestFastPathBackwardPassTags:
         result = linear_graph.gfql(chain)
 
         assert 'my_edge' in result._edges.columns
-        tagged_edges = result._edges[result._edges['my_edge'] == True]['eid'].tolist()
+        tagged_edges = to_list(result._edges[result._edges['my_edge'] == True]['eid'])
         assert 0 in tagged_edges  # The a->b edge
 
     def test_fast_path_multi_step_tags(self, linear_graph):
@@ -648,17 +678,17 @@ class TestFastPathBackwardPassTags:
         result = linear_graph.gfql(chain)
 
         # Check node tags
-        first_nodes = result._nodes[result._nodes['first'] == True]['id'].tolist()
-        middle_nodes = result._nodes[result._nodes['middle'] == True]['id'].tolist()
-        last_nodes = result._nodes[result._nodes['last'] == True]['id'].tolist()
+        first_nodes = to_list(result._nodes[result._nodes['first'] == True]['id'])
+        middle_nodes = to_list(result._nodes[result._nodes['middle'] == True]['id'])
+        last_nodes = to_list(result._nodes[result._nodes['last'] == True]['id'])
 
         assert first_nodes == ['a']
         assert 'b' in middle_nodes
         assert 'c' in last_nodes
 
         # Check edge tags
-        edge1_tagged = result._edges[result._edges['edge1'] == True]['eid'].tolist()
-        edge2_tagged = result._edges[result._edges['edge2'] == True]['eid'].tolist()
+        edge1_tagged = to_list(result._edges[result._edges['edge1'] == True]['eid'])
+        edge2_tagged = to_list(result._edges[result._edges['edge2'] == True]['eid'])
 
         assert 0 in edge1_tagged  # a->b
         assert 1 in edge2_tagged  # b->c
@@ -714,7 +744,7 @@ class TestFastPathCombineStepsFiltering:
         ])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids
         assert 'c' not in node_ids  # Right branch filtered
@@ -731,7 +761,7 @@ class TestFastPathCombineStepsFiltering:
         ])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b', 'c', 'd'}
 
     def test_fast_path_unreachable_filter(self, linear_graph):
@@ -755,7 +785,7 @@ class TestFastPathCombineStepsEdgeAttributes:
         result = linear_graph.gfql(chain)
 
         assert 'weight' in result._edges.columns
-        weights = result._edges['weight'].tolist()
+        weights = to_list(result._edges['weight'])
         assert 1.0 in weights
         assert 2.0 in weights
         assert 3.0 in weights
@@ -766,7 +796,7 @@ class TestFastPathCombineStepsEdgeAttributes:
         result = branching_graph.gfql(chain)
 
         assert 'branch' in result._edges.columns
-        branches = set(result._edges['branch'].tolist())
+        branches = to_set(result._edges['branch'])
         assert 'left' in branches
         assert 'right' in branches
 
@@ -846,7 +876,7 @@ class TestMultiStepChains:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b', 'c', 'd'}
 
     def test_alternating_directions(self, linear_graph):
@@ -861,7 +891,7 @@ class TestMultiStepChains:
         result = linear_graph.gfql(chain)
 
         # b -> c (forward), c -> b (reverse of b->c)
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'b' in node_ids
         assert 'c' in node_ids
 
@@ -880,10 +910,10 @@ class TestComplexPatterns:
         ])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b', 'c', 'd'}
 
-        edge_ids = set(result._edges['eid'].tolist())
+        edge_ids = to_set(result._edges['eid'])
         assert edge_ids == {0, 1, 2, 3}  # all 4 edges
 
     def test_filtered_mid_node(self, branching_graph):
@@ -897,7 +927,7 @@ class TestComplexPatterns:
         ])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids  # left branch
         assert 'c' not in node_ids  # right branch filtered
@@ -929,7 +959,7 @@ class TestSlowPathBackwardPass:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids  # start
         assert 'b' in node_ids  # 1 hop
         assert 'c' in node_ids  # 2 hops
@@ -946,7 +976,7 @@ class TestSlowPathBackwardPass:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'd' in node_ids  # start
         assert 'c' in node_ids  # 1 hop reverse
         assert 'b' in node_ids  # 2 hops reverse
@@ -964,7 +994,7 @@ class TestSlowPathBackwardPass:
 
         # Check hop column exists and has correct values
         assert 'hop' in result._edges.columns
-        hops = result._edges['hop'].tolist()
+        hops = to_list(result._edges['hop'])
         assert 1 in hops
         assert 2 in hops
         assert 3 in hops
@@ -985,7 +1015,7 @@ class TestSlowPathBackwardPass:
         assert 'hop' in result._nodes.columns
         # Non-seed nodes should have hop values 1, 2, 3
         hop_df = result._nodes[['id', 'hop']].dropna(subset=['hop'])
-        hop_values = set(hop_df['hop'].tolist())
+        hop_values = to_set(hop_df['hop'])
         assert 1 in hop_values or 2 in hop_values or 3 in hop_values, "Should have hop labels for reachable nodes"
 
     def test_disconnected_multihop(self, disconnected_graph):
@@ -997,7 +1027,7 @@ class TestSlowPathBackwardPass:
         ])
         result = disconnected_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids
         assert 'c' not in node_ids  # Different component
@@ -1023,7 +1053,7 @@ class TestSlowPathCombineSteps:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # a -> b,c (1-2 hops) -> c,d (1 more hop)
         assert 'a' in node_ids
         assert 'b' in node_ids
@@ -1042,7 +1072,7 @@ class TestSlowPathCombineSteps:
         result = linear_graph.gfql(chain)
 
         # b -> c,d then reverse
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'b' in node_ids
         assert 'c' in node_ids
         assert 'd' in node_ids
@@ -1056,7 +1086,7 @@ class TestSlowPathCombineSteps:
         ])
         result = branching_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert node_ids == {'a', 'b', 'c', 'd'}
 
 
@@ -1084,7 +1114,7 @@ class TestSlowPathEdgeCases:
         ])
         result = self_loop_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # Can reach a via self-loop and b via a->b
         assert 'a' in node_ids
         assert 'b' in node_ids
@@ -1099,7 +1129,7 @@ class TestSlowPathEdgeCases:
         result = cyclic_graph.gfql(chain)
 
         # Should complete without infinite loop and reach all nodes
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         assert 'a' in node_ids
         assert 'b' in node_ids
         assert 'c' in node_ids
@@ -1121,12 +1151,12 @@ class TestSlowPathParity:
         result_slow = linear_graph.gfql(chain_slow)
 
         # Results should be identical
-        fast_nodes = set(result_fast._nodes['id'].tolist())
-        slow_nodes = set(result_slow._nodes['id'].tolist())
+        fast_nodes = to_set(result_fast._nodes['id'])
+        slow_nodes = to_set(result_slow._nodes['id'])
         assert fast_nodes == slow_nodes
 
-        fast_edges = set(result_fast._edges['eid'].tolist())
-        slow_edges = set(result_slow._edges['eid'].tolist())
+        fast_edges = to_set(result_fast._edges['eid'])
+        slow_edges = to_set(result_slow._edges['eid'])
         assert fast_edges == slow_edges
 
     def test_direction_semantics_preserved_multihop(self, linear_graph):
@@ -1139,8 +1169,8 @@ class TestSlowPathParity:
         chain_slow = Chain([n({'id': 'a'}), e_forward(min_hops=1, max_hops=1), n()])
         result_slow = linear_graph.gfql(chain_slow)
 
-        fast_nodes = set(result_fast._nodes['id'].tolist())
-        slow_nodes = set(result_slow._nodes['id'].tolist())
+        fast_nodes = to_set(result_fast._nodes['id'])
+        slow_nodes = to_set(result_slow._nodes['id'])
         assert fast_nodes == slow_nodes
 
     def test_reverse_direction_parity(self, linear_graph):
@@ -1153,8 +1183,8 @@ class TestSlowPathParity:
         chain_slow = Chain([n({'id': 'd'}), e_reverse(min_hops=1, max_hops=1), n()])
         result_slow = linear_graph.gfql(chain_slow)
 
-        fast_nodes = set(result_fast._nodes['id'].tolist())
-        slow_nodes = set(result_slow._nodes['id'].tolist())
+        fast_nodes = to_set(result_fast._nodes['id'])
+        slow_nodes = to_set(result_slow._nodes['id'])
         assert fast_nodes == slow_nodes
 
     def test_undirected_parity(self, linear_graph):
@@ -1167,8 +1197,8 @@ class TestSlowPathParity:
         chain_slow = Chain([n({'id': 'b'}), e_undirected(min_hops=1, max_hops=1), n()])
         result_slow = linear_graph.gfql(chain_slow)
 
-        fast_nodes = set(result_fast._nodes['id'].tolist())
-        slow_nodes = set(result_slow._nodes['id'].tolist())
+        fast_nodes = to_set(result_fast._nodes['id'])
+        slow_nodes = to_set(result_slow._nodes['id'])
         assert fast_nodes == slow_nodes
 
 
@@ -1202,7 +1232,7 @@ class TestOutputSlicing:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # All endpoints of hop 2+ edges should be included
         assert 'b' in node_ids, "b (source of hop 2 edge) should be in result"
         assert 'c' in node_ids, "c (hop 2 destination, hop 3 source) should be in result"
@@ -1226,7 +1256,7 @@ class TestOutputSlicing:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # All endpoints of hop <=2 edges should be included
         assert 'a' in node_ids, "a (source of hop 1 edge) should be in result"
         assert 'b' in node_ids, "b (hop 1 dest, hop 2 source) should be in result"
@@ -1250,7 +1280,7 @@ class TestOutputSlicing:
         ])
         result = linear_graph.gfql(chain)
 
-        node_ids = set(result._nodes['id'].tolist())
+        node_ids = to_set(result._nodes['id'])
         # Only endpoints of hop 2 edge
         assert 'b' in node_ids, "b (source of hop 2 edge) should be in result"
         assert 'c' in node_ids, "c (destination of hop 2 edge) should be in result"

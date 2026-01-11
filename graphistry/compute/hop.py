@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 import pandas as pd
 
 from graphistry.Engine import (
-    EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
+    EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine, s_series, s_to_numeric, s_na, Engine
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -902,7 +902,7 @@ def hop(self: Plottable,
                 node_mask = max_node_mask if node_mask is None else node_mask & max_node_mask
 
             if node_mask is not None:
-                node_labels_source.loc[~node_mask, node_hop_col] = pd.NA
+                node_labels_source.loc[~node_mask, node_hop_col] = s_na(engine_concrete)
 
             if label_seeds:
                 if node_hop_records is not None:
@@ -1029,7 +1029,9 @@ def hop(self: Plottable,
                 if len(edge_map_df) > 0:
                     edge_map = edge_map_df.groupby(g_out._node)[edge_hop_col].min()
                 else:
-                    edge_map = pd.Series([], dtype='float64')
+                    # Engine-agnostic empty series
+                    SeriesCls = s_series(engine_concrete)
+                    edge_map = SeriesCls([], dtype='float64')
                 mapped_edge_hops = g_out._nodes[g_out._node].map(edge_map)
                 if seeds_mask is not None:
                     mapped_edge_hops = mapped_edge_hops.mask(seeds_mask)
@@ -1041,11 +1043,15 @@ def hop(self: Plottable,
                 g_out._nodes.loc[missing_mask, node_hop_col] = g_out._nodes.loc[missing_mask, g_out._node].map(edge_map)
             if seeds_mask is not None:
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
-                g_out._nodes.loc[zero_seed_mask, node_hop_col] = pd.NA
+                g_out._nodes.loc[zero_seed_mask, node_hop_col] = s_na(engine_concrete)
             try:
-                g_out._nodes[node_hop_col] = pd.to_numeric(g_out._nodes[node_hop_col], errors='coerce')
-                if pd.api.types.is_numeric_dtype(g_out._nodes[node_hop_col]):
-                    g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].astype('Int64')
+                # Engine-agnostic numeric conversion
+                to_numeric = s_to_numeric(engine_concrete)
+                g_out._nodes[node_hop_col] = to_numeric(g_out._nodes[node_hop_col], errors='coerce')
+                # Check if numeric and convert to nullable int
+                col = g_out._nodes[node_hop_col]
+                if hasattr(col, 'dtype') and hasattr(col.dtype, 'kind') and col.dtype.kind in ('i', 'f'):
+                    g_out._nodes[node_hop_col] = col.astype('Int64')
             except Exception:
                 pass
 
@@ -1062,18 +1068,23 @@ def hop(self: Plottable,
     ):
         seed_mask_all = g_out._nodes[g_out._node].isin(starting_nodes[g_out._node])
         if direction == 'undirected':
-            g_out._nodes.loc[seed_mask_all, node_hop_col] = pd.NA
+            g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
-            seen_nodes = set(node_hop_records[g_out._node].dropna().tolist())
-            seed_ids = starting_nodes[g_out._node].dropna().unique().tolist()
-            unreached_seed_ids = set(seed_ids) - seen_nodes
-            if unreached_seed_ids:
+            # Vectorized: find seed nodes not in seen nodes
+            seen_nodes_series = node_hop_records[g_out._node].dropna()
+            seed_ids_series = starting_nodes[g_out._node].dropna()
+            # unreached = seeds that are NOT in seen_nodes
+            unreached_mask = ~seed_ids_series.isin(seen_nodes_series)
+            unreached_seed_ids = seed_ids_series[unreached_mask]
+            if len(unreached_seed_ids) > 0:
                 mask = g_out._nodes[g_out._node].isin(unreached_seed_ids)
-                g_out._nodes.loc[mask, node_hop_col] = pd.NA
+                g_out._nodes.loc[mask, node_hop_col] = s_na(engine_concrete)
 
     if g_out._nodes is not None and (final_output_min is not None or final_output_max is not None):
         try:
-            mask = pd.Series(True, index=g_out._nodes.index)
+            # Engine-agnostic constant True series - scalar broadcast, no Python list
+            SeriesCls = s_series(engine_concrete)
+            mask = SeriesCls(True, index=g_out._nodes.index)
             if node_hop_col is not None and node_hop_col in g_out._nodes.columns:
                 if final_output_min is not None:
                     mask = mask & (g_out._nodes[node_hop_col] >= final_output_min)
@@ -1081,7 +1092,7 @@ def hop(self: Plottable,
                     mask = mask & (g_out._nodes[node_hop_col] <= final_output_max)
             endpoint_ids = None
             if g_out._edges is not None:
-                endpoint_ids = pd.concat(
+                endpoint_ids = concat(
                     [
                         g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
                         g_out._edges[[g_out._destination]].rename(columns={g_out._destination: g_out._node}),

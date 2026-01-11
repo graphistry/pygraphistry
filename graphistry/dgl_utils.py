@@ -148,7 +148,7 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
     # have to reindex to align edge list with range(n_nodes) with new SRC and DST columns
     df, ordered_nodes_dict = reindex_edgelist(df, src, dst)
     
-    eweight = np.array([1] * len(df))
+    eweight = np.ones(len(df), dtype=int)
     if weight_col is not None:
         eweight = df[weight_col].values
     
