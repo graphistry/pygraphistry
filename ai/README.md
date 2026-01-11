@@ -184,19 +184,38 @@ WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 ### GPU Testing - Fast (Reuse Base Image)
 
-Docker containers include: **pytest, mypy, ruff** (preinstalled)
+Docker containers include: **pytest, mypy, ruff, cudf** (preinstalled)
 
 ```bash
-# Reuse existing graphistry image (no rebuild)
-IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+# Container with cuDF available (cudf 25.10)
+IMAGE="graphistry/graphistry-nvidia:v2.50.0-13.0"
 
+# Run compute + GFQL tests with cuDF fallback (491 tests)
+# Uses CUDA_VISIBLE_DEVICES="" to avoid GPU driver issues
+docker run --rm -v /home/lmeyerov/Work/pygraphistry:/app -w /app \
+  -e CUDA_VISIBLE_DEVICES="" \
+  $IMAGE \
+  python -m pytest graphistry/tests/test_compute*.py tests/gfql/ref/ -q \
+    --ignore=tests/gfql/ref/test_ref_enumerator.py \
+    -k "not cudf_gpu_path"
+
+# Run GFQL ref tests only (372 tests)
+docker run --rm -v /home/lmeyerov/Work/pygraphistry:/app -w /app \
+  -e CUDA_VISIBLE_DEVICES="" \
+  $IMAGE \
+  python -m pytest tests/gfql/ref/ -q \
+    --ignore=tests/gfql/ref/test_ref_enumerator.py
+
+# With full GPU access (requires nvidia-container-toolkit)
 docker run --rm --gpus all \
-    -v "$(pwd):/workspace:ro" \
-    -w /workspace -e PYTHONPATH=/workspace \
-    $IMAGE pytest graphistry/tests/test_file.py -v
+    -v /home/lmeyerov/Work/pygraphistry:/app -w /app \
+    $IMAGE python -m pytest graphistry/tests/compute/ -q
 ```
 
-**Fast iteration**: Use this during development
+**Note**: Tests in `graphistry/tests/compute/predicates/` require real GPU access.
+Use `CUDA_VISIBLE_DEVICES=""` for cuDF import-path testing without GPU.
+
+**Fast iteration**: Use cuDF container during development
 **Full rebuild**: Use `./docker/test-gpu-local.sh` before merge
 
 ### Environment Control

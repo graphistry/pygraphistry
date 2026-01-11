@@ -672,17 +672,25 @@ class DFSamePathExecutor:
 
         # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
         # Collect allowed node IDs from path_state
+        # Detect DataFrame type from nodes_df to create matching DataFrames
+        is_cudf = nodes_df.__class__.__module__.startswith("cudf")
+        if is_cudf:
+            import cudf  # type: ignore
+            df_cons = cudf.DataFrame
+        else:
+            df_cons = pd.DataFrame
+
         allowed_node_frames: List[DataFrameT] = []
         if path_state.allowed_nodes:
             for node_set in path_state.allowed_nodes.values():
                 if node_set:
-                    allowed_node_frames.append(pd.DataFrame({'__node__': list(node_set)}))
+                    allowed_node_frames.append(df_cons({'__node__': list(node_set)}))
 
         allowed_edge_frames: List[DataFrameT] = []
         if path_state.allowed_edges:
             for edge_set in path_state.allowed_edges.values():
                 if edge_set:
-                    allowed_edge_frames.append(pd.DataFrame({'__edge__': list(edge_set)}))
+                    allowed_edge_frames.append(df_cons({'__edge__': list(edge_set)}))
 
         # For multi-hop edges, include all intermediate nodes from the edge frames
         # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
@@ -701,7 +709,8 @@ class DFSamePathExecutor:
 
         # Combine and dedupe allowed nodes
         if allowed_node_frames:
-            allowed_nodes_df = pd.concat(allowed_node_frames, ignore_index=True).drop_duplicates()
+            allowed_nodes_concat = concat_frames(allowed_node_frames)
+            allowed_nodes_df = allowed_nodes_concat.drop_duplicates() if allowed_nodes_concat is not None else nodes_df[[node_id]].iloc[:0].rename(columns={node_id: '__node__'})
             filtered_nodes = nodes_df[nodes_df[node_id].isin(allowed_nodes_df['__node__'])]
         else:
             filtered_nodes = nodes_df.iloc[0:0]
@@ -719,8 +728,10 @@ class DFSamePathExecutor:
 
         # Filter by allowed edge IDs
         if allowed_edge_frames and edge_id and edge_id in filtered_edges.columns:
-            allowed_edges_df = pd.concat(allowed_edge_frames, ignore_index=True).drop_duplicates()
-            filtered_edges = filtered_edges[filtered_edges[edge_id].isin(allowed_edges_df['__edge__'])]
+            allowed_edges_concat = concat_frames(allowed_edge_frames)
+            if allowed_edges_concat is not None:
+                allowed_edges_df = allowed_edges_concat.drop_duplicates()
+                filtered_edges = filtered_edges[filtered_edges[edge_id].isin(allowed_edges_df['__edge__'])]
 
         filtered_nodes = self._merge_label_frames(
             filtered_nodes,
@@ -744,13 +755,15 @@ class DFSamePathExecutor:
         if has_output_slice:
             if len(filtered_edges) > 0:
                 # Build endpoint IDs DataFrame (vectorized - no Python sets)
-                endpoint_ids_df = pd.concat([
+                endpoint_ids_concat = concat_frames([
                     filtered_edges[[src]].rename(columns={src: '__node__'}),
                     filtered_edges[[dst]].rename(columns={dst: '__node__'})
-                ], ignore_index=True).drop_duplicates()
-                filtered_nodes = filtered_nodes[
-                    filtered_nodes[node_id].isin(endpoint_ids_df['__node__'])
-                ]
+                ])
+                if endpoint_ids_concat is not None:
+                    endpoint_ids_df = endpoint_ids_concat.drop_duplicates()
+                    filtered_nodes = filtered_nodes[
+                        filtered_nodes[node_id].isin(endpoint_ids_df['__node__'])
+                    ]
             else:
                 filtered_nodes = self._apply_output_slices(filtered_nodes, "node")
         else:

@@ -410,7 +410,8 @@ def test_cudf_gpu_path_if_available():
     result = executor.run()
 
     assert result._nodes is not None and result._edges is not None
-    assert set(result._nodes["id"].to_pandas()) == {"acct1", "acct2"}
+    # Chain is: account -> edge -> user, so result includes both accounts and users
+    assert set(result._nodes["id"].to_pandas()) == {"acct1", "acct2", "user1", "user2"}
     assert set(result._edges["src"].to_pandas()) == {"acct1", "acct2"}
 
 

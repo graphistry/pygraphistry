@@ -11,7 +11,7 @@ import pandas as pd
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
-from .df_utils import evaluate_clause, series_values
+from .df_utils import evaluate_clause, series_values, concat_frames
 from .multihop import filter_multihop_edges_by_endpoints
 
 if TYPE_CHECKING:
@@ -84,8 +84,15 @@ def filter_edges_by_clauses(
     if node_col in right_cols:
         right_cols.remove(node_col)
 
-    lf = lf[[node_col] + left_cols].rename(columns={node_col: "__left_id__"})
-    rf = rf[[node_col] + right_cols].rename(columns={node_col: "__right_id__"})
+    # Prefix value columns to avoid collision when merging
+    lf = lf[[node_col] + left_cols].rename(columns={
+        node_col: "__left_id__",
+        **{c: f"__L_{c}" for c in left_cols}
+    })
+    rf = rf[[node_col] + right_cols].rename(columns={
+        node_col: "__right_id__",
+        **{c: f"__R_{c}" for c in right_cols}
+    })
 
     # For undirected edges, we need to try both orientations
     if sem.is_undirected:
@@ -151,8 +158,8 @@ def _merge_and_filter_edges(
     Args:
         executor: The executor instance for accessing minmax summaries
         edges_df: DataFrame of edges to filter
-        lf: Left frame with __left_id__ column
-        rf: Right frame with __right_id__ column
+        lf: Left frame with __left_id__ and __L_* columns
+        rf: Right frame with __right_id__ and __R_* columns
         left_alias: Left node alias name
         right_alias: Right node alias name
         relevant: List of WHERE clauses to apply
@@ -173,70 +180,19 @@ def _merge_and_filter_edges(
         left_on=right_merge_col,
         right_on="__right_id__",
         how="inner",
-        suffixes=("", "__r"),
     )
 
     for clause in relevant:
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
         right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
-        if clause.op in {">", ">=", "<", "<="}:
-            out_df = _apply_inequality_clause(
-                executor, out_df, clause, left_alias, right_alias, left_col, right_col
-            )
-        else:
-            col_left_name = f"__val_left_{left_col}"
-            col_right_name = f"__val_right_{right_col}"
 
-            # When left_col == right_col, the right merge adds __r suffix
-            # We need to rename them to distinct names for comparison
-            rename_map = {}
-            if left_col in out_df.columns:
-                rename_map[left_col] = col_left_name
-            # Handle right column: could be right_col or right_col__r depending on merge
-            right_col_with_suffix = f"{right_col}__r"
-            if right_col_with_suffix in out_df.columns:
-                rename_map[right_col_with_suffix] = col_right_name
-            elif right_col in out_df.columns and right_col != left_col:
-                rename_map[right_col] = col_right_name
+        # Columns are pre-prefixed: __L_* for left, __R_* for right
+        col_left = f"__L_{left_col}"
+        col_right = f"__R_{right_col}"
 
-            if rename_map:
-                out_df = out_df.rename(columns=rename_map)
-
-            if col_left_name in out_df.columns and col_right_name in out_df.columns:
-                mask = evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
-                out_df = out_df[mask]
-
-    return out_df
-
-
-def _apply_inequality_clause(
-    executor: "DFSamePathExecutor",
-    out_df: DataFrameT,
-    clause: "WhereComparison",
-    left_alias: str,
-    right_alias: str,
-    left_col: str,
-    right_col: str,
-) -> DataFrameT:
-    """Apply inequality clause using direct comparison."""
-    col_left_name = f"__val_left_{left_col}"
-    col_right_name = f"__val_right_{right_col}"
-
-    rename_map = {}
-    if left_col in out_df.columns:
-        rename_map[left_col] = col_left_name
-    right_col_with_suffix = f"{right_col}__r"
-    if right_col_with_suffix in out_df.columns:
-        rename_map[right_col_with_suffix] = col_right_name
-    elif right_col in out_df.columns and right_col != left_col:
-        rename_map[right_col] = col_right_name
-
-    if rename_map:
-        out_df = out_df.rename(columns=rename_map)
-
-    if col_left_name in out_df.columns and col_right_name in out_df.columns:
-        mask = evaluate_clause(out_df[col_left_name], clause.op, out_df[col_right_name])
-        return out_df[mask]
+        if col_left in out_df.columns and col_right in out_df.columns:
+            mask = evaluate_clause(out_df[col_left], clause.op, out_df[col_right])
+            out_df = out_df[mask]
 
     return out_df
 
@@ -309,14 +265,16 @@ def filter_multihop_by_where(
         valid_endpoint_edges = edges_df[hop_col >= chain_min_hops]
 
         if sem.is_undirected:
-            start_nodes_df = pd.concat([
+            start_concat = concat_frames([
                 first_hop_edges[[src_col]].rename(columns={src_col: '__node__'}),
                 first_hop_edges[[dst_col]].rename(columns={dst_col: '__node__'})
-            ], ignore_index=True).drop_duplicates()
-            end_nodes_df = pd.concat([
+            ])
+            start_nodes_df = start_concat.drop_duplicates() if start_concat is not None else first_hop_edges[[src_col]].iloc[:0].rename(columns={src_col: '__node__'})
+            end_concat = concat_frames([
                 valid_endpoint_edges[[src_col]].rename(columns={src_col: '__node__'}),
                 valid_endpoint_edges[[dst_col]].rename(columns={dst_col: '__node__'})
-            ], ignore_index=True).drop_duplicates()
+            ])
+            end_nodes_df = end_concat.drop_duplicates() if end_concat is not None else valid_endpoint_edges[[src_col]].iloc[:0].rename(columns={src_col: '__node__'})
         else:
             # For directed edges, use endpoint_cols to get proper src/dst mapping
             start_col, end_col = sem.endpoint_cols(src_col, dst_col)
@@ -327,8 +285,8 @@ def filter_multihop_by_where(
                 columns={end_col: '__node__'}
             ).drop_duplicates()
 
-        start_nodes = set(start_nodes_df['__node__'].tolist())
-        end_nodes = set(end_nodes_df['__node__'].tolist())
+        start_nodes = series_values(start_nodes_df['__node__'])
+        end_nodes = series_values(end_nodes_df['__node__'])
     else:
         # Fallback: use alias frames directly when hop labels are ambiguous
         # (unfiltered start makes all edges "hop 1" from some start)
@@ -357,33 +315,37 @@ def filter_multihop_by_where(
     if node_col in right_cols:
         right_cols.remove(node_col)
 
-    lf = lf[[node_col] + left_cols].rename(columns={node_col: "__start_id__"})
-    rf = rf[[node_col] + right_cols].rename(columns={node_col: "__end_id__"})
+    # Prefix value columns to avoid collision when merging
+    lf = lf[[node_col] + left_cols].rename(columns={
+        node_col: "__start_id__",
+        **{c: f"__L_{c}" for c in left_cols}
+    })
+    rf = rf[[node_col] + right_cols].rename(columns={
+        node_col: "__end_id__",
+        **{c: f"__R_{c}" for c in right_cols}
+    })
 
     # Cross join to get all (start, end) combinations
     lf = lf.assign(__cross_key__=1)
     rf = rf.assign(__cross_key__=1)
-    pairs_df = lf.merge(rf, on="__cross_key__", suffixes=("", "__r")).drop(columns=["__cross_key__"])
+    pairs_df = lf.merge(rf, on="__cross_key__").drop(columns=["__cross_key__"])
 
     # Apply WHERE clauses to filter valid (start, end) pairs
     for clause in relevant:
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
         right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
-        # Handle column name collision from merge - when left_col == right_col,
-        # pandas adds __r suffix to the right side columns to avoid collision
-        actual_right_col = right_col
-        if left_col == right_col and f"{right_col}__r" in pairs_df.columns:
-            actual_right_col = f"{right_col}__r"
-        if left_col in pairs_df.columns and actual_right_col in pairs_df.columns:
-            mask = evaluate_clause(pairs_df[left_col], clause.op, pairs_df[actual_right_col])
+        col_left = f"__L_{left_col}"
+        col_right = f"__R_{right_col}"
+        if col_left in pairs_df.columns and col_right in pairs_df.columns:
+            mask = evaluate_clause(pairs_df[col_left], clause.op, pairs_df[col_right])
             pairs_df = pairs_df[mask]
 
     if len(pairs_df) == 0:
         return edges_df.iloc[:0]
 
     # Get valid start and end nodes
-    valid_starts = set(pairs_df["__start_id__"].tolist())
-    valid_ends = set(pairs_df["__end_id__"].tolist())
+    valid_starts = series_values(pairs_df["__start_id__"])
+    valid_ends = series_values(pairs_df["__end_id__"])
 
     # Use vectorized bidirectional reachability to filter edges
     return filter_multihop_edges_by_endpoints(

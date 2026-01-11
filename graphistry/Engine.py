@@ -451,6 +451,33 @@ def safe_merge(
         # Type mismatch - convert right to target engine
         right = df_to_engine(right, engine_concrete)
 
+    # For cuDF: ensure merge key column types match
+    # Empty DataFrames often have float64 columns due to type inference issues
+    if engine_concrete == Engine.CUDF and len(left) > 0:
+        merge_cols = []
+        if on is not None:
+            merge_cols = [on] if isinstance(on, str) else list(on)
+        elif left_on is not None:
+            left_cols = [left_on] if isinstance(left_on, str) else list(left_on)
+            right_cols = [right_on] if isinstance(right_on, str) else list(right_on)
+            merge_cols = list(zip(left_cols, right_cols))
+
+        for col_spec in merge_cols:
+            if isinstance(col_spec, tuple):
+                left_col, right_col = col_spec
+            else:
+                left_col = right_col = col_spec
+
+            if left_col in left.columns and right_col in right.columns:
+                left_dtype = left[left_col].dtype
+                right_dtype = right[right_col].dtype
+                # Cast right column to match left column type if they differ
+                if left_dtype != right_dtype:
+                    try:
+                        right[right_col] = right[right_col].astype(left_dtype)
+                    except (ValueError, TypeError):
+                        pass  # Let the merge fail naturally if cast is impossible
+
     # Perform merge using DataFrame's native merge method
     # Both pandas and cuDF support the same merge API
     if on is not None:

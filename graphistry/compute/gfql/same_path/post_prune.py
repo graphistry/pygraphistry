@@ -13,7 +13,7 @@ from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
-from .df_utils import evaluate_clause, series_values
+from .df_utils import evaluate_clause, series_values, concat_frames
 from .multihop import filter_multihop_edges_by_endpoints, find_multihop_start_nodes
 
 if TYPE_CHECKING:
@@ -165,9 +165,10 @@ def apply_non_adjacent_where_post_prune(
 
                 # Combine all reachable states
                 if len(all_reachable) > 1:
-                    state_df = pd.concat(all_reachable[1:], ignore_index=True).drop_duplicates()
+                    state_df_concat = concat_frames(all_reachable[1:])
+                    state_df = state_df_concat.drop_duplicates() if state_df_concat is not None else state_df.iloc[:0]
                 else:
-                    state_df = pd.DataFrame(columns=['__current__', '__start__'])
+                    state_df = state_df.iloc[:0]  # Empty with same type
             else:
                 # Single-hop: propagate state through one hop
                 join_col, result_col = sem.join_cols(src_col, dst_col)
@@ -179,7 +180,8 @@ def apply_non_adjacent_where_post_prune(
                     next2 = edges_df.merge(
                         state_df, left_on=dst_col, right_on='__current__', how='inner'
                     )[[src_col, '__start__']].rename(columns={src_col: '__current__'})
-                    state_df = pd.concat([next1, next2], ignore_index=True).drop_duplicates()
+                    state_df_concat = concat_frames([next1, next2])
+                    state_df = state_df_concat.drop_duplicates() if state_df_concat is not None else state_df.iloc[:0]
                 else:
                     state_df = edges_df.merge(
                         state_df, left_on=join_col, right_on='__current__', how='inner'
@@ -209,8 +211,8 @@ def apply_non_adjacent_where_post_prune(
         mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
         valid_pairs = pairs_df[mask]
 
-        valid_starts = set(valid_pairs['__start__'].tolist())
-        valid_ends = set(valid_pairs['__current__'].tolist())
+        valid_starts = series_values(valid_pairs['__start__'])
+        valid_ends = series_values(valid_pairs['__current__'])
 
         # Update allowed_nodes for start and end positions
         if start_node_idx in path_state.allowed_nodes:
@@ -265,7 +267,16 @@ def apply_edge_where_post_prune(
     if not seed_nodes:
         return path_state
 
-    paths_df = pd.DataFrame({f'n{node_indices[0]}': list(seed_nodes)})
+    # Detect DataFrame type from graph nodes to create matching DataFrames
+    nodes_df_sample = executor.inputs.graph._nodes
+    is_cudf = nodes_df_sample is not None and nodes_df_sample.__class__.__module__.startswith("cudf")
+    if is_cudf:
+        import cudf  # type: ignore
+        df_cons = cudf.DataFrame
+    else:
+        df_cons = pd.DataFrame
+
+    paths_df = df_cons({f'n{node_indices[0]}': list(seed_nodes)})
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]
@@ -307,7 +318,11 @@ def apply_edge_where_post_prune(
                 edges_subset, left_on=left_col, right_on=dst_col, how='inner'
             )
             join2[f'n{right_node_idx}'] = join2[src_col]
-            paths_df = pd.concat([join1, join2], ignore_index=True)
+            paths_df_concat = concat_frames([join1, join2])
+            if paths_df_concat is None:
+                paths_df = paths_df.iloc[:0]
+                break
+            paths_df = paths_df_concat
         else:
             paths_df = paths_df.merge(
                 edges_subset, left_on=left_col, right_on=join_on, how='inner'
@@ -339,7 +354,12 @@ def apply_edge_where_post_prune(
                         )
                         paths_df = paths_df.merge(node_attr, on=f'n{step_idx}', how='left')
 
-    mask = pd.Series(True, index=paths_df.index)
+    # Create mask series of same type as paths_df
+    if is_cudf:
+        import cudf  # type: ignore
+        mask = cudf.Series([True] * len(paths_df))
+    else:
+        mask = pd.Series(True, index=paths_df.index)
     for clause in edge_clauses:
         left_binding = executor.inputs.alias_bindings[clause.left.alias]
         right_binding = executor.inputs.alias_bindings[clause.right.alias]
@@ -376,7 +396,7 @@ def apply_edge_where_post_prune(
     for node_idx in node_indices:
         col_name = f'n{node_idx}'
         if col_name in valid_paths.columns:
-            valid_node_ids = set(valid_paths[col_name].unique())
+            valid_node_ids = series_values(valid_paths[col_name])
             current = path_state.allowed_nodes.get(node_idx, set())
             path_state.allowed_nodes[node_idx] = current & valid_node_ids if current else valid_node_ids
 
@@ -404,9 +424,8 @@ def apply_edge_where_post_prune(
                         valid_pairs.rename(columns={left_col: dst_col, right_col: src_col}),
                         on=[src_col, dst_col], how='inner'
                     )
-                    edges_df = pd.concat([fwd, rev], ignore_index=True).drop_duplicates(
-                        subset=[src_col, dst_col]
-                    )
+                    edges_concat = concat_frames([fwd, rev])
+                    edges_df = edges_concat.drop_duplicates(subset=[src_col, dst_col]) if edges_concat is not None else edges_df.iloc[:0]
                 else:
                     # For directed edges, use endpoint_cols to get proper src/dst mapping
                     start_endpoint, end_endpoint = sem.endpoint_cols(src_col, dst_col)

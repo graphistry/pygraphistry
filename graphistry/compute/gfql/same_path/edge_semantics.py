@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge
+from .df_utils import series_values
 
 if TYPE_CHECKING:
     pass
@@ -111,8 +112,8 @@ class EdgeSemantics:
             Set of node IDs where traversal starts
         """
         if self.is_undirected:
-            return set(edges_df[src_col].tolist()) | set(edges_df[dst_col].tolist())
+            return series_values(edges_df[src_col]) | series_values(edges_df[dst_col])
         elif self.is_reverse:
-            return set(edges_df[dst_col].tolist())
+            return series_values(edges_df[dst_col])
         else:
-            return set(edges_df[src_col].tolist())
+            return series_values(edges_df[src_col])

@@ -12,6 +12,7 @@ from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs, bfs_reachability
+from .df_utils import series_values, concat_frames
 
 
 def filter_multihop_edges_by_endpoints(
@@ -98,8 +99,8 @@ def filter_multihop_edges_by_endpoints(
 
         # Get original edge columns only
         orig_cols = list(edges_df.columns)
-        valid_edges = pd.concat([valid1[orig_cols], valid2[orig_cols]], ignore_index=True).drop_duplicates()
-        return valid_edges
+        valid_edges = concat_frames([valid1[orig_cols], valid2[orig_cols]])
+        return valid_edges.drop_duplicates() if valid_edges is not None else edges_df.iloc[:0]
     else:
         # Determine which column is "source" (fwd) and which is "dest" (bwd)
         fwd_col, bwd_col = sem.endpoint_cols(src_col, dst_col)
@@ -168,8 +169,18 @@ def find_multihop_start_nodes(
     # Use DataFrame-based tracking throughout (no Python sets internally)
     # Start with right_allowed as target destinations (hop 0 means "at the destination")
     # We trace backward to find nodes that can REACH these destinations
-    frontier = pd.DataFrame({'__node__': list(right_allowed)})
+
+    # Create DataFrames of same type as edge_pairs (pandas or cudf)
+    is_cudf = edge_pairs.__class__.__module__.startswith("cudf")
+    if is_cudf:
+        import cudf  # type: ignore
+        df_cons = cudf.DataFrame
+    else:
+        df_cons = pd.DataFrame
+
+    frontier = df_cons({'__node__': list(right_allowed)})
     all_visited = frontier.copy()
+    visited_set: Set[Any] = set(right_allowed)  # Use set for anti-join (cudf doesn't support indicator=True)
     valid_starts_frames: List[DataFrameT] = []
 
     # Collect nodes at each hop distance FROM the destination
@@ -195,20 +206,25 @@ def find_multihop_start_nodes(
             valid_starts_frames.append(new_frontier[['__node__']])
 
         # Anti-join: filter out nodes already visited to avoid infinite loops
-        # But still keep nodes for valid_starts even if visited before at different hop
-        merged = new_frontier.merge(
-            all_visited[['__node__']], on='__node__', how='left', indicator=True
-        )
-        unvisited = merged[merged['_merge'] == 'left_only'][['__node__']]
-
-        if len(unvisited) == 0:
+        # Use set-based filtering (cudf doesn't support indicator=True)
+        candidate_nodes = series_values(new_frontier['__node__'])
+        new_node_ids = candidate_nodes - visited_set
+        if not new_node_ids:
             break
 
+        unvisited = df_cons({'__node__': list(new_node_ids)})
+        visited_set |= new_node_ids
+
         frontier = unvisited
-        all_visited = pd.concat([all_visited, unvisited], ignore_index=True)
+        all_visited_new = concat_frames([all_visited, unvisited])
+        if all_visited_new is None:
+            break
+        all_visited = all_visited_new
 
     # Combine all valid starts and convert to set (caller expects set)
     if valid_starts_frames:
-        valid_starts_df = pd.concat(valid_starts_frames, ignore_index=True).drop_duplicates()
-        return set(valid_starts_df['__node__'].tolist())
+        valid_starts_df = concat_frames(valid_starts_frames)
+        if valid_starts_df is not None:
+            valid_starts_df = valid_starts_df.drop_duplicates()
+            return series_values(valid_starts_df['__node__'])
     return set()

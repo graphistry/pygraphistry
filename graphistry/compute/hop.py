@@ -21,6 +21,16 @@ from .util import generate_safe_column_name
 logger = setup_logger(__name__)
 
 
+def _series_to_list(series: 'DataFrameT') -> list:
+    """Convert a pandas or cuDF series to a Python list.
+
+    cuDF Series doesn't support .tolist() directly, so we convert to pandas first.
+    """
+    if hasattr(series, 'to_pandas'):
+        return series.to_pandas().tolist()
+    return series.tolist()
+
+
 def prepare_merge_dataframe(
     edges_indexed: 'DataFrameT', 
     column_conflict: bool, 
