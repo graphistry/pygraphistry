@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
 - **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
 
+### Infra
+- **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `same_path_plan.py` (planning), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, post-pruning, and WHERE filtering.
+
 ### Tests
 - **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
 - **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
