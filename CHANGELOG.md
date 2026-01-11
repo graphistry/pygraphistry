@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Hypergraph**: Fixed engine auto-detection to use input DataFrame type instead of defaulting to cuDF when available
+- **GFQL / chain**: Fixed cuDF compatibility in backward pass by removing `set()` wrappers around Series passed to `.isin()` (cuDF `.isin()` works directly with Series)
+- **Compute / hop**: Fixed cuDF compatibility by adding `_series_to_list()` helper (cuDF Series doesn't support `.tolist()` directly)
+
+### Tests
+- **GFQL / chain**: Added `engine_mode` parametrized fixture for automatic pandas/cuDF parity testing (enabled via `TEST_CUDF=1`). Chain optimization tests now run 156 tests (78 pandas + 78 cuDF) when GPU is available.
 
 ## [0.50.1 - 2026-01-09]
 
