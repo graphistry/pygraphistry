@@ -21,6 +21,16 @@ from .util import generate_safe_column_name
 logger = setup_logger(__name__)
 
 
+def _series_to_list(series: 'DataFrameT') -> list:
+    """Convert a pandas or cuDF series to a Python list.
+
+    cuDF Series doesn't support .tolist() directly, so we convert to pandas first.
+    """
+    if hasattr(series, 'to_pandas'):
+        return series.to_pandas().tolist()
+    return series.tolist()
+
+
 def prepare_merge_dataframe(
     edges_indexed: 'DataFrameT', 
     column_conflict: bool, 
@@ -1064,8 +1074,8 @@ def hop(self: Plottable,
         if direction == 'undirected':
             g_out._nodes.loc[seed_mask_all, node_hop_col] = pd.NA
         else:
-            seen_nodes = set(node_hop_records[g_out._node].dropna().tolist())
-            seed_ids = starting_nodes[g_out._node].dropna().unique().tolist()
+            seen_nodes = set(_series_to_list(node_hop_records[g_out._node].dropna()))
+            seed_ids = _series_to_list(starting_nodes[g_out._node].dropna().unique())
             unreached_seed_ids = set(seed_ids) - seen_nodes
             if unreached_seed_ids:
                 mask = g_out._nodes[g_out._node].isin(unreached_seed_ids)

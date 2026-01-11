@@ -1005,19 +1005,20 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                     node_id, src_col, dst_col = g._node, g._source, g._destination
                     assert node_id is not None and src_col is not None and dst_col is not None
                     is_undirected = op.direction == 'undirected'
-                    prev_set = set(prev_wavefront_nodes[node_id]) if prev_wavefront_nodes is not None else None
-                    target_set = set(target_wave_front_nodes[node_id]) if target_wave_front_nodes is not None else None
+                    # Pass Series directly to .isin() - works for both pandas and cuDF
+                    prev_ids = prev_wavefront_nodes[node_id] if prev_wavefront_nodes is not None else None
+                    target_ids = target_wave_front_nodes[node_id] if target_wave_front_nodes is not None else None
 
                     # Filter edges by wavefronts
                     if is_undirected:
-                        if prev_set and target_set:
-                            mask = ((edges_df[src_col].isin(prev_set) & edges_df[dst_col].isin(target_set))
-                                    | (edges_df[src_col].isin(target_set) & edges_df[dst_col].isin(prev_set)))
+                        if prev_ids is not None and target_ids is not None:
+                            mask = ((edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(target_ids))
+                                    | (edges_df[src_col].isin(target_ids) & edges_df[dst_col].isin(prev_ids)))
                             edges_df = edges_df[mask]
-                        elif prev_set:
-                            edges_df = edges_df[edges_df[src_col].isin(prev_set) | edges_df[dst_col].isin(prev_set)]
-                        elif target_set:
-                            edges_df = edges_df[edges_df[src_col].isin(target_set) | edges_df[dst_col].isin(target_set)]
+                        elif prev_ids is not None:
+                            edges_df = edges_df[edges_df[src_col].isin(prev_ids) | edges_df[dst_col].isin(prev_ids)]
+                        elif target_ids is not None:
+                            edges_df = edges_df[edges_df[src_col].isin(target_ids) | edges_df[dst_col].isin(target_ids)]
                     else:
                         next_col, prev_col = (src_col, dst_col) if op.direction == 'reverse' else (dst_col, src_col)
                         edges_df = _filter_edges_by_endpoint(edges_df, prev_wavefront_nodes, node_id, next_col)
