@@ -171,6 +171,24 @@ class ComputeMixin(Plottable):
 
         g = self
 
+        # Handle cross-engine coercion when engine is explicitly set
+        if engine != EngineAbstract.AUTO:
+            engine_val = Engine(engine.value)
+            if engine_val == Engine.CUDF:
+                # Coerce pandas to cuDF
+                if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
+                    import cudf
+                    g = g.nodes(cudf.DataFrame.from_pandas(g._nodes), g._node)
+                if g._edges is not None and isinstance(g._edges, pd.DataFrame):
+                    import cudf
+                    g = g.edges(cudf.DataFrame.from_pandas(g._edges), g._source, g._destination, edge=g._edge)
+            elif engine_val == Engine.PANDAS:
+                # Coerce cuDF to pandas
+                if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame) and hasattr(g._nodes, 'to_pandas'):
+                    g = g.nodes(g._nodes.to_pandas(), g._node)
+                if g._edges is not None and not isinstance(g._edges, pd.DataFrame) and hasattr(g._edges, 'to_pandas'):
+                    g = g.edges(g._edges.to_pandas(), g._source, g._destination, edge=g._edge)
+
         # Check reuse first - if we have nodes and reuse is True, just return
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
@@ -223,7 +241,8 @@ class ComputeMixin(Plottable):
         else:
             engine_concrete = Engine(engine.value)
 
-        # Use engine-specific concat for Series (pd.concat/cudf.concat work with Series directly)
+        # Use engine-specific concat for Series
+        # Note: Cross-engine coercion is handled at the start of this function
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
