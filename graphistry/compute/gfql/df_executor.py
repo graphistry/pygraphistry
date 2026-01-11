@@ -525,6 +525,121 @@ class DFSamePathExecutor:
 
         return self._PathState(allowed_nodes=allowed_nodes, allowed_edges=allowed_edges)
 
+    def backward_propagate_constraints(
+        self,
+        path_state: "_PathState",
+        start_node_idx: int,
+        end_node_idx: int,
+    ) -> None:
+        """Re-propagate constraints backward through a range of edges.
+
+        Updates path_state in-place by filtering edges and nodes between
+        start_node_idx and end_node_idx to reflect new constraints.
+        Does NOT apply WHERE clauses - only propagates endpoint constraints.
+
+        This is called after post-prune WHERE evaluation to tighten intermediate
+        nodes/edges in the affected range.
+
+        Args:
+            path_state: Current path state with allowed_nodes/allowed_edges (modified in-place)
+            start_node_idx: Start node index for re-propagation (exclusive)
+            end_node_idx: End node index for re-propagation (exclusive)
+        """
+        from graphistry.compute.gfql.same_path.multihop import (
+            filter_multihop_edges_by_endpoints,
+            find_multihop_start_nodes,
+        )
+
+        src_col = self._source_column
+        dst_col = self._destination_column
+        edge_id_col = self._edge_column
+        node_indices = self.meta.node_indices
+        edge_indices = self.meta.edge_indices
+
+        if not src_col or not dst_col:
+            return
+
+        relevant_edge_indices = [
+            idx for idx in edge_indices if start_node_idx < idx < end_node_idx
+        ]
+
+        for edge_idx in reversed(relevant_edge_indices):
+            edge_pos = edge_indices.index(edge_idx)
+            left_node_idx = node_indices[edge_pos]
+            right_node_idx = node_indices[edge_pos + 1]
+
+            edges_df = self.forward_steps[edge_idx]._edges
+            if edges_df is None:
+                continue
+
+            original_len = len(edges_df)
+            allowed_edges = path_state.allowed_edges.get(edge_idx, None)
+            if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
+                edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
+
+            edge_op = self.inputs.chain[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                continue
+            sem = EdgeSemantics.from_edge(edge_op)
+
+            left_allowed = path_state.allowed_nodes.get(left_node_idx, set())
+            right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
+
+            if sem.is_multihop:
+                edges_df = filter_multihop_edges_by_endpoints(
+                    edges_df, edge_op, left_allowed, right_allowed, sem,
+                    src_col, dst_col
+                )
+            else:
+                if sem.is_undirected:
+                    if left_allowed and right_allowed:
+                        left_set = list(left_allowed)
+                        right_set = list(right_allowed)
+                        mask = (
+                            (edges_df[src_col].isin(left_set) & edges_df[dst_col].isin(right_set))
+                            | (edges_df[dst_col].isin(left_set) & edges_df[src_col].isin(right_set))
+                        )
+                        edges_df = edges_df[mask]
+                    elif left_allowed:
+                        left_set = list(left_allowed)
+                        edges_df = edges_df[
+                            edges_df[src_col].isin(left_set) | edges_df[dst_col].isin(left_set)
+                        ]
+                    elif right_allowed:
+                        right_set = list(right_allowed)
+                        edges_df = edges_df[
+                            edges_df[src_col].isin(right_set) | edges_df[dst_col].isin(right_set)
+                        ]
+                else:
+                    start_col, end_col = sem.endpoint_cols(src_col, dst_col)
+                    if left_allowed:
+                        edges_df = edges_df[edges_df[start_col].isin(list(left_allowed))]
+                    if right_allowed:
+                        edges_df = edges_df[edges_df[end_col].isin(list(right_allowed))]
+
+            if edge_id_col and edge_id_col in edges_df.columns:
+                new_edge_ids = set(edges_df[edge_id_col].tolist())
+                if edge_idx in path_state.allowed_edges:
+                    path_state.allowed_edges[edge_idx] &= new_edge_ids
+                else:
+                    path_state.allowed_edges[edge_idx] = new_edge_ids
+
+            if sem.is_multihop:
+                new_src_nodes = find_multihop_start_nodes(
+                    edges_df, edge_op, right_allowed, sem, src_col, dst_col
+                )
+            else:
+                new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
+
+            if left_node_idx in path_state.allowed_nodes:
+                path_state.allowed_nodes[left_node_idx] &= new_src_nodes
+            else:
+                path_state.allowed_nodes[left_node_idx] = new_src_nodes
+
+            # Persist filtered edges
+            if len(edges_df) < original_len:
+                self.forward_steps[edge_idx]._edges = edges_df
+
     def _materialize_filtered(self, path_state: "_PathState") -> Plottable:
         """Build result graph from allowed node/edge ids and refresh alias frames."""
 
