@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **Tests / GFQL**: Fixed cuDF compatibility in test files by using `to_set()` helper instead of `.tolist()` (cuDF doesn't support `tolist()`)
+
 ## [0.50.2 - 2026-01-11]
 
 ### Performance
