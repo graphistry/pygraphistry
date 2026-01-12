@@ -341,6 +341,11 @@ def hop(self: Plottable,
     allowed_dest_ids = _build_allowed_ids(base_target_nodes, destination_node_match, destination_node_query)
     allowed_source_series = allowed_source_ids[g2._node] if allowed_source_ids is not None else None
     allowed_dest_series = allowed_dest_ids[g2._node] if allowed_dest_ids is not None else None
+    allowed_target_intermediate = None
+    allowed_target_final = None
+    if target_wave_front is not None:
+        allowed_target_intermediate = base_target_nodes[g2._node]
+        allowed_target_final = target_wave_front[[g2._node]].drop_duplicates()[g2._node]
 
     node_hop_records = None
     edge_hop_records = None
@@ -399,29 +404,15 @@ def hop(self: Plottable,
             logger.debug('~~~~~~~~~~ LOOP STEP CONTINUE ~~~~~~~~~~~')
             logger.debug('wave_front_iter:\n%s', wave_front_iter)
             
-        # Pre-calculate intermediate_target_wave_front once for this iteration
-        # This will be used for both forward and reverse directions if needed
-        intermediate_target_wave_front = None
-        if target_wave_front is not None:
-            # Calculate this once for both directions
-            has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops
-            if has_more_hops_planned:
-                intermediate_target_wave_front = concat([
-                    target_wave_front[[g2._node]],
-                    self._nodes[[g2._node]]
-                    ], sort=False, ignore_index=True
-                ).drop_duplicates()
-            else:
-                intermediate_target_wave_front = target_wave_front[[g2._node]]
-
         wavefront_ids = wave_front_iter[g2._node].unique()
         hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('hop_edges basic:\n%s', hop_edges)
 
-        if intermediate_target_wave_front is not None:
-            target_ids = intermediate_target_wave_front[g2._node]
+        if allowed_target_intermediate is not None:
+            has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops
+            target_ids = allowed_target_intermediate if has_more_hops_planned else allowed_target_final
             hop_edges = hop_edges[hop_edges[TO_COL].isin(target_ids)]
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                 logger.debug('hop_edges filtered by target_wave_front:\n%s', hop_edges)
