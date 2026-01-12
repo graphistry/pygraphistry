@@ -21,16 +21,6 @@ from .util import generate_safe_column_name
 logger = setup_logger(__name__)
 
 
-def _series_to_list(series: 'DataFrameT') -> list:
-    """Convert a pandas or cuDF series to a Python list.
-
-    cuDF Series doesn't support .tolist() directly, so we convert to pandas first.
-    """
-    if hasattr(series, 'to_pandas'):
-        return series.to_pandas().tolist()
-    return series.tolist()
-
-
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
@@ -349,6 +339,8 @@ def hop(self: Plottable,
         allowed_source_ids = _build_allowed_ids(source_base_nodes, source_node_match, source_node_query)
 
     allowed_dest_ids = _build_allowed_ids(base_target_nodes, destination_node_match, destination_node_query)
+    allowed_source_series = allowed_source_ids[g2._node] if allowed_source_ids is not None else None
+    allowed_dest_series = allowed_dest_ids[g2._node] if allowed_dest_ids is not None else None
 
     node_hop_records = None
     edge_hop_records = None
@@ -390,26 +382,17 @@ def hop(self: Plottable,
             logger.debug('starting_nodes:\n%s', starting_nodes)
             logger.debug('self._nodes:\n%s', self._nodes)
             logger.debug('wave_front:\n%s', wave_front)
-            logger.debug('wave_front_base:\n%s',
-                starting_nodes
-                if first_iter else
-                safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
+            logger.debug(
+                'wave_front_base:\n%s',
+                starting_nodes[[g2._node]] if first_iter else wave_front,
             )
 
         assert len(wave_front.columns) == 1, "just indexes"
-        if allowed_source_ids is None:
-            wave_front_iter = query_if_not_none(
-                source_node_query,
-                filter_by_dict(
-                    starting_nodes
-                    if first_iter else
-                    safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
-                    source_node_match
-                )
-            )[[g2._node]]
+        wave_front_base = starting_nodes[[g2._node]] if first_iter else wave_front
+        if allowed_source_series is None:
+            wave_front_iter = wave_front_base
         else:
-            wave_front_base = starting_nodes[[g2._node]] if first_iter else wave_front
-            wave_front_iter = safe_merge(wave_front_base, allowed_source_ids, on=g2._node, how='inner')
+            wave_front_iter = wave_front_base[wave_front_base[g2._node].isin(allowed_source_series)]
         first_iter = False
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -438,25 +421,16 @@ def hop(self: Plottable,
             logger.debug('hop_edges basic:\n%s', hop_edges)
 
         if intermediate_target_wave_front is not None:
-            hop_edges = safe_merge(
-                hop_edges,
-                intermediate_target_wave_front.rename(columns={g2._node: TO_COL}),
-                how='inner',
-                on=TO_COL
-            )
+            target_ids = intermediate_target_wave_front[g2._node]
+            hop_edges = hop_edges[hop_edges[TO_COL].isin(target_ids)]
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                 logger.debug('hop_edges filtered by target_wave_front:\n%s', hop_edges)
 
         new_node_ids = hop_edges[[TO_COL]].rename(columns={TO_COL: g2._node}).drop_duplicates()
 
-        if allowed_dest_ids is not None:
-            new_node_ids = safe_merge(new_node_ids, allowed_dest_ids, on=g2._node, how='inner')
-            hop_edges = safe_merge(
-                hop_edges,
-                allowed_dest_ids.rename(columns={g2._node: TO_COL}),
-                how='inner',
-                on=TO_COL
-            )
+        if allowed_dest_series is not None:
+            new_node_ids = new_node_ids[new_node_ids[g2._node].isin(allowed_dest_series)]
+            hop_edges = hop_edges[hop_edges[TO_COL].isin(allowed_dest_series)]
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                 logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
                 logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
@@ -548,9 +522,9 @@ def hop(self: Plottable,
             combined_node_ids = new_node_ids
 
         if len(combined_node_ids) == len(matches_nodes):
-            #fixedpoint, exit early: future will come to same spot!
+            # fixedpoint, exit early: future will come to same spot
             break
-    
+
         wave_front = new_node_ids
         matches_nodes = combined_node_ids
 
