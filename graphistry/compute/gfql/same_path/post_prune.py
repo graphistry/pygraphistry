@@ -57,14 +57,12 @@ def apply_non_adjacent_where_post_prune(
     if not non_adjacent_clauses:
         return state
 
-    # Work on local copies (internal immutability pattern)
     local_allowed_nodes: Dict[int, Set[Any]] = {
         k: set(v) for k, v in state.allowed_nodes.items()
     }
     local_allowed_edges: Dict[int, Set[Any]] = {
         k: set(v) for k, v in state.allowed_edges.items()
     }
-    # Preserve pruned_edges from input state
     local_pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
     node_indices = executor.meta.node_indices
@@ -154,15 +152,11 @@ def apply_non_adjacent_where_post_prune(
             sem = EdgeSemantics.from_edge(edge_op)
 
             if sem.is_multihop:
-                # Build edge pairs based on direction
                 edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
-
-                # Propagate state through hops
                 all_reachable = [state_df.copy()]
                 current_state = state_df.copy()
 
                 for hop in range(1, sem.max_hops + 1):
-                    # Propagate current_state through one hop
                     next_state = edge_pairs.merge(
                         current_state, left_on='__from__', right_on='__current__', how='inner'
                     )[['__to__', '__start__']].rename(columns={'__to__': '__current__'}).drop_duplicates()
@@ -174,17 +168,14 @@ def apply_non_adjacent_where_post_prune(
                         all_reachable.append(next_state)
                     current_state = next_state
 
-                # Combine all reachable states
                 if len(all_reachable) > 1:
                     state_df_concat = concat_frames(all_reachable[1:])
                     state_df = state_df_concat.drop_duplicates() if state_df_concat is not None else state_df.iloc[:0]
                 else:
-                    state_df = state_df.iloc[:0]  # Empty with same type
+                    state_df = state_df.iloc[:0]
             else:
-                # Single-hop: propagate state through one hop
                 join_col, result_col = sem.join_cols(src_col, dst_col)
                 if sem.is_undirected:
-                    # Both directions
                     next1 = edges_df.merge(
                         state_df, left_on=src_col, right_on='__current__', how='inner'
                     )[[dst_col, '__start__']].rename(columns={dst_col: '__current__'})
@@ -198,56 +189,40 @@ def apply_non_adjacent_where_post_prune(
                         state_df, left_on=join_col, right_on='__current__', how='inner'
                     )[[result_col, '__start__']].rename(columns={result_col: '__current__'}).drop_duplicates()
 
-        # state_df now has (current_node=end_node, start_node) pairs
-        # Filter to valid end nodes
         state_df = state_df[state_df['__current__'].isin(end_nodes)]
 
         if len(state_df) == 0:
-            # No valid paths found - update local copies
             if start_node_idx in local_allowed_nodes:
                 local_allowed_nodes[start_node_idx] = set()
             if end_node_idx in local_allowed_nodes:
                 local_allowed_nodes[end_node_idx] = set()
             continue
 
-        # Join with start and end values to apply WHERE clause
-        # left_values_df and right_values_df were built earlier (vectorized)
         if left_values_df is None or right_values_df is None:
             continue
 
         pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
         pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
 
-        # Apply the comparison vectorized
         mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
         valid_pairs = pairs_df[mask]
-
         valid_starts = series_values(valid_pairs['__start__'])
         valid_ends = series_values(valid_pairs['__current__'])
 
-        # Update local allowed_nodes for start and end positions
         if start_node_idx in local_allowed_nodes:
             local_allowed_nodes[start_node_idx] &= valid_starts
         if end_node_idx in local_allowed_nodes:
             local_allowed_nodes[end_node_idx] &= valid_ends
 
-        # Create PathState from local copies and propagate constraints
         current_state = PathState.from_mutable(
             local_allowed_nodes, local_allowed_edges, local_pruned_edges
         )
-
-        # Re-propagate constraints backward from the filtered ends
-        # to update intermediate nodes and edges
         current_state = executor.backward_propagate_constraints(
             current_state, start_node_idx, end_node_idx
         )
-
-        # Update local copies from returned state (includes updated pruned_edges)
         local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-        # Update pruned_edges from returned state
         local_pruned_edges.update(current_state.pruned_edges)
 
-    # Return final PathState with pruned_edges
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)
 
 
@@ -296,7 +271,6 @@ def apply_edge_where_post_prune(
     if not seed_nodes:
         return state
 
-    # Use graph nodes as template for DataFrame type
     nodes_df_template = executor.inputs.graph._nodes
     if nodes_df_template is None:
         return state
@@ -307,10 +281,9 @@ def apply_edge_where_post_prune(
         left_node_idx = node_indices[i]
         right_node_idx = node_indices[i + 1]
 
-        # Use edges_df_for_step to get pruned edges from state if available
         edges_df = executor.edges_df_for_step(edge_idx, state)
         if edges_df is None or len(edges_df) == 0:
-            paths_df = paths_df.iloc[0:0]  # Empty paths
+            paths_df = paths_df.iloc[0:0]
             break
 
         edge_op = executor.inputs.chain[edge_idx]
@@ -364,7 +337,6 @@ def apply_edge_where_post_prune(
     if len(paths_df) == 0:
         for idx in node_indices:
             local_allowed_nodes[idx] = set()
-        # Return PathState with empty nodes
         return PathState.from_mutable(local_allowed_nodes, {})
 
     nodes_df = executor.inputs.graph._nodes
@@ -381,7 +353,6 @@ def apply_edge_where_post_prune(
                         )
                         paths_df = paths_df.merge(node_attr, on=f'n{step_idx}', how='left')
 
-    # Create mask series of same type as paths_df
     mask = make_bool_series(paths_df, True)
     for clause in edge_clauses:
         left_binding = executor.inputs.alias_bindings[clause.left.alias]
@@ -412,10 +383,8 @@ def apply_edge_where_post_prune(
         clause_mask = evaluate_clause(left_vals, clause.op, right_vals, null_safe=True)
         mask &= clause_mask.fillna(False)
 
-    # Filter paths
     valid_paths = paths_df[mask]
 
-    # Update local allowed nodes based on valid paths
     for node_idx in node_indices:
         col_name = f'n{node_idx}'
         if col_name in valid_paths.columns:
@@ -431,7 +400,6 @@ def apply_edge_where_post_prune(
 
         if left_col in valid_paths.columns and right_col in valid_paths.columns:
             valid_pairs = valid_paths[[left_col, right_col]].drop_duplicates()
-            # Use edges_df_for_step to get pruned edges from state if available
             edges_df = executor.edges_df_for_step(edge_idx, state)
             if edges_df is not None:
                 edge_op = executor.inputs.chain[edge_idx]
@@ -451,14 +419,11 @@ def apply_edge_where_post_prune(
                     edges_concat = concat_frames([fwd, rev])
                     edges_df = edges_concat.drop_duplicates(subset=[src_col, dst_col]) if edges_concat is not None else edges_df.iloc[:0]
                 else:
-                    # For directed edges, use endpoint_cols to get proper src/dst mapping
                     start_endpoint, end_endpoint = sem.endpoint_cols(src_col, dst_col)
                     edges_df = edges_df.merge(
                         valid_pairs.rename(columns={left_col: start_endpoint, right_col: end_endpoint}),
                         on=[src_col, dst_col], how='inner'
                     )
-                # Track pruned edges (don't mutate forward_steps yet)
                 pruned_edges[edge_idx] = edges_df
 
-    # Return PathState with pruned edges stored in state (no mutation)
     return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
