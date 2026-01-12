@@ -338,10 +338,10 @@ class DFSamePathExecutor:
     def _run_native(self) -> Plottable:
         """Native vectorized path using backward-prune for same-path filtering."""
         allowed_tags = self._compute_allowed_tags()
-        path_state = self._backward_prune(allowed_tags)
-        path_state = apply_non_adjacent_where_post_prune(self, path_state)
-        path_state = apply_edge_where_post_prune(self, path_state)
-        return self._materialize_filtered(path_state)
+        state = self._backward_prune(allowed_tags)
+        state = apply_non_adjacent_where_post_prune(self, state)
+        state = apply_edge_where_post_prune(self, state)
+        return self._materialize_filtered(state)
 
     # Alias for backwards compatibility
     _run_gpu = _run_native
@@ -422,8 +422,12 @@ class DFSamePathExecutor:
         allowed_nodes: Dict[int, Set[Any]]
         allowed_edges: Dict[int, Set[Any]]
 
-    def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> "_PathState":
-        """Propagate allowed ids backward across edges to enforce path coherence."""
+    def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> PathState:
+        """Propagate allowed ids backward across edges to enforce path coherence.
+
+        Returns:
+            Immutable PathState with allowed_nodes, allowed_edges, and pruned_edges.
+        """
 
         self.meta.validate()  # Raises if chain structure is invalid
         node_indices = self.meta.node_indices
@@ -539,35 +543,32 @@ class DFSamePathExecutor:
             if self._edge_column and self._edge_column in filtered.columns:
                 allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
 
-            # Track pruned edges (don't mutate forward_steps yet)
+            # Track pruned edges
             if len(filtered) < len(edges_df):
                 pruned_edges[edge_idx] = filtered
 
-        # Sync pruned edges to forward_steps (maintains old behavior during transition)
-        for edge_idx, df in pruned_edges.items():
-            self.forward_steps[edge_idx]._edges = df
-
-        return self._PathState(allowed_nodes=allowed_nodes, allowed_edges=allowed_edges)
+        # Return immutable PathState (no mutation of forward_steps)
+        return PathState.from_mutable(allowed_nodes, allowed_edges, pruned_edges)
 
     def backward_propagate_constraints(
         self,
-        path_state: "_PathState",
+        state: PathState,
         start_node_idx: int,
         end_node_idx: int,
-    ) -> None:
+    ) -> PathState:
         """Re-propagate constraints backward through a range of edges.
 
-        Updates path_state in-place by filtering edges and nodes between
-        start_node_idx and end_node_idx to reflect new constraints.
-        Does NOT apply WHERE clauses - only propagates endpoint constraints.
-
-        This is called after post-prune WHERE evaluation to tighten intermediate
-        nodes/edges in the affected range.
+        Filters edges and nodes between start_node_idx and end_node_idx
+        to reflect new constraints. Does NOT apply WHERE clauses - only
+        propagates endpoint constraints.
 
         Args:
-            path_state: Current path state with allowed_nodes/allowed_edges (modified in-place)
+            state: Current immutable PathState
             start_node_idx: Start node index for re-propagation (exclusive)
             end_node_idx: End node index for re-propagation (exclusive)
+
+        Returns:
+            New PathState with updated constraints.
         """
         from graphistry.compute.gfql.same_path.multihop import (
             filter_multihop_edges_by_endpoints,
@@ -581,28 +582,29 @@ class DFSamePathExecutor:
         edge_indices = self.meta.edge_indices
 
         if not src_col or not dst_col:
-            return
+            return state
 
         relevant_edge_indices = [
             idx for idx in edge_indices if start_node_idx < idx < end_node_idx
         ]
 
-        # Build updates in local dicts, sync at end (internal immutability pattern)
+        # Build updates in local dicts (converted to immutable at end)
         # Start with copies of current state
         local_allowed_nodes: Dict[int, Set[Any]] = {
-            k: set(v) for k, v in path_state.allowed_nodes.items()
+            k: set(v) for k, v in state.allowed_nodes.items()
         }
         local_allowed_edges: Dict[int, Set[Any]] = {
-            k: set(v) for k, v in path_state.allowed_edges.items()
+            k: set(v) for k, v in state.allowed_edges.items()
         }
-        pruned_edges: Dict[int, Any] = {}
+        # Start with existing pruned_edges from state
+        pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
         for edge_idx in reversed(relevant_edge_indices):
             edge_pos = edge_indices.index(edge_idx)
             left_node_idx = node_indices[edge_pos]
             right_node_idx = node_indices[edge_pos + 1]
 
-            edges_df = self.forward_steps[edge_idx]._edges
+            edges_df = self.edges_df_for_step(edge_idx, state)
             if edges_df is None:
                 continue
 
@@ -670,21 +672,14 @@ class DFSamePathExecutor:
             else:
                 local_allowed_nodes[left_node_idx] = new_src_nodes
 
-            # Track pruned edges (don't mutate forward_steps yet)
+            # Track pruned edges
             if len(edges_df) < original_len:
                 pruned_edges[edge_idx] = edges_df
 
-        # Sync local state back to mutable path_state (maintains old API)
-        path_state.allowed_nodes.clear()
-        path_state.allowed_nodes.update(local_allowed_nodes)
-        path_state.allowed_edges.clear()
-        path_state.allowed_edges.update(local_allowed_edges)
+        # Return new immutable PathState
+        return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, pruned_edges)
 
-        # Sync pruned edges to forward_steps (maintains old behavior)
-        for edge_idx, df in pruned_edges.items():
-            self.forward_steps[edge_idx]._edges = df
-
-    def _materialize_filtered(self, path_state: "_PathState") -> Plottable:
+    def _materialize_filtered(self, state: PathState) -> Plottable:
         """Build result graph from allowed node/edge ids and refresh alias frames."""
 
         nodes_df = self.inputs.graph._nodes
@@ -694,9 +689,9 @@ class DFSamePathExecutor:
         dst = self._destination_column
 
         edge_frames = [
-            self.forward_steps[idx]._edges
+            self.edges_df_for_step(idx, state)
             for idx, op in enumerate(self.inputs.chain)
-            if isinstance(op, ASTEdge) and self.forward_steps[idx]._edges is not None
+            if isinstance(op, ASTEdge) and self.edges_df_for_step(idx, state) is not None
         ]
         concatenated_edges = concat_frames(edge_frames)
         edges_df = concatenated_edges if concatenated_edges is not None else self.inputs.graph._edges
@@ -706,8 +701,8 @@ class DFSamePathExecutor:
 
         # If any node step has an explicitly empty allowed set, the path is broken
         # (e.g., WHERE clause filtered out all nodes at some step)
-        if path_state.allowed_nodes:
-            for node_set in path_state.allowed_nodes.values():
+        if state.allowed_nodes:
+            for node_set in state.allowed_nodes.values():
                 if node_set is not None and len(node_set) == 0:
                     # Empty set at a step means no valid paths exist
                     return self._materialize_from_oracle(
@@ -715,21 +710,21 @@ class DFSamePathExecutor:
                     )
 
         # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
-        # Collect allowed node IDs from path_state using engine-aware construction
+        # Collect allowed node IDs from state using engine-aware construction
         allowed_node_frames: List[DataFrameT] = []
-        if path_state.allowed_nodes:
-            for node_set in path_state.allowed_nodes.values():
+        if state.allowed_nodes:
+            for node_set in state.allowed_nodes.values():
                 if node_set:
                     allowed_node_frames.append(df_cons(nodes_df, {'__node__': list(node_set)}))
 
         allowed_edge_frames: List[DataFrameT] = []
-        if path_state.allowed_edges:
-            for edge_set in path_state.allowed_edges.values():
+        if state.allowed_edges:
+            for edge_set in state.allowed_edges.values():
                 if edge_set:
                     allowed_edge_frames.append(df_cons(edges_df, {'__edge__': list(edge_set)}))
 
         # For multi-hop edges, include all intermediate nodes from the edge frames
-        # (path_state.allowed_nodes only tracks start/end of multi-hop traversals)
+        # (state.allowed_nodes only tracks start/end of multi-hop traversals)
         has_multihop = any(
             isinstance(op, ASTEdge) and EdgeSemantics.from_edge(op).is_multihop
             for op in self.inputs.chain
