@@ -210,3 +210,89 @@ class TestPathStateRoundTrip:
 
         assert nodes_back == original_nodes
         assert edges_back == original_edges
+
+
+class TestPathStateImmutabilityContracts:
+    """Contract tests to ensure immutability is enforced at API boundaries."""
+
+    def test_pathstate_methods_return_new_objects(self):
+        """All PathState methods must return new objects, not mutate in place."""
+        import pandas as pd
+
+        s1 = PathState.from_mutable({0: {1, 2, 3}}, {1: {10, 20}})
+
+        # restrict_nodes returns new object
+        s2 = s1.restrict_nodes(0, frozenset({2, 3}))
+        assert s1 is not s2
+        assert s1.allowed_nodes[0] == frozenset({1, 2, 3})  # Original unchanged
+
+        # restrict_edges returns new object
+        s3 = s1.restrict_edges(1, frozenset({10}))
+        assert s1 is not s3
+        assert s1.allowed_edges[1] == frozenset({10, 20})  # Original unchanged
+
+        # set_nodes returns new object
+        s4 = s1.set_nodes(0, frozenset({99}))
+        assert s1 is not s4
+        assert s1.allowed_nodes[0] == frozenset({1, 2, 3})  # Original unchanged
+
+        # set_edges returns new object
+        s5 = s1.set_edges(1, frozenset({99}))
+        assert s1 is not s5
+        assert s1.allowed_edges[1] == frozenset({10, 20})  # Original unchanged
+
+        # with_pruned_edges returns new object
+        df = pd.DataFrame({'a': [1]})
+        s6 = s1.with_pruned_edges(0, df)
+        assert s1 is not s6
+        assert 0 not in s1.pruned_edges  # Original unchanged
+
+    def test_pathstate_cannot_be_modified_after_creation(self):
+        """PathState fields cannot be modified after creation."""
+        state = PathState.from_mutable({0: {1, 2}}, {1: {10}})
+
+        # Cannot reassign fields (frozen dataclass)
+        with pytest.raises(AttributeError):
+            state.allowed_nodes = _mp({})  # type: ignore
+
+        with pytest.raises(AttributeError):
+            state.allowed_edges = _mp({})  # type: ignore
+
+        with pytest.raises(AttributeError):
+            state.pruned_edges = _mp({})  # type: ignore
+
+        # Cannot modify MappingProxyType contents
+        with pytest.raises(TypeError):
+            state.allowed_nodes[0] = frozenset({99})  # type: ignore
+
+        with pytest.raises(TypeError):
+            state.allowed_nodes[99] = frozenset({1})  # type: ignore
+
+    def test_from_mutable_creates_deep_copy(self):
+        """from_mutable must not hold references to input mutable data."""
+        nodes = {0: {1, 2, 3}}
+        edges = {1: {10, 20}}
+
+        state = PathState.from_mutable(nodes, edges)
+
+        # Modify original mutable data
+        nodes[0].add(99)
+        edges[1].add(99)
+
+        # PathState should be unaffected (deep copy)
+        assert state.allowed_nodes[0] == frozenset({1, 2, 3})
+        assert state.allowed_edges[1] == frozenset({10, 20})
+
+    def test_to_mutable_creates_independent_copy(self):
+        """to_mutable must return data that doesn't affect original PathState."""
+        state = PathState.from_mutable({0: {1, 2, 3}}, {1: {10, 20}})
+
+        nodes, edges = state.to_mutable()
+
+        # Modify the mutable copies
+        nodes[0].add(99)
+        edges[1].add(99)
+
+        # Original PathState should be unaffected
+        assert state.allowed_nodes[0] == frozenset({1, 2, 3})
+        assert state.allowed_edges[1] == frozenset({10, 20})
