@@ -50,6 +50,7 @@ def process_hop_direction(
     target_col: str,
     node_match_query: Optional[str],
     node_match_dict: Optional[dict],
+    allowed_target_nodes: Optional['DataFrameT'],
     is_reverse: bool,
     debugging: bool
 ) -> Tuple['DataFrameT', 'DataFrameT']:
@@ -99,7 +100,19 @@ def process_hop_direction(
     new_node_ids = hop_edges[[result_col]].rename(columns={result_col: node_col}).drop_duplicates()
     
     # Apply node filtering if needed
-    if node_match_query is not None or node_match_dict is not None:
+    if allowed_target_nodes is not None:
+        new_node_ids = safe_merge(new_node_ids, allowed_target_nodes, on=node_col, how='inner')
+        hop_edges = safe_merge(
+            hop_edges,
+            allowed_target_nodes.rename(columns={node_col: target_col}),
+            how='inner',
+            on=target_col
+        )
+
+        if debugging:
+            logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
+            logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
+    elif node_match_query is not None or node_match_dict is not None:
         if debugging:
             logger.debug('--- node filtering ---')
             logger.debug('node_match_query: %s', node_match_query)
@@ -409,6 +422,25 @@ def hop(self: Plottable,
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
     #TODO precompute src/dst match subset if multihop?
 
+    def _build_allowed_ids(
+        base_nodes: DataFrameT,
+        match_dict: Optional[dict],
+        match_query: Optional[str],
+    ) -> Optional[DataFrameT]:
+        if match_dict is None and match_query is None:
+            return None
+        filtered = query_if_not_none(match_query, filter_by_dict(base_nodes, match_dict))
+        return filtered[[g2._node]].drop_duplicates()
+
+    allowed_source_ids: Optional[DataFrameT] = None
+    if source_node_match is not None or source_node_query is not None:
+        source_base_nodes = g2._nodes
+        if seeds_provided and not to_fixed_point and resolved_max_hops == 1:
+            source_base_nodes = starting_nodes
+        allowed_source_ids = _build_allowed_ids(source_base_nodes, source_node_match, source_node_query)
+
+    allowed_dest_ids = _build_allowed_ids(base_target_nodes, destination_node_match, destination_node_query)
+
     node_hop_records = None
     edge_hop_records = None
     seen_node_ids = None
@@ -456,15 +488,19 @@ def hop(self: Plottable,
             )
 
         assert len(wave_front.columns) == 1, "just indexes"
-        wave_front_iter : DataFrameT = query_if_not_none(
-            source_node_query,
-            filter_by_dict(
-                starting_nodes
-                if first_iter else
-                safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
-                source_node_match
-            )
-        )[[ g2._node ]]
+        if allowed_source_ids is None:
+            wave_front_iter = query_if_not_none(
+                source_node_query,
+                filter_by_dict(
+                    starting_nodes
+                    if first_iter else
+                    safe_merge(wave_front, self._nodes, on=g2._node, how='left'),
+                    source_node_match
+                )
+            )[[g2._node]]
+        else:
+            wave_front_base = starting_nodes[[g2._node]] if first_iter else wave_front
+            wave_front_iter = safe_merge(wave_front_base, allowed_source_ids, on=g2._node, how='inner')
         first_iter = False
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -505,8 +541,9 @@ def hop(self: Plottable,
                 intermediate_target_wave_front=intermediate_target_wave_front,
                 base_target_nodes=base_target_nodes,
                 target_col=g2._destination,
-                node_match_query=destination_node_query,
-                node_match_dict=destination_node_match,
+                node_match_query=None if allowed_dest_ids is not None else destination_node_query,
+                node_match_dict=None if allowed_dest_ids is not None else destination_node_match,
+                allowed_target_nodes=allowed_dest_ids,
                 is_reverse=False,
                 debugging=debugging_hop and logger.isEnabledFor(logging.DEBUG)
             )
@@ -524,8 +561,9 @@ def hop(self: Plottable,
                 intermediate_target_wave_front=intermediate_target_wave_front,
                 base_target_nodes=base_target_nodes,
                 target_col=g2._source,
-                node_match_query=destination_node_query,
-                node_match_dict=destination_node_match,
+                node_match_query=None if allowed_dest_ids is not None else destination_node_query,
+                node_match_dict=None if allowed_dest_ids is not None else destination_node_match,
+                allowed_target_nodes=allowed_dest_ids,
                 is_reverse=True,
                 debugging=debugging_hop and logger.isEnabledFor(logging.DEBUG)
             )
