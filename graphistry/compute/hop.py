@@ -31,68 +31,6 @@ def _series_to_list(series: 'DataFrameT') -> list:
     return series.tolist()
 
 
-def prepare_merge_dataframe(
-    edges_indexed: 'DataFrameT', 
-    column_conflict: bool, 
-    source_col: str, 
-    dest_col: str, 
-    edge_id_col: str, 
-    node_col: str, 
-    temp_col: str, 
-    is_reverse: bool = False
-) -> 'DataFrameT':
-    """
-    Prepare a merge DataFrame handling column name conflicts for hop operations.
-    Centralizes the conflict resolution logic for both forward and reverse directions.
-    
-    Parameters:
-    -----------
-    edges_indexed : DataFrame
-        The indexed edges DataFrame
-    column_conflict : bool
-        Whether there's a column name conflict
-    source_col : str
-        The source column name
-    dest_col : str
-        The destination column name
-    edge_id_col : str
-        The edge ID column name
-    node_col : str
-        The node column name
-    temp_col : str
-        The temporary column name to use in case of conflict
-    is_reverse : bool, default=False
-        Whether to prepare for reverse direction hop
-        
-    Returns:
-    --------
-    DataFrame
-        A merge DataFrame prepared for hop operation
-    """
-    # For reverse direction, swap source and destination
-    if is_reverse:
-        src, dst = dest_col, source_col
-    else:
-        src, dst = source_col, dest_col
-    
-    # Select columns based on direction
-    required_cols = [src, dst, edge_id_col]
-    
-    if column_conflict:
-        # Handle column conflict by creating temporary column
-        merge_df = edges_indexed[required_cols].assign(
-            **{temp_col: edges_indexed[src]}
-        )
-        # Assign node using the temp column
-        merge_df = merge_df.assign(**{node_col: merge_df[temp_col]})
-    else:
-        # No conflict, proceed normally
-        merge_df = edges_indexed[required_cols]
-        merge_df = merge_df.assign(**{node_col: merge_df[src]})
-    
-    return merge_df
-
-
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
