@@ -30,8 +30,9 @@ def _filter_edges_by_endpoint(edges_df, nodes_df, node_id: str, edge_col: str):
     """Filter edges to those with edge_col values in nodes_df[node_id]."""
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
-    ids = nodes_df[[node_id]].drop_duplicates().rename(columns={node_id: edge_col})
-    return edges_df.merge(ids, on=edge_col, how='inner')
+    # Use .isin() with unique values - faster than merge for filtering
+    ids = nodes_df[node_id].unique()
+    return edges_df[edges_df[edge_col].isin(ids)]
 
 
 ###############################################################################
@@ -238,14 +239,13 @@ def combine_steps(
                 direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
-                    prev_ids = prev_nodes[[node_id]].drop_duplicates()
-                    next_ids = next_nodes[[node_id]].drop_duplicates()
+                    # Use .isin() instead of merge - faster for filtering
+                    prev_ids = prev_nodes[node_id].unique()
+                    next_ids = next_nodes[node_id].unique()
                     # Either direction: (src in prev, dst in next) OR (dst in prev, src in next)
-                    fwd = edges_df.merge(prev_ids.rename(columns={node_id: src_col}), on=src_col, how='inner') \
-                                  .merge(next_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner')
-                    rev = edges_df.merge(prev_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner') \
-                                  .merge(next_ids.rename(columns={node_id: src_col}), on=src_col, how='inner')
-                    edges_df = df_concat(engine)([fwd, rev]).drop_duplicates()
+                    fwd_mask = edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(next_ids)
+                    rev_mask = edges_df[dst_col].isin(prev_ids) & edges_df[src_col].isin(next_ids)
+                    edges_df = edges_df[fwd_mask | rev_mask]
                 else:
                     prev_col, next_col = (dst_col, src_col) if direction == 'reverse' else (src_col, dst_col)
                     edges_df = _filter_edges_by_endpoint(edges_df, prev_nodes, node_id, prev_col)
