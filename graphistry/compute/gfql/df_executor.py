@@ -417,11 +417,6 @@ class DFSamePathExecutor:
             out[alias] = series_values(frame[id_col])
         return out
 
-    @dataclass
-    class _PathState:
-        allowed_nodes: Dict[int, Set[Any]]
-        allowed_edges: Dict[int, Set[Any]]
-
     def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> PathState:
         """Propagate allowed ids backward across edges to enforce path coherence.
 
