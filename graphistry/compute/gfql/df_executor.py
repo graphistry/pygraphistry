@@ -22,7 +22,12 @@ from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_c
 from graphistry.compute.gfql.same_path_types import WhereComparison, PathState
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-from graphistry.compute.gfql.same_path.df_utils import series_values, concat_frames, df_cons
+from graphistry.compute.gfql.same_path.df_utils import (
+    series_values,
+    series_to_id_df,
+    concat_frames,
+    df_cons,
+)
 from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
@@ -217,6 +222,15 @@ class DFSamePathExecutor:
                     continue
 
                 if clause.op == "==":
+                    if self._use_df_forward_prune(left_frame, right_frame):
+                        if self._apply_forward_where_prune_df(
+                            left_alias,
+                            right_alias,
+                            left_col,
+                            right_col,
+                        ):
+                            changed = True
+                        continue
                     # Equality: values must match
                     left_values = series_values(left_frame[left_col])
                     right_values = series_values(right_frame[right_col])
@@ -246,6 +260,64 @@ class DFSamePathExecutor:
                         clause, left_alias, right_alias, left_col, right_col
                     )
                     # Don't set changed for minmax - it's a one-shot prune
+
+    def _use_df_forward_prune(
+        self, left_frame: DataFrameT, right_frame: DataFrameT
+    ) -> bool:
+        if self.inputs.engine == Engine.CUDF:
+            return True
+        return (
+            left_frame.__class__.__module__.startswith("cudf")
+            or right_frame.__class__.__module__.startswith("cudf")
+        )
+
+    def _apply_forward_where_prune_df(
+        self,
+        left_alias: str,
+        right_alias: str,
+        left_col: str,
+        right_col: str,
+    ) -> bool:
+        """DF-native equality prune to avoid host syncs in cuDF mode."""
+        left_frame = self.alias_frames.get(left_alias)
+        right_frame = self.alias_frames.get(right_alias)
+        if left_frame is None or right_frame is None:
+            return False
+
+        id_col = "__id__"
+        left_ids = series_to_id_df(left_frame[left_col], id_col=id_col)
+        right_ids = series_to_id_df(right_frame[right_col], id_col=id_col)
+        common_ids = left_ids.merge(right_ids[[id_col]], on=id_col, how="inner")
+
+        changed = False
+        if len(common_ids) < len(left_ids):
+            new_left = self._semi_join_by_values(left_frame, left_col, common_ids, id_col)
+            if len(new_left) < len(left_frame):
+                self.alias_frames[left_alias] = new_left
+                changed = True
+
+        if len(common_ids) < len(right_ids):
+            new_right = self._semi_join_by_values(right_frame, right_col, common_ids, id_col)
+            if len(new_right) < len(right_frame):
+                self.alias_frames[right_alias] = new_right
+                changed = True
+
+        return changed
+
+    def _semi_join_by_values(
+        self,
+        frame: DataFrameT,
+        frame_col: str,
+        allowed_df: DataFrameT,
+        id_col: str,
+    ) -> DataFrameT:
+        if allowed_df is None:
+            return frame
+        if len(allowed_df) == 0:
+            return frame[:0]
+        if id_col != frame_col:
+            allowed_df = allowed_df.rename(columns={id_col: frame_col})
+        return frame.merge(allowed_df[[frame_col]], on=frame_col, how="inner")
 
     def _apply_minmax_forward_prune(
         self,
