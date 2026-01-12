@@ -56,10 +56,11 @@ def bfs_reachability(
         DataFrame with all reachable nodes and their hop distances
     """
     from .df_utils import series_values
+    import pandas as pd
 
     # Use same DataFrame type as input
     result = df_cons(edge_pairs, {'__node__': list(start_nodes), hop_col: 0})
-    visited_set: Set[Any] = set(start_nodes)
+    visited_idx = pd.Index(start_nodes) if not isinstance(start_nodes, pd.Index) else start_nodes
 
     for hop in range(1, max_hops + 1):
         frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
@@ -68,14 +69,14 @@ def bfs_reachability(
         next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
         next_df = next_df.rename(columns={'__to__': '__node__'})
 
-        # Filter out already visited nodes using set instead of indicator merge
+        # Filter out already visited nodes using pd.Index operations
         candidate_nodes = series_values(next_df['__node__'])
-        new_node_ids = candidate_nodes - visited_set
-        if not new_node_ids:
+        new_node_ids = candidate_nodes.difference(visited_idx)
+        if len(new_node_ids) == 0:
             break
 
         new_nodes = df_cons(edge_pairs, {'__node__': list(new_node_ids), hop_col: hop})
-        visited_set |= new_node_ids
+        visited_idx = visited_idx.union(new_node_ids)
 
         result = concat_frames([result, new_nodes])
         if result is None:

@@ -73,9 +73,9 @@ def filter_edges_by_clauses(
     lf = left_frame
     rf = right_frame
     if left_allowed is not None:
-        lf = lf[lf[node_col].isin(list(left_allowed))]
+        lf = lf[lf[node_col].isin(left_allowed)]
     if right_allowed is not None:
-        rf = rf[rf[node_col].isin(list(right_allowed))]
+        rf = rf[rf[node_col].isin(right_allowed)]
 
     left_cols = list(executor.inputs.column_requirements.get(left_alias, []))
     right_cols = list(executor.inputs.column_requirements.get(right_alias, []))
@@ -296,17 +296,17 @@ def filter_multihop_by_where(
     # Filter to allowed nodes
     left_step_idx = executor.inputs.alias_bindings[left_alias].step_index
     right_step_idx = executor.inputs.alias_bindings[right_alias].step_index
-    if left_step_idx in allowed_nodes and allowed_nodes[left_step_idx]:
-        start_nodes &= allowed_nodes[left_step_idx]
-    if right_step_idx in allowed_nodes and allowed_nodes[right_step_idx]:
-        end_nodes &= allowed_nodes[right_step_idx]
+    if left_step_idx in allowed_nodes and len(allowed_nodes[left_step_idx]) > 0:
+        start_nodes = start_nodes.intersection(allowed_nodes[left_step_idx])
+    if right_step_idx in allowed_nodes and len(allowed_nodes[right_step_idx]) > 0:
+        end_nodes = end_nodes.intersection(allowed_nodes[right_step_idx])
 
-    if not start_nodes or not end_nodes:
+    if len(start_nodes) == 0 or len(end_nodes) == 0:
         return edges_df.iloc[:0]  # Empty dataframe
 
     # Build (start, end) pairs that satisfy WHERE
-    lf = left_frame[left_frame[node_col].isin(list(start_nodes))]
-    rf = right_frame[right_frame[node_col].isin(list(end_nodes))]
+    lf = left_frame[left_frame[node_col].isin(start_nodes)]
+    rf = right_frame[right_frame[node_col].isin(end_nodes)]
 
     left_cols = list(executor.inputs.column_requirements.get(left_alias, []))
     right_cols = list(executor.inputs.column_requirements.get(right_alias, []))

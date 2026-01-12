@@ -220,17 +220,17 @@ class DFSamePathExecutor:
                     # Equality: values must match
                     left_values = series_values(left_frame[left_col])
                     right_values = series_values(right_frame[right_col])
-                    common = left_values & right_values
+                    common = left_values.intersection(right_values)
 
                     # Prune left frame
-                    if left_values != common:
+                    if not left_values.equals(common):
                         new_left = left_frame[left_frame[left_col].isin(common)]
                         if len(new_left) < len(left_frame):
                             self.alias_frames[left_alias] = new_left
                             changed = True
 
                     # Prune right frame
-                    if right_values != common:
+                    if not right_values.equals(common):
                         new_right = right_frame[right_frame[right_col].isin(common)]
                         if len(new_right) < len(right_frame):
                             self.alias_frames[right_alias] = new_right
@@ -478,7 +478,7 @@ class DFSamePathExecutor:
                         _, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
                         if end_col and end_col in filtered.columns:
                             filtered = filtered[
-                                filtered[end_col].isin(list(allowed_dst))
+                                filtered[end_col].isin(allowed_dst)
                             ]
 
             # Apply value-based clauses between adjacent aliases
@@ -500,7 +500,7 @@ class DFSamePathExecutor:
                 allowed_edge_ids = allowed_tags[edge_alias]
                 if self._edge_column and self._edge_column in filtered.columns:
                     filtered = filtered[
-                        filtered[self._edge_column].isin(list(allowed_edge_ids))
+                        filtered[self._edge_column].isin(allowed_edge_ids)
                     ]
 
             # Update allowed_nodes based on filtered edges
@@ -511,29 +511,29 @@ class DFSamePathExecutor:
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
                         series_values(filtered[self._source_column])
-                        | series_values(filtered[self._destination_column])
+                        .union(series_values(filtered[self._destination_column]))
                     )
                     # Right node is constrained by allowed_dst already filtered above
-                    current_dst = allowed_nodes.get(right_node_idx, set())
+                    current_dst = allowed_nodes.get(right_node_idx)
                     allowed_nodes[right_node_idx] = (
-                        current_dst & all_nodes_in_edges if current_dst else all_nodes_in_edges
+                        current_dst.intersection(all_nodes_in_edges) if current_dst is not None else all_nodes_in_edges
                     )
                     # Left node is any node in the filtered edges
-                    current = allowed_nodes.get(left_node_idx, set())
-                    allowed_nodes[left_node_idx] = current & all_nodes_in_edges if current else all_nodes_in_edges
+                    current = allowed_nodes.get(left_node_idx)
+                    allowed_nodes[left_node_idx] = current.intersection(all_nodes_in_edges) if current is not None else all_nodes_in_edges
             else:
                 # Directed: use endpoint_cols to get proper column mapping
                 start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
                 if end_col and end_col in filtered.columns:
                     allowed_dst_actual = series_values(filtered[end_col])
-                    current_dst = allowed_nodes.get(right_node_idx, set())
+                    current_dst = allowed_nodes.get(right_node_idx)
                     allowed_nodes[right_node_idx] = (
-                        current_dst & allowed_dst_actual if current_dst else allowed_dst_actual
+                        current_dst.intersection(allowed_dst_actual) if current_dst is not None else allowed_dst_actual
                     )
                 if start_col and start_col in filtered.columns:
                     allowed_src = series_values(filtered[start_col])
-                    current = allowed_nodes.get(left_node_idx, set())
-                    allowed_nodes[left_node_idx] = current & allowed_src if current else allowed_src
+                    current = allowed_nodes.get(left_node_idx)
+                    allowed_nodes[left_node_idx] = current.intersection(allowed_src) if current is not None else allowed_src
 
             if self._edge_column and self._edge_column in filtered.columns:
                 allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
@@ -604,17 +604,17 @@ class DFSamePathExecutor:
                 continue
 
             original_len = len(edges_df)
-            allowed_edges = local_allowed_edges.get(edge_idx, None)
+            allowed_edges = local_allowed_edges.get(edge_idx)
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
-                edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
+                edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
 
             edge_op = self.inputs.chain[edge_idx]
             if not isinstance(edge_op, ASTEdge):
                 continue
             sem = EdgeSemantics.from_edge(edge_op)
 
-            left_allowed = local_allowed_nodes.get(left_node_idx, set())
-            right_allowed = local_allowed_nodes.get(right_node_idx, set())
+            left_allowed = local_allowed_nodes.get(left_node_idx)
+            right_allowed = local_allowed_nodes.get(right_node_idx)
 
             if sem.is_multihop:
                 edges_df = filter_multihop_edges_by_endpoints(
@@ -623,35 +623,31 @@ class DFSamePathExecutor:
                 )
             else:
                 if sem.is_undirected:
-                    if left_allowed and right_allowed:
-                        left_set = list(left_allowed)
-                        right_set = list(right_allowed)
+                    if left_allowed is not None and right_allowed is not None:
                         mask = (
-                            (edges_df[src_col].isin(left_set) & edges_df[dst_col].isin(right_set))
-                            | (edges_df[dst_col].isin(left_set) & edges_df[src_col].isin(right_set))
+                            (edges_df[src_col].isin(left_allowed) & edges_df[dst_col].isin(right_allowed))
+                            | (edges_df[dst_col].isin(left_allowed) & edges_df[src_col].isin(right_allowed))
                         )
                         edges_df = edges_df[mask]
-                    elif left_allowed:
-                        left_set = list(left_allowed)
+                    elif left_allowed is not None:
                         edges_df = edges_df[
-                            edges_df[src_col].isin(left_set) | edges_df[dst_col].isin(left_set)
+                            edges_df[src_col].isin(left_allowed) | edges_df[dst_col].isin(left_allowed)
                         ]
-                    elif right_allowed:
-                        right_set = list(right_allowed)
+                    elif right_allowed is not None:
                         edges_df = edges_df[
-                            edges_df[src_col].isin(right_set) | edges_df[dst_col].isin(right_set)
+                            edges_df[src_col].isin(right_allowed) | edges_df[dst_col].isin(right_allowed)
                         ]
                 else:
                     start_col, end_col = sem.endpoint_cols(src_col, dst_col)
-                    if left_allowed:
-                        edges_df = edges_df[edges_df[start_col].isin(list(left_allowed))]
-                    if right_allowed:
-                        edges_df = edges_df[edges_df[end_col].isin(list(right_allowed))]
+                    if left_allowed is not None:
+                        edges_df = edges_df[edges_df[start_col].isin(left_allowed)]
+                    if right_allowed is not None:
+                        edges_df = edges_df[edges_df[end_col].isin(right_allowed)]
 
             if edge_id_col and edge_id_col in edges_df.columns:
                 new_edge_ids = series_values(edges_df[edge_id_col])
                 if edge_idx in local_allowed_edges:
-                    local_allowed_edges[edge_idx] &= new_edge_ids
+                    local_allowed_edges[edge_idx] = local_allowed_edges[edge_idx].intersection(new_edge_ids)
                 else:
                     local_allowed_edges[edge_idx] = new_edge_ids
 
@@ -663,7 +659,7 @@ class DFSamePathExecutor:
                 new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
 
             if left_node_idx in local_allowed_nodes:
-                local_allowed_nodes[left_node_idx] &= new_src_nodes
+                local_allowed_nodes[left_node_idx] = local_allowed_nodes[left_node_idx].intersection(new_src_nodes)
             else:
                 local_allowed_nodes[left_node_idx] = new_src_nodes
 

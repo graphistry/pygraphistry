@@ -142,9 +142,9 @@ def apply_non_adjacent_where_post_prune(
             if edges_df is None or len(state_df) == 0:
                 break
 
-            allowed_edges = local_allowed_edges.get(edge_idx, None)
+            allowed_edges = local_allowed_edges.get(edge_idx)
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
-                edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
+                edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
 
             edge_op = executor.inputs.chain[edge_idx]
             if not isinstance(edge_op, ASTEdge):
@@ -210,9 +210,9 @@ def apply_non_adjacent_where_post_prune(
         valid_ends = series_values(valid_pairs['__current__'])
 
         if start_node_idx in local_allowed_nodes:
-            local_allowed_nodes[start_node_idx] &= valid_starts
+            local_allowed_nodes[start_node_idx] = local_allowed_nodes[start_node_idx].intersection(valid_starts)
         if end_node_idx in local_allowed_nodes:
-            local_allowed_nodes[end_node_idx] &= valid_ends
+            local_allowed_nodes[end_node_idx] = local_allowed_nodes[end_node_idx].intersection(valid_ends)
 
         current_state = PathState.from_mutable(
             local_allowed_nodes, local_allowed_edges, local_pruned_edges
@@ -328,15 +328,15 @@ def apply_edge_where_post_prune(
             )
             paths_df[f'n{right_node_idx}'] = paths_df[result_col]
 
-        right_allowed = local_allowed_nodes.get(right_node_idx, set())
-        if right_allowed:
-            paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(list(right_allowed))]
+        right_allowed = local_allowed_nodes.get(right_node_idx)
+        if right_allowed is not None and len(right_allowed) > 0:
+            paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(right_allowed)]
 
         paths_df = paths_df.drop(columns=[src_col, dst_col], errors='ignore')
 
     if len(paths_df) == 0:
         for idx in node_indices:
-            local_allowed_nodes[idx] = set()
+            local_allowed_nodes[idx] = pd.Index([])
         return PathState.from_mutable(local_allowed_nodes, {})
 
     nodes_df = executor.inputs.graph._nodes
@@ -389,8 +389,8 @@ def apply_edge_where_post_prune(
         col_name = f'n{node_idx}'
         if col_name in valid_paths.columns:
             valid_node_ids = series_values(valid_paths[col_name])
-            current = local_allowed_nodes.get(node_idx, set())
-            local_allowed_nodes[node_idx] = current & valid_node_ids if current else valid_node_ids
+            current = local_allowed_nodes.get(node_idx)
+            local_allowed_nodes[node_idx] = current.intersection(valid_node_ids) if current is not None else valid_node_ids
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]
