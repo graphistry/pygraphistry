@@ -567,6 +567,16 @@ class DFSamePathExecutor:
             idx for idx in edge_indices if start_node_idx < idx < end_node_idx
         ]
 
+        # Build updates in local dicts, sync at end (internal immutability pattern)
+        # Start with copies of current state
+        local_allowed_nodes: Dict[int, Set[Any]] = {
+            k: set(v) for k, v in path_state.allowed_nodes.items()
+        }
+        local_allowed_edges: Dict[int, Set[Any]] = {
+            k: set(v) for k, v in path_state.allowed_edges.items()
+        }
+        pruned_edges: Dict[int, Any] = {}
+
         for edge_idx in reversed(relevant_edge_indices):
             edge_pos = edge_indices.index(edge_idx)
             left_node_idx = node_indices[edge_pos]
@@ -577,7 +587,7 @@ class DFSamePathExecutor:
                 continue
 
             original_len = len(edges_df)
-            allowed_edges = path_state.allowed_edges.get(edge_idx, None)
+            allowed_edges = local_allowed_edges.get(edge_idx, None)
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
                 edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
 
@@ -586,8 +596,8 @@ class DFSamePathExecutor:
                 continue
             sem = EdgeSemantics.from_edge(edge_op)
 
-            left_allowed = path_state.allowed_nodes.get(left_node_idx, set())
-            right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
+            left_allowed = local_allowed_nodes.get(left_node_idx, set())
+            right_allowed = local_allowed_nodes.get(right_node_idx, set())
 
             if sem.is_multihop:
                 edges_df = filter_multihop_edges_by_endpoints(
@@ -623,10 +633,10 @@ class DFSamePathExecutor:
 
             if edge_id_col and edge_id_col in edges_df.columns:
                 new_edge_ids = set(edges_df[edge_id_col].tolist())
-                if edge_idx in path_state.allowed_edges:
-                    path_state.allowed_edges[edge_idx] &= new_edge_ids
+                if edge_idx in local_allowed_edges:
+                    local_allowed_edges[edge_idx] &= new_edge_ids
                 else:
-                    path_state.allowed_edges[edge_idx] = new_edge_ids
+                    local_allowed_edges[edge_idx] = new_edge_ids
 
             if sem.is_multihop:
                 new_src_nodes = find_multihop_start_nodes(
@@ -635,14 +645,24 @@ class DFSamePathExecutor:
             else:
                 new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
 
-            if left_node_idx in path_state.allowed_nodes:
-                path_state.allowed_nodes[left_node_idx] &= new_src_nodes
+            if left_node_idx in local_allowed_nodes:
+                local_allowed_nodes[left_node_idx] &= new_src_nodes
             else:
-                path_state.allowed_nodes[left_node_idx] = new_src_nodes
+                local_allowed_nodes[left_node_idx] = new_src_nodes
 
-            # Persist filtered edges
+            # Track pruned edges (don't mutate forward_steps yet)
             if len(edges_df) < original_len:
-                self.forward_steps[edge_idx]._edges = edges_df
+                pruned_edges[edge_idx] = edges_df
+
+        # Sync local state back to mutable path_state (maintains old API)
+        path_state.allowed_nodes.clear()
+        path_state.allowed_nodes.update(local_allowed_nodes)
+        path_state.allowed_edges.clear()
+        path_state.allowed_edges.update(local_allowed_edges)
+
+        # Sync pruned edges to forward_steps (maintains old behavior)
+        for edge_idx, df in pruned_edges.items():
+            self.forward_steps[edge_idx]._edges = df
 
     def _materialize_filtered(self, path_state: "_PathState") -> Plottable:
         """Build result graph from allowed node/edge ids and refresh alias frames."""
