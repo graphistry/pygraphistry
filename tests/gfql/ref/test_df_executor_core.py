@@ -41,7 +41,6 @@ def test_build_inputs_collects_alias_metadata():
     assert set(inputs.alias_bindings) == {"a", "r", "c"}
     assert inputs.column_requirements["a"] == {"owner_id"}
     assert inputs.column_requirements["c"] == {"owner_id"}
-    assert inputs.plan.bitsets
 
 
 def test_missing_alias_raises():

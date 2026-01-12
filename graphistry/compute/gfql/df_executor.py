@@ -19,7 +19,6 @@ from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.compute.gfql.same_path_plan import SamePathPlan, plan_same_path
 from graphistry.compute.gfql.same_path_types import WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
@@ -64,7 +63,6 @@ class SamePathExecutorInputs:
     graph: Plottable
     chain: Sequence[ASTObject]
     where: Sequence[WhereComparison]
-    plan: SamePathPlan
     engine: Engine
     alias_bindings: Dict[str, AliasBinding]
     column_requirements: Dict[str, Set[str]]
@@ -898,13 +896,11 @@ def build_same_path_inputs(
     bindings = _collect_alias_bindings(chain)
     _validate_where_aliases(bindings, where)
     required_columns = _collect_required_columns(where)
-    plan = plan_same_path(where)
 
     return SamePathExecutorInputs(
         graph=g,
         chain=list(chain),
         where=list(where),
-        plan=plan,
         engine=engine,
         alias_bindings=bindings,
         column_requirements=required_columns,
