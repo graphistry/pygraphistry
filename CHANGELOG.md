@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Performance
 - **Compute / hop**: Refactored hop traversal to precompute node predicate domains and unify direction handling; synthetic CPU benchmarks show modest median improvements with some regressions on undirected/range scenarios.
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
+- **Compute / hop**: Undirected traversal skips oriented-pair expansion when no destination filters; modest CPU gains in undirected benchmarks.
 
 ### Fixed
 - **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
