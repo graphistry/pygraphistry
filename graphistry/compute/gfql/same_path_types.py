@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from types import MappingProxyType
+from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Sequence, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphistry.compute.typing import DataFrameT
 
 
 ComparisonOp = Literal[
@@ -105,3 +109,144 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
             }
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Immutable PathState for Yannakakis execution
+# ---------------------------------------------------------------------------
+
+IdSet = FrozenSet[Any]
+
+
+def _mp(d: Dict) -> MappingProxyType:
+    """Wrap dict in MappingProxyType for true immutability."""
+    return MappingProxyType(d)
+
+
+def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
+    """Return new MappingProxyType with key updated."""
+    d = dict(m)
+    d[k] = v
+    return _mp(d)
+
+
+@dataclass(frozen=True, slots=True)
+class PathState:
+    """Immutable state for same-path execution.
+
+    Contains allowed node/edge IDs per step index and pruned edge DataFrames.
+    All fields are truly immutable (MappingProxyType + frozenset).
+
+    This is the target state representation for the immutability refactor.
+    During the transition, conversion helpers allow bridging to/from the
+    old mutable _PathState class.
+    """
+
+    allowed_nodes: Mapping[int, IdSet]
+    allowed_edges: Mapping[int, IdSet]
+    pruned_edges: Mapping[int, Any]  # edge_idx -> filtered DataFrame
+
+    @classmethod
+    def empty(cls) -> "PathState":
+        """Create empty PathState."""
+        return cls(
+            allowed_nodes=_mp({}),
+            allowed_edges=_mp({}),
+            pruned_edges=_mp({}),
+        )
+
+    @classmethod
+    def from_mutable(
+        cls,
+        allowed_nodes: Dict[int, Set[Any]],
+        allowed_edges: Dict[int, Set[Any]],
+        pruned_edges: Optional[Dict[int, Any]] = None,
+    ) -> "PathState":
+        """Create PathState from mutable dicts (e.g., from old _PathState)."""
+        return cls(
+            allowed_nodes=_mp({k: frozenset(v) for k, v in allowed_nodes.items()}),
+            allowed_edges=_mp({k: frozenset(v) for k, v in allowed_edges.items()}),
+            pruned_edges=_mp(pruned_edges or {}),
+        )
+
+    def to_mutable(self) -> tuple:
+        """Convert to mutable dicts for old _PathState compatibility.
+
+        Returns:
+            (allowed_nodes: Dict[int, Set], allowed_edges: Dict[int, Set])
+        """
+        return (
+            {k: set(v) for k, v in self.allowed_nodes.items()},
+            {k: set(v) for k, v in self.allowed_edges.items()},
+        )
+
+    def restrict_nodes(self, idx: int, keep: IdSet) -> "PathState":
+        """Return new PathState with node set at idx intersected with keep."""
+        cur = self.allowed_nodes.get(idx, frozenset())
+        new = cur & keep if cur else keep
+        if new is cur:
+            return self
+        return PathState(
+            allowed_nodes=_update_map(self.allowed_nodes, idx, new),
+            allowed_edges=self.allowed_edges,
+            pruned_edges=self.pruned_edges,
+        )
+
+    def set_nodes(self, idx: int, nodes: IdSet) -> "PathState":
+        """Return new PathState with node set at idx replaced."""
+        return PathState(
+            allowed_nodes=_update_map(self.allowed_nodes, idx, nodes),
+            allowed_edges=self.allowed_edges,
+            pruned_edges=self.pruned_edges,
+        )
+
+    def restrict_edges(self, idx: int, keep: IdSet) -> "PathState":
+        """Return new PathState with edge set at idx intersected with keep."""
+        cur = self.allowed_edges.get(idx, frozenset())
+        new = cur & keep if cur else keep
+        if new is cur:
+            return self
+        return PathState(
+            allowed_nodes=self.allowed_nodes,
+            allowed_edges=_update_map(self.allowed_edges, idx, new),
+            pruned_edges=self.pruned_edges,
+        )
+
+    def set_edges(self, idx: int, edges: IdSet) -> "PathState":
+        """Return new PathState with edge set at idx replaced."""
+        return PathState(
+            allowed_nodes=self.allowed_nodes,
+            allowed_edges=_update_map(self.allowed_edges, idx, edges),
+            pruned_edges=self.pruned_edges,
+        )
+
+    def with_pruned_edges(self, edge_idx: int, df: Any) -> "PathState":
+        """Return new PathState with pruned edges DataFrame at edge_idx."""
+        return PathState(
+            allowed_nodes=self.allowed_nodes,
+            allowed_edges=self.allowed_edges,
+            pruned_edges=_update_map(self.pruned_edges, edge_idx, df),
+        )
+
+    def sync_to_mutable(
+        self,
+        mutable_nodes: Dict[int, Set[Any]],
+        mutable_edges: Dict[int, Set[Any]],
+    ) -> None:
+        """Sync this immutable state back to mutable dicts.
+
+        Used during transition to maintain compatibility with old API.
+        Clears and updates the mutable dicts in-place.
+        """
+        mutable_nodes.clear()
+        mutable_nodes.update({k: set(v) for k, v in self.allowed_nodes.items()})
+        mutable_edges.clear()
+        mutable_edges.update({k: set(v) for k, v in self.allowed_edges.items()})
+
+    def sync_pruned_to_forward_steps(self, forward_steps: List[Any]) -> None:
+        """Sync pruned_edges back to forward_steps (mutates forward_steps).
+
+        Used during transition to maintain compatibility with old API.
+        """
+        for edge_idx, df in self.pruned_edges.items():
+            forward_steps[edge_idx]._edges = df
