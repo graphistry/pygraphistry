@@ -137,9 +137,8 @@ class PathState:
     Contains allowed node/edge IDs per step index and pruned edge DataFrames.
     All fields are truly immutable (MappingProxyType + frozenset).
 
-    This is the target state representation for the immutability refactor.
-    During the transition, conversion helpers allow bridging to/from the
-    old mutable _PathState class.
+    Used by the Yannakakis-style semi-join executor for WHERE clause evaluation.
+    All state transitions create new PathState instances (functional style).
     """
 
     allowed_nodes: Mapping[int, IdSet]
@@ -162,7 +161,7 @@ class PathState:
         allowed_edges: Dict[int, Set[Any]],
         pruned_edges: Optional[Dict[int, Any]] = None,
     ) -> "PathState":
-        """Create PathState from mutable dicts (e.g., from old _PathState)."""
+        """Create PathState from mutable dicts."""
         return cls(
             allowed_nodes=_mp({k: frozenset(v) for k, v in allowed_nodes.items()}),
             allowed_edges=_mp({k: frozenset(v) for k, v in allowed_edges.items()}),
@@ -170,7 +169,7 @@ class PathState:
         )
 
     def to_mutable(self) -> tuple:
-        """Convert to mutable dicts for old _PathState compatibility.
+        """Convert to mutable dicts for local processing.
 
         Returns:
             (allowed_nodes: Dict[int, Set], allowed_edges: Dict[int, Set])
@@ -235,7 +234,6 @@ class PathState:
     ) -> None:
         """Sync this immutable state back to mutable dicts.
 
-        Used during transition to maintain compatibility with old API.
         Clears and updates the mutable dicts in-place.
         """
         mutable_nodes.clear()
@@ -244,9 +242,6 @@ class PathState:
         mutable_edges.update({k: set(v) for k, v in self.allowed_edges.items()})
 
     def sync_pruned_to_forward_steps(self, forward_steps: List[Any]) -> None:
-        """Sync pruned_edges back to forward_steps (mutates forward_steps).
-
-        Used during transition to maintain compatibility with old API.
-        """
+        """Sync pruned_edges back to forward_steps (mutates forward_steps)."""
         for edge_idx, df in self.pruned_edges.items():
             forward_steps[edge_idx]._edges = df
