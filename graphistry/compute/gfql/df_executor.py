@@ -19,7 +19,7 @@ from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.compute.gfql.same_path_types import WhereComparison
+from graphistry.compute.gfql.same_path_types import WhereComparison, PathState
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.gfql.same_path.df_utils import series_values, concat_frames, df_cons
@@ -409,8 +409,10 @@ class DFSamePathExecutor:
         node_indices = self.meta.node_indices
         edge_indices = self.meta.edge_indices
 
+        # Build state using mutable dicts internally (converted to immutable at end)
         allowed_nodes: Dict[int, Set[Any]] = {}
         allowed_edges: Dict[int, Set[Any]] = {}
+        pruned_edges: Dict[int, Any] = {}  # Track pruned edges instead of mutating forward_steps
 
         # Seed node allowances from tags or full frames
         for idx in node_indices:
@@ -517,9 +519,13 @@ class DFSamePathExecutor:
             if self._edge_column and self._edge_column in filtered.columns:
                 allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
 
-            # Store filtered edges back to ensure WHERE-pruned edges are removed from output
+            # Track pruned edges (don't mutate forward_steps yet)
             if len(filtered) < len(edges_df):
-                self.forward_steps[edge_idx]._edges = filtered
+                pruned_edges[edge_idx] = filtered
+
+        # Sync pruned edges to forward_steps (maintains old behavior during transition)
+        for edge_idx, df in pruned_edges.items():
+            self.forward_steps[edge_idx]._edges = df
 
         return self._PathState(allowed_nodes=allowed_nodes, allowed_edges=allowed_edges)
 
