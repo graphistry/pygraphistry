@@ -558,8 +558,7 @@ def hop(self: Plottable,
         # A node reachable at hop 1 AND hop 2 only records hop 1 in node_hop_records,
         # but IS a valid goal if reached via a longer path at hop >= min_hops.
         valid_endpoint_edges = edge_hop_records[edge_hop_records[edge_hop_col] >= resolved_min_hops]
-        valid_endpoint_edges_with_nodes = safe_merge(
-            valid_endpoint_edges,
+        valid_endpoint_edges_with_nodes = valid_endpoint_edges.merge(
             edges_indexed[[EDGE_ID, g2._source, g2._destination]],
             on=EDGE_ID,
             how='inner'
@@ -579,8 +578,7 @@ def hop(self: Plottable,
         if len(goal_node_series) > 0:
             # Backtrack from goal nodes to find all edges/nodes on valid paths
             # We need to traverse backwards through the edge records to find which edges lead to goals
-            edge_records_with_endpoints = safe_merge(
-                edge_hop_records,
+            edge_records_with_endpoints = edge_hop_records.merge(
                 edges_indexed[[EDGE_ID, g2._source, g2._destination]],
                 on=EDGE_ID,
                 how='inner'
@@ -652,13 +650,13 @@ def hop(self: Plottable,
         if edge_mask is not None:
             edge_labels_source = edge_labels_source[edge_mask]
 
-        final_edges = safe_merge(edges_indexed, edge_labels_source, on=EDGE_ID, how='inner')
+        final_edges = edges_indexed.merge(edge_labels_source, on=EDGE_ID, how='inner')
         if label_edge_hops is None and edge_hop_col in final_edges:
             # Preserve hop labels when output slicing is requested so callers can filter
             if output_min_hops is None and output_max_hops is None:
                 final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
-        final_edges = safe_merge(edges_indexed, matches_edges, on=EDGE_ID, how='inner')
+        final_edges = edges_indexed.merge(matches_edges, on=EDGE_ID, how='inner')
 
     if EDGE_ID not in self._edges:
         final_edges = final_edges.drop(columns=[EDGE_ID])
