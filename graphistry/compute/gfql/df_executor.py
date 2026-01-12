@@ -649,7 +649,7 @@ class DFSamePathExecutor:
                         edges_df = edges_df[edges_df[end_col].isin(list(right_allowed))]
 
             if edge_id_col and edge_id_col in edges_df.columns:
-                new_edge_ids = set(edges_df[edge_id_col].tolist())
+                new_edge_ids = series_values(edges_df[edge_id_col])
                 if edge_idx in local_allowed_edges:
                     local_allowed_edges[edge_idx] &= new_edge_ids
                 else:
