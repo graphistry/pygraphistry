@@ -82,6 +82,26 @@ class DFSamePathExecutor:
         self._source_column = inputs.graph._source
         self._destination_column = inputs.graph._destination
 
+    def edges_df_for_step(
+        self,
+        edge_idx: int,
+        state: Optional[PathState] = None,
+    ) -> Optional[DataFrameT]:
+        """Get edges DataFrame for a step, checking state.pruned_edges first.
+
+        Args:
+            edge_idx: The edge step index
+            state: Optional PathState with pruned_edges. If provided and has
+                   an entry for edge_idx, returns that. Otherwise falls back
+                   to forward_steps.
+
+        Returns:
+            The edges DataFrame for this step, or None if not available.
+        """
+        if state is not None and edge_idx in state.pruned_edges:
+            return state.pruned_edges[edge_idx]
+        return self.forward_steps[edge_idx]._edges
+
     def run(self) -> Plottable:
         """Execute same-path traversal with Yannakakis-style pruning.
 
