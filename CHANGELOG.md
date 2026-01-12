@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `same_path_plan.py`, `df_executor.py` implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 
+### Performance
+- **Compute / hop**: Refactored hop traversal to precompute node predicate domains and unify direction handling; synthetic CPU benchmarks show modest median improvements with some regressions on undirected/range scenarios.
+
 ### Fixed
 - **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
 - **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
