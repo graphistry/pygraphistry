@@ -45,7 +45,7 @@ def filter_multihop_edges_by_endpoints(
     Returns:
         Filtered edges DataFrame
     """
-    if not src_col or not dst_col or not left_allowed or not right_allowed:
+    if not src_col or not dst_col or left_allowed is None or right_allowed is None or len(left_allowed) == 0 or len(right_allowed) == 0:
         return edges_df
 
     # Only max_hops needed here - min_hops is enforced at path level, not per-edge
@@ -170,9 +170,10 @@ def find_multihop_start_nodes(
     # Start with right_allowed as target destinations (hop 0 means "at the destination")
     # We trace backward to find nodes that can REACH these destinations
 
+    import pandas as pd
     frontier = df_cons(edge_pairs, {'__node__': list(right_allowed)})
     all_visited = frontier.copy()
-    visited_set: Set[Any] = set(right_allowed)  # Use set for anti-join (cudf doesn't support indicator=True)
+    visited_idx = pd.Index(right_allowed) if not isinstance(right_allowed, pd.Index) else right_allowed
     valid_starts_frames: List[DataFrameT] = []
 
     # Collect nodes at each hop distance FROM the destination
@@ -198,14 +199,14 @@ def find_multihop_start_nodes(
             valid_starts_frames.append(new_frontier[['__node__']])
 
         # Anti-join: filter out nodes already visited to avoid infinite loops
-        # Use set-based filtering (cudf doesn't support indicator=True)
+        # Use pd.Index-based filtering
         candidate_nodes = series_values(new_frontier['__node__'])
-        new_node_ids = candidate_nodes - visited_set
-        if not new_node_ids:
+        new_node_ids = candidate_nodes.difference(visited_idx)
+        if len(new_node_ids) == 0:
             break
 
         unvisited = df_cons(edge_pairs, {'__node__': list(new_node_ids)})
-        visited_set |= new_node_ids
+        visited_idx = visited_idx.union(new_node_ids)
 
         frontier = unvisited
         all_visited_new = concat_frames([all_visited, unvisited])
@@ -213,10 +214,10 @@ def find_multihop_start_nodes(
             break
         all_visited = all_visited_new
 
-    # Combine all valid starts and convert to set (caller expects set)
+    # Combine all valid starts and return as pd.Index
     if valid_starts_frames:
         valid_starts_df = concat_frames(valid_starts_frames)
         if valid_starts_df is not None:
             valid_starts_df = valid_starts_df.drop_duplicates()
             return series_values(valid_starts_df['__node__'])
-    return set()
+    return pd.Index([])

@@ -109,10 +109,10 @@ class EdgeSemantics:
             dst_col: Destination column name
 
         Returns:
-            Set of node IDs where traversal starts
+            pd.Index of node IDs where traversal starts
         """
         if self.is_undirected:
-            return series_values(edges_df[src_col]) | series_values(edges_df[dst_col])
+            return series_values(edges_df[src_col]).union(series_values(edges_df[dst_col]))
         elif self.is_reverse:
             return series_values(edges_df[dst_col])
         else:
