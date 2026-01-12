@@ -34,7 +34,7 @@ def apply_non_adjacent_where_post_prune(
         path_state: Current _PathState with allowed_nodes/allowed_edges
 
     Returns:
-        Updated path_state
+        Updated path_state (same object, mutated)
     """
     if not executor.inputs.where:
         return path_state
@@ -55,6 +55,14 @@ def apply_non_adjacent_where_post_prune(
 
     if not non_adjacent_clauses:
         return path_state
+
+    # Work on local copies (internal immutability pattern)
+    local_allowed_nodes: Dict[int, Set[Any]] = {
+        k: set(v) for k, v in path_state.allowed_nodes.items()
+    }
+    local_allowed_edges: Dict[int, Set[Any]] = {
+        k: set(v) for k, v in path_state.allowed_edges.items()
+    }
 
     node_indices = executor.meta.node_indices
     edge_indices = executor.meta.edge_indices
@@ -84,8 +92,8 @@ def apply_non_adjacent_where_post_prune(
             if start_node_idx < idx < end_node_idx
         ]
 
-        start_nodes = path_state.allowed_nodes.get(start_node_idx, set())
-        end_nodes = path_state.allowed_nodes.get(end_node_idx, set())
+        start_nodes = local_allowed_nodes.get(start_node_idx, set())
+        end_nodes = local_allowed_nodes.get(end_node_idx, set())
         if not start_nodes or not end_nodes:
             continue
 
@@ -133,7 +141,7 @@ def apply_non_adjacent_where_post_prune(
             if edges_df is None or len(state_df) == 0:
                 break
 
-            allowed_edges = path_state.allowed_edges.get(edge_idx, None)
+            allowed_edges = local_allowed_edges.get(edge_idx, None)
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
                 edges_df = edges_df[edges_df[edge_id_col].isin(list(allowed_edges))]
 
@@ -192,11 +200,11 @@ def apply_non_adjacent_where_post_prune(
         state_df = state_df[state_df['__current__'].isin(end_nodes)]
 
         if len(state_df) == 0:
-            # No valid paths found
-            if start_node_idx in path_state.allowed_nodes:
-                path_state.allowed_nodes[start_node_idx] = set()
-            if end_node_idx in path_state.allowed_nodes:
-                path_state.allowed_nodes[end_node_idx] = set()
+            # No valid paths found - update local copies
+            if start_node_idx in local_allowed_nodes:
+                local_allowed_nodes[start_node_idx] = set()
+            if end_node_idx in local_allowed_nodes:
+                local_allowed_nodes[end_node_idx] = set()
             continue
 
         # Join with start and end values to apply WHERE clause
@@ -214,17 +222,34 @@ def apply_non_adjacent_where_post_prune(
         valid_starts = series_values(valid_pairs['__start__'])
         valid_ends = series_values(valid_pairs['__current__'])
 
-        # Update allowed_nodes for start and end positions
-        if start_node_idx in path_state.allowed_nodes:
-            path_state.allowed_nodes[start_node_idx] &= valid_starts
-        if end_node_idx in path_state.allowed_nodes:
-            path_state.allowed_nodes[end_node_idx] &= valid_ends
+        # Update local allowed_nodes for start and end positions
+        if start_node_idx in local_allowed_nodes:
+            local_allowed_nodes[start_node_idx] &= valid_starts
+        if end_node_idx in local_allowed_nodes:
+            local_allowed_nodes[end_node_idx] &= valid_ends
+
+        # Sync local state to path_state before calling backward_propagate_constraints
+        # (it expects to read/write path_state)
+        path_state.allowed_nodes.clear()
+        path_state.allowed_nodes.update(local_allowed_nodes)
+        path_state.allowed_edges.clear()
+        path_state.allowed_edges.update(local_allowed_edges)
 
         # Re-propagate constraints backward from the filtered ends
         # to update intermediate nodes and edges
         executor.backward_propagate_constraints(
             path_state, start_node_idx, end_node_idx
         )
+
+        # Sync back from path_state to local (backward_propagate may have updated it)
+        local_allowed_nodes = {k: set(v) for k, v in path_state.allowed_nodes.items()}
+        local_allowed_edges = {k: set(v) for k, v in path_state.allowed_edges.items()}
+
+    # Final sync back to path_state
+    path_state.allowed_nodes.clear()
+    path_state.allowed_nodes.update(local_allowed_nodes)
+    path_state.allowed_edges.clear()
+    path_state.allowed_edges.update(local_allowed_edges)
 
     return path_state
 
@@ -240,7 +265,7 @@ def apply_edge_where_post_prune(
         path_state: Current _PathState with allowed_nodes/allowed_edges
 
     Returns:
-        Updated path_state
+        Updated path_state (same object, mutated)
     """
     if not executor.inputs.where:
         return path_state
@@ -263,7 +288,13 @@ def apply_edge_where_post_prune(
     node_indices = executor.meta.node_indices
     edge_indices = executor.meta.edge_indices
 
-    seed_nodes = path_state.allowed_nodes.get(node_indices[0], set())
+    # Work on local copies (internal immutability pattern)
+    local_allowed_nodes: Dict[int, Set[Any]] = {
+        k: set(v) for k, v in path_state.allowed_nodes.items()
+    }
+    pruned_edges: Dict[int, Any] = {}
+
+    seed_nodes = local_allowed_nodes.get(node_indices[0], set())
     if not seed_nodes:
         return path_state
 
@@ -325,7 +356,7 @@ def apply_edge_where_post_prune(
             )
             paths_df[f'n{right_node_idx}'] = paths_df[result_col]
 
-        right_allowed = path_state.allowed_nodes.get(right_node_idx, set())
+        right_allowed = local_allowed_nodes.get(right_node_idx, set())
         if right_allowed:
             paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(list(right_allowed))]
 
@@ -333,7 +364,10 @@ def apply_edge_where_post_prune(
 
     if len(paths_df) == 0:
         for idx in node_indices:
-            path_state.allowed_nodes[idx] = set()
+            local_allowed_nodes[idx] = set()
+        # Sync local state back to path_state
+        path_state.allowed_nodes.clear()
+        path_state.allowed_nodes.update(local_allowed_nodes)
         return path_state
 
     nodes_df = executor.inputs.graph._nodes
@@ -384,13 +418,13 @@ def apply_edge_where_post_prune(
     # Filter paths
     valid_paths = paths_df[mask]
 
-    # Update allowed nodes based on valid paths
+    # Update local allowed nodes based on valid paths
     for node_idx in node_indices:
         col_name = f'n{node_idx}'
         if col_name in valid_paths.columns:
             valid_node_ids = series_values(valid_paths[col_name])
-            current = path_state.allowed_nodes.get(node_idx, set())
-            path_state.allowed_nodes[node_idx] = current & valid_node_ids if current else valid_node_ids
+            current = local_allowed_nodes.get(node_idx, set())
+            local_allowed_nodes[node_idx] = current & valid_node_ids if current else valid_node_ids
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]
@@ -425,6 +459,15 @@ def apply_edge_where_post_prune(
                         valid_pairs.rename(columns={left_col: start_endpoint, right_col: end_endpoint}),
                         on=[src_col, dst_col], how='inner'
                     )
-                executor.forward_steps[edge_idx]._edges = edges_df
+                # Track pruned edges (don't mutate forward_steps yet)
+                pruned_edges[edge_idx] = edges_df
+
+    # Sync local state back to path_state (maintains old API)
+    path_state.allowed_nodes.clear()
+    path_state.allowed_nodes.update(local_allowed_nodes)
+
+    # Sync pruned edges to forward_steps (maintains old behavior)
+    for edge_idx, df in pruned_edges.items():
+        executor.forward_steps[edge_idx]._edges = df
 
     return path_state
