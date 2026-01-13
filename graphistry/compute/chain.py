@@ -567,7 +567,8 @@ def _handle_boundary_calls(
     engine: Union[EngineAbstract, str],
     validate_schema: bool,
     policy,
-    context
+    context,
+    start_nodes: Optional[DataFrameT]
 ) -> Optional[Plottable]:
     """
     Handle boundary call() patterns by splitting and executing sequentially.
@@ -618,20 +619,49 @@ def _handle_boundary_calls(
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
-        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(
+            prefix,
+            engine=engine,
+            validate_schema=validate_schema,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes
+        )  # type: ignore[call-arg]
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
-        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(
+            middle,
+            engine=engine,
+            validate_schema=validate_schema,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes
+        )  # type: ignore[call-arg]
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = g_temp.chain(
+            suffix,
+            engine=engine,
+            validate_schema=validate_schema,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes
+        )  # type: ignore[call-arg]
 
     return g_temp
 
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
+def chain(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    validate_schema: bool = True,
+    policy=None,
+    context=None,
+    start_nodes: Optional[DataFrameT] = None
+) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -646,6 +676,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     :param validate_schema: Whether to validate the chain against the graph schema before executing
     :param policy: Optional policy dict for hooks
     :param context: Optional ExecutionContext for tracking execution state
+    :param start_nodes: Optional node wavefront for the first traversal step
 
     :returns: Plotter
     :rtype: Plotter
@@ -661,14 +692,22 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
-            return _chain_impl(self, ops, engine, validate_schema, policy, context)
+            return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
         finally:
             call_thread_local.policy = old_policy
     else:
-        return _chain_impl(self, ops, engine, validate_schema, policy, context)
+        return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
-def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy, context) -> Plottable:
+def _chain_impl(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy,
+    context,
+    start_nodes: Optional[DataFrameT]
+) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
 
@@ -830,7 +869,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     # Handle boundary call() patterns: [call(), ..., call()]
     # Allows call() at start/end for convenience, rejects interior mixing
-    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context)
+    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context, start_nodes)
     if boundary_result is not None:
         return boundary_result
 
@@ -920,7 +959,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 # Wavefronts track which nodes are "active" at each step
                 current_g = g
                 prev_step_nodes = (
-                    None  # first uses full graph
+                    start_nodes  # first uses provided wavefront or full graph
                     if len(g_stack) == 0
                     else g_stack[-1]._nodes
                 )

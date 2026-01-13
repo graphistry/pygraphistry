@@ -423,12 +423,8 @@ class TestProblematicColumnNames(NoAuthTestCase):
             result_bw = g.chain([n({col_name: between(15, 45)}), e_forward(), n()])
             assert result_bw._nodes.shape[0] >= 1, f"between() failed on '{col_name}'"
 
-    @pytest.mark.skip(reason="let/ref returns empty result - needs investigation")
     def test_let_ref_with_problematic_columns(self):
-        """Test let/ref DAG operations with problematic column names
-
-        TODO: Returns empty result - may need different query structure or data
-        """
+        """Test let/ref DAG operations with problematic column names."""
         from graphistry.compute.ast import let, ref
 
         for col_name in ['id', 'index', 'node']:
