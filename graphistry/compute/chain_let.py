@@ -255,7 +255,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
             has_edge = any(isinstance(op, ASTEdge) for op in ast_obj.chain)
-            if has_edge and referenced_result._edges is None:
+            if has_edge:
                 original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
                 chain_result = chain_impl(
                     original_g,

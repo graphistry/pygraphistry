@@ -213,25 +213,33 @@ class TestEnrichmentChains:
     def test_enrichment_degree_then_filter(self, enrichment_graph):
         """Pattern: [call('get_indegrees'), n({'deg_in': {...}})]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791) or fail due to missing columns.
+        Validates: Boundary call chaining enriches columns for downstream filters.
         """
-        with pytest.raises((GFQLValidationError, AssertionError, KeyError)):
-            enrichment_graph.gfql([
-                ASTCall('get_indegrees', {'col': 'deg_in'}),
-                n({'deg_in': GE(2)})
-            ])
+        result = enrichment_graph.gfql([
+            ASTCall('get_indegrees', {'col': 'deg_in'}),
+            n({'deg_in': GE(2)})
+        ])
+        assert result._nodes is not None
+        assert 'deg_in' in result._nodes.columns
+        if not result._nodes.empty:
+            assert (result._nodes['deg_in'] >= 2).all()
 
     def test_enrichment_multiple_degrees(self, enrichment_graph):
         """Pattern: [call('get_indegrees'), call('get_outdegrees'), n({filter both})]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791) or fail due to missing columns.
+        Validates: Enrichment columns persist across multiple calls.
         """
-        with pytest.raises((GFQLValidationError, AssertionError, KeyError)):
-            enrichment_graph.gfql([
-                ASTCall('get_indegrees', {'col': 'deg_in'}),
-                ASTCall('get_outdegrees', {'col': 'deg_out'}),
-                n({'deg_in': GE(1), 'deg_out': GE(1)})
-            ])
+        result = enrichment_graph.gfql([
+            ASTCall('get_indegrees', {'col': 'deg_in'}),
+            ASTCall('get_outdegrees', {'col': 'deg_out'}),
+            n({'deg_in': GE(1), 'deg_out': GE(1)})
+        ])
+        assert result._nodes is not None
+        assert 'deg_in' in result._nodes.columns
+        assert 'deg_out' in result._nodes.columns
+        if not result._nodes.empty:
+            assert (result._nodes['deg_in'] >= 1).all()
+            assert (result._nodes['deg_out'] >= 1).all()
 
     def test_enrichment_filter_enrichment_filter(self, enrichment_graph):
         """Pattern: [n({filter1}), call(enrich), call(filter2), n()]
@@ -263,15 +271,17 @@ class TestEnrichmentChains:
     def test_enrichment_before_traversal(self, enrichment_graph):
         """Pattern: [call('get_outdegrees'), n({'deg_out': {...}}), e(), n()]
 
-        Validates: Mixed chains now raise GFQLValidationError (#791) or fail due to missing columns.
+        Validates: Boundary call chaining supports traversal after enrichment.
         """
-        with pytest.raises((GFQLValidationError, AssertionError, KeyError)):
-            enrichment_graph.gfql([
-                ASTCall('get_outdegrees', {'col': 'deg_out'}),
-                n({'deg_out': GE(2)}),
-                e_forward(),
-                n()
-            ])
+        result = enrichment_graph.gfql([
+            ASTCall('get_outdegrees', {'col': 'deg_out'}),
+            n({'deg_out': GE(2)}),
+            e_forward(),
+            n()
+        ])
+        assert result._nodes is not None
+        assert 'deg_out' in result._nodes.columns
+        assert result._nodes.shape[0] >= 1
 
     def test_enrichment_with_node_filter_interaction(self, enrichment_graph):
         """Pattern: [n({'type': 'person'}), call('get_degrees'), n({'degree': {...}})]

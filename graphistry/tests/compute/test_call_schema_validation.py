@@ -82,11 +82,9 @@ class TestCallSchemaValidation:
             ASTCall('filter_nodes_by_dict', {'filter_dict': {'degree': 2}})
         ])
         
-        # The second filter expects 'degree' column which doesn't exist yet
-        # But schema validation is static and doesn't track added columns
         errors = validate_chain_schema(sample_graph, chain, collect_all=True)
-        # Should have error for missing 'degree' column
-        assert any('degree' in str(e) for e in errors)
+        # Schema validation tracks added columns from call schema effects
+        assert len(errors) == 0
     
     def test_method_without_schema_effects(self, sample_graph):
         """Test that methods without schema effects don't cause errors."""
