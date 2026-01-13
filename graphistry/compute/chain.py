@@ -624,36 +624,39 @@ def _handle_boundary_calls(
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
-        g_temp = g_temp.chain(
+        g_temp = _chain_impl(
+            g_temp,
             prefix,
-            engine=engine,
-            validate_schema=validate_schema,
-            policy=policy,
-            context=context,
-            start_nodes=start_nodes
-        )  # type: ignore[call-arg]
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
-        g_temp = g_temp.chain(
+        g_temp = _chain_impl(
+            g_temp,
             middle,
-            engine=engine,
-            validate_schema=validate_schema,
-            policy=policy,
-            context=context,
-            start_nodes=start_nodes
-        )  # type: ignore[call-arg]
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        g_temp = g_temp.chain(
+        g_temp = _chain_impl(
+            g_temp,
             suffix,
-            engine=engine,
-            validate_schema=validate_schema,
-            policy=policy,
-            context=context,
-            start_nodes=start_nodes
-        )  # type: ignore[call-arg]
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     return g_temp
 
