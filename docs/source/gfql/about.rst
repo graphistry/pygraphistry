@@ -440,17 +440,18 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
 
 ::
 
-    from graphistry import let, ref, call, Chain
+    from graphistry import let, ref, call, n, e_forward, e, gt
 
     result = g.gfql(let({
         # Stage 1: Find suspicious accounts
-        'suspicious_accounts': [n({'risk_score': gt(80), 'created_recent': True})],
+        'suspicious_accounts': n({'risk_score': gt(80), 'created_recent': True}),
 
         # Stage 2: Trace money flows from suspicious accounts
-        'money_flows': ref('suspicious_accounts', [
+        'money_flows': [
+            n({'risk_score': gt(80), 'created_recent': True}),
             e_forward({'type': 'transfer', 'amount': gt(10000)}, hops=3),
             n()
-        ]),
+        ],
 
         # Stage 3: Compute PageRank to find central nodes
         'ranked': ref('money_flows', [

@@ -181,16 +181,17 @@ GFQL Let approach (declarative DAG with named bindings):
 
 .. code-block:: python
 
-    from graphistry import let, ref, Chain
+    from graphistry import let, ref, n, e_forward, ge
 
     # GFQL Let: Define a DAG of named operations
     result = g.gfql(let({
-        'persons': [n({'type': 'person'})],
+        'persons': n({'type': 'person'}),
         'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
-        'connections': ref('adults', [
+        'connections': [
+            n({'type': 'person', 'age': ge(18)}),
             e_forward({'type': 'knows'}),
             n()  # Find connections from adults
-        ])
+        ]
     }))
 
     # Access any named result from the DAG

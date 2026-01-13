@@ -254,25 +254,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            has_edge = any(isinstance(op, ASTEdge) for op in ast_obj.chain)
-            if has_edge:
-                original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-                chain_result = chain_impl(
-                    original_g,
-                    ast_obj.chain,
-                    EngineAbstract(engine.value),
-                    policy=policy,
-                    context=context,
-                    start_nodes=referenced_result._nodes
-                )
-            else:
-                chain_result = chain_impl(
-                    referenced_result,
-                    ast_obj.chain,
-                    EngineAbstract(engine.value),
-                    policy=policy,
-                    context=context
-                )
+            chain_result = chain_impl(
+                referenced_result,
+                ast_obj.chain,
+                EngineAbstract(engine.value),
+                policy=policy,
+                context=context
+            )
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:
