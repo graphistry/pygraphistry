@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import logging
-from typing import List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import List, Optional, Tuple, TYPE_CHECKING, Union, Any
 import pandas as pd
 
 from graphistry.Engine import (
@@ -99,22 +99,32 @@ def hop(self: Plottable,
         DataFrameT = df_cons(engine_concrete)
     concat = df_concat(engine_concrete)
 
-    def _domain_unique(series):
+    def _domain_unique(series: Any):
         if engine_concrete == Engine.PANDAS:
             return pd.Index(series.dropna().unique())
         return series.dropna().unique()
 
-    def _domain_is_empty(domain) -> bool:
+    def _domain_is_empty(domain: Any) -> bool:
         return domain is None or len(domain) == 0
 
-    def _domain_union(left, right):
+    def _domain_diff(candidates: Any, visited: Any):
+        if _domain_is_empty(candidates) or _domain_is_empty(visited):
+            return candidates
+        return candidates[~candidates.isin(visited)]
+
+    def _domain_intersect(left: Any, right: Any):
+        if _domain_is_empty(left) or _domain_is_empty(right):
+            return left[:0] if left is not None else right
+        return left[left.isin(right)]
+
+    def _domain_union(left: Any, right: Any):
         if _domain_is_empty(left):
             return right
         if _domain_is_empty(right):
             return left
         if engine_concrete == Engine.PANDAS and isinstance(left, pd.Index):
             return left.append(right)
-        return concat([left, right], ignore_index=True, sort=False).drop_duplicates()
+        return concat([left, right], ignore_index=True)
     
     nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
     target_wave_front = df_to_engine(target_wave_front, engine_concrete) if target_wave_front is not None else None
@@ -375,11 +385,86 @@ def hop(self: Plottable,
         logger.debug('edges_indexed:\n%s', edges_indexed)
         logger.debug('=====================')
 
+    fast_path_enabled = (
+        not track_hops
+        and target_wave_front is None
+        and allowed_source_ids is None
+        and allowed_dest_ids is None
+    )
+
     first_iter = True
     combined_node_ids = None
     current_hop = 0
     max_reached_hop = 0
-    while True:
+    skip_full_loop = False
+    if fast_path_enabled:
+        frontier_ids = _domain_unique(starting_nodes[g2._node])
+        visited_node_ids = None
+        visited_edge_ids = None
+        while True:
+            if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
+                break
+            if _domain_is_empty(frontier_ids):
+                break
+
+            current_hop += 1
+
+            if use_undirected_single_pass:
+                mask_src = edges_indexed[g2._source].isin(frontier_ids)
+                mask_dst = edges_indexed[g2._destination].isin(frontier_ids)
+                hop_edges = edges_indexed[mask_src | mask_dst]
+                cand_nodes = _domain_unique(
+                    concat(
+                        [
+                            hop_edges[g2._source],
+                            hop_edges[g2._destination],
+                        ],
+                        ignore_index=True,
+                        sort=False,
+                    )
+                )
+                seed_ids = None
+                if visited_node_ids is None and not return_as_wave_front:
+                    seed_ids = _domain_intersect(cand_nodes, frontier_ids)
+            else:
+                hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
+                cand_nodes = _domain_unique(hop_edges[TO_COL])
+                seed_ids = None
+                if visited_node_ids is None and not return_as_wave_front:
+                    seed_ids = _domain_unique(hop_edges[FROM_COL])
+
+            cand_edges = _domain_unique(hop_edges[EDGE_ID])
+
+            if len(cand_nodes) > 0:
+                max_reached_hop = current_hop
+
+            if visited_node_ids is None and not return_as_wave_front:
+                visited_node_ids = seed_ids
+
+            new_frontier = _domain_diff(cand_nodes, visited_node_ids)
+            if not _domain_is_empty(new_frontier):
+                visited_node_ids = _domain_union(visited_node_ids, new_frontier)
+            frontier_ids = new_frontier
+
+            new_edges = _domain_diff(cand_edges, visited_edge_ids)
+            if not _domain_is_empty(new_edges):
+                visited_edge_ids = _domain_union(visited_edge_ids, new_edges)
+
+            if _domain_is_empty(frontier_ids):
+                break
+
+        if _domain_is_empty(visited_node_ids):
+            matches_nodes = starting_nodes[[g2._node]][:0]
+        else:
+            matches_nodes = DataFrameT({g2._node: visited_node_ids})
+        if _domain_is_empty(visited_edge_ids):
+            matches_edges = edges_indexed[[EDGE_ID]][:0]
+        else:
+            matches_edges = DataFrameT({EDGE_ID: visited_edge_ids})
+
+        skip_full_loop = True
+
+    while True and not skip_full_loop:
 
         if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
             break
