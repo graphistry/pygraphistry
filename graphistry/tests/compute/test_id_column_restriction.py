@@ -650,14 +650,28 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             assert result._edges.shape[0] == 1, f"filter_edges_by_dict failed for '{col_name}'"
             assert col_name in result._edges.columns
 
-    @pytest.mark.skip(reason="collapse() has complex API - needs topology-aware traversal setup")
     def test_call_collapse_with_problematic_columns(self):
-        """Test collapse operation with problematic columns
+        """Test collapse operation with problematic columns."""
+        for col_name in ['id', 'index', 'node']:
+            nodes_df = pd.DataFrame({
+                col_name: ['a', 'b', 'c'],
+                'type': ['A', 'A', 'B']
+            })
+            edges_df = pd.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+            g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
-        TODO: collapse(node, attribute, column) requires topology-aware setup
-        Skipping for now - less critical than other operations
-        """
-        pass
+            result = g.collapse(
+                node='a',
+                attribute='A',
+                column='type',
+                self_edges=False,
+                unwrap=True,
+                verbose=False
+            )
+
+            assert col_name in result._nodes.columns, f"collapse() failed for '{col_name}'"
+            assert result._node is not None
+            assert result._nodes.shape[0] >= 1
 
     def test_call_drop_nodes_with_problematic_columns(self):
         """Test drop_nodes with problematic columns"""
