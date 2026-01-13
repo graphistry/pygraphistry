@@ -430,6 +430,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
         TODO: Returns empty result - may need different query structure or data
         """
         from graphistry.compute.ast import let, ref
+        from graphistry.compute.chain import Chain
 
         for col_name in ['id', 'index', 'node']:
             nodes_df = pd.DataFrame({col_name: [1, 2, 3, 4], 'type': ['A', 'B', 'A', 'B']})
@@ -437,8 +438,8 @@ class TestProblematicColumnNames(NoAuthTestCase):
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
             query = let({
-                'start': n({'type': 'A'}),
-                'neighbors': ref('start', [e_forward(), n()])
+                'start': Chain([e_forward()]),
+                'neighbors': ref('start', [e_forward(), n({'type': 'A'})])
             })
 
             result = g.gfql(query, output='neighbors')

@@ -29,7 +29,7 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
         'persons': n({'type': 'person'}),
         'with_degrees': ref('persons', [call('get_degrees', {'col': 'degree'})]),
         'high_degree': ref('with_degrees', [n({'degree': gt(10)})]),
-        'connected': ref('high_degree', [e_forward(), n()])
+        'connected': ref('with_degrees', [n({'degree': gt(10)}), e_forward(), n()])
     }))
 
 All Call operations:

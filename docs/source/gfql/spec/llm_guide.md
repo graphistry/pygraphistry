@@ -39,7 +39,7 @@
 
 ## Quick Example: Fraud Detection
 
-**Dense:** `let({'suspicious': n({'risk_score': gt(80)}), 'flows': ref('suspicious', [e_forward(min_hops=1, max_hops=3), n()]), 'ranked': ref('flows', [call('compute_cugraph', {'alg': 'pagerank'})]), 'viz': ref('ranked', [call('encode_point_color', {...}), call('encode_point_icon', {...})])})`
+**Dense:** `let({'suspicious': n({'risk_score': gt(80)}), 'flows': [n({'risk_score': gt(80)}), e_forward(min_hops=1, max_hops=3), n()], 'ranked': ref('flows', [call('compute_cugraph', {'alg': 'pagerank'})]), 'viz': ref('ranked', [call('encode_point_color', {...}), call('encode_point_icon', {...})])})`
 
 **JSON:**
 ```json
@@ -51,9 +51,9 @@
       "chain": [{"type": "Node", "filter_dict": {"risk_score": {"type": "GT", "val": 80}}}]
     },
     "flows": {
-      "type": "ChainRef",
-      "ref": "suspicious",
+      "type": "Chain",
       "chain": [
+        {"type": "Node", "filter_dict": {"risk_score": {"type": "GT", "val": 80}}},
         {"type": "Edge", "direction": "forward", "min_hops": 1, "max_hops": 3, "to_fixed_point": false,
          "edge_match": {"amount": {"type": "GT", "val": 10000}}},
         {"type": "Node", "filter_dict": {}}
