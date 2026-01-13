@@ -37,7 +37,7 @@ class TestP0IndexConflict:
         from graphistry.compute.ast import n, e_forward
 
         # Chain with edges to actually get edges in the result
-        result = g.chain([n({'type': 'x'}), e_forward()])
+        result = g.gfql([n({'type': 'x'}), e_forward()])
 
         # User's 'index' column should be preserved in the result
         assert 'index' in result._edges.columns
@@ -83,7 +83,7 @@ class TestP0IndexConflict:
         # This should work because g._edge is set
         from graphistry.compute.ast import n, e_forward
         # Need edges in the chain to actually get edges in the result
-        result = g.chain([n(), e_forward()])
+        result = g.gfql([n(), e_forward()])
 
         # User's 'index' column should be preserved
         assert 'index' in result._edges.columns
@@ -107,7 +107,7 @@ class TestP0IndexConflict:
         # Should work by auto-incrementing to __gfql_edge_index_1__
         from graphistry.compute.ast import n, e_forward
 
-        result = g.chain([n({'type': 'x'}), e_forward()])
+        result = g.gfql([n({'type': 'x'}), e_forward()])
 
         # Both user columns should be preserved
         assert 'index' in result._edges.columns
