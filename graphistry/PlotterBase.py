@@ -1827,7 +1827,8 @@ class PlotterBase(Plottable):
     def settings(self, height=None, url_params={}, render=None):
         """Specify iframe height and add URL parameter dictionary.
 
-        The library takes care of URI component encoding for the dictionary.
+        Collections URL params are normalized and URL-encoded at plot time; other
+        params should already be URL-safe.
 
         :param height: Height in pixels.
         :type height: int
@@ -1853,18 +1854,16 @@ class PlotterBase(Plottable):
         show_collections: Optional[bool] = None,
         collections_global_node_color: Optional[str] = None,
         collections_global_edge_color: Optional[str] = None,
-        encode: bool = True,
         validate: ValidationParam = 'autofix',
         warn: bool = True
     ) -> 'Plottable':
         """Set collections URL parameters. Additive over previous settings.
 
-        :param collections: List/dict of collections or JSON/URL-encoded JSON string.
+        :param collections: List/dict of collections or JSON/URL-encoded JSON string (stored as URL-encoded JSON).
         :param show_collections: Toggle collections panel display.
         :param collections_global_node_color: Hex color for non-collection nodes (leading # stripped).
         :param collections_global_edge_color: Hex color for non-collection edges (leading # stripped).
-        :param encode: If True, JSON-minify and URL-encode collections. Use False for pre-encoded strings.
-        :param validate: Validation mode. 'autofix' (default) warns on issues, 'strict' raises on issues.
+        :param validate: Validation mode. 'autofix' (default) drops invalid collections and color fields with warnings, 'strict' raises on issues.
         :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
         """
         from graphistry.validate.validate_collections import (
@@ -1878,10 +1877,7 @@ class PlotterBase(Plottable):
         settings: Dict[str, Any] = {}
         if collections is not None:
             normalized = normalize_collections(collections, validate=validate_mode, warn=warn)
-            if isinstance(collections, str) and not encode:
-                settings['collections'] = collections
-            else:
-                settings['collections'] = encode_collections(normalized, encode=encode)
+            settings['collections'] = encode_collections(normalized)
         extras: Dict[str, Any] = {}
         if show_collections is not None:
             extras['showCollections'] = show_collections

@@ -6,7 +6,7 @@ from graphistry.client_session import strtobool
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
-_ALLOWED_COLLECTION_FIELDS = {
+_ALLOWED_COLLECTION_FIELDS_ORDER = (
     'type',
     'id',
     'name',
@@ -14,7 +14,8 @@ _ALLOWED_COLLECTION_FIELDS = {
     'node_color',
     'edge_color',
     'expr',
-}
+)
+_ALLOWED_COLLECTION_FIELDS_SET = set(_ALLOWED_COLLECTION_FIELDS_ORDER)
 
 
 def normalize_validation_params(
@@ -106,6 +107,27 @@ def _coerce_str_field(
         entry[key] = str(entry[key])
 
 
+def _normalize_color_field(
+    entry: Dict[str, Any],
+    key: str,
+    validate_mode: ValidationMode,
+    warn: bool,
+    entry_index: int
+) -> None:
+    if key not in entry or entry[key] is None:
+        return
+    if isinstance(entry[key], str):
+        return
+    _issue(
+        f'Collection field "{key}" should be a string',
+        {'index': entry_index, 'value': entry[key], 'type': type(entry[key]).__name__},
+        validate_mode,
+        warn
+    )
+    if validate_mode == 'autofix':
+        entry.pop(key, None)
+
+
 def _normalize_sets_list(
     sets_value: Any,
     validate_mode: ValidationMode,
@@ -184,8 +206,6 @@ def _normalize_gfql_ops(
             for op in raw:
                 normalized_op = _normalize_op(op)
                 if normalized_op is None:
-                    if validate_mode == 'autofix':
-                        continue
                     return None
                 normalized_ops.append(normalized_op)
             if len(normalized_ops) == 0:
@@ -300,7 +320,7 @@ def normalize_collections(
                 continue
             return []
 
-        unexpected_fields = [key for key in entry.keys() if key not in _ALLOWED_COLLECTION_FIELDS]
+        unexpected_fields = [key for key in entry.keys() if key not in _ALLOWED_COLLECTION_FIELDS_SET]
         if unexpected_fields:
             _issue(
                 'Unexpected fields in collection',
@@ -309,7 +329,7 @@ def normalize_collections(
                 warn
             )
 
-        normalized_entry = {key: entry[key] for key in _ALLOWED_COLLECTION_FIELDS if key in entry}
+        normalized_entry = {key: entry[key] for key in _ALLOWED_COLLECTION_FIELDS_ORDER if key in entry}
         collection_type = normalized_entry.get('type', 'set')
         if not isinstance(collection_type, str):
             _issue(
@@ -337,7 +357,10 @@ def normalize_collections(
             return []
 
         for field in ('id', 'name', 'description', 'node_color', 'edge_color'):
-            _coerce_str_field(normalized_entry, field, validate_mode, warn, idx)
+            if field in ('node_color', 'edge_color'):
+                _normalize_color_field(normalized_entry, field, validate_mode, warn, idx)
+            else:
+                _coerce_str_field(normalized_entry, field, validate_mode, warn, idx)
 
         expr = normalized_entry.get('expr')
         if collection_type == 'intersection':
