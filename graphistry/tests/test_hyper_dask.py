@@ -828,7 +828,6 @@ class TestHypergraphCudf(NoAuthTestCase):
         assert len(hg.graph._nodes) == 7
         assert len(hg.graph._edges) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_direct(self):
         import cudf
 
@@ -1816,7 +1815,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     logger.error("actual: %s", getattr(h, k).compute())
                     self.assertEqual(len(getattr(h, k).compute()), v)
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_hyper(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1833,7 +1831,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_nan_hyper(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1850,7 +1847,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_direct(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1869,7 +1865,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_nan_direct(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1888,7 +1883,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_skip_na_hyperedge(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1914,7 +1908,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 ).edges
                 self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_skip_nan_hyperedge(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -2038,7 +2031,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 nodes_arr = nodes_gdf.to_arrow()
                 assert len(nodes_arr) == HONEYPOT_NODES
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_hyper_to_pa_na(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -2060,7 +2052,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._edges) == 6
                 assert len(edges_err) == 6
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_hyper_to_pa_nan(self):
         cluster, client = make_cluster_client()
         with cluster:
