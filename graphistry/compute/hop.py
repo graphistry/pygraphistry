@@ -4,6 +4,7 @@ Graph hop/traversal operations for PyGraphistry
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import logging
+import os
 from typing import List, Optional, Tuple, TYPE_CHECKING, Union, Any
 import pandas as pd
 
@@ -391,6 +392,10 @@ def hop(self: Plottable,
         and allowed_source_ids is None
         and allowed_dest_ids is None
     )
+    fast_path_override = os.environ.get("GRAPHISTRY_HOP_FAST_PATH", "").strip().lower()
+    if fast_path_override in {"0", "false", "off", "no"}:
+        # Allow disabling fast path for benchmarking/compat checks.
+        fast_path_enabled = False
 
     first_iter = True
     combined_node_ids = None
@@ -416,8 +421,8 @@ def hop(self: Plottable,
                 cand_nodes = _domain_unique(
                     concat(
                         [
-                            hop_edges[g2._source],
-                            hop_edges[g2._destination],
+                            edges_indexed.loc[mask_src, g2._destination],
+                            edges_indexed.loc[mask_dst, g2._source],
                         ],
                         ignore_index=True,
                         sort=False,
@@ -425,7 +430,19 @@ def hop(self: Plottable,
                 )
                 seed_ids = None
                 if visited_node_ids is None and not return_as_wave_front:
-                    seed_ids = _domain_intersect(cand_nodes, frontier_ids)
+                    seed_ids = _domain_intersect(
+                        _domain_unique(
+                            concat(
+                                [
+                                    hop_edges[g2._source],
+                                    hop_edges[g2._destination],
+                                ],
+                                ignore_index=True,
+                                sort=False,
+                            )
+                        ),
+                        frontier_ids,
+                    )
             else:
                 hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
                 cand_nodes = _domain_unique(hop_edges[TO_COL])
@@ -513,8 +530,12 @@ def hop(self: Plottable,
         if use_undirected_single_pass:
             new_node_ids = concat(
                 [
-                    hop_edges[[g2._source]].rename(columns={g2._source: g2._node}),
-                    hop_edges[[g2._destination]].rename(columns={g2._destination: g2._node}),
+                    edges_indexed.loc[mask_src, [g2._destination]].rename(
+                        columns={g2._destination: g2._node}
+                    ),
+                    edges_indexed.loc[mask_dst, [g2._source]].rename(
+                        columns={g2._source: g2._node}
+                    ),
                 ],
                 ignore_index=True,
                 sort=False,
