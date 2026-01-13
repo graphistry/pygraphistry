@@ -3,6 +3,8 @@
 Layout Settings & Visualization Embedding
 =========================================
 
+.. CI: trigger docs build
+
 This guide shows how to embed and configure Graphistry visualizations using the PyGraphistry Python API. For users interested in using URL parameters for embedding in HTML, refer to the external documentation.
 
 Using PyGraphistry for Customization
