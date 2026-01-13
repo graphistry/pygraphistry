@@ -1297,3 +1297,4 @@ class TestChainDagInternal:
         error_msg = str(exc_info.value)
         assert "Output binding 'missing' not found" in error_msg
         assert "Available bindings: ['node1']" in error_msg
+# CI: no functional change
