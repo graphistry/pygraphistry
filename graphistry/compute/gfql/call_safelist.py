@@ -186,7 +186,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'degree_out': is_string,
             'engine': is_string
         },
-        'description': 'Calculate node degrees'
+        'description': 'Calculate node degrees',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [
+                p.get('col', 'degree'),
+                p.get('degree_in', 'degree_in'),
+                p.get('degree_out', 'degree_out')
+            ],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'filter_nodes_by_dict': {
@@ -195,7 +205,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'filter_dict': is_dict
         },
-        'description': 'Filter nodes by attribute values'
+        'description': 'Filter nodes by attribute values',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': lambda p: list((p.get('filter_dict') or {}).keys()),
+            'requires_edge_cols': []
+        }
     },
     
     'filter_edges_by_dict': {
@@ -204,7 +220,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'filter_dict': is_dict
         },
-        'description': 'Filter edges by attribute values'
+        'description': 'Filter edges by attribute values',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': lambda p: list((p.get('filter_dict') or {}).keys())
+        }
     },
     
     'materialize_nodes': {
