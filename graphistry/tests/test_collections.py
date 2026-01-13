@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 
 import graphistry
 from graphistry.collections import collection_intersection, collection_set
@@ -92,11 +92,17 @@ def test_collections_accepts_chain_and_preserves_dataset_id():
     assert g2._dataset_id == "dataset_123"
 
 
-def test_collections_encode_false_keeps_string():
+def test_collections_string_input_is_encoded():
     raw = '[{"type":"intersection","expr":{"type":"intersection","sets":["a"]}}]'
-    encoded = quote(raw, safe="")
-    url_params = collections_url_params(encoded, encode=False)
-    assert url_params["collections"] == encoded
+    url_params = collections_url_params(raw)
+    assert url_params["collections"].startswith("%5B")
+    decoded = decode_collections(url_params["collections"])
+    assert decoded == [
+        {
+            "type": "intersection",
+            "expr": {"type": "intersection", "sets": ["a"]},
+        }
+    ]
 
 
 def test_collections_accepts_wire_protocol_chain():
@@ -162,6 +168,35 @@ def test_collections_validation_strict_raises():
     bad_collections = [{"type": "set", "expr": [{"filter_dict": {"a": 1}}]}]
     with pytest.raises(ValueError):
         graphistry.bind().collections(collections=bad_collections, validate="strict")
+
+
+def test_collections_autofix_drops_invalid_colors():
+    collections = [
+        {
+            "type": "set",
+            "expr": [graphistry.n({"vip": True})],
+            "node_color": 123,
+            "edge_color": {"bad": True},
+        }
+    ]
+    with pytest.warns(RuntimeWarning):
+        url_params = collections_url_params(collections, validate="autofix", warn=True)
+    decoded = decode_collections(url_params["collections"])
+    assert "node_color" not in decoded[0]
+    assert "edge_color" not in decoded[0]
+
+
+def test_collections_autofix_drops_invalid_gfql_ops():
+    collections = [
+        {
+            "type": "set",
+            "expr": [graphistry.n({"vip": True}), {"filter_dict": {"a": 1}}],
+        }
+    ]
+    with pytest.warns(RuntimeWarning):
+        url_params = collections_url_params(collections, validate="autofix", warn=True)
+    decoded = decode_collections(url_params["collections"])
+    assert decoded == []
 
 
 def test_plot_url_param_validation_autofix_warns():

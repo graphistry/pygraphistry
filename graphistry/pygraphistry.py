@@ -2384,7 +2384,6 @@ class GraphistryClient(AuthManagerProtocol):
         show_collections: Optional[bool] = None,
         collections_global_node_color: Optional[str] = None,
         collections_global_edge_color: Optional[str] = None,
-        encode: bool = True,
         validate: ValidationParam = 'autofix',
         warn: bool = True
     ):
@@ -2393,7 +2392,6 @@ class GraphistryClient(AuthManagerProtocol):
             show_collections=show_collections,
             collections_global_node_color=collections_global_node_color,
             collections_global_edge_color=collections_global_edge_color,
-            encode=encode,
             validate=validate,
             warn=warn
         )
