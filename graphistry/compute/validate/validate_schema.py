@@ -3,7 +3,7 @@
 from typing import List, Optional, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -60,8 +60,10 @@ def validate_chain_schema(
             op_errors = _validate_node_op(op, node_columns, g._nodes, collect_all)
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
+        elif isinstance(op, ASTCall):
+            op_errors = _validate_call_op(op, node_columns, edge_columns, collect_all)
         else:
-            # For new AST types (ASTLet, ASTRef, ASTCall, ASTRemoteGraph),
+            # For new AST types (ASTLet, ASTRef, ASTRemoteGraph),
             # they have their own _validate_fields() methods called during construction
             # Schema validation at this level is not applicable since they don't directly
             # filter on dataframe columns like ASTNode/ASTEdge do
@@ -205,6 +207,66 @@ def _validate_filter_dict(
         except GFQLSchemaError:
             if not collect_all:
                 raise
+
+    return errors
+
+
+def _validate_call_op(
+    op: ASTCall,
+    node_columns: set,
+    edge_columns: set,
+    collect_all: bool = False
+) -> List[GFQLSchemaError]:
+    """Validate Call operation schema requirements.
+
+    Checks that all columns required by the called method exist in the graph.
+    Uses the schema_effects metadata from the safelist to determine requirements.
+    """
+    errors: List[GFQLSchemaError] = []
+
+    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+
+    if op.function not in SAFELIST_V1:
+        return errors
+
+    method_info = SAFELIST_V1[op.function]
+    schema_effects = method_info.get('schema_effects')
+    if not schema_effects:
+        return errors
+
+    required_node_cols = schema_effects.get('requires_node_cols')
+    if required_node_cols is not None:
+        cols = required_node_cols(op.params) if callable(required_node_cols) else required_node_cols
+        for col in cols:
+            if col not in node_columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Call operation "{op.function}" requires node column "{col}" which does not exist',
+                    field=f'{op.function}.{col}',
+                    value=col,
+                    suggestion=f'Available node columns: {", ".join(sorted(node_columns)[:10])}{"..." if len(node_columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
+                else:
+                    raise error
+
+    required_edge_cols = schema_effects.get('requires_edge_cols')
+    if required_edge_cols is not None:
+        cols = required_edge_cols(op.params) if callable(required_edge_cols) else required_edge_cols
+        for col in cols:
+            if col not in edge_columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Call operation "{op.function}" requires edge column "{col}" which does not exist',
+                    field=f'{op.function}.{col}',
+                    value=col,
+                    suggestion=f'Available edge columns: {", ".join(sorted(edge_columns)[:10])}{"..." if len(edge_columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
+                else:
+                    raise error
 
     return errors
 

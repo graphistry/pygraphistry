@@ -31,7 +31,6 @@ class TestCallSchemaValidation:
             .nodes(nodes_df)\
             .bind(source='source', destination='target', node='node')
     
-    @pytest.mark.skip(reason="Schema effects not yet implemented in safelist")
     def test_filter_nodes_requires_columns(self, sample_graph):
         """Test that filter_nodes_by_dict validates required columns."""
         # Valid: filtering by existing column
@@ -47,7 +46,6 @@ class TestCallSchemaValidation:
         assert 'missing_col' in str(exc_info.value)
         assert 'does not exist' in str(exc_info.value)
     
-    @pytest.mark.skip(reason="Schema effects not yet implemented in safelist")
     def test_filter_edges_requires_columns(self, sample_graph):
         """Test that filter_edges_by_dict validates required columns."""
         # Valid: filtering by existing edge column
@@ -76,7 +74,6 @@ class TestCallSchemaValidation:
         # so this should not produce errors
         assert len(errors) == 0
     
-    @pytest.mark.skip(reason="Schema effects not yet implemented in safelist")
     def test_chain_with_multiple_calls(self, sample_graph):
         """Test validation of chains with multiple Call operations."""
         chain = Chain([
@@ -98,7 +95,6 @@ class TestCallSchemaValidation:
         errors = validate_chain_schema(sample_graph, [call], collect_all=True) 
         assert len(errors) == 0
     
-    @pytest.mark.skip(reason="Schema effects not yet implemented in safelist")
     def test_collect_all_mode(self, sample_graph):
         """Test collect_all mode returns all errors."""
         chain = Chain([
@@ -117,7 +113,6 @@ class TestCallSchemaValidation:
                     error_cols.add(col)
         assert error_cols == missing_cols
     
-    @pytest.mark.skip(reason="Schema effects not yet implemented in safelist")
     def test_operation_index_in_errors(self, sample_graph):
         """Test that errors include operation index."""
         chain = Chain([
