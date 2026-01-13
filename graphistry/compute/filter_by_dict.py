@@ -52,7 +52,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                     column_type=str(col_dtype),
                     suggestion=f'Use a numeric value like {col}=123'
                 )
-            elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)):
+            elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: column "{col}" is string but filter value is numeric',

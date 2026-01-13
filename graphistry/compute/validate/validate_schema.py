@@ -80,6 +80,9 @@ def validate_chain_schema(
             else:
                 raise op_errors[0]
 
+        if isinstance(op, ASTCall):
+            _apply_call_schema_effects(op, node_columns, edge_columns)
+
     return errors if collect_all else None
 
 
@@ -161,7 +164,7 @@ def _validate_filter_dict(
                         errors.append(error)
                     else:
                         raise error
-                elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)):
+                elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: {context} column "{col}" is string but filter value is numeric',
@@ -269,6 +272,29 @@ def _validate_call_op(
                     raise error
 
     return errors
+
+
+def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set) -> None:
+    """Apply schema effects from a call operation to tracked column sets."""
+    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+
+    if op.function not in SAFELIST_V1:
+        return
+
+    method_info = SAFELIST_V1[op.function]
+    schema_effects = method_info.get('schema_effects') or {}
+
+    adds_node_cols = schema_effects.get('adds_node_cols')
+    if adds_node_cols is not None:
+        cols = adds_node_cols(op.params) if callable(adds_node_cols) else adds_node_cols
+        if cols:
+            node_columns.update(cols)
+
+    adds_edge_cols = schema_effects.get('adds_edge_cols')
+    if adds_edge_cols is not None:
+        cols = adds_edge_cols(op.params) if callable(adds_edge_cols) else adds_edge_cols
+        if cols:
+            edge_columns.update(cols)
 
 
 # Add to Chain class

@@ -805,6 +805,15 @@ def _chain_impl(
     if isinstance(ops, Chain):
         ops = ops.chain
 
+    if validate_schema:
+        # Validate AST structure (including identifier validation) BEFORE schema validation
+        # This ensures we catch reserved identifier errors before schema errors
+        if isinstance(ops, Chain):
+            ops.validate(collect_all=False)
+        else:
+            # Create temporary Chain for validation
+            Chain(ops).validate(collect_all=False)
+
     # Recursive dispatch for schema-changing operations (UMAP, hypergraph, etc.)
     # These operations create entirely new graph structures, so we split the chain
     # and execute segments sequentially: before → schema_changer → rest
@@ -852,20 +861,9 @@ def _chain_impl(
 
             # Execute segments: before → schema_changer → rest
             # Recursion handles multiple schema-changers automatically
-            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if before else self  # type: ignore[call-arg]
-            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
-
-    if validate_schema:
-        # Validate AST structure (including identifier validation) BEFORE schema validation
-        # This ensures we catch reserved identifier errors before schema errors
-        if isinstance(ops, Chain):
-            ops.validate(collect_all=False)
-        else:
-            # Create temporary Chain for validation
-            Chain(ops).validate(collect_all=False)
-
-        validate_chain_schema(self, ops, collect_all=False)
+            g_temp = _chain_impl(self, before, engine, validate_schema, policy, context, start_nodes=None) if before else self
+            g_temp2 = _chain_impl(g_temp, [schema_changer], engine, validate_schema, policy, context, start_nodes=None)
+            return _chain_impl(g_temp2, rest, engine, validate_schema, policy, context, start_nodes=None) if rest else g_temp2
 
     if len(ops) == 0:
         return self
@@ -880,6 +878,9 @@ def _chain_impl(
     boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context, start_nodes)
     if boundary_result is not None:
         return boundary_result
+
+    if validate_schema:
+        validate_chain_schema(self, ops, collect_all=False)
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
