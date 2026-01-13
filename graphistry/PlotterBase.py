@@ -1870,13 +1870,11 @@ class PlotterBase(Plottable):
             encode_collections,
             normalize_collections,
             normalize_collections_url_params,
-            normalize_validation_params,
         )
 
-        validate_mode, warn = normalize_validation_params(validate, warn)
         settings: Dict[str, Any] = {}
         if collections is not None:
-            normalized = normalize_collections(collections, validate=validate_mode, warn=warn)
+            normalized = normalize_collections(collections, validate=validate, warn=warn)
             settings['collections'] = encode_collections(normalized)
         extras: Dict[str, Any] = {}
         if show_collections is not None:
@@ -1886,7 +1884,7 @@ class PlotterBase(Plottable):
         if collections_global_edge_color is not None:
             extras['collectionsGlobalEdgeColor'] = collections_global_edge_color
         if extras:
-            extras = normalize_collections_url_params(extras, validate=validate_mode, warn=warn)
+            extras = normalize_collections_url_params(extras, validate=validate, warn=warn)
             settings.update(extras)
 
         if len(settings.keys()) > 0:

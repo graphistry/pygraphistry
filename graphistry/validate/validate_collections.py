@@ -32,9 +32,9 @@ def normalize_validation_params(
     return validate_mode, warn
 
 
-def encode_collections(collections: List[Dict[str, Any]], encode: bool = True) -> str:
+def encode_collections(collections: List[Dict[str, Any]]) -> str:
     json_str = json.dumps(collections, separators=(',', ':'), ensure_ascii=True)
-    return quote(json_str, safe='') if encode else json_str
+    return quote(json_str, safe='')
 
 
 def _issue(
@@ -86,12 +86,13 @@ def _parse_collections_input(
     return []
 
 
-def _coerce_str_field(
+def _normalize_str_field(
     entry: Dict[str, Any],
     key: str,
     validate_mode: ValidationMode,
     warn: bool,
-    entry_index: int
+    entry_index: int,
+    autofix_drop: bool
 ) -> None:
     if key not in entry or entry[key] is None:
         return
@@ -104,28 +105,10 @@ def _coerce_str_field(
         warn
     )
     if validate_mode == 'autofix':
-        entry[key] = str(entry[key])
-
-
-def _normalize_color_field(
-    entry: Dict[str, Any],
-    key: str,
-    validate_mode: ValidationMode,
-    warn: bool,
-    entry_index: int
-) -> None:
-    if key not in entry or entry[key] is None:
-        return
-    if isinstance(entry[key], str):
-        return
-    _issue(
-        f'Collection field "{key}" should be a string',
-        {'index': entry_index, 'value': entry[key], 'type': type(entry[key]).__name__},
-        validate_mode,
-        warn
-    )
-    if validate_mode == 'autofix':
-        entry.pop(key, None)
+        if autofix_drop:
+            entry.pop(key, None)
+        else:
+            entry[key] = str(entry[key])
 
 
 def _normalize_sets_list(
@@ -356,11 +339,10 @@ def normalize_collections(
                 continue
             return []
 
-        for field in ('id', 'name', 'description', 'node_color', 'edge_color'):
-            if field in ('node_color', 'edge_color'):
-                _normalize_color_field(normalized_entry, field, validate_mode, warn, idx)
-            else:
-                _coerce_str_field(normalized_entry, field, validate_mode, warn, idx)
+        for field in ('id', 'name', 'description'):
+            _normalize_str_field(normalized_entry, field, validate_mode, warn, idx, autofix_drop=False)
+        for field in ('node_color', 'edge_color'):
+            _normalize_str_field(normalized_entry, field, validate_mode, warn, idx, autofix_drop=True)
 
         expr = normalized_entry.get('expr')
         if collection_type == 'intersection':
@@ -372,6 +354,11 @@ def normalize_collections(
                 continue
             return []
         normalized_entry['expr'] = normalized_expr
+        normalized_entry = {
+            key: normalized_entry[key]
+            for key in _ALLOWED_COLLECTION_FIELDS_ORDER
+            if key in normalized_entry
+        }
         normalized.append(normalized_entry)
 
     return normalized
@@ -388,7 +375,7 @@ def normalize_collections_url_params(
     if 'collections' in updated:
         normalized = normalize_collections(updated['collections'], validate_mode, warn)
         if len(normalized) > 0:
-            updated['collections'] = encode_collections(normalized, encode=True)
+            updated['collections'] = encode_collections(normalized)
         else:
             if validate_mode in ('strict', 'strict-fast'):
                 return updated
