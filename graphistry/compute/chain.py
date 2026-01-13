@@ -361,7 +361,12 @@ def combine_steps(
             if x_name in out_df.columns and y_name in out_df.columns:
                 out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
                 out_df = out_df.drop(columns=[x_name, y_name])
-            out_df[op._name] = out_df[op._name].fillna(False).astype('bool')
+            label_col = out_df[op._name]
+            if engine == Engine.PANDAS:
+                label_col = label_col.astype('boolean').fillna(False).astype('bool')
+            else:
+                label_col = label_col.fillna(False).astype('bool')
+            out_df[op._name] = label_col
 
             # Restrict node aliases to endpoints that actually fed the next edge step
             if kind == 'nodes' and idx + 1 < len(steps):
