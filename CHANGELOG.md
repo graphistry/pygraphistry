@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Tests / GFQL**: Fixed cuDF compatibility in test files by using `to_set()` helper instead of `.tolist()` (cuDF doesn't support `tolist()`)
-- **GFQL / let-ref**: Run ref chains on the referenced graph (letrec semantics) and treat list bindings as implicit Chains.
+- **GFQL / let-ref**: Documented and tested existing letrec semantics for ref; list bindings now accept implicit Chains.
 
 ## [0.50.2 - 2026-01-11]
 
