@@ -6,7 +6,7 @@ Error: ValueError: GFQL The node column 'id' cannot be used as node id, please r
 Location: server/client/graph/processing_handler.py:649 (server-side validation)
 
 This test suite verifies:
-1. Local GFQL (.chain()) works with 'id' column
+1. Local GFQL (.gfql()) works with 'id' column
 2. Remote GFQL (.gfql_remote()) behavior with 'id' column
 3. Both nodes and edges can use 'id' as column name
 4. No internal column conflicts are introduced
@@ -35,7 +35,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
     """Tests for 'id' column name usage in GFQL"""
 
     def test_node_column_named_id_local_chain(self):
-        """Test that local GFQL (chain) works with node column named 'id'"""
+        """Test that local GFQL (gfql) works with node column named 'id'"""
 
         # Create nodes with 'id' column
         nodes_df = pd.DataFrame({
@@ -52,7 +52,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Test basic chain operation with 'id' column
-        result = g.chain([n(), e_forward(), n()])
+        result = g.gfql([n(), e_forward(), n()])
 
         # Verify operation succeeded
         assert result._nodes.shape[0] > 0
@@ -76,7 +76,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Filter by 'id' column value
-        result = g.chain([n({'id': 1}), e_forward(), n()])
+        result = g.gfql([n({'id': 1}), e_forward(), n()])
 
         assert result._nodes.shape[0] >= 1
         assert result._edges.shape[0] >= 1
@@ -101,7 +101,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
 
         g = CGFull().nodes(nodes_df, 'node').edges(edges_df, 'src', 'dst')
 
-        result = g.chain([n(), e_forward(), n()])
+        result = g.gfql([n(), e_forward(), n()])
 
         # Verify 'id' column is preserved in edges
         assert 'id' in result._edges.columns
@@ -124,7 +124,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
 
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
-        result = g.chain([n({'id': 1}), e_forward(), n()])
+        result = g.gfql([n({'id': 1}), e_forward(), n()])
 
         # Both should be preserved
         assert 'id' in result._nodes.columns
@@ -186,8 +186,8 @@ class TestIdColumnRestriction(NoAuthTestCase):
         g_safe = CGFull().nodes(nodes_safe, 'node_id').edges(edges_safe, 'src', 'dst')
 
         # Run identical operations
-        result_id = g_id.chain([n(), e_forward(), n()])
-        result_safe = g_safe.chain([n(), e_forward(), n()])
+        result_id = g_id.gfql([n(), e_forward(), n()])
+        result_safe = g_safe.gfql([n(), e_forward(), n()])
 
         # Results should have same structure
         assert result_id._nodes.shape[0] == result_safe._nodes.shape[0]
@@ -209,7 +209,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Use named results
-        result = g.chain([
+        result = g.gfql([
             n({'type': 'A'}, name='type_a_nodes'),
             e_forward(name='connections'),
             n(name='neighbors')
@@ -240,7 +240,7 @@ class TestIdColumnRestriction(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Complex chain with multiple hops and filters
-        result = g.chain([
+        result = g.gfql([
             n({'id': 0}),
             e_forward(hops=3),
             n({'category': 'A'})
@@ -315,7 +315,7 @@ class TestIdColumnEdgeCases(NoAuthTestCase):
 
             g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
 
             assert 'id' in result._nodes.columns
             assert result._nodes.shape[0] > 0
@@ -338,7 +338,7 @@ class TestIdColumnEdgeCases(NoAuthTestCase):
 
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
 
             assert col_name in result._nodes.columns
             assert result._nodes.shape[0] > 0
@@ -361,7 +361,7 @@ class TestIdColumnEdgeCases(NoAuthTestCase):
         node_col = g_mat._node
 
         # Run chain operation
-        result = g_mat.chain([n(), e_forward(), n()])
+        result = g_mat.gfql([n(), e_forward(), n()])
 
         assert result._nodes.shape[0] > 0
         assert node_col in result._nodes.columns
@@ -391,11 +391,11 @@ class TestProblematicColumnNames(NoAuthTestCase):
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
             # Test reverse
-            result_rev = g.chain([n(), e_reverse(), n()])
+            result_rev = g.gfql([n(), e_reverse(), n()])
             assert col_name in result_rev._nodes.columns, f"e_reverse() failed for '{col_name}'"
 
             # Test undirected
-            result_und = g.chain([n(), e_undirected(), n()])
+            result_und = g.gfql([n(), e_undirected(), n()])
             assert col_name in result_und._nodes.columns, f"e_undirected() failed for '{col_name}'"
 
     def test_predicates_on_problematic_columns(self):
@@ -411,16 +411,16 @@ class TestProblematicColumnNames(NoAuthTestCase):
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
 
             # Test gt predicate
-            result_gt = g.chain([n({col_name: gt(25)}), e_forward(), n()])
+            result_gt = g.gfql([n({col_name: gt(25)}), e_forward(), n()])
             assert result_gt._nodes.shape[0] >= 1, f"gt() failed on '{col_name}'"
             assert col_name in result_gt._nodes.columns
 
             # Test is_in predicate
-            result_in = g.chain([n({col_name: is_in([10, 30, 50])}), e_forward(), n()])
+            result_in = g.gfql([n({col_name: is_in([10, 30, 50])}), e_forward(), n()])
             assert result_in._nodes.shape[0] >= 1, f"is_in() failed on '{col_name}'"
 
             # Test between predicate
-            result_bw = g.chain([n({col_name: between(15, 45)}), e_forward(), n()])
+            result_bw = g.gfql([n({col_name: between(15, 45)}), e_forward(), n()])
             assert result_bw._nodes.shape[0] >= 1, f"between() failed on '{col_name}'"
 
     @pytest.mark.skip(reason="let/ref returns empty result - needs investigation")
@@ -467,7 +467,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             nodes_df = pd.DataFrame({col_name: [1, 2, 3], 'value': [10, 20, 30]})
             edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
             assert col_name in result._nodes.columns, f"Node binding failed for '{col_name}'"
             assert result._node == col_name
 
@@ -477,7 +477,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
             edges_df = pd.DataFrame({col_name: [1, 2], 'target': [2, 3]})
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, col_name, 'target')
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
             assert g._source == col_name, f"Edge source binding failed for '{col_name}'"
             assert result._edges.shape[0] > 0
 
@@ -487,7 +487,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
             edges_df = pd.DataFrame({'origin': [1, 2], col_name: [2, 3]})
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'origin', col_name)
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
             assert g._destination == col_name, f"Edge dest binding failed for '{col_name}'"
             assert result._edges.shape[0] > 0
 
@@ -497,7 +497,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             nodes_df = pd.DataFrame({'nid': [1, 2, 3], col_name: ['A', 'B', 'A']})
             edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
-            result = g.chain([n({col_name: 'A'}), e_forward(), n()])
+            result = g.gfql([n({col_name: 'A'}), e_forward(), n()])
             assert col_name in result._nodes.columns, f"Node data filter failed for '{col_name}'"
             assert result._nodes.shape[0] >= 1
 
@@ -507,7 +507,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             nodes_df = pd.DataFrame({'nid': [1, 2, 3]})
             edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3], col_name: ['A', 'B']})
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
-            result = g.chain([n(), e_forward({col_name: 'A'}), n()])
+            result = g.gfql([n(), e_forward({col_name: 'A'}), n()])
             assert col_name in result._edges.columns, f"Edge data filter failed for '{col_name}'"
 
     def test_both_nodes_and_edges_with_same_problematic_name(self):
@@ -518,7 +518,7 @@ class TestProblematicColumnNames(NoAuthTestCase):
             # Edge uses col_name as data column
             edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3], col_name: ['e1', 'e2']})
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
-            result = g.chain([n(), e_forward(), n()])
+            result = g.gfql([n(), e_forward(), n()])
             assert col_name in result._nodes.columns, f"Node '{col_name}' lost"
             assert col_name in result._edges.columns, f"Edge '{col_name}' lost"
             # Verify both preserved with different values
@@ -538,7 +538,7 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             edges_df = pd.DataFrame({'src': [1, 2], 'dst': [2, 3]})
             g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
-            result = g.chain([n(), e(), n()])
+            result = g.gfql([n(), e(), n()])
             assert col_name in result._nodes.columns, f"e() failed for '{col_name}'"
 
     def test_comparison_predicates_lt_ge_le(self):
@@ -554,15 +554,15 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
 
             # Test lt
-            result_lt = g.chain([n({col_name: lt(35)}), e_forward(), n()])
+            result_lt = g.gfql([n({col_name: lt(35)}), e_forward(), n()])
             assert result_lt._nodes.shape[0] >= 1, f"lt() failed on '{col_name}'"
 
             # Test ge
-            result_ge = g.chain([n({col_name: ge(30)}), e_forward(), n()])
+            result_ge = g.gfql([n({col_name: ge(30)}), e_forward(), n()])
             assert result_ge._nodes.shape[0] >= 1, f"ge() failed on '{col_name}'"
 
             # Test le
-            result_le = g.chain([n({col_name: le(30)}), e_forward(), n()])
+            result_le = g.gfql([n({col_name: le(30)}), e_forward(), n()])
             assert result_le._nodes.shape[0] >= 1, f"le() failed on '{col_name}'"
 
     def test_null_predicates(self):
@@ -578,11 +578,11 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
 
             # Test isna
-            result_isna = g.chain([n({col_name: isna()}), e_forward(), n()])
+            result_isna = g.gfql([n({col_name: isna()}), e_forward(), n()])
             assert col_name in result_isna._nodes.columns, f"isna() failed on '{col_name}'"
 
             # Test notna
-            result_notna = g.chain([n({col_name: notna()}), e_forward(), n()])
+            result_notna = g.gfql([n({col_name: notna()}), e_forward(), n()])
             assert col_name in result_notna._nodes.columns, f"notna() failed on '{col_name}'"
             assert result_notna._nodes.shape[0] >= 1
 
@@ -597,7 +597,7 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
         edges_df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 4]})
         g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
 
-        result = g.chain([n({'id': contains('user')}), e_forward(), n()])
+        result = g.gfql([n({'id': contains('user')}), e_forward(), n()])
         assert result._nodes.shape[0] >= 1, "contains() failed on 'id'"
         assert 'id' in result._nodes.columns
 
@@ -654,14 +654,28 @@ class TestProblematicColumnNamesTier2(NoAuthTestCase):
             assert result._edges.shape[0] == 1, f"filter_edges_by_dict failed for '{col_name}'"
             assert col_name in result._edges.columns
 
-    @pytest.mark.skip(reason="collapse() has complex API - needs topology-aware traversal setup")
     def test_call_collapse_with_problematic_columns(self):
-        """Test collapse operation with problematic columns
+        """Test collapse operation with problematic columns."""
+        for col_name in ['id', 'index', 'node']:
+            nodes_df = pd.DataFrame({
+                col_name: ['a', 'b', 'c'],
+                'type': ['A', 'A', 'B']
+            })
+            edges_df = pd.DataFrame({'src': ['a', 'b'], 'dst': ['b', 'c']})
+            g = CGFull().nodes(nodes_df, col_name).edges(edges_df, 'src', 'dst')
 
-        TODO: collapse(node, attribute, column) requires topology-aware setup
-        Skipping for now - less critical than other operations
-        """
-        pass
+            result = g.collapse(
+                node='a',
+                attribute='A',
+                column='type',
+                self_edges=False,
+                unwrap=True,
+                verbose=False
+            )
+
+            assert col_name in result._nodes.columns, f"collapse() failed for '{col_name}'"
+            assert result._node is not None
+            assert result._nodes.shape[0] >= 1
 
     def test_call_drop_nodes_with_problematic_columns(self):
         """Test drop_nodes with problematic columns"""
@@ -806,10 +820,10 @@ class TestInternalColumnValidation(NoAuthTestCase):
 
         # Should reject filtering on internal columns
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n({'__gfql_edge_index_0__': 1}), e_forward(), n()])
+            g.gfql([n({'__gfql_edge_index_0__': 1}), e_forward(), n()])
 
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n({'__gfql_temp__': 'foo'}), e_forward(), n()])
+            g.gfql([n({'__gfql_temp__': 'foo'}), e_forward(), n()])
 
     def test_reject_gfql_internal_columns_in_edge_predicates(self):
         """e_forward() should reject __gfql_ internal columns in predicates"""
@@ -819,7 +833,7 @@ class TestInternalColumnValidation(NoAuthTestCase):
 
         # Should reject filtering on internal edge columns
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n(), e_forward({'__gfql_edge_index_0__': 1}), n()])
+            g.gfql([n(), e_forward({'__gfql_edge_index_0__': 1}), n()])
 
     def test_reject_gfql_internal_columns_in_source_dest_predicates(self):
         """Edge operations should reject __gfql_ in source/destination predicates"""
@@ -829,11 +843,11 @@ class TestInternalColumnValidation(NoAuthTestCase):
 
         # Should reject in source_node_match
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n(), e_forward(source_node_match={'__gfql_node_id__': 1}), n()])
+            g.gfql([n(), e_forward(source_node_match={'__gfql_node_id__': 1}), n()])
 
         # Should reject in destination_node_match
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n(), e_forward(destination_node_match={'__gfql_node_id__': 2}), n()])
+            g.gfql([n(), e_forward(destination_node_match={'__gfql_node_id__': 2}), n()])
 
     def test_allow_user_gfql_columns_in_data(self):
         """User can HAVE __gfql_ columns in their data, just not filter on them in GFQL"""
@@ -846,12 +860,12 @@ class TestInternalColumnValidation(NoAuthTestCase):
         g = CGFull().nodes(nodes_df, 'nid').edges(edges_df, 'src', 'dst')
 
         # Column exists in result
-        result = g.chain([n(), e_forward(), n()])
+        result = g.gfql([n(), e_forward(), n()])
         assert '__gfql_user_column__' in result._nodes.columns
 
         # But can't filter on it in GFQL predicates
         with pytest.raises(ValueError, match="reserved for internal use"):
-            g.chain([n({'__gfql_user_column__': 'A'}), e_forward(), n()])
+            g.gfql([n({'__gfql_user_column__': 'A'}), e_forward(), n()])
 
 
 class TestCallOperationColumnNames(NoAuthTestCase):

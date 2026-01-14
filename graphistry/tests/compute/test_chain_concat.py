@@ -45,7 +45,7 @@ class TestChainCombineSteps:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Chain with node filters - exercises combine_steps()
-        result = g.chain([
+        result = g.gfql([
             n({}),  # Identity filter
             e(),    # Edge filter
             n({})   # Another identity filter
@@ -75,7 +75,7 @@ class TestChainCombineSteps:
 
         # Chain: Node filter → UMAP → Node filter
         # This is the pattern from issue #777
-        result = g.chain([
+        result = g.gfql([
             n({}),  # Identity node filter
             call('umap', {
                 'n_components': 2,
@@ -116,7 +116,7 @@ class TestChainCombineSteps:
         assert isinstance(g._edges, cudf.DataFrame)
 
         # Chain with node filters - exercises combine_steps() with cuDF
-        result = g.chain([
+        result = g.gfql([
             n({}),  # Identity filter
             e(),    # Edge filter
             n({})   # Another identity filter
@@ -155,7 +155,7 @@ class TestChainCombineSteps:
 
         # Chain: Node filter → UMAP → Node filter
         # This is the exact pattern from issue #777
-        result = g.chain([
+        result = g.gfql([
             n({}),  # Identity node filter
             call('umap', {
                 'n_components': 2,
@@ -193,7 +193,7 @@ class TestChainCombineSteps:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Chain that exercises combine_steps with multiple steps
-        result = g.chain([
+        result = g.gfql([
             n({'category': 'X'}, name='step1'),
             e(),
             n({}, name='step2'),
@@ -225,7 +225,7 @@ class TestChainCombineSteps:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Chain with multiple edge operations
-        result = g.chain([
+        result = g.gfql([
             n(),
             e(name='e1'),
             n(),
@@ -254,7 +254,7 @@ class TestChainCombineSteps:
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
         # Chain with multiple edge operations
-        result = g.chain([
+        result = g.gfql([
             n(),
             e(name='e1'),
             n(),
@@ -277,7 +277,7 @@ class TestChainCombineSteps:
 
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
-        result = g.chain([n(), e(), n()], engine='cudf')
+        result = g.gfql([n(), e(), n()], engine='cudf')
 
         # Output should be cuDF (honoring the request)
         assert isinstance(result._nodes, cudf.DataFrame), \
@@ -292,7 +292,7 @@ class TestChainCombineSteps:
 
         g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
 
-        result = g.chain([n(), e(), n()], engine='pandas')
+        result = g.gfql([n(), e(), n()], engine='pandas')
 
         # Output should be pandas (honoring the request)
         assert isinstance(result._nodes, pd.DataFrame), \
@@ -315,7 +315,7 @@ class TestChainCombineSteps:
         assert isinstance(g._edges, cudf.DataFrame)
 
         # Request pandas engine - should coerce cuDF to pandas
-        result = g.chain([n(), e(), n()], engine='pandas')
+        result = g.gfql([n(), e(), n()], engine='pandas')
 
         # Output should be pandas (coerced from cuDF)
         assert isinstance(result._nodes, pd.DataFrame), \
@@ -338,7 +338,7 @@ class TestChainCombineSteps:
         assert isinstance(g._edges, pd.DataFrame)
 
         # Request cudf engine - should coerce pandas to cuDF
-        result = g.chain([n(), e(), n()], engine='cudf')
+        result = g.gfql([n(), e(), n()], engine='cudf')
 
         # Output should be cuDF (coerced from pandas)
         assert isinstance(result._nodes, cudf.DataFrame), \
@@ -369,7 +369,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='auto' may pick cuML/umap_learn internally
         # But chain engine='cudf' should force cuDF output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'auto',
@@ -405,7 +405,7 @@ class TestChainCombineSteps:
 
         # UMAP with explicit engine='cuml' produces cuDF internally
         # Chain engine='cudf' should preserve cuDF output (no coercion needed)
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'cuml',
@@ -441,7 +441,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='cuml' produces cuDF internally from pandas input
         # But chain engine='pandas' should convert to pandas output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'cuml',
@@ -477,7 +477,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='umap_learn' produces pandas internally
         # But chain engine='cudf' should convert to cuDF output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'umap_learn',
@@ -514,7 +514,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='auto' may pick cuML/umap_learn internally
         # But chain engine='pandas' should force pandas output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'auto',
@@ -550,7 +550,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='cuml' produces cuDF internally
         # But chain engine='pandas' should convert to pandas output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'cuml',
@@ -586,7 +586,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='umap_learn' produces pandas internally
         # Chain engine='pandas' should preserve pandas output (no coercion needed)
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'umap_learn',
@@ -622,7 +622,7 @@ class TestChainCombineSteps:
 
         # UMAP with engine='umap_learn' produces pandas internally from cuDF input
         # But chain engine='cudf' should convert to cuDF output
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {
                 'engine': 'umap_learn',
