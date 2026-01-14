@@ -254,7 +254,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         if ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
-            chain_result = chain_impl(referenced_result, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
+            chain_result = chain_impl(
+                referenced_result,
+                ast_obj.chain,
+                EngineAbstract(engine.value),
+                policy=policy,
+                context=context
+            )
             # ASTRef with chain should return the filtered result directly
             result = chain_result
         else:

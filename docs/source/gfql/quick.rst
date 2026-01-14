@@ -339,20 +339,21 @@ Remote Mode
 Let Bindings and DAG Patterns
 -----------------------------
 
-Use Let bindings to create directed acyclic graph (DAG) patterns with named operations:
+Use Let bindings to create directed acyclic graph (DAG) patterns with named operations. Lists are treated as implicit Chains.
 
 - **Basic Let with named bindings:**
 
   .. code-block:: python
 
-      from graphistry import let, ref, Chain
+      from graphistry import let, ref, n, e_forward, gt
 
       result = g.gfql(let({
-          'suspects': [n({'risk_score': gt(80)})],
-          'connections': ref('suspects', [
+          'suspects': n({'risk_score': gt(80)}),
+          'connections': [
+              n({'risk_score': gt(80)}),
               e_forward({'type': 'transaction'}),
               n()
-          ])
+          ]
       }))
 
       # Access results by name
@@ -363,14 +364,15 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
   .. code-block:: python
 
-      from graphistry import Chain
+      from graphistry import let, ref, n, e_forward, gt
 
       result = g.gfql(let({
-          'high_value': [n({'balance': gt(100000)})],
-          'large_transfers': ref('high_value', [
+          'high_value': n({'balance': gt(100000)}),
+          'large_transfers': [
+              n({'balance': gt(100000)}),
               e_forward({'type': 'transfer', 'amount': gt(10000)}),
               n()
-          ]),
+          ],
           'suspicious': ref('large_transfers', [
               n({'created_recent': True, 'verified': False})
           ])
@@ -469,7 +471,8 @@ Reference graphs on remote servers for distributed computing:
           'high_risk': ref('remote_data', [
               n({'risk_score': gt(95)})
           ]),
-          'connections': ref('high_risk', [
+          'connections': ref('remote_data', [
+              n({'risk_score': gt(95)}),
               e_forward({'type': 'transaction'}),
               n()
           ])

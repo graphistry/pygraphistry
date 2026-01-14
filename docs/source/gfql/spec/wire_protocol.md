@@ -183,9 +183,12 @@ let({
 
 ### ChainRef Operation
 
+ChainRef executes on the referenced graph; bindings used for edge traversal should retain edges
+(for example, from an ``Edge`` or ``Chain`` binding).
+
 **Python**:
 ```python
-ref('base_nodes', [
+ref('base_graph', [
     e_forward({'weight': gt(0.5)}),
     n({'status': 'active'})
 ])
@@ -195,7 +198,7 @@ ref('base_nodes', [
 ```json
 {
   "type": "ChainRef",
-  "ref": "base_nodes",
+  "ref": "base_graph",
   "chain": [
     {
       "type": "Edge",

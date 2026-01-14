@@ -80,6 +80,24 @@ class TestLetMatchers:
         assert all(result._nodes['age'] >= 18)
         assert len(result._edges) == 0  # n() returns just nodes
 
+    def test_ref_uses_binding_graph(self):
+        """Test that ASTRef chains operate on the referenced graph, not the root."""
+        g = CGFull().edges(
+            pd.DataFrame({'s': ['a'], 'd': ['b']}),
+            's', 'd'
+        ).nodes(
+            pd.DataFrame({'id': ['a', 'b'], 'type': ['person', 'person']}),
+            'id'
+        )
+
+        result = g.gfql(let({
+            'persons': n({'type': 'person'}),
+            'neighbors': ref('persons', [e_forward(), n()])
+        }), output='neighbors')
+
+        assert len(result._edges) == 0
+        assert len(result._nodes) == 0
+
     def test_matchers_operate_on_root_graph(self):
         """Test that matchers in Let operate on the root graph, not on previous bindings."""
         g = CGFull().edges(
@@ -153,3 +171,4 @@ class TestLetMatchers:
         }))
 
         assert result is not None
+# CI: no functional change

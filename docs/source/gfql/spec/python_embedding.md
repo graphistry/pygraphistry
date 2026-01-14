@@ -332,16 +332,17 @@ GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which al
 ### Let Bindings
 
 ```python
-from graphistry import let, ref, n, e_forward
+from graphistry import let, ref, n, e_forward, ge
 
 # Define DAG patterns with named bindings
 result = g.gfql(let({
     'persons': n({'type': 'person'}),
     'adults': ref('persons', [n({'age': ge(18)})]),
-    'connections': ref('adults', [
+    'connections': [
+        n({'type': 'person', 'age': ge(18)}),
         e_forward({'type': 'knows'}),
-        ref('adults')  # Find connections between adults
-    ])
+        n({'type': 'person', 'age': ge(18)})
+    ]
 }))
 
 # Access individual binding results
@@ -352,7 +353,9 @@ connection_edges = result._edges[result._edges['connections']]
 
 ### Ref (Reference to Named Bindings)
 
-The `ref()` function creates references to named bindings within a Let:
+The `ref()` function creates references to named bindings within a Let.
+Ref chains run on the referenced graph; bindings created by `n()` contain nodes only,
+so edge traversals need a binding that preserves edges (for example, via a list or `Chain([...])`).
 
 ```python
 # Basic reference - just the binding result
@@ -361,13 +364,21 @@ result = g.gfql(let({
     'extended': ref('base')  # Just references 'base'
 }))
 
-# Reference with additional operations
+# Reference with additional operations (node-only refinements)
 result = g.gfql(let({
     'suspects': n({'risk_score': gt(80)}),
-    'lateral_movement': ref('suspects', [
+    'verified': ref('suspects', [
+        n({'verified': True})
+    ])
+}))
+
+# For traversals, inline the seed filter into a list or Chain binding
+result = g.gfql(let({
+    'lateral_movement': [
+        n({'risk_score': gt(80)}),
         e_forward({'type': 'ssh', 'failed_attempts': gt(5)}),
         n({'type': 'server'})
-    ])
+    ]
 }))
 ```
 
@@ -380,10 +391,11 @@ result = g.gfql(let({
     'high_value': n({'balance': gt(100000)}),
 
     # Find transactions from high-value accounts
-    'large_transfers': ref('high_value', [
+    'large_transfers': [
+        n({'balance': gt(100000)}),
         e_forward({'type': 'transfer', 'amount': gt(10000)}),
         n()
-    ]),
+    ],
 
     # Find suspicious patterns
     'suspicious': ref('large_transfers', [
@@ -413,8 +425,12 @@ Call operations can be used within Let bindings for complex workflows:
 
 ```python
 result = g.gfql(let({
-    # Initial filtering
-    'suspects': n({'flagged': True}),
+    # Initial filtering with edges preserved for graph algorithms
+    'suspects': Chain([
+        n({'flagged': True}),
+        e_undirected(),
+        n({'flagged': True})
+    ]),
 
     # Compute PageRank on subgraph
     'ranked': ref('suspects', [

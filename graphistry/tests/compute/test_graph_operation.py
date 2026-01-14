@@ -27,6 +27,12 @@ class TestGraphOperationTypeConstraints:
         
         let_dag = ASTLet({'people': chain})
         let_dag.validate()  # Should not raise
+
+    def test_valid_list_binding(self):
+        """Test that list bindings are accepted as implicit Chains."""
+        let_dag = ASTLet({'people': [n({'type': 'person'})]})
+        assert isinstance(let_dag.bindings['people'], Chain)
+        let_dag.validate()  # Should not raise
         
     def test_valid_astref_binding(self):
         """Test that ASTRef instances are accepted."""
@@ -223,6 +229,25 @@ class TestChainLetExecution:
         result = g.gfql(let_dag)
         
         # Verify filtered to only people
+        assert len(result._nodes) == 2
+        assert all(result._nodes['type'] == 'person')
+
+    def test_execute_list_binding(self):
+        """Test that list bindings execute as implicit Chains."""
+        nodes_df = pd.DataFrame({
+            'id': [1, 2, 3, 4],
+            'type': ['person', 'person', 'company', 'company']
+        })
+        edges_df = pd.DataFrame({
+            'src': [1, 2, 3],
+            'dst': [2, 3, 4]
+        })
+
+        g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+        let_dag = ASTLet({'people': [n({'type': 'person'})]})
+
+        result = g.gfql(let_dag)
+
         assert len(result._nodes) == 2
         assert all(result._nodes['type'] == 'person')
         

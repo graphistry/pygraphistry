@@ -885,7 +885,7 @@ class ASTLet(ASTObject):
 
     Parameters
     ----------
-    bindings : Dict[str, Union[ASTObject, Chain, Plottable]]
+    bindings : Dict[str, Union[ASTObject, Chain, List[ASTObject], Plottable]]
         Mapping from binding names to graph operations (AST objects or Plottables).
 
     Raises
@@ -902,12 +902,12 @@ class ASTLet(ASTObject):
     """
     bindings: Dict[str, Union['ASTObject', 'Chain', Plottable]]
     
-    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', Plottable, Dict[str, Any]]], validate: bool = True) -> None:
+    def __init__(self, bindings: Dict[str, Union['ASTObject', 'Chain', List['ASTObject'], Plottable, Dict[str, Any]]], validate: bool = True) -> None:
         """Initialize Let with named bindings.
 
-        :param bindings: Dictionary mapping names to GraphOperation instances or JSON dicts.
+        :param bindings: Dictionary mapping names to GraphOperation instances, lists (implicit Chains), or JSON dicts.
                         JSON dicts must have a 'type' field indicating the AST object type.
-        :type bindings: Dict[str, Union[ASTObject, Chain, Plottable, Dict[str, Any]]]
+        :type bindings: Dict[str, Union[ASTObject, Chain, List[ASTObject], Plottable, Dict[str, Any]]]
         :param validate: Whether to validate the bindings immediately
         :type validate: bool
         """
@@ -916,7 +916,24 @@ class ASTLet(ASTObject):
         # Process mixed JSON/native objects
         processed_bindings: Dict[str, Any] = {}
         for name, value in bindings.items():
-            if isinstance(value, dict):
+            if isinstance(value, list):
+                # Treat list bindings as implicit Chain operations
+                from graphistry.compute.chain import Chain  # noqa: F401, F811
+                chain_ops: List[ASTObject] = []
+                for op in value:
+                    if isinstance(op, dict):
+                        if 'type' not in op:
+                            raise ValueError(f"JSON binding '{name}' missing 'type' field")
+                        obj_type = op.get('type')
+                        if obj_type == 'Chain':
+                            raise ValueError(
+                                f"Binding '{name}' contains nested Chain in list; use Chain(...) directly"
+                            )
+                        chain_ops.append(from_json(op, validate=False))
+                    else:
+                        chain_ops.append(op)
+                processed_bindings[name] = Chain(chain_ops, validate=False)  # type: ignore
+            elif isinstance(value, dict):
                 # JSON dict - check type and convert if valid
                 if 'type' not in value:
                     raise ValueError(f"JSON binding '{name}' missing 'type' field")
