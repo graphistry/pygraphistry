@@ -58,7 +58,6 @@ class TestASTCallChainHazards:
         assert len(result._edges) == 5
         assert all(result._edges['type'] == 'forward')
 
-    @pytest.mark.xfail(reason="Issue #786 - chained filters only apply first filter")
     def test_two_edge_filters_sequential(self, sample_graph):
         """Core bug: Two filters should both apply."""
         from graphistry.compute.predicates.numeric import Between
@@ -74,19 +73,20 @@ class TestASTCallChainHazards:
         assert all(result._edges['type'] == 'forward')
         assert all((result._edges['weight'] >= 2) & (result._edges['weight'] <= 6))
 
-    @pytest.mark.xfail(reason="Issue #786 - chained filters only apply first filter")
     def test_three_edge_filters_sequential(self, sample_graph):
         """Extended case: Three filters should all apply."""
+        from graphistry.compute.predicates.numeric import ge
+
         filter1 = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
-        filter2 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 2}}})
+        filter2 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': ge(2)}})
         filter3 = ASTCall('filter_edges_by_dict', {'filter_dict': {'category': 'med'}})
         result = sample_graph.gfql([filter1, filter2, filter3])
 
-        # Should have 1 edge: forward AND weight>=2 AND category=med (weight 2)
-        assert len(result._edges) == 1
-        assert result._edges.iloc[0]['type'] == 'forward'
-        assert result._edges.iloc[0]['weight'] == 2
-        assert result._edges.iloc[0]['category'] == 'med'
+        # Should have 2 edges: forward AND weight>=2 AND category=med (weights 2,3)
+        assert len(result._edges) == 2
+        assert all(result._edges['type'] == 'forward')
+        assert set(result._edges['weight']) == {2, 3}
+        assert set(result._edges['category']) == {'med'}
 
     def test_single_node_filter(self, sample_graph):
         """Baseline: Single node filter should work."""
@@ -97,11 +97,12 @@ class TestASTCallChainHazards:
         assert len(result._nodes) == 3
         assert all(result._nodes['type'] == 'person')
 
-    @pytest.mark.xfail(reason="Issue #786 - likely affects node filters too")
     def test_two_node_filters_sequential(self, sample_graph):
         """Node filter chaining should work like edge filters."""
+        from graphistry.compute.predicates.numeric import ge
+
         filter1 = ASTCall('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}})
-        filter2 = ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': {'gte': 20}}})
+        filter2 = ASTCall('filter_nodes_by_dict', {'filter_dict': {'score': ge(20)}})
         result = sample_graph.gfql([filter1, filter2])
 
         # Should have 2 nodes: person AND score>=20 (B, E with scores 20, 50)
@@ -109,7 +110,6 @@ class TestASTCallChainHazards:
         assert all(result._nodes['type'] == 'person')
         assert all(result._nodes['score'] >= 20)
 
-    @pytest.mark.xfail(reason="Issue #786 - likely affects mixed filters")
     def test_edge_then_node_filter(self, sample_graph):
         """Mixed filter types should both apply."""
         edge_filter = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
@@ -124,7 +124,6 @@ class TestASTCallChainHazards:
     # CATEGORY 2: Filter + Traversal Operations
     # ========================================================================
 
-    @pytest.mark.xfail(reason="Issue #786 - filter not passed to subsequent traversal ops")
     def test_filter_then_hop_forward(self, sample_graph):
         """Filter edges, then perform graph traversal on filtered graph."""
         filter_op = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
@@ -242,13 +241,12 @@ class TestASTCallChainHazards:
         assert len(result._edges) == 5  # weights 2,3,4,5,6
         assert all((result._edges['weight'] >= 2) & (result._edges['weight'] <= 6))
 
-    @pytest.mark.xfail(reason="Issue #786 - chained predicates likely affected")
     def test_chained_filters_with_predicates(self, sample_graph):
         """Chain two filters using predicates."""
-        from graphistry.compute.predicates.numeric import Gt, Lt
+        from graphistry.compute.predicates.numeric import gt, lt
 
-        filter1 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Gt(2)}})
-        filter2 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Lt(7)}})
+        filter1 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': gt(2)}})
+        filter2 = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': lt(7)}})
         result = sample_graph.gfql([filter1, filter2])
 
         # Should filter to 2 < weight < 7 (weights 3,4,5,6)
@@ -259,16 +257,17 @@ class TestASTCallChainHazards:
     # CATEGORY 6: Order Sensitivity Tests
     # ========================================================================
 
-    @pytest.mark.xfail(reason="Issue #786 - order may matter incorrectly")
     def test_filter_order_should_not_matter(self, sample_graph):
         """Applying filters in different orders should give same result."""
+        from graphistry.compute.predicates.numeric import Between
+
         # Order 1: type then weight
         filter1a = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
-        filter1b = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 2, 'lte': 6}}})
+        filter1b = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Between(2, 6)}})
         result1 = sample_graph.gfql([filter1a, filter1b])
 
         # Order 2: weight then type
-        filter2a = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': {'gte': 2, 'lte': 6}}})
+        filter2a = ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': Between(2, 6)}})
         filter2b = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
         result2 = sample_graph.gfql([filter2a, filter2b])
 
@@ -289,7 +288,6 @@ class TestASTCallChainHazards:
         assert len(result._edges) == 5
         assert all(result._edges['type'] == 'forward')
 
-    @pytest.mark.xfail(reason="Issue #786 - second filter is ignored")
     def test_contradictory_filters(self, sample_graph):
         """Apply contradictory filters - should result in empty."""
         filter1 = ASTCall('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})

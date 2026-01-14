@@ -361,7 +361,12 @@ def combine_steps(
             if x_name in out_df.columns and y_name in out_df.columns:
                 out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
                 out_df = out_df.drop(columns=[x_name, y_name])
-            out_df[op._name] = out_df[op._name].fillna(False).astype('bool')
+            label_col = out_df[op._name]
+            if engine == Engine.PANDAS:
+                label_col = label_col.astype('boolean').fillna(False).astype('bool')
+            else:
+                label_col = label_col.fillna(False).astype('bool')
+            out_df[op._name] = label_col
 
             # Restrict node aliases to endpoints that actually fed the next edge step
             if kind == 'nodes' and idx + 1 < len(steps):
@@ -567,7 +572,8 @@ def _handle_boundary_calls(
     engine: Union[EngineAbstract, str],
     validate_schema: bool,
     policy,
-    context
+    context,
+    start_nodes: Optional[DataFrameT]
 ) -> Optional[Plottable]:
     """
     Handle boundary call() patterns by splitting and executing sequentially.
@@ -618,20 +624,52 @@ def _handle_boundary_calls(
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
-        g_temp = g_temp.chain(prefix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = _chain_impl(
+            g_temp,
+            prefix,
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
-        g_temp = g_temp.chain(middle, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = _chain_impl(
+            g_temp,
+            middle,
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        g_temp = g_temp.chain(suffix, engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
+        g_temp = _chain_impl(
+            g_temp,
+            suffix,
+            engine,
+            validate_schema,
+            policy,
+            context,
+            start_nodes
+        )
 
     return g_temp
 
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO, validate_schema: bool = True, policy=None, context=None) -> Plottable:
+def chain(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    validate_schema: bool = True,
+    policy=None,
+    context=None,
+    start_nodes: Optional[DataFrameT] = None
+) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -646,6 +684,7 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
     :param validate_schema: Whether to validate the chain against the graph schema before executing
     :param policy: Optional policy dict for hooks
     :param context: Optional ExecutionContext for tracking execution state
+    :param start_nodes: Optional node wavefront for the first traversal step
 
     :returns: Plotter
     :rtype: Plotter
@@ -661,14 +700,22 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
-            return _chain_impl(self, ops, engine, validate_schema, policy, context)
+            return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
         finally:
             call_thread_local.policy = old_policy
     else:
-        return _chain_impl(self, ops, engine, validate_schema, policy, context)
+        return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
-def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str], validate_schema: bool, policy, context) -> Plottable:
+def _chain_impl(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy,
+    context,
+    start_nodes: Optional[DataFrameT]
+) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
 
@@ -758,6 +805,15 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
     if isinstance(ops, Chain):
         ops = ops.chain
 
+    if validate_schema:
+        # Validate AST structure (including identifier validation) BEFORE schema validation
+        # This ensures we catch reserved identifier errors before schema errors
+        if isinstance(ops, Chain):
+            ops.validate(collect_all=False)
+        else:
+            # Create temporary Chain for validation
+            Chain(ops).validate(collect_all=False)
+
     # Recursive dispatch for schema-changing operations (UMAP, hypergraph, etc.)
     # These operations create entirely new graph structures, so we split the chain
     # and execute segments sequentially: before → schema_changer → rest
@@ -805,20 +861,9 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
             # Execute segments: before → schema_changer → rest
             # Recursion handles multiple schema-changers automatically
-            g_temp = self.chain(before, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if before else self  # type: ignore[call-arg]
-            g_temp2 = g_temp.chain([schema_changer], engine=engine, validate_schema=validate_schema, policy=policy, context=context)  # type: ignore[call-arg]
-            return g_temp2.chain(rest, engine=engine, validate_schema=validate_schema, policy=policy, context=context) if rest else g_temp2  # type: ignore[call-arg]
-
-    if validate_schema:
-        # Validate AST structure (including identifier validation) BEFORE schema validation
-        # This ensures we catch reserved identifier errors before schema errors
-        if isinstance(ops, Chain):
-            ops.validate(collect_all=False)
-        else:
-            # Create temporary Chain for validation
-            Chain(ops).validate(collect_all=False)
-
-        validate_chain_schema(self, ops, collect_all=False)
+            g_temp = _chain_impl(self, before, engine, validate_schema, policy, context, start_nodes=None) if before else self
+            g_temp2 = _chain_impl(g_temp, [schema_changer], engine, validate_schema, policy, context, start_nodes=None)
+            return _chain_impl(g_temp2, rest, engine, validate_schema, policy, context, start_nodes=None) if rest else g_temp2
 
     if len(ops) == 0:
         return self
@@ -830,9 +875,12 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
 
     # Handle boundary call() patterns: [call(), ..., call()]
     # Allows call() at start/end for convenience, rejects interior mixing
-    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context)
+    boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context, start_nodes)
     if boundary_result is not None:
         return boundary_result
+
+    if validate_schema:
+        validate_chain_schema(self, ops, collect_all=False)
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
@@ -920,7 +968,7 @@ def _chain_impl(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Uni
                 # Wavefronts track which nodes are "active" at each step
                 current_g = g
                 prev_step_nodes = (
-                    None  # first uses full graph
+                    start_nodes  # first uses provided wavefront or full graph
                     if len(g_stack) == 0
                     else g_stack[-1]._nodes
                 )

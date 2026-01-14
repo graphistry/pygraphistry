@@ -36,7 +36,7 @@ class TestCallBoundaries(unittest.TestCase):
         Should work - call() at start is boundary.
         """
         # After fix, this should succeed
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix
             n(),
             e(),
@@ -56,7 +56,7 @@ class TestCallBoundaries(unittest.TestCase):
         Pattern: [n(), e(), n(), call(...)]
         Should work - call() at end is boundary.
         """
-        result = self.g.chain([
+        result = self.g.gfql([
             n(),
             e(),
             n(),
@@ -72,7 +72,7 @@ class TestCallBoundaries(unittest.TestCase):
         Pattern: [call(...), n(), e(), n(), call(...)]
         Should work - call() at both ends is boundary.
         """
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix
             n(),
             e(),
@@ -93,7 +93,7 @@ class TestCallBoundaries(unittest.TestCase):
         Pattern: [call(...), call(...), n(), e(), n()]
         Should work - multiple calls at start are all prefix.
         """
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix 1
             call('filter_edges_by_dict', {'filter_dict': {'weight': [1, 2]}}),  # Prefix 2
             n(),
@@ -113,7 +113,7 @@ class TestCallBoundaries(unittest.TestCase):
         Pattern: [n(), e(), n(), call(...), call(...)]
         Should work - multiple calls at end are all suffix.
         """
-        result = self.g.chain([
+        result = self.g.gfql([
             n(),
             e(),
             n(),
@@ -136,7 +136,7 @@ class TestCallBoundaries(unittest.TestCase):
         because interior mixing is always disallowed.
         """
         with pytest.raises(GFQLValidationError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 n(),
                 call('get_degrees'),  # Interior - NOT ALLOWED
                 e(),
@@ -157,7 +157,7 @@ class TestCallBoundaries(unittest.TestCase):
         - Middle: n()
         - Suffix: call()
         """
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix
             n(),  # Middle
             call('get_degrees')  # Suffix
@@ -173,7 +173,7 @@ class TestCallBoundaries(unittest.TestCase):
         Should fail - alternating pattern has call() in interior.
         """
         with pytest.raises(GFQLValidationError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
                 n(),
                 call('get_degrees'),  # Interior - NOT ALLOWED
@@ -189,7 +189,7 @@ class TestCallBoundaries(unittest.TestCase):
         Should fail - multiple call() operations interspersed with traversals.
         """
         with pytest.raises(GFQLValidationError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
                 n(),
                 call('get_degrees'),  # Interior - NOT ALLOWED
@@ -207,7 +207,7 @@ class TestCallBoundaries(unittest.TestCase):
         Should fail - even with valid prefix, call() in middle is not allowed.
         """
         with pytest.raises(GFQLValidationError) as exc_info:
-            self.g.chain([
+            self.g.gfql([
                 call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),  # Prefix 1
                 call('filter_edges_by_dict', {'filter_dict': {'weight': [1, 2]}}),  # Prefix 2
                 n(),
@@ -238,7 +238,7 @@ class TestPureChains(unittest.TestCase):
     def test_pure_call_chain(self):
         """Pure call() chain should still work."""
         # This should work both before and after the fix
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}})
         ])
         assert result is not None
@@ -247,7 +247,7 @@ class TestPureChains(unittest.TestCase):
     def test_pure_traversal_chain(self):
         """Pure traversal chain should still work."""
         # This should work both before and after the fix
-        result = self.g.chain([
+        result = self.g.gfql([
             n(),
             e(),
             n()
@@ -257,7 +257,7 @@ class TestPureChains(unittest.TestCase):
     def test_multiple_call_chain(self):
         """Multiple call() operations should still work."""
         # This should work both before and after the fix
-        result = self.g.chain([
+        result = self.g.gfql([
             call('filter_edges_by_dict', {'filter_dict': {'type': 'forward'}}),
             call('get_degrees')
         ])

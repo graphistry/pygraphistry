@@ -74,7 +74,7 @@ class TestCallEngineCoercionInChain:
         g = make_test_graph_pandas()
 
         # Chain with UMAP call - UMAP picks umap-learn on CPU → pandas
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'auto'}),
             n({})
@@ -91,7 +91,7 @@ class TestCallEngineCoercionInChain:
         g = make_test_graph_pandas()
 
         # Chain with UMAP call - UMAP picks umap-learn → pandas, but chain wants cuDF
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'auto'}),
             n({})
@@ -108,7 +108,7 @@ class TestCallEngineCoercionInChain:
         g = make_test_graph_cudf()
 
         # Chain with UMAP call - UMAP picks cuML → cuDF, but chain wants pandas
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'auto'}),
             n({})
@@ -125,7 +125,7 @@ class TestCallEngineCoercionInChain:
         g = make_test_graph_cudf()
 
         # Chain with UMAP call - UMAP picks cuML → cuDF
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'auto'}),
             n({})
@@ -217,7 +217,7 @@ class TestCallEngineCoercionExplicitEngines:
         g = make_test_graph_pandas()
 
         # UMAP with engine='cuml' → cuDF, but chain wants pandas
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'cuml'}),
             n({})
@@ -234,7 +234,7 @@ class TestCallEngineCoercionExplicitEngines:
         g = make_test_graph_pandas()
 
         # UMAP with engine='cuml' → cuDF, chain wants cuDF
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'cuml'}),
             n({})
@@ -250,7 +250,7 @@ class TestCallEngineCoercionExplicitEngines:
         g = make_test_graph_pandas()
 
         # UMAP with engine='umap_learn' → pandas
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'umap_learn'}),
             n({})
@@ -267,7 +267,7 @@ class TestCallEngineCoercionExplicitEngines:
         g = make_test_graph_pandas()
 
         # UMAP with engine='umap_learn' → pandas, but chain wants cuDF
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'umap_learn'}),
             n({})
@@ -287,7 +287,7 @@ class TestCallEngineCoercionMultipleCalls:
         g = make_test_graph_pandas()
 
         # Multiple UMAP calls in sequence
-        result = g.chain([
+        result = g.gfql([
             n({}),
             call('umap', {'n_components': 2, 'n_neighbors': 3, 'umap_kwargs': {'random_state': 42, 'n_epochs': 3}, 'engine': 'auto'}),
             n({}),

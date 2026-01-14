@@ -829,10 +829,6 @@ class TestDiamondPatterns:
     
     def test_parallel_independent_branches(self):
         """Test parallel branches execute independently"""
-        # TODO: Runtime execution error in combine_steps - missing 'index' column in ASTRef chains
-        # This is an implementation issue in the execution engine, not GraphOperation validation
-        pytest.skip("Runtime KeyError in ASTRef chain execution with query parameter - needs fix in chain implementation")
-        
         nodes_df = pd.DataFrame({
             'id': list('abcdefgh'),
             'branch': ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B']
@@ -1301,3 +1297,4 @@ class TestChainDagInternal:
         error_msg = str(exc_info.value)
         assert "Output binding 'missing' not found" in error_msg
         assert "Available bindings: ['node1']" in error_msg
+# CI: no functional change
