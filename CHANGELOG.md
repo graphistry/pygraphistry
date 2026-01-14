@@ -8,11 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.50.3 - 2026-01-14]
+
 ### Fixed
-- **Tests / GFQL**: Fixed cuDF compatibility in test files by using `to_set()` helper instead of `.tolist()` (cuDF doesn't support `tolist()`)
 - **GFQL / let-ref**: Documented and tested existing letrec semantics for ref; list bindings now accept implicit Chains.
 - **GFQL / schema**: Apply call() schema effects during validation so enrichments like `get_degrees` are recognized by downstream filters, and prioritize boundary-call validation before schema errors.
 - **GFQL / filters**: Treat boolean literal filters on object-typed columns as booleans instead of numeric mismatches.
+
+### Tests
+- **Tests / GFQL**: Fixed cuDF compatibility in test files by using `to_set()` helper instead of `.tolist()` (cuDF doesn't support `tolist()`)
+
+### Docs
+- **Docs / GFQL**: Updated the GFQL remote notebook examples to use valid ref/edge traversals.
 
 ## [0.50.2 - 2026-01-11]
 
