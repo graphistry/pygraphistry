@@ -30,16 +30,19 @@ def build_edge_pairs(
     For directed edges, direction follows sem.join_cols().
     """
     if sem.is_undirected:
-        fwd = edges_df[[src_col, dst_col]].copy()
-        fwd.columns = ['__from__', '__to__']
-        rev = edges_df[[dst_col, src_col]].copy()
-        rev.columns = ['__from__', '__to__']
+        fwd = edges_df[[src_col, dst_col]].rename(
+            columns={src_col: '__from__', dst_col: '__to__'}
+        )
+        rev = edges_df[[dst_col, src_col]].rename(
+            columns={dst_col: '__from__', src_col: '__to__'}
+        )
         result = concat_frames([fwd, rev])
         return result.drop_duplicates() if result is not None else fwd.iloc[:0]
     else:
         join_col, result_col = sem.join_cols(src_col, dst_col)
-        pairs = edges_df[[join_col, result_col]].copy()
-        pairs.columns = ['__from__', '__to__']
+        pairs = edges_df[[join_col, result_col]].rename(
+            columns={join_col: '__from__', result_col: '__to__'}
+        )
         return pairs
 
 
