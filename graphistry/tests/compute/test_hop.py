@@ -97,6 +97,7 @@ class TestMultiHopForward():
         ]
 
     def test_hop_labels_forward(self, g_long_forwards_chain: CGFull, n_a):
+        # Exercise label tracking path (cuDF-safe seen IDs).
         g2 = g_long_forwards_chain.hop(
             nodes=n_a,
             hops=3,
