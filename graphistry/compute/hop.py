@@ -347,10 +347,14 @@ def hop(self: Plottable,
         and allowed_dest_series is None
     )
 
-    pairs = None
-    FROM_COL = None
-    TO_COL = None
-    if not use_undirected_single_pass:
+    pairs: DataFrameT
+    FROM_COL: str
+    TO_COL: str
+    if use_undirected_single_pass:
+        pairs = edges_indexed[:0]
+        FROM_COL = g2._source
+        TO_COL = g2._destination
+    else:
         FROM_COL = generate_safe_column_name('__gfql_from__', edges_indexed, prefix='__gfql_', suffix='__')
         TO_COL = generate_safe_column_name('__gfql_to__', edges_indexed, prefix='__gfql_', suffix='__')
 
@@ -446,8 +450,6 @@ def hop(self: Plottable,
                         frontier_ids,
                     )
             else:
-                assert pairs is not None
-                assert FROM_COL is not None and TO_COL is not None
                 hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
                 cand_nodes = _domain_unique(hop_edges[TO_COL])
                 seed_ids = None
@@ -526,8 +528,6 @@ def hop(self: Plottable,
             mask_dst = edges_indexed[g2._destination].isin(wavefront_ids)
             hop_edges = edges_indexed[mask_src | mask_dst]
         else:
-            assert pairs is not None
-            assert FROM_COL is not None and TO_COL is not None
             hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
