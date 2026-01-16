@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Collections**: New `g.collections(...)` API for defining subsets via GFQL expressions with priority-based visual encodings. Includes helper constructors `graphistry.collection_set(...)` and `graphistry.collection_intersection(...)`, support for `showCollections`, `collectionsGlobalNodeColor`, and `collectionsGlobalEdgeColor` URL params, and automatic JSON encoding. Accepts GFQL AST, Chain objects, or wire-protocol dicts (#874).
+- **Docs / Collections**: Added collections usage guide in visualization/layout/settings, tutorial notebook (`demos/more_examples/graphistry_features/collections.ipynb`), and cross-references in 10-minute guides, cheatsheet, and GFQL docs (#875).
+
+### Changed
+- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
+- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+
+### Tests
+- **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
+
 ## [0.50.4 - 2026-01-15]
 
 ### Fixed
@@ -55,10 +66,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 - **GFQL / chain**: Optimized backward pass for simple single-hop edges by skipping full `hop()` call and using vectorized merge filtering instead (~50% faster on small graphs). Added `is_simple_single_hop()` method on `ASTEdge` for optimization eligibility checks.
-
-### Changed
-- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
-- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
 
 ### Fixed
 - **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
