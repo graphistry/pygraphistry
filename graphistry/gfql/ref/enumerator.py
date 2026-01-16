@@ -17,7 +17,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.filter_by_dict import filter_by_dict
-from graphistry.compute.gfql.same_path_types import ComparisonOp, WhereComparison
+from graphistry.compute.gfql.same_path_types import ComparisonOp, WhereComparison, col, compare
 
 
 @dataclass(frozen=True)
