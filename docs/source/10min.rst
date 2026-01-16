@@ -161,6 +161,28 @@ Example visualization:
 
 Now, edges are colored based on the type of vulnerability, helping you distinguish different attack types.
 
+Advanced: Collections for layered highlights
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use collections when you want GFQL-driven subsets (nodes, edges, or subgraphs) to override base encodings.
+This is useful for overlays like alerts or critical paths that take precedence over your normal color rules.
+
+.. code-block:: python
+
+    from graphistry import collection_set, n
+
+    collections = [
+        collection_set(
+            expr=n({"vip": True}),
+            name="VIP",
+            node_color="#FF8800",
+        )
+    ]
+    g.collections(collections=collections, show_collections=True).plot()
+
+See the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>` and
+:doc:`GFQL docs </gfql/index>` for full details.
+
 Adjusting Sizes, Labels, Icons, Badges, and More
 ------------------------------------------------
 
