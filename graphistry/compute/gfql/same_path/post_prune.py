@@ -5,16 +5,24 @@ These are applied after the initial backward prune to enforce constraints
 that span multiple edges in the chain.
 """
 
-from typing import Any, Dict, List, Optional, Set, Sequence, TYPE_CHECKING
-
-import pandas as pd
+from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from graphistry.compute.gfql.same_path_types import PathState
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
-from .df_utils import evaluate_clause, series_values, concat_frames, df_cons, make_bool_series
+from .df_utils import (
+    evaluate_clause,
+    series_values,
+    concat_frames,
+    df_cons,
+    make_bool_series,
+    domain_is_empty,
+    domain_intersect,
+    domain_to_frame,
+    domain_empty,
+)
 from .multihop import filter_multihop_edges_by_endpoints, find_multihop_start_nodes
 
 if TYPE_CHECKING:
@@ -57,12 +65,8 @@ def apply_non_adjacent_where_post_prune(
     if not non_adjacent_clauses:
         return state
 
-    local_allowed_nodes: Dict[int, Set[Any]] = {
-        k: set(v) for k, v in state.allowed_nodes.items()
-    }
-    local_allowed_edges: Dict[int, Set[Any]] = {
-        k: set(v) for k, v in state.allowed_edges.items()
-    }
+    local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
+    local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
     local_pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
     node_indices = executor.meta.node_indices
@@ -93,9 +97,9 @@ def apply_non_adjacent_where_post_prune(
             if start_node_idx < idx < end_node_idx
         ]
 
-        start_nodes = local_allowed_nodes.get(start_node_idx, set())
-        end_nodes = local_allowed_nodes.get(end_node_idx, set())
-        if not start_nodes or not end_nodes:
+        start_nodes = local_allowed_nodes.get(start_node_idx)
+        end_nodes = local_allowed_nodes.get(end_node_idx)
+        if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
             continue
 
         left_col = clause.left.column
@@ -193,9 +197,9 @@ def apply_non_adjacent_where_post_prune(
 
         if len(state_df) == 0:
             if start_node_idx in local_allowed_nodes:
-                local_allowed_nodes[start_node_idx] = set()
+                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
             if end_node_idx in local_allowed_nodes:
-                local_allowed_nodes[end_node_idx] = set()
+                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
             continue
 
         if left_values_df is None or right_values_df is None:
@@ -210,9 +214,15 @@ def apply_non_adjacent_where_post_prune(
         valid_ends = series_values(valid_pairs['__current__'])
 
         if start_node_idx in local_allowed_nodes:
-            local_allowed_nodes[start_node_idx] = local_allowed_nodes[start_node_idx].intersection(valid_starts)
+            local_allowed_nodes[start_node_idx] = domain_intersect(
+                local_allowed_nodes[start_node_idx],
+                valid_starts,
+            )
         if end_node_idx in local_allowed_nodes:
-            local_allowed_nodes[end_node_idx] = local_allowed_nodes[end_node_idx].intersection(valid_ends)
+            local_allowed_nodes[end_node_idx] = domain_intersect(
+                local_allowed_nodes[end_node_idx],
+                valid_ends,
+            )
 
         current_state = PathState.from_mutable(
             local_allowed_nodes, local_allowed_edges, local_pruned_edges
@@ -261,21 +271,19 @@ def apply_edge_where_post_prune(
     edge_indices = executor.meta.edge_indices
 
     # Work on local copies (internal immutability pattern)
-    local_allowed_nodes: Dict[int, Set[Any]] = {
-        k: set(v) for k, v in state.allowed_nodes.items()
-    }
+    local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
     # Preserve existing pruned_edges from input state
     pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
-    seed_nodes = local_allowed_nodes.get(node_indices[0], set())
-    if not seed_nodes:
+    seed_nodes = local_allowed_nodes.get(node_indices[0])
+    if domain_is_empty(seed_nodes):
         return state
 
     nodes_df_template = executor.inputs.graph._nodes
     if nodes_df_template is None:
         return state
 
-    paths_df = df_cons(nodes_df_template, {f'n{node_indices[0]}': list(seed_nodes)})
+    paths_df = domain_to_frame(nodes_df_template, seed_nodes, f'n{node_indices[0]}')
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]
@@ -298,7 +306,7 @@ def apply_edge_where_post_prune(
         }
 
         edge_cols = [src_col, dst_col] + [c for c in edge_cols_needed if c in edges_df.columns]
-        edges_subset = edges_df[list(set(edge_cols))].copy()
+        edges_subset = edges_df[tuple(dict.fromkeys(edge_cols))].copy()
 
         rename_map = {
             col: f'e{edge_idx}_{col}' for col in edge_cols_needed
@@ -329,14 +337,14 @@ def apply_edge_where_post_prune(
             paths_df[f'n{right_node_idx}'] = paths_df[result_col]
 
         right_allowed = local_allowed_nodes.get(right_node_idx)
-        if right_allowed is not None and len(right_allowed) > 0:
+        if not domain_is_empty(right_allowed):
             paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(right_allowed)]
 
         paths_df = paths_df.drop(columns=[src_col, dst_col], errors='ignore')
 
     if len(paths_df) == 0:
         for idx in node_indices:
-            local_allowed_nodes[idx] = pd.Index([])
+            local_allowed_nodes[idx] = domain_empty(nodes_df_template)
         return PathState.from_mutable(local_allowed_nodes, {})
 
     nodes_df = executor.inputs.graph._nodes
@@ -390,7 +398,11 @@ def apply_edge_where_post_prune(
         if col_name in valid_paths.columns:
             valid_node_ids = series_values(valid_paths[col_name])
             current = local_allowed_nodes.get(node_idx)
-            local_allowed_nodes[node_idx] = current.intersection(valid_node_ids) if current is not None else valid_node_ids
+            local_allowed_nodes[node_idx] = (
+                domain_intersect(current, valid_node_ids)
+                if current is not None
+                else valid_node_ids
+            )
 
     for i, edge_idx in enumerate(edge_indices):
         left_node_idx = node_indices[i]

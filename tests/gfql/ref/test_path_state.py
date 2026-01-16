@@ -1,9 +1,14 @@
 """Tests for PathState immutability and helper methods."""
 
+import pandas as pd
 import pytest
 from types import MappingProxyType
 
 from graphistry.compute.gfql.same_path_types import PathState, _mp
+
+
+def idx(values):
+    return pd.Index(values)
 
 
 class TestPathStateImmutability:
@@ -15,9 +20,9 @@ class TestPathStateImmutability:
         assert len(state.allowed_edges) == 0
         assert len(state.pruned_edges) == 0
 
-    def test_from_mutable_converts_sets_to_frozensets(self):
-        mutable_nodes = {0: {1, 2, 3}, 1: {4, 5}}
-        mutable_edges = {1: {10, 20}}
+    def test_from_mutable_preserves_domains(self):
+        mutable_nodes = {0: idx([1, 2, 3]), 1: idx([4, 5])}
+        mutable_edges = {1: idx([10, 20])}
 
         state = PathState.from_mutable(mutable_nodes, mutable_edges)
 
@@ -25,19 +30,19 @@ class TestPathStateImmutability:
         assert isinstance(state.allowed_nodes, MappingProxyType)
         assert isinstance(state.allowed_edges, MappingProxyType)
         for v in state.allowed_nodes.values():
-            assert isinstance(v, frozenset)
+            assert isinstance(v, pd.Index)
         for v in state.allowed_edges.values():
-            assert isinstance(v, frozenset)
+            assert isinstance(v, pd.Index)
 
         # Check values are correct
-        assert state.allowed_nodes[0] == frozenset({1, 2, 3})
-        assert state.allowed_nodes[1] == frozenset({4, 5})
-        assert state.allowed_edges[1] == frozenset({10, 20})
+        assert state.allowed_nodes[0].equals(idx([1, 2, 3]))
+        assert state.allowed_nodes[1].equals(idx([4, 5]))
+        assert state.allowed_edges[1].equals(idx([10, 20]))
 
     def test_to_mutable_converts_back(self):
         state = PathState.from_mutable(
-            {0: {1, 2}, 1: {3, 4}},
-            {1: {10}},
+            {0: idx([1, 2]), 1: idx([3, 4])},
+            {1: idx([10])},
         )
 
         nodes, edges = state.to_mutable()
@@ -46,26 +51,26 @@ class TestPathStateImmutability:
         assert isinstance(nodes, dict)
         assert isinstance(edges, dict)
         for v in nodes.values():
-            assert isinstance(v, set)
+            assert isinstance(v, pd.Index)
         for v in edges.values():
-            assert isinstance(v, set)
+            assert isinstance(v, pd.Index)
 
         # Check values
-        assert nodes[0] == {1, 2}
-        assert nodes[1] == {3, 4}
-        assert edges[1] == {10}
+        assert nodes[0].equals(idx([1, 2]))
+        assert nodes[1].equals(idx([3, 4]))
+        assert edges[1].equals(idx([10]))
 
     def test_mapping_proxy_prevents_mutation(self):
-        state = PathState.from_mutable({0: {1, 2}}, {})
+        state = PathState.from_mutable({0: idx([1, 2])}, {})
 
         with pytest.raises(TypeError):
-            state.allowed_nodes[0] = frozenset({99})  # type: ignore
+            state.allowed_nodes[0] = idx([99])  # type: ignore
 
         with pytest.raises(TypeError):
-            state.allowed_nodes[99] = frozenset({1})  # type: ignore
+            state.allowed_nodes[99] = idx([1])  # type: ignore
 
     def test_frozen_dataclass_prevents_attribute_mutation(self):
-        state = PathState.from_mutable({0: {1}}, {})
+        state = PathState.from_mutable({0: idx([1])}, {})
 
         with pytest.raises(AttributeError):
             state.allowed_nodes = _mp({})  # type: ignore
@@ -75,63 +80,63 @@ class TestPathStateRestrictNodes:
     """Test restrict_nodes returns new state with intersection."""
 
     def test_restrict_nodes_returns_new_object(self):
-        s1 = PathState.from_mutable({0: {1, 2, 3}}, {})
-        s2 = s1.restrict_nodes(0, frozenset({2, 3, 4}))
+        s1 = PathState.from_mutable({0: idx([1, 2, 3])}, {})
+        s2 = s1.restrict_nodes(0, idx([2, 3, 4]))
 
         assert s1 is not s2
-        assert s1.allowed_nodes[0] == frozenset({1, 2, 3})  # Original unchanged
-        assert s2.allowed_nodes[0] == frozenset({2, 3})  # Intersection
+        assert set(s1.allowed_nodes[0]) == {1, 2, 3}  # Original unchanged
+        assert set(s2.allowed_nodes[0]) == {2, 3}  # Intersection
 
     def test_restrict_nodes_preserves_other_indices(self):
-        s1 = PathState.from_mutable({0: {1, 2}, 1: {3, 4}}, {2: {10}})
-        s2 = s1.restrict_nodes(0, frozenset({2}))
+        s1 = PathState.from_mutable({0: idx([1, 2]), 1: idx([3, 4])}, {2: idx([10])})
+        s2 = s1.restrict_nodes(0, idx([2]))
 
-        assert s2.allowed_nodes[1] == frozenset({3, 4})  # Unchanged
-        assert s2.allowed_edges[2] == frozenset({10})  # Unchanged
+        assert set(s2.allowed_nodes[1]) == {3, 4}  # Unchanged
+        assert set(s2.allowed_edges[2]) == {10}  # Unchanged
 
     def test_restrict_nodes_with_empty_current_uses_keep(self):
         s1 = PathState.empty()
-        s2 = s1.restrict_nodes(0, frozenset({1, 2}))
+        s2 = s1.restrict_nodes(0, idx([1, 2]))
 
-        assert s2.allowed_nodes[0] == frozenset({1, 2})
+        assert set(s2.allowed_nodes[0]) == {1, 2}
 
     def test_restrict_nodes_returns_same_if_unchanged(self):
-        s1 = PathState.from_mutable({0: {1, 2}}, {})
-        s2 = s1.restrict_nodes(0, frozenset({1, 2, 3, 4}))  # Superset
+        s1 = PathState.from_mutable({0: idx([1, 2])}, {})
+        s2 = s1.restrict_nodes(0, idx([1, 2, 3, 4]))  # Superset
 
         # Since intersection equals original, could return same object
         # (implementation detail - either is fine)
-        assert s2.allowed_nodes[0] == frozenset({1, 2})
+        assert set(s2.allowed_nodes[0]) == {1, 2}
 
 
 class TestPathStateRestrictEdges:
     """Test restrict_edges returns new state with intersection."""
 
     def test_restrict_edges_returns_new_object(self):
-        s1 = PathState.from_mutable({}, {1: {10, 20, 30}})
-        s2 = s1.restrict_edges(1, frozenset({20, 30, 40}))
+        s1 = PathState.from_mutable({}, {1: idx([10, 20, 30])})
+        s2 = s1.restrict_edges(1, idx([20, 30, 40]))
 
         assert s1 is not s2
-        assert s1.allowed_edges[1] == frozenset({10, 20, 30})
-        assert s2.allowed_edges[1] == frozenset({20, 30})
+        assert set(s1.allowed_edges[1]) == {10, 20, 30}
+        assert set(s2.allowed_edges[1]) == {20, 30}
 
 
 class TestPathStateSetNodes:
     """Test set_nodes replaces the node set entirely."""
 
     def test_set_nodes_replaces_value(self):
-        s1 = PathState.from_mutable({0: {1, 2}}, {})
-        s2 = s1.set_nodes(0, frozenset({99, 100}))
+        s1 = PathState.from_mutable({0: idx([1, 2])}, {})
+        s2 = s1.set_nodes(0, idx([99, 100]))
 
-        assert s1.allowed_nodes[0] == frozenset({1, 2})
-        assert s2.allowed_nodes[0] == frozenset({99, 100})
+        assert set(s1.allowed_nodes[0]) == {1, 2}
+        assert set(s2.allowed_nodes[0]) == {99, 100}
 
     def test_set_nodes_adds_new_index(self):
         s1 = PathState.empty()
-        s2 = s1.set_nodes(5, frozenset({1, 2, 3}))
+        s2 = s1.set_nodes(5, idx([1, 2, 3]))
 
         assert 5 not in s1.allowed_nodes
-        assert s2.allowed_nodes[5] == frozenset({1, 2, 3})
+        assert set(s2.allowed_nodes[5]) == {1, 2, 3}
 
 
 class TestPathStateWithPrunedEdges:
@@ -165,17 +170,18 @@ class TestPathStateSyncMethods:
 
     def test_sync_to_mutable_updates_dicts(self):
         state = PathState.from_mutable(
-            {0: {1, 2}, 1: {3}},
-            {1: {10, 20}},
+            {0: idx([1, 2]), 1: idx([3])},
+            {1: idx([10, 20])},
         )
 
-        target_nodes: dict = {0: {99}}  # Will be replaced
+        target_nodes: dict = {0: idx([99])}  # Will be replaced
         target_edges: dict = {}
 
         state.sync_to_mutable(target_nodes, target_edges)
 
-        assert target_nodes == {0: {1, 2}, 1: {3}}
-        assert target_edges == {1: {10, 20}}
+        assert set(target_nodes[0]) == {1, 2}
+        assert set(target_nodes[1]) == {3}
+        assert set(target_edges[1]) == {10, 20}
 
     def test_sync_pruned_to_forward_steps(self):
         import pandas as pd
@@ -202,14 +208,16 @@ class TestPathStateRoundTrip:
     """Test conversion round-trips preserve data."""
 
     def test_mutable_to_immutable_to_mutable(self):
-        original_nodes = {0: {1, 2, 3}, 2: {4, 5}}
-        original_edges = {1: {10, 20}, 3: {30}}
+        original_nodes = {0: idx([1, 2, 3]), 2: idx([4, 5])}
+        original_edges = {1: idx([10, 20]), 3: idx([30])}
 
         state = PathState.from_mutable(original_nodes, original_edges)
         nodes_back, edges_back = state.to_mutable()
 
-        assert nodes_back == original_nodes
-        assert edges_back == original_edges
+        assert set(nodes_back[0]) == {1, 2, 3}
+        assert set(nodes_back[2]) == {4, 5}
+        assert set(edges_back[1]) == {10, 20}
+        assert set(edges_back[3]) == {30}
 
 
 class TestPathStateImmutabilityContracts:
@@ -219,27 +227,27 @@ class TestPathStateImmutabilityContracts:
         """All PathState methods must return new objects, not mutate in place."""
         import pandas as pd
 
-        s1 = PathState.from_mutable({0: {1, 2, 3}}, {1: {10, 20}})
+        s1 = PathState.from_mutable({0: idx([1, 2, 3])}, {1: idx([10, 20])})
 
         # restrict_nodes returns new object
-        s2 = s1.restrict_nodes(0, frozenset({2, 3}))
+        s2 = s1.restrict_nodes(0, idx([2, 3]))
         assert s1 is not s2
-        assert s1.allowed_nodes[0] == frozenset({1, 2, 3})  # Original unchanged
+        assert set(s1.allowed_nodes[0]) == {1, 2, 3}  # Original unchanged
 
         # restrict_edges returns new object
-        s3 = s1.restrict_edges(1, frozenset({10}))
+        s3 = s1.restrict_edges(1, idx([10]))
         assert s1 is not s3
-        assert s1.allowed_edges[1] == frozenset({10, 20})  # Original unchanged
+        assert set(s1.allowed_edges[1]) == {10, 20}  # Original unchanged
 
         # set_nodes returns new object
-        s4 = s1.set_nodes(0, frozenset({99}))
+        s4 = s1.set_nodes(0, idx([99]))
         assert s1 is not s4
-        assert s1.allowed_nodes[0] == frozenset({1, 2, 3})  # Original unchanged
+        assert set(s1.allowed_nodes[0]) == {1, 2, 3}  # Original unchanged
 
         # set_edges returns new object
-        s5 = s1.set_edges(1, frozenset({99}))
+        s5 = s1.set_edges(1, idx([99]))
         assert s1 is not s5
-        assert s1.allowed_edges[1] == frozenset({10, 20})  # Original unchanged
+        assert set(s1.allowed_edges[1]) == {10, 20}  # Original unchanged
 
         # with_pruned_edges returns new object
         df = pd.DataFrame({'a': [1]})
@@ -249,7 +257,7 @@ class TestPathStateImmutabilityContracts:
 
     def test_pathstate_cannot_be_modified_after_creation(self):
         """PathState fields cannot be modified after creation."""
-        state = PathState.from_mutable({0: {1, 2}}, {1: {10}})
+        state = PathState.from_mutable({0: idx([1, 2])}, {1: idx([10])})
 
         # Cannot reassign fields (frozen dataclass)
         with pytest.raises(AttributeError):
@@ -263,36 +271,36 @@ class TestPathStateImmutabilityContracts:
 
         # Cannot modify MappingProxyType contents
         with pytest.raises(TypeError):
-            state.allowed_nodes[0] = frozenset({99})  # type: ignore
+            state.allowed_nodes[0] = idx([99])  # type: ignore
 
         with pytest.raises(TypeError):
-            state.allowed_nodes[99] = frozenset({1})  # type: ignore
+            state.allowed_nodes[99] = idx([1])  # type: ignore
 
     def test_from_mutable_creates_deep_copy(self):
         """from_mutable must not hold references to input mutable data."""
-        nodes = {0: {1, 2, 3}}
-        edges = {1: {10, 20}}
+        nodes = {0: idx([1, 2, 3])}
+        edges = {1: idx([10, 20])}
 
         state = PathState.from_mutable(nodes, edges)
 
         # Modify original mutable data
-        nodes[0].add(99)
-        edges[1].add(99)
+        nodes[0] = idx([99])
+        edges[1] = idx([99])
 
         # PathState should be unaffected (deep copy)
-        assert state.allowed_nodes[0] == frozenset({1, 2, 3})
-        assert state.allowed_edges[1] == frozenset({10, 20})
+        assert set(state.allowed_nodes[0]) == {1, 2, 3}
+        assert set(state.allowed_edges[1]) == {10, 20}
 
     def test_to_mutable_creates_independent_copy(self):
         """to_mutable must return data that doesn't affect original PathState."""
-        state = PathState.from_mutable({0: {1, 2, 3}}, {1: {10, 20}})
+        state = PathState.from_mutable({0: idx([1, 2, 3])}, {1: idx([10, 20])})
 
         nodes, edges = state.to_mutable()
 
         # Modify the mutable copies
-        nodes[0].add(99)
-        edges[1].add(99)
+        nodes[0] = idx([99])
+        edges[1] = idx([99])
 
         # Original PathState should be unaffected
-        assert state.allowed_nodes[0] == frozenset({1, 2, 3})
-        assert state.allowed_edges[1] == frozenset({10, 20})
+        assert set(state.allowed_nodes[0]) == {1, 2, 3}
+        assert set(state.allowed_edges[1]) == {10, 20}
