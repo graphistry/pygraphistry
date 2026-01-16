@@ -131,7 +131,7 @@ def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
     return _mp(d)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PathState:
     """Immutable state for same-path execution.
 
