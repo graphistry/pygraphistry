@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Collections**: New `g.collections(...)` API for defining subsets via GFQL expressions with priority-based visual encodings. Includes helper constructors `graphistry.collection_set(...)` and `graphistry.collection_intersection(...)`, support for `showCollections`, `collectionsGlobalNodeColor`, and `collectionsGlobalEdgeColor` URL params, and automatic JSON encoding. Accepts GFQL AST, Chain objects, or wire-protocol dicts (#874).
+- **Docs / Collections**: Added collections usage guide in visualization/layout/settings, tutorial notebook (`demos/more_examples/graphistry_features/collections.ipynb`), and cross-references in 10-minute guides, cheatsheet, and GFQL docs (#875).
+
+### Changed
+- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
+- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+
+### Tests
+- **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
+
 ## [0.50.4 - 2026-01-15]
 
 ### Fixed

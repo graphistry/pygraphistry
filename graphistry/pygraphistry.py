@@ -5,6 +5,8 @@ from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 from graphistry.Engine import EngineAbstractType
+from graphistry.models.collections import CollectionsInput
+from graphistry.models.types import ValidationParam
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -2274,6 +2276,24 @@ class GraphistryClient(AuthManagerProtocol):
 
         return self._plotter().settings(height, url_params, render)
 
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ):
+        return self._plotter().collections(
+            collections=collections,
+            show_collections=show_collections,
+            collections_global_node_color=collections_global_node_color,
+            collections_global_edge_color=collections_global_edge_color,
+            validate=validate,
+            warn=warn
+        )
+
     def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = "&".join([k + "=" + str(v) for k, v in list(url_params.items())])
@@ -2501,6 +2521,7 @@ nodes = PyGraphistry.nodes
 pipe = PyGraphistry.pipe
 graph = PyGraphistry.graph
 settings = PyGraphistry.settings
+collections = PyGraphistry.collections
 hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher

@@ -23,6 +23,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     nodes,
     graph,
     settings,
+    collections,
     encode_point_color,
     encode_point_size,
     encode_point_icon,
@@ -59,6 +60,13 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     GraphistryClient,
     from_igraph,
     from_cugraph
+)
+
+from graphistry.collections import (
+    collection_set,
+    collection_intersection,
+    CollectionSet,
+    CollectionIntersection,
 )
 
 from graphistry.compute import (
