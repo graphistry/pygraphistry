@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **Compute / hop**: Use engine-native seen-ID tracking for hop label paths to avoid pandas Index conversions in cuDF.
+
 ## [0.50.3 - 2026-01-14]
 
 ### Fixed

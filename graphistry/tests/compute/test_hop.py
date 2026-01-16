@@ -96,6 +96,29 @@ class TestMultiHopForward():
             {'s': 'c', 'd': 'd'}
         ]
 
+    def test_hop_labels_forward(self, g_long_forwards_chain: CGFull, n_a):
+        g2 = g_long_forwards_chain.hop(
+            nodes=n_a,
+            hops=3,
+            to_fixed_point=False,
+            direction='forward',
+            label_node_hops='nh',
+            label_edge_hops='eh',
+            label_seeds=True
+        )
+        assert 'nh' in g2._nodes.columns
+        assert 'eh' in g2._edges.columns
+        node_hops = {
+            row['v']: int(row['nh'])
+            for row in g2._nodes[['v', 'nh']].to_dict(orient='records')
+        }
+        assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+        edge_hops = {
+            (row['s'], row['d']): int(row['eh'])
+            for row in g2._edges[['s', 'd', 'eh']].to_dict(orient='records')
+        }
+        assert edge_hops == {('a', 'b'): 1, ('b', 'c'): 2, ('c', 'd'): 3}
+
     def test_hop_exact_back(self, g_long_forwards_chain: CGFull, n_d, n_a):
         g_reverse = g_long_forwards_chain.nodes(
             g_long_forwards_chain._nodes[

@@ -307,6 +307,23 @@ def hop(self: Plottable,
     if not TYPE_CHECKING:
         DataFrameT = df_cons(engine_concrete)
     concat = df_concat(engine_concrete)
+
+    def _domain_unique(series):
+        if engine_concrete == Engine.PANDAS:
+            return pd.Index(series.dropna().unique())
+        return series.dropna().unique()
+
+    def _domain_is_empty(domain) -> bool:
+        return domain is None or len(domain) == 0
+
+    def _domain_union(left, right):
+        if _domain_is_empty(left):
+            return right
+        if _domain_is_empty(right):
+            return left
+        if engine_concrete == Engine.PANDAS and isinstance(left, pd.Index):
+            return left.append(right)
+        return concat([left, right], ignore_index=True, sort=False).drop_duplicates()
     
     nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
     target_wave_front = df_to_engine(target_wave_front, engine_concrete) if target_wave_front is not None else None
@@ -479,10 +496,8 @@ def hop(self: Plottable,
     node_hop_col = None
     if track_edge_hops:
         edge_hop_col = resolve_label_col(label_edge_hops, edges_indexed, '_hop')
-        seen_edge_marker_col = generate_safe_column_name('__gfql_edge_seen__', edges_indexed, prefix='__seen_', suffix='__')
     if track_node_hops:
         node_hop_col = resolve_label_col(label_node_hops, g2._nodes, '_hop')
-        seen_node_marker_col = generate_safe_column_name('__gfql_node_seen__', g2._nodes, prefix='__seen_', suffix='__')
 
     wave_front = starting_nodes[[g2._node]][:0]
 
@@ -498,10 +513,13 @@ def hop(self: Plottable,
 
     node_hop_records = None
     edge_hop_records = None
+    seen_node_ids = None
+    seen_edge_ids = None
 
     if track_node_hops and label_seeds and node_hop_col is not None:
         seed_nodes = starting_nodes[[g2._node]].drop_duplicates()
         node_hop_records = seed_nodes.assign(**{node_hop_col: 0})
+        seen_node_ids = _domain_unique(seed_nodes[g2._node])
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ LOOP PRE ~~~~~~~~~~~')
@@ -636,7 +654,6 @@ def hop(self: Plottable,
             max_reached_hop = current_hop
 
         if track_edge_hops and edge_hop_col is not None:
-            assert seen_edge_marker_col is not None
             edge_label_candidates : List[DataFrameT] = []
             if hop_edges_forward is not None:
                 edge_label_candidates.append(hop_edges_forward[[EDGE_ID]])
@@ -649,43 +666,34 @@ def hop(self: Plottable,
                 labeled_edges = edge_df_iter.assign(**{edge_hop_col: current_hop})
                 if edge_hop_records is None:
                     edge_hop_records = labeled_edges
+                    seen_edge_ids = _domain_unique(labeled_edges[EDGE_ID])
                 else:
-                    edge_seen = edge_hop_records[[EDGE_ID]].assign(**{seen_edge_marker_col: 1})
-                    merged_edge_labels = safe_merge(
-                        labeled_edges,
-                        edge_seen,
-                        on=EDGE_ID,
-                        how='left',
-                        engine=engine_concrete
-                    )
-                    new_edge_labels = merged_edge_labels[merged_edge_labels[seen_edge_marker_col].isna()].drop(columns=[seen_edge_marker_col])
+                    new_mask = ~labeled_edges[EDGE_ID].isin(seen_edge_ids)
+                    new_edge_labels = labeled_edges[new_mask]
                     if len(new_edge_labels) > 0:
                         edge_hop_records = concat(
                             [edge_hop_records, new_edge_labels],
                             ignore_index=True,
                             sort=False
                         ).drop_duplicates(subset=[EDGE_ID])
+                        new_edge_ids = _domain_unique(new_edge_labels[EDGE_ID])
+                        seen_edge_ids = _domain_union(seen_edge_ids, new_edge_ids)
 
         if track_node_hops and node_hop_col is not None:
-            assert seen_node_marker_col is not None
             if node_hop_records is None:
                 node_hop_records = new_node_ids.assign(**{node_hop_col: current_hop})
+                seen_node_ids = _domain_unique(node_hop_records[g2._node])
             else:
-                node_seen = node_hop_records[[g2._node]].assign(**{seen_node_marker_col: 1})
-                merged_node_labels = safe_merge(
-                    new_node_ids,
-                    node_seen,
-                    on=g2._node,
-                    how='left',
-                    engine=engine_concrete
-                )
-                new_node_labels = merged_node_labels[merged_node_labels[seen_node_marker_col].isna()].drop(columns=[seen_node_marker_col])
+                new_mask = ~new_node_ids[g2._node].isin(seen_node_ids)
+                new_node_labels = new_node_ids[new_mask]
                 if len(new_node_labels) > 0:
                     node_hop_records = concat(
                         [node_hop_records, new_node_labels.assign(**{node_hop_col: current_hop})],
                         ignore_index=True,
                         sort=False
                     ).drop_duplicates(subset=[g2._node])
+                    new_node_ids_domain = _domain_unique(new_node_labels[g2._node])
+                    seen_node_ids = _domain_union(seen_node_ids, new_node_ids_domain)
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP MERGES 1 ~~~~~~~~~~~')
