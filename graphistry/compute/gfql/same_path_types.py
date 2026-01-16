@@ -72,7 +72,7 @@ def parse_where_json(
         if "left" not in payload or "right" not in payload:
             raise ValueError(f"WHERE clause must have 'left' and 'right' keys, got {list(payload.keys())}")
         if not isinstance(payload["left"], str) or not isinstance(payload["right"], str):
-            raise ValueError(f"WHERE clause 'left' and 'right' must be strings")
+            raise ValueError("WHERE clause 'left' and 'right' must be strings")
         op_map: Dict[str, ComparisonOp] = {
             "eq": "==",
             "neq": "!=",

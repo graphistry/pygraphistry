@@ -69,7 +69,6 @@ def apply_non_adjacent_where_post_prune(
     local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
     local_pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
-    node_indices = executor.meta.node_indices
     edge_indices = executor.meta.edge_indices
 
     src_col = executor._source_column
