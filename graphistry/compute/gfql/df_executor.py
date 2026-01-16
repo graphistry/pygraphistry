@@ -775,11 +775,13 @@ class DFSamePathExecutor:
         src = self._source_column
         dst = self._destination_column
 
-        edge_frames = [
-            self.edges_df_for_step(idx, state)
-            for idx, op in enumerate(self.inputs.chain)
-            if isinstance(op, ASTEdge) and self.edges_df_for_step(idx, state) is not None
-        ]
+        edge_frames = []
+        for idx, op in enumerate(self.inputs.chain):
+            if not isinstance(op, ASTEdge):
+                continue
+            step_edges = self.edges_df_for_step(idx, state)
+            if step_edges is not None:
+                edge_frames.append(step_edges)
         concatenated_edges = concat_frames(edge_frames)
         edges_df = concatenated_edges if concatenated_edges is not None else self.inputs.graph._edges
 

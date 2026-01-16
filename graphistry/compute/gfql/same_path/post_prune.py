@@ -305,7 +305,7 @@ def apply_edge_where_post_prune(
         }
 
         edge_cols = [src_col, dst_col] + [c for c in edge_cols_needed if c in edges_df.columns]
-        edges_subset = edges_df[tuple(dict.fromkeys(edge_cols))].copy()
+        edges_subset = edges_df[list(dict.fromkeys(edge_cols))].copy()
 
         rename_map = {
             col: f'e{edge_idx}_{col}' for col in edge_cols_needed
@@ -336,7 +336,7 @@ def apply_edge_where_post_prune(
             paths_df[f'n{right_node_idx}'] = paths_df[result_col]
 
         right_allowed = local_allowed_nodes.get(right_node_idx)
-        if not domain_is_empty(right_allowed):
+        if right_allowed is not None and not domain_is_empty(right_allowed):
             paths_df = paths_df[paths_df[f'n{right_node_idx}'].isin(right_allowed)]
 
         paths_df = paths_df.drop(columns=[src_col, dst_col], errors='ignore')
