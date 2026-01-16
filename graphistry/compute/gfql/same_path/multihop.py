@@ -4,22 +4,29 @@ Contains functions for filtering multi-hop edges and finding valid start nodes
 using bidirectional reachability propagation.
 """
 
-from typing import Any, List, Optional, Set
-
-import pandas as pd
+from typing import Any, List, Optional
 
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs, bfs_reachability
-from .df_utils import series_values, concat_frames, df_cons
+from .df_utils import (
+    series_values,
+    concat_frames,
+    domain_is_empty,
+    domain_from_values,
+    domain_diff,
+    domain_union,
+    domain_to_frame,
+    domain_empty,
+)
 
 
 def filter_multihop_edges_by_endpoints(
     edges_df: DataFrameT,
     edge_op: ASTEdge,
-    left_allowed: Set[Any],
-    right_allowed: Set[Any],
+    left_allowed: Any,
+    right_allowed: Any,
     sem: EdgeSemantics,
     src_col: str,
     dst_col: str,
@@ -36,8 +43,8 @@ def filter_multihop_edges_by_endpoints(
     Args:
         edges_df: DataFrame of edges
         edge_op: ASTEdge operation with hop constraints
-        left_allowed: Set of allowed start node IDs
-        right_allowed: Set of allowed end node IDs
+        left_allowed: Allowed start node domain
+        right_allowed: Allowed end node domain
         sem: EdgeSemantics for direction handling
         src_col: Source column name
         dst_col: Destination column name
@@ -45,7 +52,7 @@ def filter_multihop_edges_by_endpoints(
     Returns:
         Filtered edges DataFrame
     """
-    if not src_col or not dst_col or left_allowed is None or right_allowed is None or len(left_allowed) == 0 or len(right_allowed) == 0:
+    if not src_col or not dst_col or domain_is_empty(left_allowed) or domain_is_empty(right_allowed):
         return edges_df
 
     # Only max_hops needed here - min_hops is enforced at path level, not per-edge
@@ -124,11 +131,11 @@ def filter_multihop_edges_by_endpoints(
 def find_multihop_start_nodes(
     edges_df: DataFrameT,
     edge_op: ASTEdge,
-    right_allowed: Set[Any],
+    right_allowed: Any,
     sem: EdgeSemantics,
     src_col: str,
     dst_col: str,
-) -> Set[Any]:
+) -> Any:
     """
     Find nodes that can start multi-hop paths reaching right_allowed.
 
@@ -137,16 +144,16 @@ def find_multihop_start_nodes(
     Args:
         edges_df: DataFrame of edges
         edge_op: ASTEdge operation with hop constraints
-        right_allowed: Set of allowed destination node IDs
+        right_allowed: Allowed destination node domain
         sem: EdgeSemantics for direction handling
         src_col: Source column name
         dst_col: Destination column name
 
     Returns:
-        Set of valid start node IDs
+        Domain of valid start node IDs
     """
-    if not src_col or not dst_col or not right_allowed:
-        return set()
+    if not src_col or not dst_col or domain_is_empty(right_allowed):
+        return domain_empty(edges_df)
 
     min_hops = edge_op.min_hops if edge_op.min_hops is not None else 1
     max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
@@ -170,10 +177,10 @@ def find_multihop_start_nodes(
     # Start with right_allowed as target destinations (hop 0 means "at the destination")
     # We trace backward to find nodes that can REACH these destinations
 
-    import pandas as pd
-    frontier = df_cons(edge_pairs, {'__node__': list(right_allowed)})
+    right_domain = domain_from_values(right_allowed, edge_pairs)
+    frontier = domain_to_frame(edge_pairs, right_domain, '__node__')
     all_visited = frontier.copy()
-    visited_idx = pd.Index(right_allowed) if not isinstance(right_allowed, pd.Index) else right_allowed
+    visited_idx = right_domain
     valid_starts_frames: List[DataFrameT] = []
 
     # Collect nodes at each hop distance FROM the destination
@@ -199,14 +206,14 @@ def find_multihop_start_nodes(
             valid_starts_frames.append(new_frontier[['__node__']])
 
         # Anti-join: filter out nodes already visited to avoid infinite loops
-        # Use pd.Index-based filtering
+        # Use domain-based filtering
         candidate_nodes = series_values(new_frontier['__node__'])
-        new_node_ids = candidate_nodes.difference(visited_idx)
-        if len(new_node_ids) == 0:
+        new_node_ids = domain_diff(candidate_nodes, visited_idx)
+        if domain_is_empty(new_node_ids):
             break
 
-        unvisited = df_cons(edge_pairs, {'__node__': list(new_node_ids)})
-        visited_idx = visited_idx.union(new_node_ids)
+        unvisited = domain_to_frame(edge_pairs, new_node_ids, '__node__')
+        visited_idx = domain_union(visited_idx, new_node_ids)
 
         frontier = unvisited
         all_visited_new = concat_frames([all_visited, unvisited])
@@ -214,10 +221,10 @@ def find_multihop_start_nodes(
             break
         all_visited = all_visited_new
 
-    # Combine all valid starts and return as pd.Index
+    # Combine all valid starts and return as a domain
     if valid_starts_frames:
         valid_starts_df = concat_frames(valid_starts_frames)
         if valid_starts_df is not None:
             valid_starts_df = valid_starts_df.drop_duplicates()
             return series_values(valid_starts_df['__node__'])
-    return pd.Index([])
+    return domain_empty(edge_pairs)

@@ -3,11 +3,23 @@
 Contains pure functions for series/dataframe operations used across the executor.
 """
 
-from typing import Any, Optional, Sequence, Set
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 
 from graphistry.compute.typing import DataFrameT
+
+
+def _is_cudf_obj(obj: Any) -> bool:
+    return hasattr(obj, "__class__") and obj.__class__.__module__.startswith("cudf")
+
+
+def _cudf_index_op(left: Any, right: Any, op: str) -> Any:
+    method = getattr(left, op)
+    try:
+        return method(right, sort=False)
+    except TypeError:
+        return method(right)
 
 
 def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
@@ -59,24 +71,97 @@ def series_unique(series: Any) -> Any:
 
     For set operations (intersection, union), use series_values() instead.
     """
+    if _is_cudf_obj(series):
+        return series.dropna().unique()
+    if isinstance(series, pd.Index):
+        return series.dropna().unique()
     if hasattr(series, 'dropna'):
         return series.dropna().unique()
     pandas_series = to_pandas_series(series)
     return pandas_series.dropna().unique()
 
 
-def series_values(series: Any) -> pd.Index:
-    """Extract unique non-null values from a series as a pd.Index.
+def series_values(series: Any) -> Any:
+    """Extract unique non-null values from a series as an Index-like domain.
 
-    Returns pd.Index which supports:
-    - .intersection() for & operations
-    - .union() for | operations
-    - Direct use in .isin() (no conversion needed)
-
-    This is ~9x faster than the previous set-based approach.
+    Returns a pandas.Index for pandas objects, and cudf.Index for cuDF objects.
+    These Index types support .intersection/.union/.difference and are safe to
+    pass into .isin() without host syncs.
     """
+    if _is_cudf_obj(series):
+        import cudf  # type: ignore
+        if isinstance(series, cudf.Index):
+            return series.dropna().unique()
+        return cudf.Index(series.dropna().unique())
+    if isinstance(series, pd.Index):
+        return series.dropna().unique()
     pandas_series = to_pandas_series(series)
     return pd.Index(pandas_series.dropna().unique())
+
+
+def domain_empty(template: Optional[Any] = None) -> Any:
+    if _is_cudf_obj(template):
+        import cudf  # type: ignore
+        return cudf.Index([])
+    return pd.Index([])
+
+
+def domain_is_empty(domain: Any) -> bool:
+    return domain is None or len(domain) == 0
+
+
+def domain_from_values(values: Any, template: Optional[Any] = None) -> Any:
+    if domain_is_empty(values):
+        return domain_empty(template)
+    if _is_cudf_obj(values):
+        import cudf  # type: ignore
+        if isinstance(values, cudf.Index):
+            return values
+        return cudf.Index(values)
+    if isinstance(values, pd.Index):
+        return values
+    if _is_cudf_obj(template):
+        import cudf  # type: ignore
+        return cudf.Index(values)
+    return pd.Index(values)
+
+
+def domain_intersect(left: Any, right: Any) -> Any:
+    if domain_is_empty(left) or domain_is_empty(right):
+        return domain_empty(left if left is not None else right)
+    if isinstance(left, pd.Index):
+        return left.intersection(right)
+    if _is_cudf_obj(left):
+        return _cudf_index_op(left, right, "intersection")
+    return left.intersection(right)
+
+
+def domain_union(left: Any, right: Any) -> Any:
+    if domain_is_empty(left):
+        return right
+    if domain_is_empty(right):
+        return left
+    if isinstance(left, pd.Index):
+        return left.union(right)
+    if _is_cudf_obj(left):
+        return _cudf_index_op(left, right, "union")
+    return left.union(right)
+
+
+def domain_diff(left: Any, right: Any) -> Any:
+    if domain_is_empty(left) or domain_is_empty(right):
+        return left
+    if isinstance(left, pd.Index):
+        return left.difference(right)
+    if _is_cudf_obj(left):
+        return _cudf_index_op(left, right, "difference")
+    return left.difference(right)
+
+
+def domain_to_frame(template_df: DataFrameT, domain: Any, col: str) -> DataFrameT:
+    if domain is None:
+        return df_cons(template_df, {col: []})
+    return df_cons(template_df, {col: domain})
 
 
 # Standard column name for ID DataFrames used in semi-joins

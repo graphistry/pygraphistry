@@ -4,14 +4,20 @@ Contains functions for filtering edges based on WHERE clause comparisons
 between adjacent or multi-hop connected aliases.
 """
 
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import pandas as pd
 
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
-from .df_utils import evaluate_clause, series_values, concat_frames
+from .df_utils import (
+    evaluate_clause,
+    series_values,
+    concat_frames,
+    domain_intersect,
+    domain_is_empty,
+)
 from .multihop import filter_multihop_edges_by_endpoints
 
 if TYPE_CHECKING:
@@ -26,7 +32,7 @@ def filter_edges_by_clauses(
     edges_df: DataFrameT,
     left_alias: str,
     right_alias: str,
-    allowed_nodes: Dict[int, Set[Any]],
+    allowed_nodes: Dict[int, Any],
     sem: EdgeSemantics,
 ) -> DataFrameT:
     """Filter edges using WHERE clauses that connect adjacent aliases.
@@ -40,7 +46,7 @@ def filter_edges_by_clauses(
         edges_df: DataFrame of edges to filter
         left_alias: Left node alias name
         right_alias: Right node alias name
-        allowed_nodes: Dict mapping step indices to allowed node ID sets
+        allowed_nodes: Dict mapping step indices to allowed node ID domains
         sem: EdgeSemantics for direction handling
 
     Returns:
@@ -203,7 +209,7 @@ def filter_multihop_by_where(
     edge_op: ASTEdge,
     left_alias: str,
     right_alias: str,
-    allowed_nodes: Dict[int, Set[Any]],
+    allowed_nodes: Dict[int, Any],
 ) -> DataFrameT:
     """Filter multi-hop edges by WHERE clauses connecting start/end aliases.
 
@@ -221,7 +227,7 @@ def filter_multihop_by_where(
         edge_op: ASTEdge operation with hop constraints
         left_alias: Left node alias name
         right_alias: Right node alias name
-        allowed_nodes: Dict mapping step indices to allowed node ID sets
+        allowed_nodes: Dict mapping step indices to allowed node ID domains
 
     Returns:
         Filtered edges DataFrame
@@ -296,12 +302,12 @@ def filter_multihop_by_where(
     # Filter to allowed nodes
     left_step_idx = executor.inputs.alias_bindings[left_alias].step_index
     right_step_idx = executor.inputs.alias_bindings[right_alias].step_index
-    if left_step_idx in allowed_nodes and len(allowed_nodes[left_step_idx]) > 0:
-        start_nodes = start_nodes.intersection(allowed_nodes[left_step_idx])
-    if right_step_idx in allowed_nodes and len(allowed_nodes[right_step_idx]) > 0:
-        end_nodes = end_nodes.intersection(allowed_nodes[right_step_idx])
+    if left_step_idx in allowed_nodes and not domain_is_empty(allowed_nodes[left_step_idx]):
+        start_nodes = domain_intersect(start_nodes, allowed_nodes[left_step_idx])
+    if right_step_idx in allowed_nodes and not domain_is_empty(allowed_nodes[right_step_idx]):
+        end_nodes = domain_intersect(end_nodes, allowed_nodes[right_step_idx])
 
-    if len(start_nodes) == 0 or len(end_nodes) == 0:
+    if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
         return edges_df.iloc[:0]  # Empty dataframe
 
     # Build (start, end) pairs that satisfy WHERE

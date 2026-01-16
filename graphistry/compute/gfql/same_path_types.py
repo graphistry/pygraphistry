@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Sequence, Set, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT
 
+from .same_path.df_utils import domain_intersect
 
 ComparisonOp = Literal[
     "==",
@@ -115,7 +116,7 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
 # Immutable PathState for Yannakakis execution
 # ---------------------------------------------------------------------------
 
-IdSet = FrozenSet[Any]
+IdDomain = Any
 
 
 def _mp(d: Dict) -> MappingProxyType:
@@ -134,15 +135,15 @@ def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
 class PathState:
     """Immutable state for same-path execution.
 
-    Contains allowed node/edge IDs per step index and pruned edge DataFrames.
-    All fields are truly immutable (MappingProxyType + frozenset).
+    Contains allowed node/edge ID domains per step index and pruned edge DataFrames.
+    Mappings are immutable (MappingProxyType); domains are Index-like objects.
 
     Used by the Yannakakis-style semi-join executor for WHERE clause evaluation.
     All state transitions create new PathState instances (functional style).
     """
 
-    allowed_nodes: Mapping[int, IdSet]
-    allowed_edges: Mapping[int, IdSet]
+    allowed_nodes: Mapping[int, IdDomain]
+    allowed_edges: Mapping[int, IdDomain]
     pruned_edges: Mapping[int, Any]  # edge_idx -> filtered DataFrame
 
     @classmethod
@@ -157,14 +158,14 @@ class PathState:
     @classmethod
     def from_mutable(
         cls,
-        allowed_nodes: Dict[int, Set[Any]],
-        allowed_edges: Dict[int, Set[Any]],
+        allowed_nodes: Dict[int, IdDomain],
+        allowed_edges: Dict[int, IdDomain],
         pruned_edges: Optional[Dict[int, Any]] = None,
     ) -> "PathState":
         """Create PathState from mutable dicts."""
         return cls(
-            allowed_nodes=_mp({k: frozenset(v) for k, v in allowed_nodes.items()}),
-            allowed_edges=_mp({k: frozenset(v) for k, v in allowed_edges.items()}),
+            allowed_nodes=_mp(dict(allowed_nodes)),
+            allowed_edges=_mp(dict(allowed_edges)),
             pruned_edges=_mp(pruned_edges or {}),
         )
 
@@ -172,47 +173,43 @@ class PathState:
         """Convert to mutable dicts for local processing.
 
         Returns:
-            (allowed_nodes: Dict[int, Set], allowed_edges: Dict[int, Set])
+            (allowed_nodes: Dict[int, Domain], allowed_edges: Dict[int, Domain])
         """
         return (
-            {k: set(v) for k, v in self.allowed_nodes.items()},
-            {k: set(v) for k, v in self.allowed_edges.items()},
+            dict(self.allowed_nodes),
+            dict(self.allowed_edges),
         )
 
-    def restrict_nodes(self, idx: int, keep: IdSet) -> "PathState":
-        """Return new PathState with node set at idx intersected with keep."""
-        cur = self.allowed_nodes.get(idx, frozenset())
-        new = cur & keep if cur else keep
-        if new is cur:
-            return self
+    def restrict_nodes(self, idx: int, keep: IdDomain) -> "PathState":
+        """Return new PathState with node domain at idx intersected with keep."""
+        cur = self.allowed_nodes.get(idx)
+        new = domain_intersect(cur, keep) if cur is not None else keep
         return PathState(
             allowed_nodes=_update_map(self.allowed_nodes, idx, new),
             allowed_edges=self.allowed_edges,
             pruned_edges=self.pruned_edges,
         )
 
-    def set_nodes(self, idx: int, nodes: IdSet) -> "PathState":
-        """Return new PathState with node set at idx replaced."""
+    def set_nodes(self, idx: int, nodes: IdDomain) -> "PathState":
+        """Return new PathState with node domain at idx replaced."""
         return PathState(
             allowed_nodes=_update_map(self.allowed_nodes, idx, nodes),
             allowed_edges=self.allowed_edges,
             pruned_edges=self.pruned_edges,
         )
 
-    def restrict_edges(self, idx: int, keep: IdSet) -> "PathState":
-        """Return new PathState with edge set at idx intersected with keep."""
-        cur = self.allowed_edges.get(idx, frozenset())
-        new = cur & keep if cur else keep
-        if new is cur:
-            return self
+    def restrict_edges(self, idx: int, keep: IdDomain) -> "PathState":
+        """Return new PathState with edge domain at idx intersected with keep."""
+        cur = self.allowed_edges.get(idx)
+        new = domain_intersect(cur, keep) if cur is not None else keep
         return PathState(
             allowed_nodes=self.allowed_nodes,
             allowed_edges=_update_map(self.allowed_edges, idx, new),
             pruned_edges=self.pruned_edges,
         )
 
-    def set_edges(self, idx: int, edges: IdSet) -> "PathState":
-        """Return new PathState with edge set at idx replaced."""
+    def set_edges(self, idx: int, edges: IdDomain) -> "PathState":
+        """Return new PathState with edge domain at idx replaced."""
         return PathState(
             allowed_nodes=self.allowed_nodes,
             allowed_edges=_update_map(self.allowed_edges, idx, edges),
@@ -229,17 +226,17 @@ class PathState:
 
     def sync_to_mutable(
         self,
-        mutable_nodes: Dict[int, Set[Any]],
-        mutable_edges: Dict[int, Set[Any]],
+        mutable_nodes: Dict[int, Any],
+        mutable_edges: Dict[int, Any],
     ) -> None:
         """Sync this immutable state back to mutable dicts.
 
         Clears and updates the mutable dicts in-place.
         """
         mutable_nodes.clear()
-        mutable_nodes.update({k: set(v) for k, v in self.allowed_nodes.items()})
+        mutable_nodes.update(dict(self.allowed_nodes))
         mutable_edges.clear()
-        mutable_edges.update({k: set(v) for k, v in self.allowed_edges.items()})
+        mutable_edges.update(dict(self.allowed_edges))
 
     def sync_pruned_to_forward_steps(self, forward_steps: List[Any]) -> None:
         """Sync pruned_edges back to forward_steps (mutates forward_steps)."""

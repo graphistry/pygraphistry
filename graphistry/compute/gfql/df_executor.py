@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Literal, Sequence, Set, List, Optional, Any, Tuple
+from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple
 
 import pandas as pd
 
@@ -27,6 +27,11 @@ from graphistry.compute.gfql.same_path.df_utils import (
     series_to_id_df,
     concat_frames,
     df_cons,
+    domain_is_empty,
+    domain_intersect,
+    domain_union,
+    domain_to_frame,
+    domain_from_values,
 )
 from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
@@ -70,7 +75,7 @@ class SamePathExecutorInputs:
     where: Sequence[WhereComparison]
     engine: Engine
     alias_bindings: Dict[str, AliasBinding]
-    column_requirements: Dict[str, Set[str]]
+    column_requirements: Dict[str, Sequence[str]]
     include_paths: bool = False
 
 
@@ -175,18 +180,17 @@ class DFSamePathExecutor:
             raise ValueError(
                 f"Alias '{alias}' did not produce a {kind} frame"
             )
-        required = set(self.inputs.column_requirements.get(alias, set()))
+        required_cols = [*dict.fromkeys(self.inputs.column_requirements.get(alias, ()))]
         id_col = self._node_column if binding.kind == "node" else self._edge_column
-        if id_col:
-            required.add(id_col)
-        missing = [col for col in required if col not in frame.columns]
+        if id_col and id_col not in required_cols:
+            required_cols.append(id_col)
+        missing = [col for col in required_cols if col not in frame.columns]
         if missing:
             cols = ", ".join(missing)
             raise ValueError(
                 f"Alias '{alias}' missing required columns: {cols}"
             )
-        subset_cols = [col for col in required]
-        alias_frame = frame[subset_cols].copy()
+        alias_frame = frame[required_cols].copy()
         self.alias_frames[alias] = alias_frame
 
     def _apply_forward_where_pruning(self) -> None:
@@ -234,7 +238,7 @@ class DFSamePathExecutor:
                     # Equality: values must match
                     left_values = series_values(left_frame[left_col])
                     right_values = series_values(right_frame[right_col])
-                    common = left_values.intersection(right_values)
+                    common = domain_intersect(left_values, right_values)
 
                     # Prune left frame
                     if not left_values.equals(common):
@@ -419,7 +423,7 @@ class DFSamePathExecutor:
     _run_gpu = _run_native
 
     def _update_alias_frames_from_oracle(
-        self, tags: Dict[str, Set[Any]]
+        self, tags: Dict[str, Any]
     ) -> None:
         """Filter captured frames using oracle tags to ensure path coherence."""
 
@@ -427,12 +431,15 @@ class DFSamePathExecutor:
             if alias not in tags:
                 # if oracle didn't emit the alias, leave any existing capture intact
                 continue
-            ids = tags.get(alias, set())
             frame = self._lookup_binding_frame(binding)
             if frame is None:
                 continue
+            ids = domain_from_values(tags.get(alias), frame)
             id_col = self._node_column if binding.kind == "node" else self._edge_column
             if id_col is None:
+                continue
+            if domain_is_empty(ids):
+                self.alias_frames[alias] = frame.iloc[0:0].copy()
                 continue
             filtered = frame[frame[id_col].isin(ids)].copy()
             self.alias_frames[alias] = filtered
@@ -475,10 +482,10 @@ class DFSamePathExecutor:
         g_out = g_out.edges(edges_df, source=src, destination=dst, edge=edge_id)
         return g_out
 
-    def _compute_allowed_tags(self) -> Dict[str, Set[Any]]:
+    def _compute_allowed_tags(self) -> Dict[str, Any]:
         """Seed allowed ids from alias frames (post-forward pruning)."""
 
-        out: Dict[str, Set[Any]] = {}
+        out: Dict[str, Any] = {}
         for alias, binding in self.inputs.alias_bindings.items():
             frame = self.alias_frames.get(alias)
             if frame is None:
@@ -489,7 +496,7 @@ class DFSamePathExecutor:
             out[alias] = series_values(frame[id_col])
         return out
 
-    def _backward_prune(self, allowed_tags: Dict[str, Set[Any]]) -> PathState:
+    def _backward_prune(self, allowed_tags: Dict[str, Any]) -> PathState:
         """Propagate allowed ids backward across edges to enforce path coherence.
 
         Returns:
@@ -501,8 +508,8 @@ class DFSamePathExecutor:
         edge_indices = self.meta.edge_indices
 
         # Build state using mutable dicts internally (converted to immutable at end)
-        allowed_nodes: Dict[int, Set[Any]] = {}
-        allowed_edges: Dict[int, Set[Any]] = {}
+        allowed_nodes: Dict[int, Any] = {}
+        allowed_edges: Dict[int, Any] = {}
         pruned_edges: Dict[int, Any] = {}  # Track pruned edges instead of mutating forward_steps
 
         # Seed node allowances from tags or full frames
@@ -512,14 +519,16 @@ class DFSamePathExecutor:
             if frame is None or self._node_column is None:
                 continue
             if node_alias and node_alias in allowed_tags:
-                allowed_nodes[idx] = set(allowed_tags[node_alias])
+                allowed_nodes[idx] = allowed_tags[node_alias]
             else:
                 allowed_nodes[idx] = series_values(frame[self._node_column])
 
         # Walk edges backward
-        for edge_idx, right_node_idx in reversed(list(zip(edge_indices, node_indices[1:]))):
+        for edge_pos in range(len(edge_indices) - 1, -1, -1):
+            edge_idx = edge_indices[edge_pos]
+            right_node_idx = node_indices[edge_pos + 1]
             edge_alias = self.meta.alias_for_step(edge_idx)
-            left_node_idx = node_indices[node_indices.index(right_node_idx) - 1]
+            left_node_idx = node_indices[edge_pos]
             edges_df = self.forward_steps[edge_idx]._edges
             if edges_df is None:
                 continue
@@ -540,10 +549,9 @@ class DFSamePathExecutor:
                     if sem.is_undirected:
                         # Undirected: right node can be reached via either src or dst column
                         if self._source_column and self._destination_column:
-                            dst_list = list(allowed_dst)
                             filtered = filtered[
-                                filtered[self._source_column].isin(dst_list)
-                                | filtered[self._destination_column].isin(dst_list)
+                                filtered[self._source_column].isin(allowed_dst)
+                                | filtered[self._destination_column].isin(allowed_dst)
                             ]
                     else:
                         # For directed edges, filter by the "end" column
@@ -582,17 +590,25 @@ class DFSamePathExecutor:
                 # Undirected: both src and dst can be left or right nodes
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
-                        series_values(filtered[self._source_column])
-                        .union(series_values(filtered[self._destination_column]))
+                        domain_union(
+                            series_values(filtered[self._source_column]),
+                            series_values(filtered[self._destination_column]),
+                        )
                     )
                     # Right node is constrained by allowed_dst already filtered above
                     current_dst = allowed_nodes.get(right_node_idx)
                     allowed_nodes[right_node_idx] = (
-                        current_dst.intersection(all_nodes_in_edges) if current_dst is not None else all_nodes_in_edges
+                        domain_intersect(current_dst, all_nodes_in_edges)
+                        if current_dst is not None
+                        else all_nodes_in_edges
                     )
                     # Left node is any node in the filtered edges
                     current = allowed_nodes.get(left_node_idx)
-                    allowed_nodes[left_node_idx] = current.intersection(all_nodes_in_edges) if current is not None else all_nodes_in_edges
+                    allowed_nodes[left_node_idx] = (
+                        domain_intersect(current, all_nodes_in_edges)
+                        if current is not None
+                        else all_nodes_in_edges
+                    )
             else:
                 # Directed: use endpoint_cols to get proper column mapping
                 start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
@@ -600,12 +616,18 @@ class DFSamePathExecutor:
                     allowed_dst_actual = series_values(filtered[end_col])
                     current_dst = allowed_nodes.get(right_node_idx)
                     allowed_nodes[right_node_idx] = (
-                        current_dst.intersection(allowed_dst_actual) if current_dst is not None else allowed_dst_actual
+                        domain_intersect(current_dst, allowed_dst_actual)
+                        if current_dst is not None
+                        else allowed_dst_actual
                     )
                 if start_col and start_col in filtered.columns:
                     allowed_src = series_values(filtered[start_col])
                     current = allowed_nodes.get(left_node_idx)
-                    allowed_nodes[left_node_idx] = current.intersection(allowed_src) if current is not None else allowed_src
+                    allowed_nodes[left_node_idx] = (
+                        domain_intersect(current, allowed_src)
+                        if current is not None
+                        else allowed_src
+                    )
 
             if self._edge_column and self._edge_column in filtered.columns:
                 allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
@@ -657,12 +679,8 @@ class DFSamePathExecutor:
 
         # Build updates in local dicts (converted to immutable at end)
         # Start with copies of current state
-        local_allowed_nodes: Dict[int, Set[Any]] = {
-            k: set(v) for k, v in state.allowed_nodes.items()
-        }
-        local_allowed_edges: Dict[int, Set[Any]] = {
-            k: set(v) for k, v in state.allowed_edges.items()
-        }
+        local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
+        local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
         # Start with existing pruned_edges from state
         pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
@@ -719,7 +737,10 @@ class DFSamePathExecutor:
             if edge_id_col and edge_id_col in edges_df.columns:
                 new_edge_ids = series_values(edges_df[edge_id_col])
                 if edge_idx in local_allowed_edges:
-                    local_allowed_edges[edge_idx] = local_allowed_edges[edge_idx].intersection(new_edge_ids)
+                    local_allowed_edges[edge_idx] = domain_intersect(
+                        local_allowed_edges[edge_idx],
+                        new_edge_ids,
+                    )
                 else:
                     local_allowed_edges[edge_idx] = new_edge_ids
 
@@ -731,7 +752,10 @@ class DFSamePathExecutor:
                 new_src_nodes = sem.start_nodes(edges_df, src_col, dst_col)
 
             if left_node_idx in local_allowed_nodes:
-                local_allowed_nodes[left_node_idx] = local_allowed_nodes[left_node_idx].intersection(new_src_nodes)
+                local_allowed_nodes[left_node_idx] = domain_intersect(
+                    local_allowed_nodes[left_node_idx],
+                    new_src_nodes,
+                )
             else:
                 local_allowed_nodes[left_node_idx] = new_src_nodes
 
@@ -766,8 +790,8 @@ class DFSamePathExecutor:
         # (e.g., WHERE clause filtered out all nodes at some step)
         if state.allowed_nodes:
             for node_set in state.allowed_nodes.values():
-                if node_set is not None and len(node_set) == 0:
-                    # Empty set at a step means no valid paths exist
+                if domain_is_empty(node_set):
+                    # Empty domain at a step means no valid paths exist
                     return self._materialize_from_oracle(
                         nodes_df.iloc[0:0], edges_df.iloc[0:0]
                     )
@@ -777,14 +801,14 @@ class DFSamePathExecutor:
         allowed_node_frames: List[DataFrameT] = []
         if state.allowed_nodes:
             for node_set in state.allowed_nodes.values():
-                if node_set:
-                    allowed_node_frames.append(df_cons(nodes_df, {'__node__': list(node_set)}))
+                if not domain_is_empty(node_set):
+                    allowed_node_frames.append(domain_to_frame(nodes_df, node_set, '__node__'))
 
         allowed_edge_frames: List[DataFrameT] = []
         if state.allowed_edges:
             for edge_set in state.allowed_edges.values():
-                if edge_set:
-                    allowed_edge_frames.append(df_cons(edges_df, {'__edge__': list(edge_set)}))
+                if not domain_is_empty(edge_set):
+                    allowed_edge_frames.append(domain_to_frame(edges_df, edge_set, '__edge__'))
 
         # For multi-hop edges, include all intermediate nodes from the edge frames
         # (state.allowed_nodes only tracks start/end of multi-hop traversals)
@@ -868,9 +892,10 @@ class DFSamePathExecutor:
             id_col = self._node_column if binding.kind == "node" else self._edge_column
             if id_col is None or id_col not in frame.columns:
                 continue
-            required = set(self.inputs.column_requirements.get(alias, set()))
-            required.add(id_col)
-            subset = frame[[c for c in frame.columns if c in required]].copy()
+            required_cols = [*dict.fromkeys(self.inputs.column_requirements.get(alias, ()))]
+            if id_col not in required_cols:
+                required_cols.append(id_col)
+            subset = frame[[c for c in frame.columns if c in required_cols]].copy()
             self.alias_frames[alias] = subset
 
         return self._materialize_from_oracle(filtered_nodes, filtered_edges)
@@ -1003,8 +1028,8 @@ def build_same_path_inputs(
 
     return SamePathExecutorInputs(
         graph=g,
-        chain=list(chain),
-        where=list(where),
+        chain=tuple(chain),
+        where=tuple(where),
         engine=engine,
         alias_bindings=bindings,
         column_requirements=required_columns,
@@ -1049,12 +1074,16 @@ def _collect_alias_bindings(chain: Sequence[ASTObject]) -> Dict[str, AliasBindin
 
 def _collect_required_columns(
     where: Sequence[WhereComparison],
-) -> Dict[str, Set[str]]:
-    requirements: Dict[str, Set[str]] = defaultdict(set)
+) -> Dict[str, Sequence[str]]:
+    requirements: Dict[str, List[str]] = defaultdict(list)
     for clause in where:
-        requirements[clause.left.alias].add(clause.left.column)
-        requirements[clause.right.alias].add(clause.right.column)
-    return {alias: set(cols) for alias, cols in requirements.items()}
+        for alias, column in (
+            (clause.left.alias, clause.left.column),
+            (clause.right.alias, clause.right.column),
+        ):
+            if column not in requirements[alias]:
+                requirements[alias].append(column)
+    return {alias: tuple(cols) for alias, cols in requirements.items()}
 
 
 def _validate_where_aliases(

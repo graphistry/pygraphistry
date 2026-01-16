@@ -3,13 +3,19 @@
 Contains pure functions for building edge pairs and computing BFS reachability.
 """
 
-from typing import Any, Set
-
-import pandas as pd
+from typing import Any, Sequence
 
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
-from .df_utils import concat_frames, df_cons
+from .df_utils import (
+    concat_frames,
+    series_values,
+    domain_from_values,
+    domain_diff,
+    domain_union,
+    domain_is_empty,
+    domain_to_frame,
+)
 
 
 def build_edge_pairs(
@@ -23,23 +29,22 @@ def build_edge_pairs(
     For undirected edges, both directions are included.
     For directed edges, direction follows sem.join_cols().
     """
-    is_cudf = edges_df.__class__.__module__.startswith("cudf")
     if sem.is_undirected:
         fwd = edges_df[[src_col, dst_col]].copy()
-        fwd.columns = pd.Index(['__from__', '__to__'])
+        fwd.columns = ['__from__', '__to__']
         rev = edges_df[[dst_col, src_col]].copy()
-        rev.columns = pd.Index(['__from__', '__to__'])
+        rev.columns = ['__from__', '__to__']
         result = concat_frames([fwd, rev])
         return result.drop_duplicates() if result is not None else fwd.iloc[:0]
     else:
         join_col, result_col = sem.join_cols(src_col, dst_col)
         pairs = edges_df[[join_col, result_col]].copy()
-        pairs.columns = pd.Index(['__from__', '__to__'])
+        pairs.columns = ['__from__', '__to__']
         return pairs
 
 
 def bfs_reachability(
-    edge_pairs: DataFrameT, start_nodes: Set[Any], max_hops: int, hop_col: str
+    edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hops: int, hop_col: str
 ) -> DataFrameT:
     """Compute BFS reachability with hop distance tracking.
 
@@ -48,19 +53,18 @@ def bfs_reachability(
 
     Args:
         edge_pairs: DataFrame with ['__from__', '__to__'] columns
-        start_nodes: Set of starting node IDs (hop 0)
+        start_nodes: Starting node domain (hop 0)
         max_hops: Maximum number of hops to traverse
         hop_col: Name for the hop distance column in output
 
     Returns:
         DataFrame with all reachable nodes and their hop distances
     """
-    from .df_utils import series_values
-    import pandas as pd
-
     # Use same DataFrame type as input
-    result = df_cons(edge_pairs, {'__node__': list(start_nodes), hop_col: 0})
-    visited_idx = pd.Index(start_nodes) if not isinstance(start_nodes, pd.Index) else start_nodes
+    start_domain = domain_from_values(start_nodes, edge_pairs)
+    result = domain_to_frame(edge_pairs, start_domain, '__node__')
+    result[hop_col] = 0
+    visited_idx = start_domain
 
     for hop in range(1, max_hops + 1):
         frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
@@ -69,14 +73,15 @@ def bfs_reachability(
         next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
         next_df = next_df.rename(columns={'__to__': '__node__'})
 
-        # Filter out already visited nodes using pd.Index operations
+        # Filter out already visited nodes using domain operations
         candidate_nodes = series_values(next_df['__node__'])
-        new_node_ids = candidate_nodes.difference(visited_idx)
-        if len(new_node_ids) == 0:
+        new_node_ids = domain_diff(candidate_nodes, visited_idx)
+        if domain_is_empty(new_node_ids):
             break
 
-        new_nodes = df_cons(edge_pairs, {'__node__': list(new_node_ids), hop_col: hop})
-        visited_idx = visited_idx.union(new_node_ids)
+        new_nodes = domain_to_frame(edge_pairs, new_node_ids, '__node__')
+        new_nodes[hop_col] = hop
+        visited_idx = domain_union(visited_idx, new_node_ids)
 
         result = concat_frames([result, new_nodes])
         if result is None:

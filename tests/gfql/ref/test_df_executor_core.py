@@ -39,8 +39,8 @@ def test_build_inputs_collects_alias_metadata():
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
     assert set(inputs.alias_bindings) == {"a", "r", "c"}
-    assert inputs.column_requirements["a"] == {"owner_id"}
-    assert inputs.column_requirements["c"] == {"owner_id"}
+    assert set(inputs.column_requirements["a"]) == {"owner_id"}
+    assert set(inputs.column_requirements["c"]) == {"owner_id"}
 
 
 def test_missing_alias_raises():
@@ -2304,5 +2304,4 @@ class TestDFExecutorFeatureParity:
             f"Output slicing mismatch: chain={len(result_no_where._edges)}, "
             f"df_executor={len(result_with_where._edges)}"
         )
-
 
