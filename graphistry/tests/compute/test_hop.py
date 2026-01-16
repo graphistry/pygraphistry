@@ -108,6 +108,8 @@ class TestMultiHopForward():
         )
         assert 'nh' in g2._nodes.columns
         assert 'eh' in g2._edges.columns
+        assert g2._nodes['nh'].isna().sum() == 0
+        assert g2._edges['eh'].isna().sum() == 0
         node_hops = {
             row['v']: int(row['nh'])
             for row in g2._nodes[['v', 'nh']].to_dict(orient='records')
