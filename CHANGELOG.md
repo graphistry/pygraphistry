@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.50.4 - 2026-01-15]
+
+### Fixed
+- **Compute / hop (cuDF)**: Hop label tracking could error or force host sync because it used pandas Index conversions; now stays engine-native. Example: `g.chain([n(), e(hops=2, label_node_hops='nh', label_edge_hops='eh', label_seeds=True)])`.
+
 ## [0.50.3 - 2026-01-14]
 
 ### Fixed
