@@ -83,7 +83,8 @@ def bfs_reachability(
         new_nodes[hop_col] = hop
         visited_idx = domain_union(visited_idx, new_node_ids)
 
-        result = concat_frames([result, new_nodes])
-        if result is None:
+        result_next = concat_frames([result, new_nodes])
+        if result_next is None:
             break
+        result = result_next
     return result

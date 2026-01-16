@@ -444,6 +444,8 @@ def hop(self: Plottable,
                         frontier_ids,
                     )
             else:
+                assert pairs is not None
+                assert FROM_COL is not None and TO_COL is not None
                 hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
                 cand_nodes = _domain_unique(hop_edges[TO_COL])
                 seed_ids = None
@@ -522,6 +524,8 @@ def hop(self: Plottable,
             mask_dst = edges_indexed[g2._destination].isin(wavefront_ids)
             hop_edges = edges_indexed[mask_src | mask_dst]
         else:
+            assert pairs is not None
+            assert FROM_COL is not None and TO_COL is not None
             hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -544,7 +548,8 @@ def hop(self: Plottable,
             if allowed_target_intermediate is not None:
                 has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops
                 target_ids = allowed_target_intermediate if has_more_hops_planned else allowed_target_final
-                hop_edges = hop_edges[hop_edges[TO_COL].isin(target_ids)]
+                if target_ids is not None:
+                    hop_edges = hop_edges[hop_edges[TO_COL].isin(target_ids)]
                 if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                     logger.debug('hop_edges filtered by target_wave_front:\n%s', hop_edges)
 

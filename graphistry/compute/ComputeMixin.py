@@ -169,7 +169,7 @@ class ComputeMixin(Plottable):
         if isinstance(engine, str):
             engine = EngineAbstract(engine)
 
-        g = self
+        g: Plottable = self
 
         # Handle cross-engine coercion when engine is explicitly set
         # Use module string checks to avoid importing cudf when not installed
