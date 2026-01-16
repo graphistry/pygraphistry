@@ -668,7 +668,11 @@ def hop(self: Plottable,
                     edge_hop_records = labeled_edges
                     seen_edge_ids = _domain_unique(labeled_edges[EDGE_ID])
                 else:
-                    assert seen_edge_ids is not None
+                    seen_edge_ids = (
+                        seen_edge_ids
+                        if seen_edge_ids is not None
+                        else _domain_unique(edge_hop_records[EDGE_ID])
+                    )
                     new_mask = ~labeled_edges[EDGE_ID].isin(seen_edge_ids)
                     new_edge_labels = labeled_edges[new_mask]
                     if len(new_edge_labels) > 0:
@@ -685,7 +689,11 @@ def hop(self: Plottable,
                 node_hop_records = new_node_ids.assign(**{node_hop_col: current_hop})
                 seen_node_ids = _domain_unique(node_hop_records[g2._node])
             else:
-                assert seen_node_ids is not None
+                seen_node_ids = (
+                    seen_node_ids
+                    if seen_node_ids is not None
+                    else _domain_unique(node_hop_records[g2._node])
+                )
                 new_mask = ~new_node_ids[g2._node].isin(seen_node_ids)
                 new_node_labels = new_node_ids[new_mask]
                 if len(new_node_labels) > 0:
