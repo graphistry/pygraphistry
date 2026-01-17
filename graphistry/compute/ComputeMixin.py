@@ -169,7 +169,26 @@ class ComputeMixin(Plottable):
         if isinstance(engine, str):
             engine = EngineAbstract(engine)
 
-        g = self
+        g: Plottable = self
+
+        # Handle cross-engine coercion when engine is explicitly set
+        # Use module string checks to avoid importing cudf when not installed
+        if engine != EngineAbstract.AUTO:
+            engine_val = Engine(engine.value)
+            if engine_val == Engine.CUDF:
+                # Coerce pandas to cuDF (only if it's actually pandas, not dask/etc)
+                if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
+                    import cudf
+                    g = g.nodes(cudf.DataFrame.from_pandas(g._nodes), g._node)
+                if g._edges is not None and isinstance(g._edges, pd.DataFrame):
+                    import cudf
+                    g = g.edges(cudf.DataFrame.from_pandas(g._edges), g._source, g._destination, edge=g._edge)
+            elif engine_val == Engine.PANDAS:
+                # Coerce cuDF to pandas (only if it's actually cudf, not dask_cudf/etc)
+                if g._nodes is not None and 'cudf' in type(g._nodes).__module__ and 'dask' not in type(g._nodes).__module__:
+                    g = g.nodes(g._nodes.to_pandas(), g._node)
+                if g._edges is not None and 'cudf' in type(g._edges).__module__ and 'dask' not in type(g._edges).__module__:
+                    g = g.edges(g._edges.to_pandas(), g._source, g._destination, edge=g._edge)
 
         # Check reuse first - if we have nodes and reuse is True, just return
         if reuse:
@@ -223,7 +242,8 @@ class ComputeMixin(Plottable):
         else:
             engine_concrete = Engine(engine.value)
 
-        # Use engine-specific concat for Series (pd.concat/cudf.concat work with Series directly)
+        # Use engine-specific concat for Series
+        # Note: Cross-engine coercion is handled at the start of this function
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)

@@ -11,19 +11,34 @@ from graphistry.compute.predicates.str import (
 )
 
 
-# Helper to check if cuDF is available
+# Helper to check if cuDF is available and functional (requires GPU)
 def has_cudf():
     try:
-        import cudf  # noqa: F401
+        import cudf
+        # Test actual GPU operation - import alone doesn't guarantee GPU works
+        _ = cudf.Series([1, 2, 3])
         return True
-    except ImportError:
+    except (ImportError, Exception):
+        # ImportError if cudf not installed
+        # Other exceptions (CUDARuntimeError) if GPU not available
         return False
 
 
-# Skip tests that require cuDF when it's not available
+# Cache result to avoid repeated GPU checks
+_cudf_available = None
+
+
+def cudf_available():
+    global _cudf_available
+    if _cudf_available is None:
+        _cudf_available = has_cudf()
+    return _cudf_available
+
+
+# Skip tests that require cuDF when it's not available or GPU not working
 requires_cudf = pytest.mark.skipif(
-    not has_cudf(),
-    reason="cudf not installed"
+    not cudf_available(),
+    reason="cudf not installed or GPU not available"
 )
 
 

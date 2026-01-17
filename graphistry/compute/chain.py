@@ -1,6 +1,6 @@
 import logging
 import pandas as pd
-from typing import Dict, Union, cast, List, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
 
 from graphistry.Plottable import Plottable
@@ -12,6 +12,11 @@ from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.gfql.same_path_types import (
+    WhereComparison,
+    parse_where_json,
+    where_to_json,
+)
 from .gfql.policy import PolicyContext, PolicyException
 from .gfql.policy.stats import extract_graph_stats
 
@@ -25,8 +30,9 @@ def _filter_edges_by_endpoint(edges_df, nodes_df, node_id: str, edge_col: str):
     """Filter edges to those with edge_col values in nodes_df[node_id]."""
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
-    ids = nodes_df[[node_id]].drop_duplicates().rename(columns={node_id: edge_col})
-    return edges_df.merge(ids, on=edge_col, how='inner')
+    # Use .isin() with unique values - faster than merge for filtering
+    ids = nodes_df[node_id].unique()
+    return edges_df[edges_df[edge_col].isin(ids)]
 
 
 ###############################################################################
@@ -37,9 +43,11 @@ class Chain(ASTSerializable):
     def __init__(
         self,
         chain: List[ASTObject],
+        where: Optional[Sequence[WhereComparison]] = None,
         validate: bool = True,
     ) -> None:
         self.chain = chain
+        self.where = list(where or [])
         if validate:
             # Fail fast on invalid chains; matches documented automatic validation behavior
             self.validate(collect_all=False)
@@ -132,8 +140,10 @@ class Chain(ASTSerializable):
                 f"Chain field must be a list, got {type(d['chain']).__name__}"
             )
         
+        where = parse_where_json(d.get('where'))
         out = cls(
             [ASTObject_from_json(op, validate=validate) for op in d['chain']],
+            where=where,
             validate=validate,
         )
         return out
@@ -144,10 +154,13 @@ class Chain(ASTSerializable):
         """
         if validate:
             self.validate()
-        return {
+        data: Dict[str, JSONVal] = {
             'type': self.__class__.__name__,
             'chain': [op.to_json() for op in self.chain]
         }
+        if self.where:
+            data['where'] = where_to_json(self.where)
+        return data
 
     def validate_schema(self, g: Plottable, collect_all: bool = False) -> Optional[List['GFQLSchemaError']]:
         """Validate this chain against a graph's schema without executing.
@@ -226,14 +239,13 @@ def combine_steps(
                 direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
-                    prev_ids = prev_nodes[[node_id]].drop_duplicates()
-                    next_ids = next_nodes[[node_id]].drop_duplicates()
+                    # Use .isin() instead of merge - faster for filtering
+                    prev_ids = prev_nodes[node_id].unique()
+                    next_ids = next_nodes[node_id].unique()
                     # Either direction: (src in prev, dst in next) OR (dst in prev, src in next)
-                    fwd = edges_df.merge(prev_ids.rename(columns={node_id: src_col}), on=src_col, how='inner') \
-                                  .merge(next_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner')
-                    rev = edges_df.merge(prev_ids.rename(columns={node_id: dst_col}), on=dst_col, how='inner') \
-                                  .merge(next_ids.rename(columns={node_id: src_col}), on=src_col, how='inner')
-                    edges_df = df_concat(engine)([fwd, rev]).drop_duplicates()
+                    fwd_mask = edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(next_ids)
+                    rev_mask = edges_df[dst_col].isin(prev_ids) & edges_df[src_col].isin(next_ids)
+                    edges_df = edges_df[fwd_mask | rev_mask]
                 else:
                     prev_col, next_col = (dst_col, src_col) if direction == 'reverse' else (src_col, dst_col)
                     edges_df = _filter_edges_by_endpoint(edges_df, prev_nodes, node_id, prev_col)
