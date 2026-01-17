@@ -18,6 +18,8 @@ import pandas as pd
 import graphistry
 from graphistry.Engine import Engine
 from graphistry.compute.ast import n, e_forward, e_reverse
+from graphistry.compute.gfql.df_executor import execute_same_path_chain
+from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 
 
 @dataclass(frozen=True)
@@ -27,10 +29,18 @@ class Scenario:
 
 
 @dataclass(frozen=True)
+class WhereScenario:
+    name: str
+    chain: List
+    where: List[WhereComparison]
+
+
+@dataclass(frozen=True)
 class DatasetSpec:
     name: str
     loader: Callable[[Engine], graphistry.Plottable]
     scenarios: List[Scenario]
+    where_scenarios: List[WhereScenario]
 
 
 @dataclass
@@ -243,6 +253,19 @@ def build_specs() -> List[DatasetSpec]:
             ],
         ),
     ]
+    redteam_where_scenarios = [
+        WhereScenario(
+            "kerberos_domain_match",
+            [
+                n(name="a"),
+                e_forward({"auth_type": "Kerberos"}, name="e1"),
+                n(name="b"),
+                e_reverse({"authentication_orientation": "LogOn"}, name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "domain"), "==", col("c", "domain"))],
+        ),
+    ]
 
     transactions_scenarios = [
         Scenario(
@@ -274,6 +297,19 @@ def build_specs() -> List[DatasetSpec]:
                 e_reverse({"is_tainted": 0}, name="e2"),
                 n(name="c"),
             ],
+        ),
+    ]
+    transactions_where_scenarios = [
+        WhereScenario(
+            "amount_drop_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("e1", "amount"), ">", col("e2", "amount"))],
         ),
     ]
 
@@ -309,6 +345,19 @@ def build_specs() -> List[DatasetSpec]:
             ],
         ),
     ]
+    facebook_where_scenarios = [
+        WhereScenario(
+            "degree_drop_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "degree"), ">=", col("c", "degree"))],
+        ),
+    ]
 
     honeypot_scenarios = [
         Scenario(
@@ -330,6 +379,19 @@ def build_specs() -> List[DatasetSpec]:
                 e_forward(edge_query="count >= 3", name="e2"),
                 n(),
             ],
+        ),
+    ]
+    honeypot_where_scenarios = [
+        WhereScenario(
+            "port_match_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("e1", "victimPort"), "==", col("e2", "victimPort"))],
         ),
     ]
 
@@ -355,6 +417,19 @@ def build_specs() -> List[DatasetSpec]:
             ],
         ),
     ]
+    twitter_demo_where_scenarios = [
+        WhereScenario(
+            "degree_drop_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "degree"), ">=", col("c", "degree"))],
+        ),
+    ]
 
     lesmiserables_scenarios = [
         Scenario(
@@ -376,6 +451,19 @@ def build_specs() -> List[DatasetSpec]:
                 e_forward(name="e2"),
                 n(),
             ],
+        ),
+    ]
+    lesmiserables_where_scenarios = [
+        WhereScenario(
+            "weight_drop_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("e1", "value"), ">=", col("e2", "value"))],
         ),
     ]
 
@@ -401,31 +489,76 @@ def build_specs() -> List[DatasetSpec]:
             ],
         ),
     ]
+    twitter_congress_where_scenarios = [
+        WhereScenario(
+            "weight_drop_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("e1", "weight"), ">=", col("e2", "weight"))],
+        ),
+    ]
 
     return [
-        DatasetSpec("redteam50k", load_redteam, redteam_scenarios),
-        DatasetSpec("transactions", load_transactions, transactions_scenarios),
-        DatasetSpec("facebook_combined", load_facebook, facebook_scenarios),
-        DatasetSpec("honeypot", load_honeypot, honeypot_scenarios),
-        DatasetSpec("twitter_demo", load_twitter_demo, twitter_demo_scenarios),
-        DatasetSpec("lesmiserables", load_lesmiserables, lesmiserables_scenarios),
-        DatasetSpec("twitter_congress", load_twitter_congress, twitter_congress_scenarios),
+        DatasetSpec(
+            "redteam50k",
+            load_redteam,
+            redteam_scenarios,
+            redteam_where_scenarios,
+        ),
+        DatasetSpec(
+            "transactions",
+            load_transactions,
+            transactions_scenarios,
+            transactions_where_scenarios,
+        ),
+        DatasetSpec(
+            "facebook_combined",
+            load_facebook,
+            facebook_scenarios,
+            facebook_where_scenarios,
+        ),
+        DatasetSpec("honeypot", load_honeypot, honeypot_scenarios, honeypot_where_scenarios),
+        DatasetSpec(
+            "twitter_demo",
+            load_twitter_demo,
+            twitter_demo_scenarios,
+            twitter_demo_where_scenarios,
+        ),
+        DatasetSpec(
+            "lesmiserables",
+            load_lesmiserables,
+            lesmiserables_scenarios,
+            lesmiserables_where_scenarios,
+        ),
+        DatasetSpec(
+            "twitter_congress",
+            load_twitter_congress,
+            twitter_congress_scenarios,
+            twitter_congress_where_scenarios,
+        ),
     ]
 
 
-def run_scenarios(
-    dataset: DatasetSpec, engine_label: str, runs: int, warmup: int
+def run_chain_scenarios(
+    g: graphistry.Plottable,
+    dataset_name: str,
+    scenarios: Iterable[Scenario],
+    engine_label: str,
+    runs: int,
+    warmup: int,
 ) -> Iterable[ResultRow]:
-    engine = _as_engine(engine_label)
-    g = dataset.loader(engine)
-
-    for scenario in dataset.scenarios:
+    for scenario in scenarios:
         def _call() -> None:
             g.gfql(scenario.chain, engine=engine_label)
 
         stats = _time_call(_call, runs, warmup)
         yield ResultRow(
-            dataset=dataset.name,
+            dataset=dataset_name,
             scenario=scenario.name,
             median_ms=stats.median_ms,
             p90_ms=stats.p90_ms,
@@ -433,22 +566,60 @@ def run_scenarios(
         )
 
 
-def write_markdown(results: Iterable[ResultRow], output_path: str) -> None:
-    header = [
-        "# Real-Data Benchmark Results",
-        "",
-        "Notes:",
-        "- No WHERE predicates; uses chain-style GFQL only.",
-        "- Datasets are loaded from `demos/data/`.",
-        "- Values are median over runs; p90 and std columns show variability.",
+def run_where_scenarios(
+    g: graphistry.Plottable,
+    dataset_name: str,
+    scenarios: Iterable[WhereScenario],
+    engine: Engine,
+    runs: int,
+    warmup: int,
+) -> Iterable[ResultRow]:
+    for scenario in scenarios:
+        def _call() -> None:
+            execute_same_path_chain(g, scenario.chain, scenario.where, engine, include_paths=False)
+
+        stats = _time_call(_call, runs, warmup)
+        yield ResultRow(
+            dataset=dataset_name,
+            scenario=scenario.name,
+            median_ms=stats.median_ms,
+            p90_ms=stats.p90_ms,
+            std_ms=stats.std_ms,
+        )
+
+
+def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
+    rows = list(results)
+    if not rows:
+        return []
+    lines = [
+        f"## {title}",
         "",
         "| Dataset | Scenario | Median | P90 | Std |",
         "|---------|----------|--------|-----|-----|",
     ]
-    lines = header + [
+    lines.extend(
         f"| {row.dataset} | {row.scenario} | {row.median_ms:.2f}ms | {row.p90_ms:.2f}ms | {row.std_ms:.2f}ms |"
-        for row in results
+        for row in rows
+    )
+    return lines
+
+
+def write_markdown(chain_results: Iterable[ResultRow], where_results: Iterable[ResultRow], output_path: str) -> None:
+    header = [
+        "# Real-Data Benchmark Results",
+        "",
+        "Notes:",
+        "- Chain results use GFQL (no WHERE).",
+        "- WHERE results use the df_executor same-path engine.",
+        "- Datasets are loaded from `demos/data/`.",
+        "- Values are median over runs; p90 and std columns show variability.",
+        "",
     ]
+    lines = header
+    lines.extend(_table_lines("Chain-only (GFQL)", chain_results))
+    lines.append("")
+    lines.extend(_table_lines("WHERE (df_executor)", where_results))
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -471,20 +642,30 @@ def main() -> None:
     if "all" not in dataset_filter:
         specs = [s for s in specs if s.name in dataset_filter]
 
-    results: List[ResultRow] = []
+    chain_results: List[ResultRow] = []
+    where_results: List[ResultRow] = []
+    engine_enum = _as_engine(args.engine)
     for dataset in specs:
-        results.extend(run_scenarios(dataset, args.engine, args.runs, args.warmup))
+        g = dataset.loader(engine_enum)
+        chain_results.extend(
+            run_chain_scenarios(g, dataset.name, dataset.scenarios, args.engine, args.runs, args.warmup)
+        )
+        where_results.extend(
+            run_where_scenarios(g, dataset.name, dataset.where_scenarios, engine_enum, args.runs, args.warmup)
+        )
 
     if args.output:
-        write_markdown(results, args.output)
+        write_markdown(chain_results, where_results, args.output)
 
-    print("| Dataset | Scenario | Median | P90 | Std |")
-    print("|---------|----------|--------|-----|-----|")
-    for row in results:
-        print(
-            f"| {row.dataset} | {row.scenario} | {row.median_ms:.2f}ms |"
-            f" {row.p90_ms:.2f}ms | {row.std_ms:.2f}ms |"
-        )
+    for title, rows in (
+        ("Chain-only (GFQL)", chain_results),
+        ("WHERE (df_executor)", where_results),
+    ):
+        lines = _table_lines(title, rows)
+        if not lines:
+            continue
+        print("\n".join(lines))
+        print()
 
 
 if __name__ == "__main__":
