@@ -324,6 +324,8 @@ def hop(self: Plottable,
 
     matches_nodes = None
     matches_edges = edges_indexed[[EDGE_ID]][:0]
+    seen_match_node_ids = None
+    seen_match_edge_ids = None
 
     #richly-attributed subset for dest matching & return-enriching
     if target_wave_front is None:
@@ -421,7 +423,6 @@ def hop(self: Plottable,
         fast_path_enabled = False
 
     first_iter = True
-    combined_node_ids = None
     current_hop = 0
     max_reached_hop = 0
     skip_full_loop = False
@@ -558,11 +559,26 @@ def hop(self: Plottable,
                     logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
                     logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
 
-        matches_edges = concat(
-            [matches_edges, hop_edges[[EDGE_ID]]],
-            ignore_index=True,
-            sort=False
-        ).drop_duplicates(subset=[EDGE_ID])
+        new_edge_ids = hop_edges[[EDGE_ID]].drop_duplicates(subset=[EDGE_ID])
+        if _domain_is_empty(seen_match_edge_ids):
+            matches_edges = concat(
+                [matches_edges, new_edge_ids],
+                ignore_index=True,
+                sort=False
+            )
+        else:
+            new_edge_ids = new_edge_ids[~new_edge_ids[EDGE_ID].isin(seen_match_edge_ids)]
+            if len(new_edge_ids) > 0:
+                matches_edges = concat(
+                    [matches_edges, new_edge_ids],
+                    ignore_index=True,
+                    sort=False
+                )
+        if len(new_edge_ids) > 0:
+            seen_match_edge_ids = _domain_union(
+                seen_match_edge_ids,
+                _domain_unique(new_edge_ids[EDGE_ID])
+            )
 
         if len(new_node_ids) > 0:
             max_reached_hop = current_hop
@@ -642,22 +658,32 @@ def hop(self: Plottable,
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
                 logger.debug('matches_edges:\n%s', matches_edges)
 
-        if len(matches_nodes) > 0:
-            combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        if seen_match_node_ids is None:
+            seen_match_node_ids = _domain_unique(matches_nodes[node_col])
+        if _domain_is_empty(seen_match_node_ids):
+            new_match_nodes = new_node_ids
         else:
-            combined_node_ids = new_node_ids
+            new_match_nodes = new_node_ids[~new_node_ids[node_col].isin(seen_match_node_ids)]
 
-        if len(combined_node_ids) == len(matches_nodes):
+        if len(new_match_nodes) == 0:
             # fixedpoint, exit early: future will come to same spot
             break
 
+        if len(matches_nodes) > 0:
+            matches_nodes = concat([matches_nodes, new_match_nodes], ignore_index=True, sort=False)
+        else:
+            matches_nodes = new_match_nodes
+
+        seen_match_node_ids = _domain_union(
+            seen_match_node_ids,
+            _domain_unique(new_match_nodes[node_col])
+        )
+
         wave_front = new_node_ids
-        matches_nodes = combined_node_ids
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP POST ~~~~~~~~~~~')
             logger.debug('matches_nodes:\n%s', matches_nodes)
-            logger.debug('combined_node_ids:\n%s', combined_node_ids)
             logger.debug('wave_front:\n%s', wave_front)
             logger.debug('matches_nodes:\n%s', matches_nodes)
 
@@ -665,7 +691,6 @@ def hop(self: Plottable,
         logger.debug('~~~~~~~~~~ LOOP END POST ~~~~~~~~~~~')
         logger.debug('matches_nodes:\n%s', matches_nodes)
         logger.debug('matches_edges:\n%s', matches_edges)
-        logger.debug('combined_node_ids:\n%s', combined_node_ids)
         logger.debug('nodes (self):\n%s', self._nodes)
         logger.debug('nodes (init):\n%s', nodes)
         logger.debug('target_wave_front:\n%s', target_wave_front)
