@@ -17,7 +17,13 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.filter_by_dict import filter_by_dict
-from graphistry.compute.gfql.same_path_types import ComparisonOp, WhereComparison, col, compare
+from graphistry.compute.gfql.same_path_types import (
+    ComparisonOp,
+    WhereComparison,
+    StepColumnRef,
+    col as _col,
+    compare as _compare,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,14 @@ class OracleResult:
     # Hop labels: node_id -> hop_distance, edge_id -> hop_distance
     node_hop_labels: Optional[Dict[Any, int]] = None
     edge_hop_labels: Optional[Dict[Any, int]] = None
+
+
+def col(alias: str, column: str) -> StepColumnRef:
+    return _col(alias, column)
+
+
+def compare(left: StepColumnRef, op: ComparisonOp, right: StepColumnRef) -> WhereComparison:
+    return _compare(left, op, right)
 
 
 def enumerate_chain(
