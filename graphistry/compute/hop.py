@@ -118,6 +118,23 @@ def hop(self: Plottable,
             return left[:0] if left is not None else right
         return left[left.isin(right)]
 
+    def _undirected_reach_series(mask_src: Any, mask_dst: Any):
+        return concat(
+            [
+                edges_indexed.loc[mask_src, g2._destination],
+                edges_indexed.loc[mask_dst, g2._source],
+            ],
+            ignore_index=True,
+            sort=False,
+        )
+
+    def _expand_edges(frontier_ids: Any):
+        if use_undirected_single_pass:
+            mask_src = edges_indexed[g2._source].isin(frontier_ids)
+            mask_dst = edges_indexed[g2._destination].isin(frontier_ids)
+            return edges_indexed[mask_src | mask_dst], mask_src, mask_dst
+        return pairs[pairs[FROM_COL].isin(frontier_ids)], None, None
+
     def _domain_union(left: Any, right: Any):
         if _domain_is_empty(left):
             return right
@@ -420,20 +437,9 @@ def hop(self: Plottable,
 
             current_hop += 1
 
+            hop_edges, mask_src, mask_dst = _expand_edges(frontier_ids)
             if use_undirected_single_pass:
-                mask_src = edges_indexed[g2._source].isin(frontier_ids)
-                mask_dst = edges_indexed[g2._destination].isin(frontier_ids)
-                hop_edges = edges_indexed[mask_src | mask_dst]
-                cand_nodes = _domain_unique(
-                    concat(
-                        [
-                            edges_indexed.loc[mask_src, g2._destination],
-                            edges_indexed.loc[mask_dst, g2._source],
-                        ],
-                        ignore_index=True,
-                        sort=False,
-                    )
-                )
+                cand_nodes = _domain_unique(_undirected_reach_series(mask_src, mask_dst))
                 seed_ids = None
                 if visited_node_ids is None and not return_as_wave_front:
                     seed_ids = _domain_intersect(
@@ -450,7 +456,6 @@ def hop(self: Plottable,
                         frontier_ids,
                     )
             else:
-                hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
                 cand_nodes = _domain_unique(hop_edges[TO_COL])
                 seed_ids = None
                 if visited_node_ids is None and not return_as_wave_front:
@@ -523,29 +528,18 @@ def hop(self: Plottable,
             logger.debug('wave_front_iter:\n%s', wave_front_iter)
             
         wavefront_ids = wave_front_iter[node_col].unique()
-        if use_undirected_single_pass:
-            mask_src = edges_indexed[g2._source].isin(wavefront_ids)
-            mask_dst = edges_indexed[g2._destination].isin(wavefront_ids)
-            hop_edges = edges_indexed[mask_src | mask_dst]
-        else:
-            hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
+        hop_edges, mask_src, mask_dst = _expand_edges(wavefront_ids)
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('hop_edges basic:\n%s', hop_edges)
 
         if use_undirected_single_pass:
-            new_node_ids = concat(
-                [
-                    edges_indexed.loc[mask_src, [g2._destination]].rename(
-                        columns={g2._destination: node_col}
-                    ),
-                    edges_indexed.loc[mask_dst, [g2._source]].rename(
-                        columns={g2._source: node_col}
-                    ),
-                ],
-                ignore_index=True,
-                sort=False,
-            ).drop_duplicates()
+            new_node_ids = (
+                _undirected_reach_series(mask_src, mask_dst)
+                .rename(node_col)
+                .to_frame()
+                .drop_duplicates()
+            )
         else:
             if allowed_target_intermediate is not None:
                 has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops
