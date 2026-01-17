@@ -2,6 +2,8 @@
 
 Manual-only scripts for local performance checks. Not wired into CI.
 
+Summary results go into `benchmarks/RESULTS.md` (raw outputs stay in `plans/`).
+
 ## Hop microbench
 
 Run a small set of hop() scenarios across synthetic graphs.
