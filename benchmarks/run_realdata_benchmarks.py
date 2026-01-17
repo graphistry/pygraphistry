@@ -602,6 +602,9 @@ def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
         f"| {row.dataset} | {row.scenario} | {row.median_ms:.2f}ms | {row.p90_ms:.2f}ms | {row.std_ms:.2f}ms |"
         for row in rows
     )
+    score = statistics.median([row.median_ms for row in rows if row.median_ms is not None])
+    lines.append("")
+    lines.append(f"Score (median of medians): {score:.2f}ms")
     return lines
 
 
