@@ -21,3 +21,19 @@ uv run python benchmarks/run_hop_frontier_sweep.py --runs 5 --nodes 100000 --edg
 Notes:
 - Use `--engine cudf` for GPU runs when cuDF is available.
 - Scripts print a table to stdout; `--output` writes Markdown results.
+
+## Chain vs Yannakakis
+
+Compare regular `chain()` against the Yannakakis same-path executor on synthetic graphs.
+
+```bash
+uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /tmp/chain-vs-samepath.md
+```
+
+## Real-data GFQL
+
+Run GFQL chain scenarios on demo datasets (no WHERE predicates).
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py --runs 7 --warmup 1 --output /tmp/realdata-gfql.md
+```
