@@ -100,6 +100,13 @@ def _extract_domain(value: str) -> str:
     return value
 
 
+def _degree_nodes(edges: pd.DataFrame, src_col: str, dst_col: str, threshold: int) -> pd.DataFrame:
+    degree = edges[src_col].value_counts().add(edges[dst_col].value_counts(), fill_value=0)
+    nodes = pd.DataFrame({"id": degree.index, "degree": degree.values.astype(int)})
+    nodes["high_degree"] = nodes["degree"] >= threshold
+    return nodes
+
+
 def load_redteam(engine: Engine) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/graphistry_redteam50k.csv")
     edges = edges.rename(columns={"src_computer": "src", "dst_computer": "dst"})
@@ -134,7 +141,7 @@ def load_transactions(engine: Engine) -> graphistry.Plottable:
     )
     edges["is_tainted"] = edges["is_tainted"].astype("int64")
     nodes = pd.DataFrame({"id": pd.unique(pd.concat([edges["src"], edges["dst"]]))})
-    tainted_in = edges.loc[edges["is_tainted"] == "5", "dst"].unique()
+    tainted_in = edges.loc[edges["is_tainted"] == 5, "dst"].unique()
     nodes["tainted_in"] = nodes["id"].isin(tainted_in)
 
     edges = _maybe_to_cudf(edges, engine)
@@ -149,9 +156,51 @@ def load_facebook(engine: Engine) -> graphistry.Plottable:
         header=None,
         names=["src", "dst"],
     )
-    degree = edges["src"].value_counts().add(edges["dst"].value_counts(), fill_value=0)
-    nodes = pd.DataFrame({"id": degree.index, "degree": degree.values.astype(int)})
-    nodes["high_degree"] = nodes["degree"] >= 50
+    nodes = _degree_nodes(edges, "src", "dst", threshold=50)
+
+    edges = _maybe_to_cudf(edges, engine)
+    nodes = _maybe_to_cudf(nodes, engine)
+    return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+def load_honeypot(engine: Engine) -> graphistry.Plottable:
+    edges = pd.read_csv("demos/data/honeypot.csv")
+    edges = edges.rename(columns={"attackerIP": "src", "victimIP": "dst"})
+    edges["victimPort"] = edges["victimPort"].astype("int64")
+    edges["count"] = edges["count"].astype("int64")
+    nodes = _degree_nodes(edges, "src", "dst", threshold=2)
+
+    edges = _maybe_to_cudf(edges, engine)
+    nodes = _maybe_to_cudf(nodes, engine)
+    return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+def load_twitter_demo(engine: Engine) -> graphistry.Plottable:
+    edges = pd.read_csv("demos/data/twitterDemo.csv")
+    edges = edges.rename(columns={"srcAccount": "src", "dstAccount": "dst"})
+    nodes = _degree_nodes(edges, "src", "dst", threshold=5)
+
+    edges = _maybe_to_cudf(edges, engine)
+    nodes = _maybe_to_cudf(nodes, engine)
+    return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+def load_lesmiserables(engine: Engine) -> graphistry.Plottable:
+    edges = pd.read_csv("demos/data/lesmiserables.csv")
+    edges = edges.rename(columns={"source": "src", "target": "dst"})
+    edges["value"] = edges["value"].astype("int64")
+    nodes = _degree_nodes(edges, "src", "dst", threshold=5)
+
+    edges = _maybe_to_cudf(edges, engine)
+    nodes = _maybe_to_cudf(nodes, engine)
+    return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+def load_twitter_congress(engine: Engine) -> graphistry.Plottable:
+    edges = pd.read_csv("demos/data/twitter_congress_edges_weighted.csv.gz")
+    edges = edges.rename(columns={"from": "src", "to": "dst"})
+    edges["weight"] = edges["weight"].astype("int64")
+    nodes = _degree_nodes(edges, "src", "dst", threshold=10)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
@@ -261,10 +310,106 @@ def build_specs() -> List[DatasetSpec]:
         ),
     ]
 
+    honeypot_scenarios = [
+        Scenario(
+            "smb_fanin",
+            [
+                n(),
+                e_forward({"victimPort": 139}, name="e1"),
+                n(name="hub"),
+                e_reverse({"victimPort": 139}, name="e2"),
+                n(),
+            ],
+        ),
+        Scenario(
+            "vuln_chain",
+            [
+                n({"high_degree": True}, name="a"),
+                e_forward({"vulnName": "MS08067 (NetAPI)"}, name="e1"),
+                n(name="mid"),
+                e_forward(edge_query="count >= 3", name="e2"),
+                n(),
+            ],
+        ),
+    ]
+
+    twitter_demo_scenarios = [
+        Scenario(
+            "fan_in",
+            [
+                n({"high_degree": True}, name="a"),
+                e_forward(name="e1"),
+                n(name="hub"),
+                e_reverse(name="e2"),
+                n(),
+            ],
+        ),
+        Scenario(
+            "two_hop",
+            [
+                n({"high_degree": True}, name="a"),
+                e_forward(name="e1"),
+                n(name="mid"),
+                e_forward(name="e2"),
+                n(),
+            ],
+        ),
+    ]
+
+    lesmiserables_scenarios = [
+        Scenario(
+            "weighted_fanin",
+            [
+                n(),
+                e_forward(edge_query="value >= 5", name="e1"),
+                n(name="hub"),
+                e_reverse(edge_query="value >= 5", name="e2"),
+                n(),
+            ],
+        ),
+        Scenario(
+            "high_degree_two_hop",
+            [
+                n({"high_degree": True}, name="a"),
+                e_forward(name="e1"),
+                n(name="mid"),
+                e_forward(name="e2"),
+                n(),
+            ],
+        ),
+    ]
+
+    twitter_congress_scenarios = [
+        Scenario(
+            "weighted_fanin",
+            [
+                n(),
+                e_forward(edge_query="weight >= 2", name="e1"),
+                n(name="hub"),
+                e_reverse(edge_query="weight >= 2", name="e2"),
+                n(),
+            ],
+        ),
+        Scenario(
+            "high_degree_two_hop",
+            [
+                n({"high_degree": True}, name="a"),
+                e_forward(name="e1"),
+                n(name="mid"),
+                e_forward(name="e2"),
+                n(),
+            ],
+        ),
+    ]
+
     return [
         DatasetSpec("redteam50k", load_redteam, redteam_scenarios),
         DatasetSpec("transactions", load_transactions, transactions_scenarios),
         DatasetSpec("facebook_combined", load_facebook, facebook_scenarios),
+        DatasetSpec("honeypot", load_honeypot, honeypot_scenarios),
+        DatasetSpec("twitter_demo", load_twitter_demo, twitter_demo_scenarios),
+        DatasetSpec("lesmiserables", load_lesmiserables, lesmiserables_scenarios),
+        DatasetSpec("twitter_congress", load_twitter_congress, twitter_congress_scenarios),
     ]
 
 
@@ -317,7 +462,7 @@ def main() -> None:
     parser.add_argument(
         "--datasets",
         default="all",
-        help="Comma-separated list: redteam50k,transactions,facebook_combined,all",
+        help="Comma-separated list: redteam50k,transactions,facebook_combined,honeypot,twitter_demo,lesmiserables,twitter_congress,all",
     )
     args = parser.parse_args()
 
