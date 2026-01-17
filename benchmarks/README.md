@@ -37,3 +37,11 @@ Run GFQL chain scenarios on demo datasets (no WHERE predicates).
 ```bash
 uv run python benchmarks/run_realdata_benchmarks.py --runs 7 --warmup 1 --output /tmp/realdata-gfql.md
 ```
+
+To limit datasets:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k,transactions --runs 7 --warmup 1
+```
+
+Available datasets: `redteam50k`, `transactions`, `facebook_combined`, `honeypot`, `twitter_demo`, `lesmiserables`, `twitter_congress`, `all`.
