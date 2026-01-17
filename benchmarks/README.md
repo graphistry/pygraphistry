@@ -34,7 +34,7 @@ uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /
 
 ## Real-data GFQL
 
-Run GFQL chain scenarios on demo datasets plus WHERE scenarios (df_executor), with separate sections in the output.
+Run GFQL chain scenarios on demo datasets plus WHERE scenarios (df_executor), with separate sections and a per-section score.
 
 ```bash
 uv run python benchmarks/run_realdata_benchmarks.py --runs 7 --warmup 1 --output /tmp/realdata-gfql.md
