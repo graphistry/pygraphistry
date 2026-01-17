@@ -40,6 +40,12 @@ Run GFQL chain scenarios on demo datasets plus WHERE scenarios (df_executor), wi
 uv run python benchmarks/run_realdata_benchmarks.py --runs 7 --warmup 1 --output /tmp/realdata-gfql.md
 ```
 
+To test categorical domains for redteam:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --redteam-domain-categorical --runs 9 --warmup 2
+```
+
 To limit datasets:
 
 ```bash

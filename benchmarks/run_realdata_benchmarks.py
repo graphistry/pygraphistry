@@ -8,6 +8,7 @@ This is intended for hop/chain performance sanity checks on medium-scale data.
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import statistics
 import time
 from dataclasses import dataclass
@@ -117,7 +118,7 @@ def _degree_nodes(edges: pd.DataFrame, src_col: str, dst_col: str, threshold: in
     return nodes
 
 
-def load_redteam(engine: Engine) -> graphistry.Plottable:
+def load_redteam(engine: Engine, domain_categorical: bool = False) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/graphistry_redteam50k.csv")
     edges = edges.rename(columns={"src_computer": "src", "dst_computer": "dst"})
     edges["src_domain_parsed"] = edges["src_domain"].map(_extract_domain)
@@ -131,6 +132,8 @@ def load_redteam(engine: Engine) -> graphistry.Plottable:
     )
     nodes = pd.concat([nodes_src, nodes_dst], ignore_index=True).dropna(subset=["id"])
     nodes = nodes.groupby("id", as_index=False).first()
+    if domain_categorical:
+        nodes["domain"] = nodes["domain"].astype("category")
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
@@ -217,7 +220,7 @@ def load_twitter_congress(engine: Engine) -> graphistry.Plottable:
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def build_specs() -> List[DatasetSpec]:
+def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
     redteam_scenarios = [
         Scenario(
             "kerberos_logon_fanin",
@@ -503,10 +506,12 @@ def build_specs() -> List[DatasetSpec]:
         ),
     ]
 
+    redteam_loader = partial(load_redteam, domain_categorical=redteam_domain_categorical)
+
     return [
         DatasetSpec(
             "redteam50k",
-            load_redteam,
+            redteam_loader,
             redteam_scenarios,
             redteam_where_scenarios,
         ),
@@ -608,7 +613,12 @@ def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
     return lines
 
 
-def write_markdown(chain_results: Iterable[ResultRow], where_results: Iterable[ResultRow], output_path: str) -> None:
+def write_markdown(
+    chain_results: Iterable[ResultRow],
+    where_results: Iterable[ResultRow],
+    output_path: str,
+    notes_extra: Optional[List[str]] = None,
+) -> None:
     header = [
         "# Real-Data Benchmark Results",
         "",
@@ -617,8 +627,11 @@ def write_markdown(chain_results: Iterable[ResultRow], where_results: Iterable[R
         "- WHERE results use the df_executor same-path engine.",
         "- Datasets are loaded from `demos/data/`.",
         "- Values are median over runs; p90 and std columns show variability.",
-        "",
     ]
+    if notes_extra:
+        for note in notes_extra:
+            header.append(f"- {note}")
+    header.append("")
     lines = header
     lines.extend(_table_lines("Chain-only (GFQL)", chain_results))
     lines.append("")
@@ -638,10 +651,15 @@ def main() -> None:
         default="all",
         help="Comma-separated list: redteam50k,transactions,facebook_combined,honeypot,twitter_demo,lesmiserables,twitter_congress,all",
     )
+    parser.add_argument(
+        "--redteam-domain-categorical",
+        action="store_true",
+        help="Cast redteam node domain column to categorical (pandas only).",
+    )
     args = parser.parse_args()
 
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
-    specs = build_specs()
+    specs = build_specs(redteam_domain_categorical=args.redteam_domain_categorical)
     if "all" not in dataset_filter:
         specs = [s for s in specs if s.name in dataset_filter]
 
@@ -658,7 +676,10 @@ def main() -> None:
         )
 
     if args.output:
-        write_markdown(chain_results, where_results, args.output)
+        notes_extra = []
+        if args.redteam_domain_categorical:
+            notes_extra.append("Redteam nodes.domain cast to categorical.")
+        write_markdown(chain_results, where_results, args.output, notes_extra=notes_extra)
 
     for title, rows in (
         ("Chain-only (GFQL)", chain_results),
