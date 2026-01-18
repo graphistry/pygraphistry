@@ -497,7 +497,7 @@ class DFSamePathExecutor:
             if span is not None and otel_detail_enabled():
                 for key, value in self._state_stats(state).items():
                     span.set_attribute(f"{key}_before", value)
-            state = apply_non_adjacent_where_post_prune(self, state)
+            state = apply_non_adjacent_where_post_prune(self, state, span=span)
             if span is not None and otel_detail_enabled():
                 for key, value in self._state_stats(state).items():
                     span.set_attribute(f"{key}_after", value)

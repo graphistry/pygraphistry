@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from graphistry.compute.gfql.same_path_types import PathState
+from graphistry.compute.gfql.otel import otel_detail_enabled
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
 from .df_utils import (
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 def apply_non_adjacent_where_post_prune(
     executor: "DFSamePathExecutor",
     state: PathState,
+    span: Optional[Any] = None,
 ) -> PathState:
     """Apply WHERE on non-adjacent node aliases by tracing paths.
 
@@ -78,7 +80,14 @@ def apply_non_adjacent_where_post_prune(
     if not src_col or not dst_col:
         return state
 
+    clause_count = 0
+    state_rows_max = 0
+    pairs_rows_max = 0
+    valid_pairs_max = 0
+    last_state_rows = 0
+
     for clause in non_adjacent_clauses:
+        clause_count += 1
         left_alias = clause.left.alias
         right_alias = clause.right.alias
         left_binding = executor.inputs.alias_bindings[left_alias]
@@ -139,6 +148,7 @@ def apply_non_adjacent_where_post_prune(
             state_df['__current__'] = state_df['__start__']
         else:
             state_df = df_cons(nodes_df, {'__current__': [], '__start__': []})
+        state_rows_max = max(state_rows_max, len(state_df))
 
         for edge_idx in relevant_edge_indices:
             edges_df = executor.forward_steps[edge_idx]._edges
@@ -170,12 +180,14 @@ def apply_non_adjacent_where_post_prune(
                     if hop >= sem.min_hops:
                         all_reachable.append(next_state)
                     current_state = next_state
+                    state_rows_max = max(state_rows_max, len(current_state))
 
                 if len(all_reachable) > 1:
                     state_df_concat = concat_frames(all_reachable[1:])
                     state_df = state_df_concat.drop_duplicates() if state_df_concat is not None else state_df.iloc[:0]
                 else:
                     state_df = state_df.iloc[:0]
+                state_rows_max = max(state_rows_max, len(state_df))
             else:
                 join_col, result_col = sem.join_cols(src_col, dst_col)
                 if sem.is_undirected:
@@ -191,8 +203,11 @@ def apply_non_adjacent_where_post_prune(
                     state_df = edges_df.merge(
                         state_df, left_on=join_col, right_on='__current__', how='inner'
                     )[[result_col, '__start__']].rename(columns={result_col: '__current__'}).drop_duplicates()
+                state_rows_max = max(state_rows_max, len(state_df))
 
         state_df = state_df[state_df['__current__'].isin(end_nodes)]
+        state_rows_max = max(state_rows_max, len(state_df))
+        last_state_rows = len(state_df)
 
         if len(state_df) == 0:
             if start_node_idx in local_allowed_nodes:
@@ -206,9 +221,11 @@ def apply_non_adjacent_where_post_prune(
 
         pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
         pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
+        pairs_rows_max = max(pairs_rows_max, len(pairs_df))
 
         mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
         valid_pairs = pairs_df[mask]
+        valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
         valid_starts = series_values(valid_pairs['__start__'])
         valid_ends = series_values(valid_pairs['__current__'])
 
@@ -231,6 +248,13 @@ def apply_non_adjacent_where_post_prune(
         )
         local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
         local_pruned_edges.update(current_state.pruned_edges)
+
+    if span is not None and otel_detail_enabled():
+        span.set_attribute("gfql.non_adjacent.clause_count", clause_count)
+        span.set_attribute("gfql.non_adjacent.state_rows_max", state_rows_max)
+        span.set_attribute("gfql.non_adjacent.state_rows_final", last_state_rows)
+        span.set_attribute("gfql.non_adjacent.pairs_rows_max", pairs_rows_max)
+        span.set_attribute("gfql.non_adjacent.valid_pairs_max", valid_pairs_max)
 
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)
 
