@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
 from graphistry.compute.gfql.same_path_types import PathState
-from graphistry.compute.gfql.otel import otel_detail_enabled
+from graphistry.otel import otel_detail_enabled
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
 from .df_utils import (

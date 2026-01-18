@@ -49,8 +49,8 @@ uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --redt
 To enable OpenTelemetry spans for df_executor:
 
 ```bash
-GRAPHISTRY_DF_EXECUTOR_OTEL=1 \
-GRAPHISTRY_DF_EXECUTOR_OTEL_DETAIL=1 \
+GRAPHISTRY_OTEL=1 \
+GRAPHISTRY_OTEL_DETAIL=1 \
 uv run --with opentelemetry-api --with opentelemetry-sdk \
   python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --runs 3 --warmup 1
 ```
@@ -58,8 +58,8 @@ uv run --with opentelemetry-api --with opentelemetry-sdk \
 To export spans to OTLP (optional):
 
 ```bash
-GRAPHISTRY_DF_EXECUTOR_OTEL=1 \
-GRAPHISTRY_DF_EXECUTOR_OTEL_EXPORTER=otlp \
+GRAPHISTRY_OTEL=1 \
+GRAPHISTRY_OTEL_EXPORTER=otlp \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 uv run --with opentelemetry-api --with opentelemetry-sdk --with opentelemetry-exporter-otlp \
   python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --runs 3 --warmup 1

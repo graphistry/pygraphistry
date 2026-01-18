@@ -5,7 +5,7 @@ NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. U
 """
 import logging
 import os
-from typing import List, Optional, Tuple, TYPE_CHECKING, Union, Any
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 import pandas as pd
 
 from graphistry.Engine import (
@@ -13,6 +13,7 @@ from graphistry.Engine import (
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
+from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
 from .typing import DataFrameT
@@ -22,12 +23,33 @@ from .util import generate_safe_column_name
 logger = setup_logger(__name__)
 
 
+def _hop_otel_attrs(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    hops = kwargs.get("hops")
+    if hops is None and len(args) > 2:
+        hops = args[2]
+    attrs: Dict[str, Any] = {
+        "gfql.hops": hops if hops is not None else 1,
+        "gfql.direction": kwargs.get("direction", "forward"),
+        "gfql.to_fixed_point": kwargs.get("to_fixed_point", False),
+    }
+    if otel_detail_enabled():
+        attrs["gfql.engine"] = str(kwargs.get("engine", EngineAbstract.AUTO))
+        attrs["gfql.has_edge_match"] = kwargs.get("edge_match") is not None
+        attrs["gfql.has_source_match"] = kwargs.get("source_node_match") is not None
+        attrs["gfql.has_destination_match"] = kwargs.get("destination_node_match") is not None
+        attrs["gfql.has_edge_query"] = kwargs.get("edge_query") is not None
+        attrs["gfql.has_source_query"] = kwargs.get("source_node_query") is not None
+        attrs["gfql.has_destination_query"] = kwargs.get("destination_node_query") is not None
+    return attrs
+
+
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
 
 
+@otel_traced("gfql.hop", attrs_fn=_hop_otel_attrs)
 def hop(self: Plottable,
     nodes: Optional[DataFrameT] = None,  # chain: incoming wavefront
     hops: Optional[int] = 1,

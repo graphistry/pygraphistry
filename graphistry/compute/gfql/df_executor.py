@@ -37,7 +37,7 @@ from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
 )
-from graphistry.compute.gfql.otel import otel_span, otel_enabled, otel_detail_enabled
+from graphistry.otel import otel_span, otel_enabled, otel_detail_enabled
 from graphistry.compute.gfql.same_path.where_filter import (
     filter_edges_by_clauses,
     filter_multihop_by_where,

@@ -11,7 +11,7 @@ from typing import Optional
 
 
 def setup_tracer() -> bool:
-    if os.environ.get("GRAPHISTRY_DF_EXECUTOR_OTEL", "").strip().lower() not in {"1", "true", "yes", "on"}:
+    if os.environ.get("GRAPHISTRY_OTEL", "").strip().lower() not in {"1", "true", "yes", "on"}:
         return False
 
     try:
@@ -27,7 +27,7 @@ def setup_tracer() -> bool:
         print("OpenTelemetry SDK not installed; spans will not be exported.", file=sys.stderr)
         return False
 
-    exporter_kind = os.environ.get("GRAPHISTRY_DF_EXECUTOR_OTEL_EXPORTER", "console").strip().lower()
+    exporter_kind = os.environ.get("GRAPHISTRY_OTEL_EXPORTER", "console").strip().lower()
     processor = None
 
     if exporter_kind == "otlp":
