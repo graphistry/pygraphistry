@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterator, Optional
 import os
 
 _OTEL_ENV = "GRAPHISTRY_DF_EXECUTOR_OTEL"
+_OTEL_DETAIL_ENV = "GRAPHISTRY_DF_EXECUTOR_OTEL_DETAIL"
 
 
 def _otel_enabled() -> bool:
@@ -16,6 +17,11 @@ def _otel_enabled() -> bool:
 
 def otel_enabled() -> bool:
     return _otel_enabled()
+
+
+def otel_detail_enabled() -> bool:
+    value = os.environ.get(_OTEL_DETAIL_ENV, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _get_tracer() -> Optional[Any]:

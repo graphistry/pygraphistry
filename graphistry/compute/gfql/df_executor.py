@@ -37,7 +37,7 @@ from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
 )
-from graphistry.compute.gfql.otel import otel_span, otel_enabled
+from graphistry.compute.gfql.otel import otel_span, otel_enabled, otel_detail_enabled
 from graphistry.compute.gfql.same_path.where_filter import (
     filter_edges_by_clauses,
     filter_multihop_by_where,
@@ -108,6 +108,45 @@ class DFSamePathExecutor:
             attrs["graphistry.edges"] = len(edges)
         return attrs
 
+    def _count_frame_rows(self, frame: Optional[Any]) -> int:
+        if frame is None:
+            return 0
+        try:
+            return len(frame)
+        except Exception:
+            return 0
+
+    def _alias_frame_stats(self) -> Dict[str, Any]:
+        sizes = [self._count_frame_rows(frame) for frame in self.alias_frames.values()]
+        if not sizes:
+            return {"gfql.alias_frames_count": 0}
+        return {
+            "gfql.alias_frames_count": len(sizes),
+            "gfql.alias_rows_total": sum(sizes),
+            "gfql.alias_rows_min": min(sizes),
+            "gfql.alias_rows_max": max(sizes),
+        }
+
+    def _state_stats(self, state: PathState) -> Dict[str, Any]:
+        node_sizes = [self._count_frame_rows(dom) for dom in state.allowed_nodes.values()]
+        edge_sizes = [self._count_frame_rows(dom) for dom in state.allowed_edges.values()]
+        pruned_sizes = [self._count_frame_rows(df) for df in state.pruned_edges.values()]
+        stats: Dict[str, Any] = {
+            "gfql.allowed_nodes_steps": len(state.allowed_nodes),
+            "gfql.allowed_edges_steps": len(state.allowed_edges),
+            "gfql.pruned_edges_steps": len(state.pruned_edges),
+            "gfql.allowed_nodes_total": sum(node_sizes),
+            "gfql.allowed_edges_total": sum(edge_sizes),
+            "gfql.pruned_edges_total": sum(pruned_sizes),
+        }
+        if node_sizes:
+            stats["gfql.allowed_nodes_min"] = min(node_sizes)
+            stats["gfql.allowed_nodes_max"] = max(node_sizes)
+        if edge_sizes:
+            stats["gfql.allowed_edges_min"] = min(edge_sizes)
+            stats["gfql.allowed_edges_max"] = max(edge_sizes)
+        return stats
+
     def edges_df_for_step(
         self,
         edge_idx: int,
@@ -156,7 +195,7 @@ class DFSamePathExecutor:
             return self._run_native()
 
     def _forward(self) -> None:
-        with otel_span("gfql.df_executor.forward"):
+        with otel_span("gfql.df_executor.forward", attrs={"gfql.forward_steps": len(self.inputs.chain)}) as span:
             graph = self.inputs.graph
             ops = self.inputs.chain
             self.forward_steps = []
@@ -181,6 +220,9 @@ class DFSamePathExecutor:
 
             # Forward pruning: apply WHERE clause constraints to captured frames
             self._apply_forward_where_pruning()
+            if span is not None and otel_detail_enabled():
+                for key, value in self._alias_frame_stats().items():
+                    span.set_attribute(key, value)
 
     def _capture_alias_frame(
         self, op: ASTObject, step_result: Plottable, step_index: int
@@ -226,7 +268,10 @@ class DFSamePathExecutor:
         if not self.inputs.where:
             return
 
-        with otel_span("gfql.df_executor.forward_where_prune", attrs={"gfql.where_len": len(self.inputs.where)}):
+        with otel_span("gfql.df_executor.forward_where_prune", attrs={"gfql.where_len": len(self.inputs.where)}) as span:
+            if span is not None and otel_detail_enabled():
+                for key, value in self._alias_frame_stats().items():
+                    span.set_attribute(f"{key}_before", value)
             # Iterate until no more pruning happens (fixed-point)
             changed = True
             while changed:
@@ -283,6 +328,9 @@ class DFSamePathExecutor:
                             clause, left_alias, right_alias, left_col, right_col
                         )
                         # Don't set changed for minmax - it's a one-shot prune
+            if span is not None and otel_detail_enabled():
+                for key, value in self._alias_frame_stats().items():
+                    span.set_attribute(f"{key}_after", value)
 
     def _use_df_forward_prune(
         self, left_frame: DataFrameT, right_frame: DataFrameT
@@ -432,16 +480,43 @@ class DFSamePathExecutor:
 
     def _run_native(self) -> Plottable:
         """Native vectorized path using backward-prune for same-path filtering."""
-        with otel_span("gfql.df_executor.compute_allowed_tags"):
+        with otel_span("gfql.df_executor.compute_allowed_tags") as span:
             allowed_tags = self._compute_allowed_tags()
-        with otel_span("gfql.df_executor.backward_prune"):
+            if span is not None and otel_detail_enabled():
+                span.set_attribute("gfql.allowed_tags_count", len(allowed_tags))
+                span.set_attribute(
+                    "gfql.allowed_tags_total",
+                    sum(self._count_frame_rows(dom) for dom in allowed_tags.values()),
+                )
+        with otel_span("gfql.df_executor.backward_prune") as span:
             state = self._backward_prune(allowed_tags)
-        with otel_span("gfql.df_executor.post_prune.non_adjacent"):
+            if span is not None and otel_detail_enabled():
+                for key, value in self._state_stats(state).items():
+                    span.set_attribute(key, value)
+        with otel_span("gfql.df_executor.post_prune.non_adjacent") as span:
+            if span is not None and otel_detail_enabled():
+                for key, value in self._state_stats(state).items():
+                    span.set_attribute(f"{key}_before", value)
             state = apply_non_adjacent_where_post_prune(self, state)
-        with otel_span("gfql.df_executor.post_prune.edge_where"):
+            if span is not None and otel_detail_enabled():
+                for key, value in self._state_stats(state).items():
+                    span.set_attribute(f"{key}_after", value)
+        with otel_span("gfql.df_executor.post_prune.edge_where") as span:
+            if span is not None and otel_detail_enabled():
+                for key, value in self._state_stats(state).items():
+                    span.set_attribute(f"{key}_before", value)
             state = apply_edge_where_post_prune(self, state)
-        with otel_span("gfql.df_executor.materialize"):
-            return self._materialize_filtered(state)
+            if span is not None and otel_detail_enabled():
+                for key, value in self._state_stats(state).items():
+                    span.set_attribute(f"{key}_after", value)
+        with otel_span("gfql.df_executor.materialize") as span:
+            out = self._materialize_filtered(state)
+            if span is not None and otel_detail_enabled():
+                if out._nodes is not None:
+                    span.set_attribute("gfql.materialize_nodes", len(out._nodes))
+                if out._edges is not None:
+                    span.set_attribute("gfql.materialize_edges", len(out._edges))
+            return out
 
     # Alias for backwards compatibility
     _run_gpu = _run_native
