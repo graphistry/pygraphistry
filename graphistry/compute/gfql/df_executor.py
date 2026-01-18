@@ -37,6 +37,7 @@ from graphistry.compute.gfql.same_path.post_prune import (
     apply_non_adjacent_where_post_prune,
     apply_edge_where_post_prune,
 )
+from graphistry.compute.gfql.otel import otel_span, otel_enabled
 from graphistry.compute.gfql.same_path.where_filter import (
     filter_edges_by_clauses,
     filter_multihop_by_where,
@@ -92,6 +93,21 @@ class DFSamePathExecutor:
         self._source_column = inputs.graph._source
         self._destination_column = inputs.graph._destination
 
+    def _otel_attrs(self) -> Dict[str, Any]:
+        attrs: Dict[str, Any] = {
+            "gfql.engine": self.inputs.engine.value,
+            "gfql.chain_len": len(self.inputs.chain),
+            "gfql.where_len": len(self.inputs.where),
+            "gfql.include_paths": self.inputs.include_paths,
+        }
+        nodes = self.inputs.graph._nodes
+        edges = self.inputs.graph._edges
+        if nodes is not None:
+            attrs["graphistry.nodes"] = len(nodes)
+        if edges is not None:
+            attrs["graphistry.edges"] = len(edges)
+        return attrs
+
     def edges_df_for_step(
         self,
         edge_idx: int,
@@ -123,45 +139,48 @@ class DFSamePathExecutor:
         - 'strict': Require cudf when Engine.CUDF is requested, raise if unavailable
         - 'oracle': Use O(n!) reference implementation (TESTING ONLY - never use in production)
         """
-        self._forward()
-        import os
-        mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
+        attrs = self._otel_attrs() if otel_enabled() else None
+        with otel_span("gfql.df_executor.run", attrs=attrs):
+            self._forward()
+            import os
+            mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
 
-        if mode == "oracle":
-            return self._unsafe_run_test_only_oracle()
+            if mode == "oracle":
+                return self._unsafe_run_test_only_oracle()
 
-        # Check strict mode before running native
-        # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
-        if mode == "strict":
-            self._should_attempt_gpu()  # Raises if cudf unavailable in strict mode
+            # Check strict mode before running native
+            # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
+            if mode == "strict":
+                self._should_attempt_gpu()  # Raises if cudf unavailable in strict mode
 
-        return self._run_native()
+            return self._run_native()
 
     def _forward(self) -> None:
-        graph = self.inputs.graph
-        ops = self.inputs.chain
-        self.forward_steps = []
+        with otel_span("gfql.df_executor.forward"):
+            graph = self.inputs.graph
+            ops = self.inputs.chain
+            self.forward_steps = []
 
-        for idx, op in enumerate(ops):
-            if isinstance(op, ASTCall):
-                current_g = self.forward_steps[-1] if self.forward_steps else graph
-                prev_nodes = None
-            else:
-                current_g = graph
-                prev_nodes = (
-                    None if not self.forward_steps else self.forward_steps[-1]._nodes
+            for idx, op in enumerate(ops):
+                if isinstance(op, ASTCall):
+                    current_g = self.forward_steps[-1] if self.forward_steps else graph
+                    prev_nodes = None
+                else:
+                    current_g = graph
+                    prev_nodes = (
+                        None if not self.forward_steps else self.forward_steps[-1]._nodes
+                    )
+                g_step = op(
+                    g=current_g,
+                    prev_node_wavefront=prev_nodes,
+                    target_wave_front=None,
+                    engine=self.inputs.engine,
                 )
-            g_step = op(
-                g=current_g,
-                prev_node_wavefront=prev_nodes,
-                target_wave_front=None,
-                engine=self.inputs.engine,
-            )
-            self.forward_steps.append(g_step)
-            self._capture_alias_frame(op, g_step, idx)
+                self.forward_steps.append(g_step)
+                self._capture_alias_frame(op, g_step, idx)
 
-        # Forward pruning: apply WHERE clause constraints to captured frames
-        self._apply_forward_where_pruning()
+            # Forward pruning: apply WHERE clause constraints to captured frames
+            self._apply_forward_where_pruning()
 
     def _capture_alias_frame(
         self, op: ASTObject, step_result: Plottable, step_index: int
@@ -207,63 +226,63 @@ class DFSamePathExecutor:
         if not self.inputs.where:
             return
 
-        # Iterate until no more pruning happens (fixed-point)
-        changed = True
-        while changed:
-            changed = False
-            for clause in self.inputs.where:
-                left_alias = clause.left.alias
-                right_alias = clause.right.alias
-                left_col = clause.left.column
-                right_col = clause.right.column
+        with otel_span("gfql.df_executor.forward_where_prune", attrs={"gfql.where_len": len(self.inputs.where)}):
+            # Iterate until no more pruning happens (fixed-point)
+            changed = True
+            while changed:
+                changed = False
+                for clause in self.inputs.where:
+                    left_alias = clause.left.alias
+                    right_alias = clause.right.alias
+                    left_col = clause.left.column
+                    right_col = clause.right.column
 
-                left_frame = self.alias_frames.get(left_alias)
-                right_frame = self.alias_frames.get(right_alias)
+                    left_frame = self.alias_frames.get(left_alias)
+                    right_frame = self.alias_frames.get(right_alias)
 
-                if left_frame is None or right_frame is None:
-                    continue
-                if left_col not in left_frame.columns or right_col not in right_frame.columns:
-                    continue
-
-                if clause.op == "==":
-                    if self._use_df_forward_prune(left_frame, right_frame):
-                        if self._apply_forward_where_prune_df(
-                            left_alias,
-                            right_alias,
-                            left_col,
-                            right_col,
-                        ):
-                            changed = True
+                    if left_frame is None or right_frame is None:
                         continue
-                    # Equality: values must match
-                    left_values = series_values(left_frame[left_col])
-                    right_values = series_values(right_frame[right_col])
-                    common = domain_intersect(left_values, right_values)
+                    if left_col not in left_frame.columns or right_col not in right_frame.columns:
+                        continue
 
-                    # Prune left frame
-                    if not left_values.equals(common):
-                        new_left = left_frame[left_frame[left_col].isin(common)]
-                        if len(new_left) < len(left_frame):
-                            self.alias_frames[left_alias] = new_left
-                            changed = True
+                    if clause.op == "==":
+                        if self._use_df_forward_prune(left_frame, right_frame):
+                            if self._apply_forward_where_prune_df(
+                                left_alias,
+                                right_alias,
+                                left_col,
+                                right_col,
+                            ):
+                                changed = True
+                            continue
+                        # Equality: values must match
+                        left_values = series_values(left_frame[left_col])
+                        right_values = series_values(right_frame[right_col])
+                        common = domain_intersect(left_values, right_values)
 
-                    # Prune right frame
-                    if not right_values.equals(common):
-                        new_right = right_frame[right_frame[right_col].isin(common)]
-                        if len(new_right) < len(right_frame):
-                            self.alias_frames[right_alias] = new_right
-                            changed = True
+                        # Prune left frame
+                        if not left_values.equals(common):
+                            new_left = left_frame[left_frame[left_col].isin(common)]
+                            if len(new_left) < len(left_frame):
+                                self.alias_frames[left_alias] = new_left
+                                changed = True
 
-                elif clause.op == "!=":
-                    # Inequality: no simple pruning possible without full join
-                    pass
+                        # Prune right frame
+                        if not right_values.equals(common):
+                            new_right = right_frame[right_frame[right_col].isin(common)]
+                            if len(new_right) < len(right_frame):
+                                self.alias_frames[right_alias] = new_right
+                                changed = True
 
-                elif clause.op in {"<", "<=", ">", ">="}:
-                    # Min/max constraints: prune based on range overlap
-                    self._apply_minmax_forward_prune(
-                        clause, left_alias, right_alias, left_col, right_col
-                    )
-                    # Don't set changed for minmax - it's a one-shot prune
+                    elif clause.op == "!=":
+                        # Inequality: no simple pruning possible without full join
+                        pass
+                    elif clause.op in {"<", "<=", ">", ">="}:
+                        # Min/max constraints: prune based on range overlap
+                        self._apply_minmax_forward_prune(
+                            clause, left_alias, right_alias, left_col, right_col
+                        )
+                        # Don't set changed for minmax - it's a one-shot prune
 
     def _use_df_forward_prune(
         self, left_frame: DataFrameT, right_frame: DataFrameT
@@ -413,11 +432,16 @@ class DFSamePathExecutor:
 
     def _run_native(self) -> Plottable:
         """Native vectorized path using backward-prune for same-path filtering."""
-        allowed_tags = self._compute_allowed_tags()
-        state = self._backward_prune(allowed_tags)
-        state = apply_non_adjacent_where_post_prune(self, state)
-        state = apply_edge_where_post_prune(self, state)
-        return self._materialize_filtered(state)
+        with otel_span("gfql.df_executor.compute_allowed_tags"):
+            allowed_tags = self._compute_allowed_tags()
+        with otel_span("gfql.df_executor.backward_prune"):
+            state = self._backward_prune(allowed_tags)
+        with otel_span("gfql.df_executor.post_prune.non_adjacent"):
+            state = apply_non_adjacent_where_post_prune(self, state)
+        with otel_span("gfql.df_executor.post_prune.edge_where"):
+            state = apply_edge_where_post_prune(self, state)
+        with otel_span("gfql.df_executor.materialize"):
+            return self._materialize_filtered(state)
 
     # Alias for backwards compatibility
     _run_gpu = _run_native
