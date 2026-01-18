@@ -21,6 +21,7 @@ from graphistry.Engine import Engine
 from graphistry.compute.ast import n, e_forward, e_reverse
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
+from otel_setup import setup_tracer
 
 
 @dataclass(frozen=True)
@@ -657,6 +658,7 @@ def main() -> None:
         help="Cast redteam node domain column to categorical (pandas only).",
     )
     args = parser.parse_args()
+    setup_tracer()
 
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
     specs = build_specs(redteam_domain_categorical=args.redteam_domain_categorical)

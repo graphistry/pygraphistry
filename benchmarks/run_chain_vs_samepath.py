@@ -23,6 +23,7 @@ from graphistry.Engine import Engine
 from graphistry.compute.ast import n, e_forward, e_undirected
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
+from otel_setup import setup_tracer
 
 
 @dataclass(frozen=True)
@@ -253,6 +254,7 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--output", default="")
     args = parser.parse_args()
+    setup_tracer()
 
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()
