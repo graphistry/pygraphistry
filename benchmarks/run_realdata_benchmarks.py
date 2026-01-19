@@ -669,12 +669,26 @@ def main() -> None:
         default=None,
         help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.",
     )
+    parser.add_argument(
+        "--non-adj-order",
+        default="",
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_ORDER (selectivity/size).",
+    )
+    parser.add_argument(
+        "--non-adj-bounds",
+        action="store_true",
+        help="Enable GRAPHISTRY_NON_ADJ_WHERE_BOUNDS for inequality prefiltering.",
+    )
     args = parser.parse_args()
 
     if args.non_adj_mode:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
     if args.non_adj_value_card_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
+    if args.non_adj_order:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
+    if args.non_adj_bounds:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_BOUNDS"] = "1"
     setup_tracer()
 
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
@@ -702,6 +716,10 @@ def main() -> None:
             notes_extra.append(f"Non-adj mode: {args.non_adj_mode}.")
         if args.non_adj_value_card_max is not None:
             notes_extra.append(f"Non-adj value card max: {args.non_adj_value_card_max}.")
+        if args.non_adj_order:
+            notes_extra.append(f"Non-adj order: {args.non_adj_order}.")
+        if args.non_adj_bounds:
+            notes_extra.append("Non-adj bounds enabled.")
         write_markdown(chain_results, where_results, args.output, notes_extra=notes_extra)
 
     for title, rows in (

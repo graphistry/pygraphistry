@@ -2548,3 +2548,87 @@ class TestNonAdjacentValueMode:
         assert value_nodes == baseline_nodes
         assert value_edges == baseline_edges
 
+
+class TestNonAdjacentBoundsAndOrdering:
+    def test_bounds_matches_baseline(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "group": 1},
+            {"id": "b", "v": 5, "group": 2},
+            {"id": "c", "v": 3, "group": 1},
+            {"id": "d", "v": 2, "group": 2},
+            {"id": "m1", "v": 0, "group": 0},
+            {"id": "m2", "v": 0, "group": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "<", col("end", "v"))]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS", "1")
+        bounds_mode = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        bounds_nodes = set(bounds_mode._nodes["id"])
+        bounds_edges = set(map(tuple, bounds_mode._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"a", "m1", "c"}
+        assert baseline_edges == {("a", "m1"), ("m1", "c")}
+        assert bounds_nodes == baseline_nodes
+        assert bounds_edges == baseline_edges
+
+    def test_ordering_matches_baseline(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "group": 1},
+            {"id": "b", "v": 5, "group": 2},
+            {"id": "c", "v": 3, "group": 1},
+            {"id": "d", "v": 2, "group": 2},
+            {"id": "m1", "v": 0, "group": 0},
+            {"id": "m2", "v": 0, "group": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "v"), "<", col("end", "v")),
+            compare(col("start", "group"), "==", col("end", "group")),
+        ]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_ORDER", "selectivity")
+        ordered = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        ordered_nodes = set(ordered._nodes["id"])
+        ordered_edges = set(map(tuple, ordered._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"a", "m1", "c"}
+        assert baseline_edges == {("a", "m1"), ("m1", "c")}
+        assert ordered_nodes == baseline_nodes
+        assert ordered_edges == baseline_edges

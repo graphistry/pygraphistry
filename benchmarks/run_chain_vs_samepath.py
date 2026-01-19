@@ -10,6 +10,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import os
 import statistics
 import time
 import warnings
@@ -253,8 +254,21 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=7)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--output", default="")
+    parser.add_argument("--non-adj-mode", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE.")
+    parser.add_argument("--non-adj-value-card-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.")
+    parser.add_argument("--non-adj-order", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_ORDER.")
+    parser.add_argument("--non-adj-bounds", action="store_true", help="Enable GRAPHISTRY_NON_ADJ_WHERE_BOUNDS.")
     args = parser.parse_args()
     setup_tracer()
+
+    if args.non_adj_mode:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
+    if args.non_adj_value_card_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
+    if args.non_adj_order:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
+    if args.non_adj_bounds:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_BOUNDS"] = "1"
 
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()

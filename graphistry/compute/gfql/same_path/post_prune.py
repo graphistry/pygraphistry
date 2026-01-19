@@ -53,6 +53,10 @@ def apply_non_adjacent_where_post_prune(
 
     # Experimental non-adjacent WHERE modes; default baseline unless explicitly set.
     non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "baseline").strip().lower()
+    non_adj_order = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_ORDER", "").strip().lower()
+    bounds_enabled = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
     non_adj_value_card_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "").strip()
     try:
         value_card_max = int(non_adj_value_card_max) if non_adj_value_card_max else None
@@ -85,9 +89,49 @@ def apply_non_adjacent_where_post_prune(
     src_col = executor._source_column
     dst_col = executor._destination_column
     edge_id_col = executor._edge_column
+    node_id_col = executor._node_column
+    nodes_df = executor.inputs.graph._nodes
 
     if not src_col or not dst_col:
         return state
+
+    if (
+        non_adj_order in {"selectivity", "size"}
+        and nodes_df is not None
+        and node_id_col
+        and node_id_col in nodes_df.columns
+    ):
+        def _clause_order_key(clause: "WhereComparison") -> tuple:
+            left_alias = clause.left.alias
+            right_alias = clause.right.alias
+            left_binding = executor.inputs.alias_bindings.get(left_alias)
+            right_binding = executor.inputs.alias_bindings.get(right_alias)
+            if not left_binding or not right_binding:
+                return (float("inf"), float("inf"))
+            start_idx = left_binding.step_index
+            end_idx = right_binding.step_index
+            if start_idx > end_idx:
+                start_idx, end_idx = end_idx, start_idx
+            start_nodes = local_allowed_nodes.get(start_idx)
+            end_nodes = local_allowed_nodes.get(end_idx)
+            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+                return (float("inf"), float("inf"))
+            left_col = clause.left.column
+            right_col = clause.right.column
+            if left_col not in nodes_df.columns or right_col not in nodes_df.columns:
+                return (float("inf"), float("inf"))
+            left_vals = nodes_df[nodes_df[node_id_col].isin(start_nodes)][left_col]
+            right_vals = nodes_df[nodes_df[node_id_col].isin(end_nodes)][right_col]
+            left_domain = series_values(left_vals)
+            right_domain = series_values(right_vals)
+            if clause.op == "==":
+                inter = domain_intersect(left_domain, right_domain)
+                score = len(inter) if not domain_is_empty(inter) else float("inf")
+            else:
+                score = max(len(left_domain), len(right_domain))
+            return (score, end_idx - start_idx)
+
+        non_adjacent_clauses = sorted(non_adjacent_clauses, key=_clause_order_key)
 
     clause_count = 0
     state_rows_max = 0
@@ -98,6 +142,8 @@ def apply_non_adjacent_where_post_prune(
     right_value_count_max = 0
     value_mode_used = False
     prefilter_used = False
+    bounds_used = False
+    order_used = non_adj_order in {"selectivity", "size"}
 
     for clause in non_adjacent_clauses:
         clause_count += 1
@@ -125,12 +171,7 @@ def apply_non_adjacent_where_post_prune(
 
         left_col = clause.left.column
         right_col = clause.right.column
-        node_id_col = executor._node_column
-        if not node_id_col:
-            continue
-
-        nodes_df = executor.inputs.graph._nodes
-        if nodes_df is None or node_id_col not in nodes_df.columns:
+        if not node_id_col or nodes_df is None or node_id_col not in nodes_df.columns:
             continue
 
         left_values_df = None
@@ -201,6 +242,49 @@ def apply_non_adjacent_where_post_prune(
             prefilter_used = True
             left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
             right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
+
+        if bounds_enabled and left_values_df is not None and right_values_df is not None and clause.op in {
+            "<", "<=", ">", ">="
+        }:
+            left_vals = left_values_df['__start_val__']
+            right_vals = right_values_df['__end_val__']
+            if len(left_vals) > 0 and len(right_vals) > 0:
+                left_min = left_vals.min()
+                left_max = left_vals.max()
+                right_min = right_vals.min()
+                right_max = right_vals.max()
+                if clause.op == "<":
+                    left_mask = left_vals < right_max
+                    right_mask = right_vals > left_min
+                elif clause.op == "<=":
+                    left_mask = left_vals <= right_max
+                    right_mask = right_vals >= left_min
+                elif clause.op == ">":
+                    left_mask = left_vals > right_min
+                    right_mask = right_vals < left_max
+                else:  # ">="
+                    left_mask = left_vals >= right_min
+                    right_mask = right_vals <= left_max
+
+                left_values_df = left_values_df[left_mask]
+                right_values_df = right_values_df[right_mask]
+
+                if len(left_values_df) == 0 or len(right_values_df) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+
+                start_nodes = series_values(left_values_df['__start__'])
+                end_nodes = series_values(right_values_df['__current__'])
+                cur_start_nodes = local_allowed_nodes.get(start_node_idx)
+                cur_end_nodes = local_allowed_nodes.get(end_node_idx)
+                local_allowed_nodes[start_node_idx] = (
+                    domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
+                )
+                local_allowed_nodes[end_node_idx] = (
+                    domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
+                )
+                bounds_used = True
 
         state_label_col = "__start_val__" if value_mode_enabled else "__start__"
         if value_mode_enabled:
@@ -338,11 +422,15 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.valid_pairs_max", valid_pairs_max)
         span.set_attribute("gfql.non_adjacent.value_mode_used", value_mode_used)
         span.set_attribute("gfql.non_adjacent.prefilter_used", prefilter_used)
+        span.set_attribute("gfql.non_adjacent.bounds_used", bounds_used)
+        span.set_attribute("gfql.non_adjacent.order_used", order_used)
         span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
         if value_card_max is not None:
             span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
         span.set_attribute("gfql.non_adjacent.mode", non_adj_mode)
+        span.set_attribute("gfql.non_adjacent.order", non_adj_order or "none")
+        span.set_attribute("gfql.non_adjacent.bounds_enabled", bounds_enabled)
 
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)
 

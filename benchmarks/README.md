@@ -32,6 +32,17 @@ Compare regular `chain()` against the Yannakakis same-path executor on synthetic
 uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /tmp/chain-vs-samepath.md
 ```
 
+To toggle non-adjacent WHERE experiments on synthetic scenarios:
+
+```bash
+uv run python benchmarks/run_chain_vs_samepath.py \
+  --non-adj-mode value_prefilter \
+  --non-adj-value-card-max 500 \
+  --non-adj-order selectivity \
+  --non-adj-bounds \
+  --runs 7 --warmup 1
+```
+
 ## Real-data GFQL
 
 Run GFQL chain scenarios on demo datasets plus WHERE scenarios (df_executor), with separate sections and a per-section score.
@@ -53,6 +64,8 @@ uv run python benchmarks/run_realdata_benchmarks.py \
   --datasets redteam50k \
   --non-adj-mode value_prefilter \
   --non-adj-value-card-max 500 \
+  --non-adj-order selectivity \
+  --non-adj-bounds \
   --runs 7 --warmup 1
 ```
 
