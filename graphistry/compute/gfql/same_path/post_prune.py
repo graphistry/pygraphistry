@@ -206,7 +206,7 @@ def apply_non_adjacent_where_post_prune(
             right_value_count_max = max(right_value_count_max, len(right_values_domain))
 
         prefilter_enabled = non_adj_mode in {"prefilter", "value_prefilter"} and clause.op == "=="
-        value_mode_requested = non_adj_mode in {"value", "value_prefilter"}
+        value_mode_requested = non_adj_mode in {"value", "value_prefilter"} and clause.op == "=="
         value_cardinality = None
         if left_values_domain is not None or right_values_domain is not None:
             left_count = len(left_values_domain) if left_values_domain is not None else 0
