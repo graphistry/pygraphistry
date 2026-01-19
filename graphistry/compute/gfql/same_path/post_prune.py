@@ -5,6 +5,7 @@ These are applied after the initial backward prune to enforce constraints
 that span multiple edges in the chain.
 """
 
+import os
 from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge
@@ -50,6 +51,14 @@ def apply_non_adjacent_where_post_prune(
     if not executor.inputs.where:
         return state
 
+    # Experimental non-adjacent WHERE modes; default baseline unless explicitly set.
+    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "baseline").strip().lower()
+    non_adj_value_card_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "").strip()
+    try:
+        value_card_max = int(non_adj_value_card_max) if non_adj_value_card_max else None
+    except ValueError:
+        value_card_max = None
+
     non_adjacent_clauses = []
     for clause in executor.inputs.where:
         left_alias = clause.left.alias
@@ -85,6 +94,10 @@ def apply_non_adjacent_where_post_prune(
     pairs_rows_max = 0
     valid_pairs_max = 0
     last_state_rows = 0
+    left_value_count_max = 0
+    right_value_count_max = 0
+    value_mode_used = False
+    prefilter_used = False
 
     for clause in non_adjacent_clauses:
         clause_count += 1
@@ -142,12 +155,68 @@ def apply_non_adjacent_where_post_prune(
                     columns={node_id_col: '__current__', right_col: '__end_val__'}
                 )
 
-        # State table propagation: (current_node, start_node) pairs
+        left_values_domain = None
+        right_values_domain = None
         if left_values_df is not None and len(left_values_df) > 0:
-            state_df = left_values_df[['__start__']].copy()
-            state_df['__current__'] = state_df['__start__']
+            left_values_domain = series_values(left_values_df['__start_val__'])
+            left_value_count_max = max(left_value_count_max, len(left_values_domain))
+        if right_values_df is not None and len(right_values_df) > 0:
+            right_values_domain = series_values(right_values_df['__end_val__'])
+            right_value_count_max = max(right_value_count_max, len(right_values_domain))
+
+        prefilter_enabled = non_adj_mode in {"prefilter", "value_prefilter"} and clause.op == "=="
+        value_mode_requested = non_adj_mode in {"value", "value_prefilter"}
+        value_cardinality = None
+        if left_values_domain is not None or right_values_domain is not None:
+            left_count = len(left_values_domain) if left_values_domain is not None else 0
+            right_count = len(right_values_domain) if right_values_domain is not None else 0
+            value_cardinality = max(left_count, right_count)
+        value_mode_enabled = (
+            value_mode_requested
+            and left_values_df is not None
+            and right_values_df is not None
+            and len(left_values_df) > 0
+            and len(right_values_df) > 0
+            and (value_card_max is None or (value_cardinality is not None and value_cardinality <= value_card_max))
+        )
+
+        if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
+            allowed_values = domain_intersect(left_values_domain, right_values_domain)
+            if domain_is_empty(allowed_values):
+                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                continue
+            left_values_df = left_values_df[left_values_df['__start_val__'].isin(allowed_values)]
+            right_values_df = right_values_df[right_values_df['__end_val__'].isin(allowed_values)]
+            start_nodes = series_values(left_values_df['__start__'])
+            end_nodes = series_values(right_values_df['__current__'])
+            cur_start_nodes = local_allowed_nodes.get(start_node_idx)
+            cur_end_nodes = local_allowed_nodes.get(end_node_idx)
+            local_allowed_nodes[start_node_idx] = (
+                domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
+            )
+            local_allowed_nodes[end_node_idx] = (
+                domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
+            )
+            prefilter_used = True
+            left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
+            right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
+
+        state_label_col = "__start_val__" if value_mode_enabled else "__start__"
+        if value_mode_enabled:
+            value_mode_used = True
+
+        # State table propagation: (current_node, start_label) pairs
+        if left_values_df is not None and len(left_values_df) > 0:
+            if value_mode_enabled:
+                state_df = left_values_df[['__start__', state_label_col]].rename(
+                    columns={'__start__': '__current__'}
+                ).drop_duplicates()
+            else:
+                state_df = left_values_df[['__start__']].copy()
+                state_df['__current__'] = state_df['__start__']
         else:
-            state_df = df_cons(nodes_df, {'__current__': [], '__start__': []})
+            state_df = df_cons(nodes_df, {'__current__': [], state_label_col: []})
         state_rows_max = max(state_rows_max, len(state_df))
 
         for edge_idx in relevant_edge_indices:
@@ -172,7 +241,7 @@ def apply_non_adjacent_where_post_prune(
                 for hop in range(1, sem.max_hops + 1):
                     next_state = edge_pairs.merge(
                         current_state, left_on='__from__', right_on='__current__', how='inner'
-                    )[['__to__', '__start__']].rename(columns={'__to__': '__current__'}).drop_duplicates()
+                    )[['__to__', state_label_col]].rename(columns={'__to__': '__current__'}).drop_duplicates()
 
                     if len(next_state) == 0:
                         break
@@ -193,16 +262,16 @@ def apply_non_adjacent_where_post_prune(
                 if sem.is_undirected:
                     next1 = edges_df.merge(
                         state_df, left_on=src_col, right_on='__current__', how='inner'
-                    )[[dst_col, '__start__']].rename(columns={dst_col: '__current__'})
+                    )[[dst_col, state_label_col]].rename(columns={dst_col: '__current__'})
                     next2 = edges_df.merge(
                         state_df, left_on=dst_col, right_on='__current__', how='inner'
-                    )[[src_col, '__start__']].rename(columns={src_col: '__current__'})
+                    )[[src_col, state_label_col]].rename(columns={src_col: '__current__'})
                     state_df_concat = concat_frames([next1, next2])
                     state_df = state_df_concat.drop_duplicates() if state_df_concat is not None else state_df.iloc[:0]
                 else:
                     state_df = edges_df.merge(
                         state_df, left_on=join_col, right_on='__current__', how='inner'
-                    )[[result_col, '__start__']].rename(columns={result_col: '__current__'}).drop_duplicates()
+                    )[[result_col, state_label_col]].rename(columns={result_col: '__current__'}).drop_duplicates()
                 state_rows_max = max(state_rows_max, len(state_df))
 
         state_df = state_df[state_df['__current__'].isin(end_nodes)]
@@ -219,15 +288,27 @@ def apply_non_adjacent_where_post_prune(
         if left_values_df is None or right_values_df is None:
             continue
 
-        pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
-        pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
-        pairs_rows_max = max(pairs_rows_max, len(pairs_df))
+        if value_mode_enabled:
+            pairs_df = state_df.merge(right_values_df, on='__current__', how='inner')
+            pairs_rows_max = max(pairs_rows_max, len(pairs_df))
+            mask = evaluate_clause(pairs_df[state_label_col], clause.op, pairs_df['__end_val__'])
+            valid_pairs = pairs_df[mask]
+            valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
+            valid_start_values = series_values(valid_pairs[state_label_col])
+            valid_starts = series_values(
+                left_values_df[left_values_df['__start_val__'].isin(valid_start_values)]['__start__']
+            )
+            valid_ends = series_values(valid_pairs['__current__'])
+        else:
+            pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
+            pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
+            pairs_rows_max = max(pairs_rows_max, len(pairs_df))
 
-        mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
-        valid_pairs = pairs_df[mask]
-        valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
-        valid_starts = series_values(valid_pairs['__start__'])
-        valid_ends = series_values(valid_pairs['__current__'])
+            mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
+            valid_pairs = pairs_df[mask]
+            valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
+            valid_starts = series_values(valid_pairs['__start__'])
+            valid_ends = series_values(valid_pairs['__current__'])
 
         if start_node_idx in local_allowed_nodes:
             local_allowed_nodes[start_node_idx] = domain_intersect(
@@ -255,6 +336,13 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.state_rows_final", last_state_rows)
         span.set_attribute("gfql.non_adjacent.pairs_rows_max", pairs_rows_max)
         span.set_attribute("gfql.non_adjacent.valid_pairs_max", valid_pairs_max)
+        span.set_attribute("gfql.non_adjacent.value_mode_used", value_mode_used)
+        span.set_attribute("gfql.non_adjacent.prefilter_used", prefilter_used)
+        span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
+        span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
+        if value_card_max is not None:
+            span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
+        span.set_attribute("gfql.non_adjacent.mode", non_adj_mode)
 
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)
 

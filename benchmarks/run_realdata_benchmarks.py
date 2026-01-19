@@ -8,6 +8,7 @@ This is intended for hop/chain performance sanity checks on medium-scale data.
 from __future__ import annotations
 
 import argparse
+import os
 from functools import partial
 import statistics
 import time
@@ -657,7 +658,23 @@ def main() -> None:
         action="store_true",
         help="Cast redteam node domain column to categorical (pandas only).",
     )
+    parser.add_argument(
+        "--non-adj-mode",
+        default="",
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE (baseline/prefilter/value/value_prefilter).",
+    )
+    parser.add_argument(
+        "--non-adj-value-card-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.",
+    )
     args = parser.parse_args()
+
+    if args.non_adj_mode:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
+    if args.non_adj_value_card_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
     setup_tracer()
 
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
@@ -681,6 +698,10 @@ def main() -> None:
         notes_extra = []
         if args.redteam_domain_categorical:
             notes_extra.append("Redteam nodes.domain cast to categorical.")
+        if args.non_adj_mode:
+            notes_extra.append(f"Non-adj mode: {args.non_adj_mode}.")
+        if args.non_adj_value_card_max is not None:
+            notes_extra.append(f"Non-adj value card max: {args.non_adj_value_card_max}.")
         write_markdown(chain_results, where_results, args.output, notes_extra=notes_extra)
 
     for title, rows in (

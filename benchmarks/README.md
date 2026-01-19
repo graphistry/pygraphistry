@@ -46,6 +46,16 @@ To test categorical domains for redteam:
 uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --redteam-domain-categorical --runs 9 --warmup 2
 ```
 
+To experiment with non-adjacent WHERE modes:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --datasets redteam50k \
+  --non-adj-mode value_prefilter \
+  --non-adj-value-card-max 500 \
+  --runs 7 --warmup 1
+```
+
 To enable OpenTelemetry spans for df_executor:
 
 ```bash
