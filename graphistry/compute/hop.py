@@ -404,6 +404,7 @@ def hop(self: Plottable,
         and allowed_source_ids is None
         and allowed_dest_ids is None
     )
+    # Optional fast path: keep default on, but allow disabling via env for perf validation.
     fast_path_override = os.environ.get("GRAPHISTRY_HOP_FAST_PATH", "").strip().lower()
     if fast_path_override in {"0", "false", "off", "no"}:
         # Allow disabling fast path for benchmarking/compat checks.
