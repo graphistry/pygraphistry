@@ -188,13 +188,20 @@ def _merge_and_filter_edges(
         how="inner",
     )
 
+    node_col = executor._node_column
     for clause in relevant:
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
         right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
 
         # Columns are pre-prefixed: __L_* for left, __R_* for right
-        col_left = f"__L_{left_col}"
-        col_right = f"__R_{right_col}"
+        if node_col and left_col == node_col:
+            col_left = "__left_id__"
+        else:
+            col_left = f"__L_{left_col}"
+        if node_col and right_col == node_col:
+            col_right = "__right_id__"
+        else:
+            col_right = f"__R_{right_col}"
 
         if col_left in out_df.columns and col_right in out_df.columns:
             mask = evaluate_clause(out_df[col_left], clause.op, out_df[col_right])

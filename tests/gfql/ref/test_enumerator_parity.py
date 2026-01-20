@@ -3,7 +3,8 @@ import pytest
 
 from graphistry.compute import e_forward, e_reverse, e_undirected, n
 from graphistry.compute.ast import ASTEdge, ASTNode
-from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
+from graphistry.compute.chain import Chain
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain, col, compare
 from graphistry.tests.test_compute import CGFull
 
 
@@ -89,6 +90,54 @@ def _run_parity_case(nodes, edges, ops, check_hop_labels=False):
                     assert oracle_edge_hops[eid] == hop, f"Edge {eid}: oracle hop {oracle_edge_hops[eid]} != gfql hop {hop}"
 
     return oracle  # Return for additional assertions in specific tests
+
+
+def test_enumerator_parity_regular_and_where():
+    nodes = [
+        {"id": "acct_good", "type": "account", "owner_id": "user1"},
+        {"id": "acct_bad", "type": "account", "owner_id": "user2"},
+        {"id": "user1", "type": "user"},
+        {"id": "user2", "type": "user"},
+    ]
+    edges = [
+        {"edge_id": "e_good", "src": "acct_good", "dst": "user1", "type": "owns"},
+        {"edge_id": "e_bad_match", "src": "acct_bad", "dst": "user2", "type": "owns"},
+        {"edge_id": "e_bad_wrong", "src": "acct_bad", "dst": "user1", "type": "owns"},
+    ]
+    g = (
+        CGFull()
+        .nodes(pd.DataFrame(nodes), "id")
+        .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+    )
+    chain_ops = [
+        n({"type": "account"}, name="a"),
+        e_forward({"type": "owns"}, name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+
+    def _assert_parity(result, oracle):
+        gfql_nodes = _to_pandas(result._nodes)
+        gfql_edges = _to_pandas(result._edges)
+        assert gfql_nodes is not None
+        assert set(gfql_nodes[g._node]) == set(oracle.nodes[g._node])
+        if g._edge is not None and gfql_edges is not None and not gfql_edges.empty:
+            assert set(gfql_edges[g._edge]) == set(oracle.edges[g._edge])
+        else:
+            assert oracle.edges.empty
+
+    regular = g.gfql(chain_ops)
+    regular_oracle = enumerate_chain(
+        g, chain_ops, caps=OracleCaps(max_nodes=20, max_edges=20)
+    )
+    _assert_parity(regular, regular_oracle)
+
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    where_chain = Chain(chain_ops, where=where)
+    where_result = g.gfql(where_chain)
+    where_oracle = enumerate_chain(
+        g, chain_ops, where=where, caps=OracleCaps(max_nodes=20, max_edges=20)
+    )
+    _assert_parity(where_result, where_oracle)
 
 
 CASES = [

@@ -22,7 +22,7 @@ from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     StepColumnRef,
     col as _col,
-    compare as _compare,
+    compare as _compare_where,
 )
 
 
@@ -50,7 +50,7 @@ def col(alias: str, column: str) -> StepColumnRef:
 
 
 def compare(left: StepColumnRef, op: ComparisonOp, right: StepColumnRef) -> WhereComparison:
-    return _compare(left, op, right)
+    return _compare_where(left, op, right)
 
 
 def enumerate_chain(
@@ -584,7 +584,7 @@ def _apply_where(paths: pd.DataFrame, where: Sequence[WhereComparison]) -> pd.Se
         right = paths[right_key]
         valid = left.notna() & right.notna()
         try:
-            result = _compare(left, right, clause.op)
+            result = _compare_series(left, right, clause.op)
         except Exception:
             result = pd.Series(False, index=paths.index)
         result_bool = result.fillna(False).astype(bool)
@@ -592,7 +592,7 @@ def _apply_where(paths: pd.DataFrame, where: Sequence[WhereComparison]) -> pd.Se
     return mask
 
 
-def _compare(lhs: pd.Series, rhs: pd.Series, op: ComparisonOp) -> pd.Series:
+def _compare_series(lhs: pd.Series, rhs: pd.Series, op: ComparisonOp) -> pd.Series:
     if op == "==":
         return lhs == rhs
     if op == "!=":
