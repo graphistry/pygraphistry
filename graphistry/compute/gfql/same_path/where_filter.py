@@ -204,7 +204,7 @@ def _merge_and_filter_edges(
             col_right = f"__R_{right_col}"
 
         if col_left in out_df.columns and col_right in out_df.columns:
-            mask = evaluate_clause(out_df[col_left], clause.op, out_df[col_right])
+            mask = evaluate_clause(out_df[col_left], clause.op, out_df[col_right], null_safe=True)
             out_df = out_df[mask]
 
     return out_df
@@ -350,7 +350,7 @@ def filter_multihop_by_where(
         col_left = f"__L_{left_col}"
         col_right = f"__R_{right_col}"
         if col_left in pairs_df.columns and col_right in pairs_df.columns:
-            mask = evaluate_clause(pairs_df[col_left], clause.op, pairs_df[col_right])
+            mask = evaluate_clause(pairs_df[col_left], clause.op, pairs_df[col_right], null_safe=True)
             pairs_df = pairs_df[mask]
 
     if len(pairs_df) == 0:

@@ -133,6 +133,63 @@ def apply_non_adjacent_where_post_prune(
 
         non_adjacent_clauses = sorted(non_adjacent_clauses, key=_clause_order_key)
 
+    def _filter_values_df_by_const(
+        values_df: Any,
+        value_col: str,
+        op: str,
+        const_value: Any,
+        *,
+        const_on_left: bool,
+    ) -> Any:
+        if values_df is None or len(values_df) == 0:
+            return values_df
+        if const_on_left:
+            if op == "==":
+                mask = values_df[value_col] == const_value
+            elif op == "!=":
+                mask = values_df[value_col] != const_value
+            elif op == "<":
+                mask = values_df[value_col] > const_value
+            elif op == "<=":
+                mask = values_df[value_col] >= const_value
+            elif op == ">":
+                mask = values_df[value_col] < const_value
+            elif op == ">=":
+                mask = values_df[value_col] <= const_value
+            else:
+                mask = values_df[value_col] == const_value
+        else:
+            if op == "==":
+                mask = values_df[value_col] == const_value
+            elif op == "!=":
+                mask = values_df[value_col] != const_value
+            elif op == "<":
+                mask = values_df[value_col] < const_value
+            elif op == "<=":
+                mask = values_df[value_col] <= const_value
+            elif op == ">":
+                mask = values_df[value_col] > const_value
+            elif op == ">=":
+                mask = values_df[value_col] >= const_value
+            else:
+                mask = values_df[value_col] == const_value
+        return values_df[mask]
+
+    def _scalar_clause(left: Any, op: str, right: Any) -> bool:
+        if op == "==":
+            return left == right
+        if op == "!=":
+            return left != right
+        if op == "<":
+            return left < right
+        if op == "<=":
+            return left <= right
+        if op == ">":
+            return left > right
+        if op == ">=":
+            return left >= right
+        return False
+
     clause_count = 0
     state_rows_max = 0
     pairs_rows_max = 0
@@ -142,6 +199,7 @@ def apply_non_adjacent_where_post_prune(
     right_value_count_max = 0
     value_mode_used = False
     prefilter_used = False
+    singleton_used = False
     bounds_used = False
     order_used = non_adj_order in {"selectivity", "size"}
 
@@ -198,6 +256,11 @@ def apply_non_adjacent_where_post_prune(
 
         left_values_domain = None
         right_values_domain = None
+        if left_values_df is not None:
+            left_values_df = left_values_df[left_values_df['__start_val__'].notna()]
+        if right_values_df is not None:
+            right_values_df = right_values_df[right_values_df['__end_val__'].notna()]
+
         if left_values_df is not None and len(left_values_df) > 0:
             left_values_domain = series_values(left_values_df['__start_val__'])
             left_value_count_max = max(left_value_count_max, len(left_values_domain))
@@ -205,7 +268,7 @@ def apply_non_adjacent_where_post_prune(
             right_values_domain = series_values(right_values_df['__end_val__'])
             right_value_count_max = max(right_value_count_max, len(right_values_domain))
 
-        prefilter_enabled = non_adj_mode in {"prefilter", "value_prefilter"} and clause.op == "=="
+        prefilter_enabled = non_adj_mode in {"prefilter", "value_prefilter"}
         value_mode_requested = non_adj_mode in {"value", "value_prefilter"} and clause.op == "=="
         value_cardinality = None
         if left_values_domain is not None or right_values_domain is not None:
@@ -221,27 +284,75 @@ def apply_non_adjacent_where_post_prune(
             and (value_card_max is None or (value_cardinality is not None and value_cardinality <= value_card_max))
         )
 
+        if left_values_df is None or right_values_df is None:
+            continue
+        if len(left_values_df) == 0 or len(right_values_df) == 0:
+            local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+            local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+            continue
+
         if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
-            allowed_values = domain_intersect(left_values_domain, right_values_domain)
-            if domain_is_empty(allowed_values):
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                continue
-            left_values_df = left_values_df[left_values_df['__start_val__'].isin(allowed_values)]
-            right_values_df = right_values_df[right_values_df['__end_val__'].isin(allowed_values)]
-            start_nodes = series_values(left_values_df['__start__'])
-            end_nodes = series_values(right_values_df['__current__'])
-            cur_start_nodes = local_allowed_nodes.get(start_node_idx)
-            cur_end_nodes = local_allowed_nodes.get(end_node_idx)
-            local_allowed_nodes[start_node_idx] = (
-                domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
-            )
-            local_allowed_nodes[end_node_idx] = (
-                domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
-            )
-            prefilter_used = True
-            left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
-            right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
+            if clause.op == "==":
+                allowed_values = domain_intersect(left_values_domain, right_values_domain)
+                if domain_is_empty(allowed_values):
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+                left_values_df = left_values_df[left_values_df['__start_val__'].isin(allowed_values)]
+                right_values_df = right_values_df[right_values_df['__end_val__'].isin(allowed_values)]
+                prefilter_used = True
+            else:
+                left_count = len(left_values_domain)
+                right_count = len(right_values_domain)
+                if left_count == 0 or right_count == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+                if left_count == 1 and right_count == 1:
+                    left_val = left_values_domain[0]
+                    right_val = right_values_domain[0]
+                    if not _scalar_clause(left_val, clause.op, right_val):
+                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        continue
+                    prefilter_used = True
+                    singleton_used = True
+                elif left_count == 1:
+                    left_val = left_values_domain[0]
+                    right_values_df = _filter_values_df_by_const(
+                        right_values_df, '__end_val__', clause.op, left_val, const_on_left=True
+                    )
+                    if len(right_values_df) == 0:
+                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        continue
+                    prefilter_used = True
+                    singleton_used = True
+                elif right_count == 1:
+                    right_val = right_values_domain[0]
+                    left_values_df = _filter_values_df_by_const(
+                        left_values_df, '__start_val__', clause.op, right_val, const_on_left=False
+                    )
+                    if len(left_values_df) == 0:
+                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        continue
+                    prefilter_used = True
+                    singleton_used = True
+
+            if prefilter_used:
+                start_nodes = series_values(left_values_df['__start__'])
+                end_nodes = series_values(right_values_df['__current__'])
+                cur_start_nodes = local_allowed_nodes.get(start_node_idx)
+                cur_end_nodes = local_allowed_nodes.get(end_node_idx)
+                local_allowed_nodes[start_node_idx] = (
+                    domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
+                )
+                local_allowed_nodes[end_node_idx] = (
+                    domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
+                )
+                left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
+                right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
 
         if bounds_enabled and left_values_df is not None and right_values_df is not None and clause.op in {
             "<", "<=", ">", ">="
@@ -375,7 +486,7 @@ def apply_non_adjacent_where_post_prune(
         if value_mode_enabled:
             pairs_df = state_df.merge(right_values_df, on='__current__', how='inner')
             pairs_rows_max = max(pairs_rows_max, len(pairs_df))
-            mask = evaluate_clause(pairs_df[state_label_col], clause.op, pairs_df['__end_val__'])
+            mask = evaluate_clause(pairs_df[state_label_col], clause.op, pairs_df['__end_val__'], null_safe=True)
             valid_pairs = pairs_df[mask]
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
             valid_start_values = series_values(valid_pairs[state_label_col])
@@ -388,7 +499,7 @@ def apply_non_adjacent_where_post_prune(
             pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
             pairs_rows_max = max(pairs_rows_max, len(pairs_df))
 
-            mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'])
+            mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'], null_safe=True)
             valid_pairs = pairs_df[mask]
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
             valid_starts = series_values(valid_pairs['__start__'])
@@ -422,6 +533,7 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.valid_pairs_max", valid_pairs_max)
         span.set_attribute("gfql.non_adjacent.value_mode_used", value_mode_used)
         span.set_attribute("gfql.non_adjacent.prefilter_used", prefilter_used)
+        span.set_attribute("gfql.non_adjacent.singleton_used", singleton_used)
         span.set_attribute("gfql.non_adjacent.bounds_used", bounds_used)
         span.set_attribute("gfql.non_adjacent.order_used", order_used)
         span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)

@@ -2470,10 +2470,7 @@ class TestPredicateTypes:
         oracle_nodes = set(oracle_result.nodes["id"]) if not oracle_result.nodes.empty else set()
         assert oracle_nodes == set(), f"Oracle should return empty due to NULL semantics, got {oracle_nodes}"
 
-        # Note: Native executor currently uses pandas semantics (1 != None -> True)
-        # This is a known difference - native executor would need updating to match oracle
-        # For now, we document and test the correct oracle behavior
-        # _assert_parity(graph, chain, where)  # Skipped: known semantic difference
+        _assert_parity(graph, chain, where)
 
     def test_multihop_with_datetime_range(self):
         """Multi-hop with datetime range comparison."""
