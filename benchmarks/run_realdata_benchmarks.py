@@ -84,14 +84,32 @@ def _summarize_times(times: List[float]) -> TimingStats:
     return TimingStats(median_ms=median_ms, p90_ms=p90_ms, std_ms=std_ms)
 
 
-def _time_call(fn, runs: int, warmup: int) -> TimingStats:
+def _time_call(
+    fn,
+    runs: int,
+    warmup: int,
+    max_total_s: Optional[float] = None,
+    max_call_s: Optional[float] = None,
+) -> Optional[TimingStats]:
+    total_start = time.perf_counter()
     for _ in range(warmup):
+        start = time.perf_counter()
         fn()
+        elapsed = time.perf_counter() - start
+        if max_call_s is not None and elapsed > max_call_s:
+            return None
+        if max_total_s is not None and (time.perf_counter() - total_start) > max_total_s:
+            return None
     times = []
     for _ in range(runs):
         start = time.perf_counter()
         fn()
-        times.append((time.perf_counter() - start) * 1000)
+        elapsed = time.perf_counter() - start
+        if max_call_s is not None and elapsed > max_call_s:
+            return None
+        times.append(elapsed * 1000)
+        if max_total_s is not None and (time.perf_counter() - total_start) > max_total_s:
+            return None
     return _summarize_times(times)
 
 
@@ -270,6 +288,17 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
             ],
             [compare(col("a", "domain"), "==", col("c", "domain"))],
         ),
+        WhereScenario(
+            "kerberos_domain_mismatch",
+            [
+                n(name="a"),
+                e_forward({"auth_type": "Kerberos"}, name="e1"),
+                n(name="b"),
+                e_reverse({"authentication_orientation": "LogOn"}, name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "domain"), "!=", col("c", "domain"))],
+        ),
     ]
 
     transactions_scenarios = [
@@ -316,6 +345,28 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
             ],
             [compare(col("e1", "amount"), ">", col("e2", "amount"))],
         ),
+        WhereScenario(
+            "tainted_match_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "tainted_in"), "==", col("c", "tainted_in"))],
+        ),
+        WhereScenario(
+            "tainted_mismatch_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "tainted_in"), "!=", col("c", "tainted_in"))],
+        ),
     ]
 
     facebook_scenarios = [
@@ -361,6 +412,28 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
                 n(name="c"),
             ],
             [compare(col("a", "degree"), ">=", col("c", "degree"))],
+        ),
+        WhereScenario(
+            "high_degree_match_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "high_degree"), "==", col("c", "high_degree"))],
+        ),
+        WhereScenario(
+            "high_degree_mismatch_two_hop",
+            [
+                n(name="a"),
+                e_forward(name="e1"),
+                n(name="b"),
+                e_forward(name="e2"),
+                n(name="c"),
+            ],
+            [compare(col("a", "high_degree"), "!=", col("c", "high_degree"))],
         ),
     ]
 
@@ -558,18 +631,20 @@ def run_chain_scenarios(
     engine_label: str,
     runs: int,
     warmup: int,
+    max_total_s: Optional[float] = None,
+    max_call_s: Optional[float] = None,
 ) -> Iterable[ResultRow]:
     for scenario in scenarios:
         def _call() -> None:
             g.gfql(scenario.chain, engine=engine_label)
 
-        stats = _time_call(_call, runs, warmup)
+        stats = _time_call(_call, runs, warmup, max_total_s=max_total_s, max_call_s=max_call_s)
         yield ResultRow(
             dataset=dataset_name,
             scenario=scenario.name,
-            median_ms=stats.median_ms,
-            p90_ms=stats.p90_ms,
-            std_ms=stats.std_ms,
+            median_ms=stats.median_ms if stats else None,
+            p90_ms=stats.p90_ms if stats else None,
+            std_ms=stats.std_ms if stats else None,
         )
 
 
@@ -580,19 +655,25 @@ def run_where_scenarios(
     engine: Engine,
     runs: int,
     warmup: int,
+    max_total_s: Optional[float] = None,
+    max_call_s: Optional[float] = None,
 ) -> Iterable[ResultRow]:
     for scenario in scenarios:
         def _call() -> None:
             execute_same_path_chain(g, scenario.chain, scenario.where, engine, include_paths=False)
 
-        stats = _time_call(_call, runs, warmup)
+        stats = _time_call(_call, runs, warmup, max_total_s=max_total_s, max_call_s=max_call_s)
         yield ResultRow(
             dataset=dataset_name,
             scenario=scenario.name,
-            median_ms=stats.median_ms,
-            p90_ms=stats.p90_ms,
-            std_ms=stats.std_ms,
+            median_ms=stats.median_ms if stats else None,
+            p90_ms=stats.p90_ms if stats else None,
+            std_ms=stats.std_ms if stats else None,
         )
+
+
+def _fmt_ms(value: Optional[float]) -> str:
+    return "TIMEOUT" if value is None else f"{value:.2f}ms"
 
 
 def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
@@ -606,12 +687,15 @@ def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
         "|---------|----------|--------|-----|-----|",
     ]
     lines.extend(
-        f"| {row.dataset} | {row.scenario} | {row.median_ms:.2f}ms | {row.p90_ms:.2f}ms | {row.std_ms:.2f}ms |"
+        f"| {row.dataset} | {row.scenario} | {_fmt_ms(row.median_ms)} | {_fmt_ms(row.p90_ms)} | {_fmt_ms(row.std_ms)} |"
         for row in rows
     )
-    score = statistics.median([row.median_ms for row in rows if row.median_ms is not None])
+    valid_medians = [row.median_ms for row in rows if row.median_ms is not None]
+    score = statistics.median(valid_medians) if valid_medians else None
     lines.append("")
-    lines.append(f"Score (median of medians): {score:.2f}ms")
+    lines.append(
+        f"Score (median of medians): {_fmt_ms(score)}"
+    )
     return lines
 
 
@@ -647,6 +731,24 @@ def main() -> None:
     parser.add_argument("--engine", default="pandas", choices=["pandas", "cudf"])
     parser.add_argument("--runs", type=int, default=7)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument(
+        "--max-scenario-seconds",
+        type=float,
+        default=20.0,
+        help="Total time budget per scenario (seconds). Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--max-call-seconds",
+        type=float,
+        default=None,
+        help="Per-call time budget (seconds). Defaults to max-scenario-seconds.",
+    )
+    parser.add_argument(
+        "--opt-max-call-ms",
+        type=float,
+        default=200.0,
+        help="Per-call budget for opt WHERE runs (milliseconds). Use 0 to disable.",
+    )
     parser.add_argument("--output", default="")
     parser.add_argument(
         "--datasets",
@@ -691,6 +793,27 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_BOUNDS"] = "1"
     setup_tracer()
 
+    max_total_s = args.max_scenario_seconds if args.max_scenario_seconds and args.max_scenario_seconds > 0 else None
+    max_call_s = args.max_call_seconds if args.max_call_seconds and args.max_call_seconds > 0 else None
+    if max_call_s is None and max_total_s is not None:
+        max_call_s = max_total_s
+
+    opt_enabled = any(
+        [
+            bool(args.non_adj_mode),
+            bool(args.non_adj_order),
+            bool(args.non_adj_bounds),
+            args.non_adj_value_card_max is not None,
+        ]
+    )
+    opt_call_s = None
+    if opt_enabled and args.opt_max_call_ms and args.opt_max_call_ms > 0:
+        opt_call_s = args.opt_max_call_ms / 1000.0
+
+    where_call_s = max_call_s
+    if opt_call_s is not None:
+        where_call_s = opt_call_s if where_call_s is None else min(where_call_s, opt_call_s)
+
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
     specs = build_specs(redteam_domain_categorical=args.redteam_domain_categorical)
     if "all" not in dataset_filter:
@@ -702,10 +825,28 @@ def main() -> None:
     for dataset in specs:
         g = dataset.loader(engine_enum)
         chain_results.extend(
-            run_chain_scenarios(g, dataset.name, dataset.scenarios, args.engine, args.runs, args.warmup)
+            run_chain_scenarios(
+                g,
+                dataset.name,
+                dataset.scenarios,
+                args.engine,
+                args.runs,
+                args.warmup,
+                max_total_s=max_total_s,
+                max_call_s=max_call_s,
+            )
         )
         where_results.extend(
-            run_where_scenarios(g, dataset.name, dataset.where_scenarios, engine_enum, args.runs, args.warmup)
+            run_where_scenarios(
+                g,
+                dataset.name,
+                dataset.where_scenarios,
+                engine_enum,
+                args.runs,
+                args.warmup,
+                max_total_s=max_total_s,
+                max_call_s=where_call_s,
+            )
         )
 
     if args.output:
@@ -720,6 +861,12 @@ def main() -> None:
             notes_extra.append(f"Non-adj order: {args.non_adj_order}.")
         if args.non_adj_bounds:
             notes_extra.append("Non-adj bounds enabled.")
+        if max_total_s is not None:
+            notes_extra.append(f"Scenario timeout: {max_total_s:.1f}s total.")
+        if max_call_s is not None:
+            notes_extra.append(f"Per-call timeout: {max_call_s:.1f}s.")
+        if opt_call_s is not None:
+            notes_extra.append(f"Opt per-call timeout: {opt_call_s * 1000:.0f}ms.")
         write_markdown(chain_results, where_results, args.output, notes_extra=notes_extra)
 
     for title, rows in (
