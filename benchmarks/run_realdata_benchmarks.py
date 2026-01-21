@@ -766,6 +766,11 @@ def main() -> None:
         help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE (baseline/prefilter/value/value_prefilter).",
     )
     parser.add_argument(
+        "--non-adj-value-ops",
+        default="",
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS (comma-separated).",
+    )
+    parser.add_argument(
         "--non-adj-value-card-max",
         type=int,
         default=None,
@@ -785,6 +790,8 @@ def main() -> None:
 
     if args.non_adj_mode:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
+    if args.non_adj_value_ops:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS"] = args.non_adj_value_ops
     if args.non_adj_value_card_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
     if args.non_adj_order:

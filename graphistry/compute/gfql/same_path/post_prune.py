@@ -58,6 +58,21 @@ def apply_non_adjacent_where_post_prune(
         "1", "true", "yes", "on"
     }
     non_adj_value_card_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "").strip()
+    non_adj_value_ops_raw = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS", "").strip().lower()
+    if non_adj_value_ops_raw:
+        value_mode_ops = {
+            op.strip()
+            for op in non_adj_value_ops_raw.split(",")
+            if op.strip()
+        }
+    else:
+        value_mode_ops = {"=="}
+    value_mode_ops = {
+        op for op in value_mode_ops
+        if op in {"==", "!=", "<", "<=", ">", ">="}
+    }
+    if not value_mode_ops:
+        value_mode_ops = {"=="}
     try:
         value_card_max = int(non_adj_value_card_max) if non_adj_value_card_max else None
     except ValueError:
@@ -269,7 +284,7 @@ def apply_non_adjacent_where_post_prune(
             right_value_count_max = max(right_value_count_max, len(right_values_domain))
 
         prefilter_enabled = non_adj_mode in {"prefilter", "value_prefilter"}
-        value_mode_requested = non_adj_mode in {"value", "value_prefilter"} and clause.op == "=="
+        value_mode_requested = non_adj_mode in {"value", "value_prefilter"} and clause.op in value_mode_ops
         value_cardinality = None
         if left_values_domain is not None or right_values_domain is not None:
             left_count = len(left_values_domain) if left_values_domain is not None else 0
@@ -540,6 +555,7 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
         if value_card_max is not None:
             span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
+        span.set_attribute("gfql.non_adjacent.value_ops", ",".join(sorted(value_mode_ops)))
         span.set_attribute("gfql.non_adjacent.mode", non_adj_mode)
         span.set_attribute("gfql.non_adjacent.order", non_adj_order or "none")
         span.set_attribute("gfql.non_adjacent.bounds_enabled", bounds_enabled)

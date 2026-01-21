@@ -2545,6 +2545,48 @@ class TestNonAdjacentValueMode:
         assert value_nodes == baseline_nodes
         assert value_edges == baseline_edges
 
+    def test_value_mode_neq_matches_baseline(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 1},
+            {"id": "c", "v": 1},
+            {"id": "d", "v": 2},
+            {"id": "m1", "v": 0},
+            {"id": "m2", "v": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"v": 1}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [compare(col("start", "v"), "!=", col("end", "v"))]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_MODE", "value")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "10")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS", "!=")
+        value_mode = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        value_nodes = set(value_mode._nodes["id"])
+        value_edges = set(map(tuple, value_mode._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"b", "m2", "d"}
+        assert baseline_edges == {("b", "m2"), ("m2", "d")}
+        assert value_nodes == baseline_nodes
+        assert value_edges == baseline_edges
+
 
 class TestNonAdjacentBoundsAndOrdering:
     def test_bounds_matches_baseline(self, monkeypatch):
