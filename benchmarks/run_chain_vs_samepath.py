@@ -212,6 +212,10 @@ def build_scenarios() -> List[Scenario]:
     where_nonadj = [compare(col("a", "v"), "<", col("c", "v"))]
     where_nonadj_eq_lowcard = [compare(col("a", "v_mod10"), "==", col("c", "v_mod10"))]
     where_nonadj_neq_lowcard = [compare(col("a", "v_mod10"), "!=", col("c", "v_mod10"))]
+    where_nonadj_multi = [
+        compare(col("a", "v_mod10"), "==", col("c", "v_mod10")),
+        compare(col("a", "v"), "<", col("c", "v")),
+    ]
 
     return [
         Scenario("1hop_simple", one_hop, []),
@@ -225,6 +229,7 @@ def build_scenarios() -> List[Scenario]:
         Scenario("2hop_where_nonadj", two_hop, where_nonadj),
         Scenario("2hop_where_nonadj_eq_lowcard", two_hop, where_nonadj_eq_lowcard),
         Scenario("2hop_where_nonadj_neq_lowcard", two_hop, where_nonadj_neq_lowcard),
+        Scenario("2hop_where_nonadj_multi", two_hop, where_nonadj_multi),
     ]
 
 

@@ -110,12 +110,14 @@ def apply_non_adjacent_where_post_prune(
     if not src_col or not dst_col:
         return state
 
-    if (
-        non_adj_order in {"selectivity", "size"}
+    order_used = non_adj_order in {"selectivity", "size"}
+    order_supports_values = (
+        non_adj_order == "selectivity"
         and nodes_df is not None
         and node_id_col
         and node_id_col in nodes_df.columns
-    ):
+    )
+    if order_used:
         def _clause_order_key(clause: "WhereComparison") -> tuple:
             left_alias = clause.left.alias
             right_alias = clause.right.alias
@@ -131,6 +133,9 @@ def apply_non_adjacent_where_post_prune(
             end_nodes = local_allowed_nodes.get(end_idx)
             if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
                 return (float("inf"), float("inf"))
+            if non_adj_order == "size" or not order_supports_values:
+                score = min(len(start_nodes), len(end_nodes))
+                return (score, end_idx - start_idx)
             left_col = clause.left.column
             right_col = clause.right.column
             if left_col not in nodes_df.columns or right_col not in nodes_df.columns:
@@ -145,8 +150,6 @@ def apply_non_adjacent_where_post_prune(
             else:
                 score = max(len(left_domain), len(right_domain))
             return (score, end_idx - start_idx)
-
-        non_adjacent_clauses = sorted(non_adjacent_clauses, key=_clause_order_key)
 
     def _filter_values_df_by_const(
         values_df: Any,
@@ -216,9 +219,13 @@ def apply_non_adjacent_where_post_prune(
     prefilter_used = False
     singleton_used = False
     bounds_used = False
-    order_used = non_adj_order in {"selectivity", "size"}
-
-    for clause in non_adjacent_clauses:
+    remaining_clauses = list(non_adjacent_clauses)
+    while remaining_clauses:
+        if order_used:
+            clause = min(remaining_clauses, key=_clause_order_key)
+            remaining_clauses.remove(clause)
+        else:
+            clause = remaining_clauses.pop(0)
         clause_count += 1
         left_alias = clause.left.alias
         right_alias = clause.right.alias
