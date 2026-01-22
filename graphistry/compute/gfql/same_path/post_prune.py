@@ -217,6 +217,96 @@ def apply_non_adjacent_where_post_prune(
     singleton_used = False
     bounds_used = False
     order_used = non_adj_order in {"selectivity", "size"}
+    prefilter_enabled_global = non_adj_mode in {"prefilter", "value_prefilter"}
+    multi_eq_prefilter_used = False
+    multi_eq_keys_max = 0
+
+    if prefilter_enabled_global and nodes_df is not None and node_id_col and node_id_col in nodes_df.columns:
+        eq_groups: Dict[tuple, List[tuple]] = {}
+        for clause in non_adjacent_clauses:
+            if clause.op != "==":
+                continue
+            left_binding = executor.inputs.alias_bindings.get(clause.left.alias)
+            right_binding = executor.inputs.alias_bindings.get(clause.right.alias)
+            if not left_binding or not right_binding:
+                continue
+            if left_binding.step_index <= right_binding.step_index:
+                start_idx = left_binding.step_index
+                end_idx = right_binding.step_index
+                start_col = clause.left.column
+                end_col = clause.right.column
+            else:
+                start_idx = right_binding.step_index
+                end_idx = left_binding.step_index
+                start_col = clause.right.column
+                end_col = clause.left.column
+            eq_groups.setdefault((start_idx, end_idx), []).append((start_col, end_col))
+
+        for (start_idx, end_idx), col_pairs in eq_groups.items():
+            if len(col_pairs) < 2:
+                continue
+            start_nodes = local_allowed_nodes.get(start_idx)
+            end_nodes = local_allowed_nodes.get(end_idx)
+            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+                continue
+
+            start_base = nodes_df[nodes_df[node_id_col].isin(start_nodes)]
+            end_base = nodes_df[nodes_df[node_id_col].isin(end_nodes)]
+            if len(start_base) == 0 or len(end_base) == 0:
+                local_allowed_nodes[start_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_idx] = domain_empty(nodes_df)
+                continue
+
+            start_df = start_base[[node_id_col]].rename(columns={node_id_col: "__start__"}).copy()
+            end_df = end_base[[node_id_col]].rename(columns={node_id_col: "__current__"}).copy()
+            value_cols = []
+            can_gate = True
+            for idx, (start_col, end_col) in enumerate(col_pairs):
+                if start_col not in start_base.columns or end_col not in end_base.columns:
+                    can_gate = False
+                    break
+                val_col = f"__val{idx}__"
+                value_cols.append(val_col)
+                start_df[val_col] = start_base[start_col]
+                end_df[val_col] = end_base[end_col]
+            if not can_gate:
+                continue
+
+            start_mask = start_df[value_cols[0]].notna()
+            end_mask = end_df[value_cols[0]].notna()
+            for val_col in value_cols[1:]:
+                start_mask = start_mask & start_df[val_col].notna()
+                end_mask = end_mask & end_df[val_col].notna()
+            start_df = start_df[start_mask]
+            end_df = end_df[end_mask]
+
+            if len(start_df) == 0 or len(end_df) == 0:
+                local_allowed_nodes[start_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_idx] = domain_empty(nodes_df)
+                continue
+
+            start_keys = start_df[value_cols].drop_duplicates()
+            end_keys = end_df[value_cols].drop_duplicates()
+            allowed_keys = start_keys.merge(end_keys, on=value_cols, how="inner")
+            multi_eq_keys_max = max(multi_eq_keys_max, len(allowed_keys))
+            if len(allowed_keys) == 0:
+                local_allowed_nodes[start_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_idx] = domain_empty(nodes_df)
+                continue
+
+            start_filtered = start_df.merge(allowed_keys, on=value_cols, how="inner")
+            end_filtered = end_df.merge(allowed_keys, on=value_cols, how="inner")
+
+            start_allowed = series_values(start_filtered["__start__"])
+            end_allowed = series_values(end_filtered["__current__"])
+            local_allowed_nodes[start_idx] = domain_intersect(
+                local_allowed_nodes.get(start_idx), start_allowed
+            )
+            local_allowed_nodes[end_idx] = domain_intersect(
+                local_allowed_nodes.get(end_idx), end_allowed
+            )
+            prefilter_used = True
+            multi_eq_prefilter_used = True
 
     grouped_clauses: Dict[tuple, List["WhereComparison"]] = {}
     group_order: List[tuple] = []
@@ -878,6 +968,8 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
         if value_card_max is not None:
             span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
+        span.set_attribute("gfql.non_adjacent.multi_eq_prefilter_used", multi_eq_prefilter_used)
+        span.set_attribute("gfql.non_adjacent.multi_eq_keys_max", multi_eq_keys_max)
         span.set_attribute("gfql.non_adjacent.value_ops", ",".join(sorted(value_mode_ops)))
         span.set_attribute("gfql.non_adjacent.mode", non_adj_mode)
         span.set_attribute("gfql.non_adjacent.order", non_adj_order or "none")
