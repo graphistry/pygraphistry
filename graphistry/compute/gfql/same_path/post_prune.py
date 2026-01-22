@@ -380,34 +380,9 @@ def apply_non_adjacent_where_post_prune(
 
             clause_specs.sort(key=lambda item: item[0])
             candidate_pairs = None
-            for _, start_vals, end_vals in clause_specs:
-                pairs = start_vals.merge(end_vals, on="__value__", how="inner")[
-                    ["__start__", "__current__"]
-                ].drop_duplicates()
-                if candidate_pairs is None:
-                    candidate_pairs = pairs
-                else:
-                    candidate_pairs = candidate_pairs.merge(
-                        pairs, on=["__start__", "__current__"], how="inner"
-                    ).drop_duplicates()
-                if len(candidate_pairs) == 0:
-                    break
-                if vector_pair_max is not None and len(candidate_pairs) > vector_pair_max:
-                    vector_applicable = False
-                    break
-
-            if not vector_applicable:
-                continue
-            if candidate_pairs is None or len(candidate_pairs) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
-                continue
-            vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
-
-            candidate_start_nodes = series_values(candidate_pairs["__start__"])
-            candidate_end_nodes = series_values(candidate_pairs["__current__"])
+            path_pairs = None
+            candidate_start_nodes = None
+            candidate_end_nodes = None
 
             def _vector_edge_pairs(edge_idx: int):
                 edges_df = executor.forward_steps[edge_idx]._edges
@@ -444,9 +419,9 @@ def apply_non_adjacent_where_post_prune(
                     pairs = pairs[pairs["__to__"].isin(to_nodes)]
                 return pairs, True
 
+            use_value_path = len(relevant_edge_indices) == 2
             vector_applicable = True
-            path_pairs = None
-            if len(relevant_edge_indices) == 2:
+            if use_value_path:
                 first_edge, second_edge = relevant_edge_indices
                 first_pairs, ok = _vector_edge_pairs(first_edge)
                 if not ok:
@@ -457,14 +432,14 @@ def apply_non_adjacent_where_post_prune(
                         vector_applicable = False
                     else:
                         if len(first_pairs) == 0 or len(second_pairs) == 0:
-                            path_pairs = df_cons(nodes_df, {"__start__": [], "__current__": []})
+                            candidate_pairs = df_cons(nodes_df, {"__start__": [], "__current__": []})
                         else:
                             mid_candidates = domain_intersect(
                                 series_values(first_pairs["__to__"]),
                                 series_values(second_pairs["__from__"]),
                             )
                             if domain_is_empty(mid_candidates):
-                                path_pairs = df_cons(
+                                candidate_pairs = df_cons(
                                     nodes_df, {"__start__": [], "__current__": []}
                                 )
                             else:
@@ -476,10 +451,67 @@ def apply_non_adjacent_where_post_prune(
                                 second_pairs = second_pairs.rename(
                                     columns={"__from__": "__mid__", "__to__": "__current__"}
                                 )
-                                path_pairs = first_pairs.merge(
-                                    second_pairs, on="__mid__", how="inner"
-                                )[["__start__", "__current__"]].drop_duplicates()
+                                for _, start_vals, end_vals in clause_specs:
+                                    start_mid = first_pairs.merge(
+                                        start_vals, on="__start__", how="inner"
+                                    )
+                                    end_mid = second_pairs.merge(
+                                        end_vals, on="__current__", how="inner"
+                                    )
+                                    clause_pairs = start_mid.merge(
+                                        end_mid, on=["__mid__", "__value__"], how="inner"
+                                    )[["__start__", "__current__"]].drop_duplicates()
+                                    if candidate_pairs is None:
+                                        candidate_pairs = clause_pairs
+                                    else:
+                                        candidate_pairs = candidate_pairs.merge(
+                                            clause_pairs, on=["__start__", "__current__"], how="inner"
+                                        ).drop_duplicates()
+                                    if candidate_pairs is None or len(candidate_pairs) == 0:
+                                        break
+                                    if vector_pair_max is not None and len(candidate_pairs) > vector_pair_max:
+                                        vector_applicable = False
+                                        break
+                if not vector_applicable:
+                    continue
+                if candidate_pairs is None or len(candidate_pairs) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    for _, _, clause in group_entries:
+                        processed_clause_ids.add(id(clause))
+                    continue
+                vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
+                path_pairs = candidate_pairs
             else:
+                for _, start_vals, end_vals in clause_specs:
+                    pairs = start_vals.merge(end_vals, on="__value__", how="inner")[
+                        ["__start__", "__current__"]
+                    ].drop_duplicates()
+                    if candidate_pairs is None:
+                        candidate_pairs = pairs
+                    else:
+                        candidate_pairs = candidate_pairs.merge(
+                            pairs, on=["__start__", "__current__"], how="inner"
+                        ).drop_duplicates()
+                    if len(candidate_pairs) == 0:
+                        break
+                    if vector_pair_max is not None and len(candidate_pairs) > vector_pair_max:
+                        vector_applicable = False
+                        break
+
+                if not vector_applicable:
+                    continue
+                if candidate_pairs is None or len(candidate_pairs) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    for _, _, clause in group_entries:
+                        processed_clause_ids.add(id(clause))
+                    continue
+                vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
+
+                candidate_start_nodes = series_values(candidate_pairs["__start__"])
+                candidate_end_nodes = series_values(candidate_pairs["__current__"])
+
                 for edge_idx in relevant_edge_indices:
                     pairs, ok = _vector_edge_pairs(edge_idx)
                     if not ok:
@@ -500,8 +532,8 @@ def apply_non_adjacent_where_post_prune(
                     if len(path_pairs) == 0:
                         break
 
-            if not vector_applicable:
-                continue
+                if not vector_applicable:
+                    continue
 
             vector_path_pairs_max = max(
                 vector_path_pairs_max, len(path_pairs) if path_pairs is not None else 0
@@ -513,7 +545,7 @@ def apply_non_adjacent_where_post_prune(
                     processed_clause_ids.add(id(clause))
                 continue
 
-            valid_pairs = path_pairs.merge(
+            valid_pairs = path_pairs if use_value_path else path_pairs.merge(
                 candidate_pairs, on=["__start__", "__current__"], how="inner"
             )
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
