@@ -270,6 +270,7 @@ def main() -> None:
     parser.add_argument("--non-adj-mode", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE.")
     parser.add_argument("--non-adj-value-ops", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS.")
     parser.add_argument("--non-adj-value-card-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.")
+    parser.add_argument("--non-adj-pair-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_PAIR_MAX.")
     parser.add_argument("--non-adj-order", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_ORDER.")
     parser.add_argument("--non-adj-bounds", action="store_true", help="Enable GRAPHISTRY_NON_ADJ_WHERE_BOUNDS.")
     args = parser.parse_args()
@@ -281,6 +282,8 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS"] = args.non_adj_value_ops
     if args.non_adj_value_card_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
+    if args.non_adj_pair_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_PAIR_MAX"] = str(args.non_adj_pair_max)
     if args.non_adj_order:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
     if args.non_adj_bounds:

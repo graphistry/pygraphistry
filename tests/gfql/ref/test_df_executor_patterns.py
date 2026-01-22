@@ -2709,3 +2709,46 @@ class TestNonAdjacentMultiClause:
 
         assert result_nodes == {"a", "m1", "c"}
         assert result_edges == {("a", "m1"), ("m1", "c")}
+
+    def test_multi_clause_pair_gate_matches_expected(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "v_mod10": 1},
+            {"id": "b", "v": 2, "v_mod10": 2},
+            {"id": "c", "v": 3, "v_mod10": 1},
+            {"id": "d", "v": 1, "v_mod10": 1},
+            {"id": "m1", "v": 0, "v_mod10": 0},
+            {"id": "m2", "v": 0, "v_mod10": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "v_mod10"), "==", col("end", "v_mod10")),
+            compare(col("start", "v"), "<", col("end", "v")),
+        ]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_PAIR_MAX", "10")
+        gated = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        gated_nodes = set(gated._nodes["id"])
+        gated_edges = set(map(tuple, gated._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"a", "m1", "c"}
+        assert baseline_edges == {("a", "m1"), ("m1", "c")}
+        assert gated_nodes == baseline_nodes
+        assert gated_edges == baseline_edges
