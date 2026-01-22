@@ -67,6 +67,7 @@ def make_linear_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.Data
         }
     )
     nodes["v_mod10"] = nodes["id"] % 10
+    nodes["v_mod5"] = nodes["id"] % 5
     edges_list = []
     for i in range(min(n_edges, n_nodes - 1)):
         edges_list.append({"src": i, "dst": i + 1, "eid": i})
@@ -87,6 +88,7 @@ def make_dense_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataF
         }
     )
     nodes["v_mod10"] = nodes["id"] % 10
+    nodes["v_mod5"] = nodes["id"] % 5
 
     edges_list = []
     for i in range(n_edges):
@@ -212,6 +214,10 @@ def build_scenarios() -> List[Scenario]:
     where_nonadj = [compare(col("a", "v"), "<", col("c", "v"))]
     where_nonadj_eq_lowcard = [compare(col("a", "v_mod10"), "==", col("c", "v_mod10"))]
     where_nonadj_neq_lowcard = [compare(col("a", "v_mod10"), "!=", col("c", "v_mod10"))]
+    where_nonadj_multi_eq = [
+        compare(col("a", "v_mod10"), "==", col("c", "v_mod10")),
+        compare(col("a", "v_mod5"), "==", col("c", "v_mod5")),
+    ]
     where_nonadj_multi = [
         compare(col("a", "v_mod10"), "==", col("c", "v_mod10")),
         compare(col("a", "v"), "<", col("c", "v")),
@@ -229,6 +235,7 @@ def build_scenarios() -> List[Scenario]:
         Scenario("2hop_where_nonadj", two_hop, where_nonadj),
         Scenario("2hop_where_nonadj_eq_lowcard", two_hop, where_nonadj_eq_lowcard),
         Scenario("2hop_where_nonadj_neq_lowcard", two_hop, where_nonadj_neq_lowcard),
+        Scenario("2hop_where_nonadj_multi_eq", two_hop, where_nonadj_multi_eq),
         Scenario("2hop_where_nonadj_multi", two_hop, where_nonadj_multi),
     ]
 
