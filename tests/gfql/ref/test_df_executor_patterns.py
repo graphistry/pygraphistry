@@ -2798,3 +2798,71 @@ class TestNonAdjacentMultiClause:
         assert baseline_edges == {("a", "m1"), ("m1", "c")}
         assert vector_nodes == baseline_nodes
         assert vector_edges == baseline_edges
+
+    def test_multi_eq_vector_mode_parity(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "group": 1, "v_mod10": 1},
+            {"id": "b", "group": 2, "v_mod10": 1},
+            {"id": "c", "group": 1, "v_mod10": 1},
+            {"id": "d", "group": 2, "v_mod10": 2},
+            {"id": "m1", "group": 0, "v_mod10": 0},
+            {"id": "m2", "group": 0, "v_mod10": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "group"), "==", col("end", "group")),
+            compare(col("start", "v_mod10"), "==", col("end", "v_mod10")),
+        ]
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY", "vector")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS", "2")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX", "10")
+        _assert_parity(graph, chain, where)
+
+    def test_vector_strategy_mixed_ops_parity(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "v_mod10": 1},
+            {"id": "b", "v": 2, "v_mod10": 1},
+            {"id": "c", "v": 3, "v_mod10": 1},
+            {"id": "d", "v": 1, "v_mod10": 2},
+            {"id": "m1", "v": 0, "v_mod10": 0},
+            {"id": "m2", "v": 0, "v_mod10": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "v_mod10"), "==", col("end", "v_mod10")),
+            compare(col("start", "v"), "<", col("end", "v")),
+        ]
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY", "vector")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS", "2")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX", "10")
+        _assert_parity(graph, chain, where)
