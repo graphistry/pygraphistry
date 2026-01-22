@@ -409,13 +409,10 @@ def apply_non_adjacent_where_post_prune(
             candidate_start_nodes = series_values(candidate_pairs["__start__"])
             candidate_end_nodes = series_values(candidate_pairs["__current__"])
 
-            vector_applicable = True
-            path_pairs = None
-            for edge_idx in relevant_edge_indices:
+            def _vector_edge_pairs(edge_idx: int):
                 edges_df = executor.forward_steps[edge_idx]._edges
                 if edges_df is None or len(edges_df) == 0:
-                    path_pairs = df_cons(nodes_df, {"__start__": [], "__current__": []})
-                    break
+                    return df_cons(nodes_df, {"__from__": [], "__to__": []}), True
 
                 allowed_edges = local_allowed_edges.get(edge_idx)
                 if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
@@ -423,12 +420,10 @@ def apply_non_adjacent_where_post_prune(
 
                 edge_op = executor.inputs.chain[edge_idx]
                 if not isinstance(edge_op, ASTEdge):
-                    vector_applicable = False
-                    break
+                    return None, False
                 sem = EdgeSemantics.from_edge(edge_op)
                 if sem.is_multihop:
-                    vector_applicable = False
-                    break
+                    return None, False
 
                 pairs = build_edge_pairs(edges_df, src_col, dst_col, sem).drop_duplicates()
                 from_nodes = local_allowed_nodes.get(edge_idx - 1)
@@ -447,21 +442,63 @@ def apply_non_adjacent_where_post_prune(
                     pairs = pairs[pairs["__from__"].isin(from_nodes)]
                 if not domain_is_empty(to_nodes):
                     pairs = pairs[pairs["__to__"].isin(to_nodes)]
+                return pairs, True
 
-                if path_pairs is None:
-                    path_pairs = pairs.rename(
-                        columns={"__from__": "__start__", "__to__": "__current__"}
-                    )
+            vector_applicable = True
+            path_pairs = None
+            if len(relevant_edge_indices) == 2:
+                first_edge, second_edge = relevant_edge_indices
+                first_pairs, ok = _vector_edge_pairs(first_edge)
+                if not ok:
+                    vector_applicable = False
                 else:
-                    next_pairs = pairs.rename(
-                        columns={"__from__": "__current__", "__to__": "__next__"}
-                    )
-                    path_pairs = path_pairs.merge(next_pairs, on="__current__", how="inner")[
-                        ["__start__", "__next__"]
-                    ].rename(columns={"__next__": "__current__"})
-                path_pairs = path_pairs.drop_duplicates()
-                if len(path_pairs) == 0:
-                    break
+                    second_pairs, ok = _vector_edge_pairs(second_edge)
+                    if not ok:
+                        vector_applicable = False
+                    else:
+                        if len(first_pairs) == 0 or len(second_pairs) == 0:
+                            path_pairs = df_cons(nodes_df, {"__start__": [], "__current__": []})
+                        else:
+                            mid_candidates = domain_intersect(
+                                series_values(first_pairs["__to__"]),
+                                series_values(second_pairs["__from__"]),
+                            )
+                            if domain_is_empty(mid_candidates):
+                                path_pairs = df_cons(
+                                    nodes_df, {"__start__": [], "__current__": []}
+                                )
+                            else:
+                                first_pairs = first_pairs[first_pairs["__to__"].isin(mid_candidates)]
+                                second_pairs = second_pairs[second_pairs["__from__"].isin(mid_candidates)]
+                                first_pairs = first_pairs.rename(
+                                    columns={"__from__": "__start__", "__to__": "__mid__"}
+                                )
+                                second_pairs = second_pairs.rename(
+                                    columns={"__from__": "__mid__", "__to__": "__current__"}
+                                )
+                                path_pairs = first_pairs.merge(
+                                    second_pairs, on="__mid__", how="inner"
+                                )[["__start__", "__current__"]].drop_duplicates()
+            else:
+                for edge_idx in relevant_edge_indices:
+                    pairs, ok = _vector_edge_pairs(edge_idx)
+                    if not ok:
+                        vector_applicable = False
+                        break
+                    if path_pairs is None:
+                        path_pairs = pairs.rename(
+                            columns={"__from__": "__start__", "__to__": "__current__"}
+                        )
+                    else:
+                        next_pairs = pairs.rename(
+                            columns={"__from__": "__current__", "__to__": "__next__"}
+                        )
+                        path_pairs = path_pairs.merge(next_pairs, on="__current__", how="inner")[
+                            ["__start__", "__next__"]
+                        ].rename(columns={"__next__": "__current__"})
+                    path_pairs = path_pairs.drop_duplicates()
+                    if len(path_pairs) == 0:
+                        break
 
             if not vector_applicable:
                 continue
