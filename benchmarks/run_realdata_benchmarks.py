@@ -777,12 +777,6 @@ def main() -> None:
         help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.",
     )
     parser.add_argument(
-        "--non-adj-pair-max",
-        type=int,
-        default=None,
-        help="Set GRAPHISTRY_NON_ADJ_WHERE_PAIR_MAX.",
-    )
-    parser.add_argument(
         "--non-adj-order",
         default="",
         help="Set GRAPHISTRY_NON_ADJ_WHERE_ORDER (selectivity/size).",
@@ -800,8 +794,6 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS"] = args.non_adj_value_ops
     if args.non_adj_value_card_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
-    if args.non_adj_pair_max is not None:
-        os.environ["GRAPHISTRY_NON_ADJ_WHERE_PAIR_MAX"] = str(args.non_adj_pair_max)
     if args.non_adj_order:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
     if args.non_adj_bounds:
@@ -819,7 +811,6 @@ def main() -> None:
             bool(args.non_adj_order),
             bool(args.non_adj_bounds),
             args.non_adj_value_card_max is not None,
-            args.non_adj_pair_max is not None,
         ]
     )
     opt_call_s = None
