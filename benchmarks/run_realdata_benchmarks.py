@@ -766,6 +766,11 @@ def main() -> None:
         help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE (baseline/prefilter/value/value_prefilter).",
     )
     parser.add_argument(
+        "--non-adj-strategy",
+        default="",
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_STRATEGY (vector).",
+    )
+    parser.add_argument(
         "--non-adj-value-ops",
         default="",
         help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS (comma-separated).",
@@ -786,10 +791,30 @@ def main() -> None:
         action="store_true",
         help="Enable GRAPHISTRY_NON_ADJ_WHERE_BOUNDS for inequality prefiltering.",
     )
+    parser.add_argument(
+        "--non-adj-vector-max-hops",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS.",
+    )
+    parser.add_argument(
+        "--non-adj-vector-label-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX.",
+    )
+    parser.add_argument(
+        "--non-adj-vector-pair-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX.",
+    )
     args = parser.parse_args()
 
     if args.non_adj_mode:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
+    if args.non_adj_strategy:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_STRATEGY"] = args.non_adj_strategy
     if args.non_adj_value_ops:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS"] = args.non_adj_value_ops
     if args.non_adj_value_card_max is not None:
@@ -798,6 +823,12 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
     if args.non_adj_bounds:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_BOUNDS"] = "1"
+    if args.non_adj_vector_max_hops is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS"] = str(args.non_adj_vector_max_hops)
+    if args.non_adj_vector_label_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX"] = str(args.non_adj_vector_label_max)
+    if args.non_adj_vector_pair_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX"] = str(args.non_adj_vector_pair_max)
     setup_tracer()
 
     max_total_s = args.max_scenario_seconds if args.max_scenario_seconds and args.max_scenario_seconds > 0 else None
@@ -808,9 +839,13 @@ def main() -> None:
     opt_enabled = any(
         [
             bool(args.non_adj_mode),
+            bool(args.non_adj_strategy),
             bool(args.non_adj_order),
             bool(args.non_adj_bounds),
             args.non_adj_value_card_max is not None,
+            args.non_adj_vector_max_hops is not None,
+            args.non_adj_vector_label_max is not None,
+            args.non_adj_vector_pair_max is not None,
         ]
     )
     opt_call_s = None

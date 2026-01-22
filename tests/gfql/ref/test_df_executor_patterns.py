@@ -2753,3 +2753,48 @@ class TestNonAdjacentMultiClause:
         assert baseline_edges == {("a", "m1"), ("m1", "c")}
         assert value_nodes == baseline_nodes
         assert value_edges == baseline_edges
+
+    def test_multi_eq_vector_mode_matches_expected(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "group": 1, "v_mod10": 1},
+            {"id": "b", "group": 2, "v_mod10": 1},
+            {"id": "c", "group": 1, "v_mod10": 1},
+            {"id": "d", "group": 2, "v_mod10": 2},
+            {"id": "m1", "group": 0, "v_mod10": 0},
+            {"id": "m2", "group": 0, "v_mod10": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "group"), "==", col("end", "group")),
+            compare(col("start", "v_mod10"), "==", col("end", "v_mod10")),
+        ]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY", "vector")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS", "2")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX", "10")
+        vector_mode = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        vector_nodes = set(vector_mode._nodes["id"])
+        vector_edges = set(map(tuple, vector_mode._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"a", "m1", "c"}
+        assert baseline_edges == {("a", "m1"), ("m1", "c")}
+        assert vector_nodes == baseline_nodes
+        assert vector_edges == baseline_edges

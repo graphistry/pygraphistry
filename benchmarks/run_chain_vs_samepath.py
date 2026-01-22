@@ -275,19 +275,31 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--output", default="")
     parser.add_argument("--non-adj-mode", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_MODE.")
+    parser.add_argument("--non-adj-strategy", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_STRATEGY.")
     parser.add_argument("--non-adj-value-ops", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS.")
     parser.add_argument("--non-adj-value-card-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX.")
     parser.add_argument("--non-adj-order", default="", help="Set GRAPHISTRY_NON_ADJ_WHERE_ORDER.")
     parser.add_argument("--non-adj-bounds", action="store_true", help="Enable GRAPHISTRY_NON_ADJ_WHERE_BOUNDS.")
+    parser.add_argument("--non-adj-vector-max-hops", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS.")
+    parser.add_argument("--non-adj-vector-label-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX.")
+    parser.add_argument("--non-adj-vector-pair-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX.")
     args = parser.parse_args()
     setup_tracer()
 
     if args.non_adj_mode:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_MODE"] = args.non_adj_mode
+    if args.non_adj_strategy:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_STRATEGY"] = args.non_adj_strategy
     if args.non_adj_value_ops:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS"] = args.non_adj_value_ops
     if args.non_adj_value_card_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX"] = str(args.non_adj_value_card_max)
+    if args.non_adj_vector_max_hops is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS"] = str(args.non_adj_vector_max_hops)
+    if args.non_adj_vector_label_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX"] = str(args.non_adj_vector_label_max)
+    if args.non_adj_vector_pair_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX"] = str(args.non_adj_vector_pair_max)
     if args.non_adj_order:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
     if args.non_adj_bounds:
