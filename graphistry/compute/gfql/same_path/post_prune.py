@@ -315,80 +315,99 @@ def apply_non_adjacent_where_post_prune(
                     processed_clause_ids.add(id(clause))
                 continue
 
-            start_df = start_base[[node_id_col]].rename(columns={node_id_col: "__start__"}).copy()
-            end_df = end_base[[node_id_col]].rename(columns={node_id_col: "__current__"}).copy()
-            label_cols: List[str] = []
-            can_build = True
-            for idx, (start_col, end_col, _) in enumerate(group_entries):
+            clause_specs: List[tuple] = []
+            vector_applicable = True
+            early_pruned = False
+            for start_col, end_col, _ in group_entries:
                 if start_col not in start_base.columns or end_col not in end_base.columns:
-                    can_build = False
+                    vector_applicable = False
                     break
-                label_col = f"__label{idx}__"
-                label_cols.append(label_col)
-                start_df[label_col] = start_base[start_col]
-                end_df[label_col] = end_base[end_col]
+                start_vals = start_base[[node_id_col, start_col]].rename(
+                    columns={node_id_col: "__start__", start_col: "__value__"}
+                )
+                end_vals = end_base[[node_id_col, end_col]].rename(
+                    columns={node_id_col: "__current__", end_col: "__value__"}
+                )
+                start_vals = start_vals[start_vals["__value__"].notna()]
+                end_vals = end_vals[end_vals["__value__"].notna()]
+                if len(start_vals) == 0 or len(end_vals) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    for _, _, clause in group_entries:
+                        processed_clause_ids.add(id(clause))
+                    early_pruned = True
+                    break
+                start_vals = start_vals.drop_duplicates()
+                end_vals = end_vals.drop_duplicates()
 
-            if not can_build or not label_cols:
-                continue
+                start_counts = start_vals.groupby("__value__").size().reset_index()
+                start_counts.columns = ["__value__", "__start_count__"]
+                end_counts = end_vals.groupby("__value__").size().reset_index()
+                end_counts.columns = ["__value__", "__end_count__"]
+                pair_counts = start_counts.merge(end_counts, on="__value__", how="inner")
+                label_cardinality = len(pair_counts)
+                vector_label_card_max = max(vector_label_card_max, label_cardinality)
+                if label_cardinality == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    for _, _, clause in group_entries:
+                        processed_clause_ids.add(id(clause))
+                    early_pruned = True
+                    break
+                if vector_label_max is not None and label_cardinality > vector_label_max:
+                    vector_applicable = False
+                    break
 
-            start_mask = start_df[label_cols[0]].notna()
-            end_mask = end_df[label_cols[0]].notna()
-            for label_col in label_cols[1:]:
-                start_mask = start_mask & start_df[label_col].notna()
-                end_mask = end_mask & end_df[label_col].notna()
-            start_df = start_df[start_mask]
-            end_df = end_df[end_mask]
-
-            if len(start_df) == 0 or len(end_df) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
-                continue
-
-            start_labels = start_df[label_cols].drop_duplicates()
-            end_labels = end_df[label_cols].drop_duplicates()
-            allowed_labels = start_labels.merge(end_labels, on=label_cols, how="inner")
-            label_cardinality = len(allowed_labels)
-            vector_label_card_max = max(vector_label_card_max, label_cardinality)
-            if label_cardinality == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
-                continue
-            if vector_label_max is not None and label_cardinality > vector_label_max:
-                continue
-            start_counts = start_df.groupby(label_cols).size().reset_index()
-            start_counts.columns = list(label_cols) + ["__start_count__"]
-            end_counts = end_df.groupby(label_cols).size().reset_index()
-            end_counts.columns = list(label_cols) + ["__end_count__"]
-            pair_counts = allowed_labels.merge(start_counts, on=label_cols, how="inner").merge(
-                end_counts, on=label_cols, how="inner"
-            )
-            pair_est = 0
-            if len(pair_counts) > 0:
                 pair_est = (pair_counts["__start_count__"] * pair_counts["__end_count__"]).sum()
-            try:
-                pair_est_value = int(pair_est)
-            except Exception:
-                pair_est_value = pair_est
-            vector_pair_est_max = max(vector_pair_est_max, pair_est_value)
-            if vector_pair_max is not None and pair_est_value > vector_pair_max:
+                try:
+                    pair_est_value = int(pair_est)
+                except Exception:
+                    pair_est_value = pair_est
+                vector_pair_est_max = max(vector_pair_est_max, pair_est_value)
+                if vector_pair_max is not None and pair_est_value > vector_pair_max:
+                    vector_applicable = False
+                    break
+
+                allowed_values = pair_counts[["__value__"]]
+                start_vals = start_vals.merge(allowed_values, on="__value__", how="inner")
+                end_vals = end_vals.merge(allowed_values, on="__value__", how="inner")
+                clause_specs.append((pair_est_value, start_vals, end_vals))
+
+            if early_pruned:
+                continue
+            if not vector_applicable or not clause_specs:
                 continue
 
-            start_df = start_df.merge(allowed_labels, on=label_cols, how="inner")
-            end_df = end_df.merge(allowed_labels, on=label_cols, how="inner")
-            candidate_pairs = start_df.merge(end_df, on=label_cols, how="inner")[
-                ["__start__", "__current__"]
-            ].drop_duplicates()
-            vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
-            if len(candidate_pairs) == 0:
+            clause_specs.sort(key=lambda item: item[0])
+            candidate_pairs = None
+            for _, start_vals, end_vals in clause_specs:
+                pairs = start_vals.merge(end_vals, on="__value__", how="inner")[
+                    ["__start__", "__current__"]
+                ].drop_duplicates()
+                if candidate_pairs is None:
+                    candidate_pairs = pairs
+                else:
+                    candidate_pairs = candidate_pairs.merge(
+                        pairs, on=["__start__", "__current__"], how="inner"
+                    ).drop_duplicates()
+                if len(candidate_pairs) == 0:
+                    break
+                if vector_pair_max is not None and len(candidate_pairs) > vector_pair_max:
+                    vector_applicable = False
+                    break
+
+            if not vector_applicable:
+                continue
+            if candidate_pairs is None or len(candidate_pairs) == 0:
                 local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
                 local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
                 for _, _, clause in group_entries:
                     processed_clause_ids.add(id(clause))
                 continue
+            vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
+
+            candidate_start_nodes = series_values(candidate_pairs["__start__"])
+            candidate_end_nodes = series_values(candidate_pairs["__current__"])
 
             vector_applicable = True
             path_pairs = None
@@ -414,6 +433,16 @@ def apply_non_adjacent_where_post_prune(
                 pairs = build_edge_pairs(edges_df, src_col, dst_col, sem).drop_duplicates()
                 from_nodes = local_allowed_nodes.get(edge_idx - 1)
                 to_nodes = local_allowed_nodes.get(edge_idx + 1)
+                if edge_idx - 1 == start_node_idx and not domain_is_empty(candidate_start_nodes):
+                    if domain_is_empty(from_nodes):
+                        from_nodes = candidate_start_nodes
+                    else:
+                        from_nodes = domain_intersect(from_nodes, candidate_start_nodes)
+                if edge_idx + 1 == end_node_idx and not domain_is_empty(candidate_end_nodes):
+                    if domain_is_empty(to_nodes):
+                        to_nodes = candidate_end_nodes
+                    else:
+                        to_nodes = domain_intersect(to_nodes, candidate_end_nodes)
                 if not domain_is_empty(from_nodes):
                     pairs = pairs[pairs["__from__"].isin(from_nodes)]
                 if not domain_is_empty(to_nodes):
