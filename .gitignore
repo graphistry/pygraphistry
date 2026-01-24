@@ -53,6 +53,9 @@ nosetests.xml
 coverage.xml
 *,cover
 .pytest_cache
+.pre-commit-cache/
+.uv-cache/
+.uvcache/
 
 # Translations
 *.mo

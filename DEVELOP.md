@@ -64,6 +64,30 @@ Automatically build via ReadTheDocs from inline definitions.
 
 To manually build, see `docs/`.
 
+## Secret scanning
+
+We use `detect-secrets` with a pre-commit hook and a CI workflow. The scripts prefer `uv run python3`
+when `uv` is available.
+Default scan exclusions live in `scripts/ci/secret-excludes.sh`.
+
+```bash
+uv pip install -e .[dev]
+pre-commit install
+./scripts/secrets.sh --update-baseline
+./scripts/ci/secret-detection.sh
+```
+
+If you prefer explicit installs instead of the dev extras:
+
+```bash
+uv pip install detect-secrets pre-commit
+pre-commit install
+./scripts/secrets.sh --update-baseline
+./scripts/ci/secret-detection.sh
+```
+
+Commit `.secrets.baseline` after review when it changes.
+
 ## Ignore files
 
 You may need to add ignore rules:
