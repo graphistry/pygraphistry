@@ -202,6 +202,15 @@ def build_scenarios() -> List[Scenario]:
     one_hop = [n(name="a"), e_forward(name="e1"), n(name="b")]
     one_hop_filtered = [n({"id": 0}, name="a"), e_forward(name="e1"), n(name="b")]
     two_hop = [n(name="a"), e_forward(name="e1"), n(name="b"), e_forward(name="e2"), n(name="c")]
+    three_hop = [
+        n(name="a"),
+        e_forward(name="e1"),
+        n(name="b"),
+        e_forward(name="e2"),
+        n(name="c"),
+        e_forward(name="e3"),
+        n(name="d"),
+    ]
     undirected_one_hop = [n(name="a"), e_undirected(name="e1"), n(name="b")]
     undirected_two_hop = [n(name="a"), e_undirected(name="e1"), n(name="b"), e_undirected(name="e2"), n(name="c")]
     multihop_range = [n({"id": 0}, name="a"), e_forward(min_hops=1, max_hops=2, name="e1"), n(name="b")]
@@ -217,6 +226,10 @@ def build_scenarios() -> List[Scenario]:
     where_nonadj_multi_eq = [
         compare(col("a", "v_mod10"), "==", col("c", "v_mod10")),
         compare(col("a", "v_mod5"), "==", col("c", "v_mod5")),
+    ]
+    where_nonadj_multi_eq_3hop = [
+        compare(col("a", "v_mod10"), "==", col("d", "v_mod10")),
+        compare(col("a", "v_mod5"), "==", col("d", "v_mod5")),
     ]
     where_nonadj_multi = [
         compare(col("a", "v_mod10"), "==", col("c", "v_mod10")),
@@ -237,6 +250,7 @@ def build_scenarios() -> List[Scenario]:
         Scenario("2hop_where_nonadj_neq_lowcard", two_hop, where_nonadj_neq_lowcard),
         Scenario("2hop_where_nonadj_multi_eq", two_hop, where_nonadj_multi_eq),
         Scenario("2hop_where_nonadj_multi", two_hop, where_nonadj_multi),
+        Scenario("3hop_where_nonadj_multi_eq", three_hop, where_nonadj_multi_eq_3hop),
     ]
 
 
@@ -283,6 +297,22 @@ def main() -> None:
     parser.add_argument("--non-adj-vector-max-hops", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS.")
     parser.add_argument("--non-adj-vector-label-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX.")
     parser.add_argument("--non-adj-vector-pair-max", type=int, default=None, help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX.")
+    parser.add_argument(
+        "--non-adj-domain-semijoin",
+        action="store_true",
+        help="Enable GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN.",
+    )
+    parser.add_argument(
+        "--non-adj-domain-semijoin-auto",
+        action="store_true",
+        help="Enable GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO.",
+    )
+    parser.add_argument(
+        "--non-adj-domain-semijoin-pair-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX.",
+    )
     args = parser.parse_args()
     setup_tracer()
 
@@ -304,6 +334,14 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_ORDER"] = args.non_adj_order
     if args.non_adj_bounds:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_BOUNDS"] = "1"
+    if args.non_adj_domain_semijoin:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN"] = "1"
+    if args.non_adj_domain_semijoin_auto:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO"] = "1"
+    if args.non_adj_domain_semijoin_pair_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX"] = str(
+            args.non_adj_domain_semijoin_pair_max
+        )
 
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()

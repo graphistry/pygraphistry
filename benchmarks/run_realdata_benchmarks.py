@@ -117,6 +117,10 @@ def _as_engine(engine_label: str) -> Engine:
     return Engine.CUDF if engine_label == "cudf" else Engine.PANDAS
 
 
+def _parse_filters(raw: str) -> List[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _maybe_to_cudf(df: pd.DataFrame, engine: Engine) -> pd.DataFrame:
     if engine == Engine.CUDF:
         import cudf  # type: ignore
@@ -138,7 +142,38 @@ def _degree_nodes(edges: pd.DataFrame, src_col: str, dst_col: str, threshold: in
     return nodes
 
 
-def load_redteam(engine: Engine, domain_categorical: bool = False) -> graphistry.Plottable:
+def _add_ndv_probe_columns(
+    nodes: pd.DataFrame,
+    id_col: str = "id",
+    buckets: int = 3,
+) -> pd.DataFrame:
+    if buckets <= 0:
+        buckets = 3
+    ids = nodes[id_col].astype(str)
+    hashed = pd.util.hash_pandas_object(ids, index=False)
+    nodes = nodes.copy()
+    nodes["ndv_hi"] = hashed
+    nodes["ndv_lo"] = (hashed % buckets).astype("int64")
+    return nodes
+
+
+def _log_ndv(label: str, nodes: pd.DataFrame, cols: Iterable[str]) -> None:
+    stats = {}
+    for col in cols:
+        if col in nodes.columns:
+            stats[col] = int(nodes[col].nunique(dropna=True))
+    if stats:
+        summary = ", ".join(f"{key}={value}" for key, value in stats.items())
+        print(f"NDV[{label}]: {summary}")
+
+
+def load_redteam(
+    engine: Engine,
+    domain_categorical: bool = False,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/graphistry_redteam50k.csv")
     edges = edges.rename(columns={"src_computer": "src", "dst_computer": "dst"})
     edges["src_domain_parsed"] = edges["src_domain"].map(_extract_domain)
@@ -154,13 +189,25 @@ def load_redteam(engine: Engine, domain_categorical: bool = False) -> graphistry
     nodes = nodes.groupby("id", as_index=False).first()
     if domain_categorical:
         nodes["domain"] = nodes["domain"].astype("category")
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["domain"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("redteam50k", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_transactions(engine: Engine) -> graphistry.Plottable:
+def load_transactions(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/transactions.csv", lineterminator="\r")
     edges = edges.rename(
         columns={
@@ -176,13 +223,25 @@ def load_transactions(engine: Engine) -> graphistry.Plottable:
     nodes = pd.DataFrame({"id": pd.unique(pd.concat([edges["src"], edges["dst"]]))})
     tainted_in = edges.loc[edges["is_tainted"] == 5, "dst"].unique()
     nodes["tainted_in"] = nodes["id"].isin(tainted_in)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["tainted_in"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("transactions", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_facebook(engine: Engine) -> graphistry.Plottable:
+def load_facebook(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv(
         "demos/data/facebook_combined.txt",
         sep=" ",
@@ -190,57 +249,117 @@ def load_facebook(engine: Engine) -> graphistry.Plottable:
         names=["src", "dst"],
     )
     nodes = _degree_nodes(edges, "src", "dst", threshold=50)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["degree", "high_degree"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("facebook_combined", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_honeypot(engine: Engine) -> graphistry.Plottable:
+def load_honeypot(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/honeypot.csv")
     edges = edges.rename(columns={"attackerIP": "src", "victimIP": "dst"})
     edges["victimPort"] = edges["victimPort"].astype("int64")
     edges["count"] = edges["count"].astype("int64")
     nodes = _degree_nodes(edges, "src", "dst", threshold=2)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["degree", "high_degree"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("honeypot", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_twitter_demo(engine: Engine) -> graphistry.Plottable:
+def load_twitter_demo(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/twitterDemo.csv")
     edges = edges.rename(columns={"srcAccount": "src", "dstAccount": "dst"})
     nodes = _degree_nodes(edges, "src", "dst", threshold=5)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["degree", "high_degree"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("twitter_demo", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_lesmiserables(engine: Engine) -> graphistry.Plottable:
+def load_lesmiserables(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/lesmiserables.csv")
     edges = edges.rename(columns={"source": "src", "target": "dst"})
     edges["value"] = edges["value"].astype("int64")
     nodes = _degree_nodes(edges, "src", "dst", threshold=5)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["degree", "high_degree"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("lesmiserables", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def load_twitter_congress(engine: Engine) -> graphistry.Plottable:
+def load_twitter_congress(
+    engine: Engine,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> graphistry.Plottable:
     edges = pd.read_csv("demos/data/twitter_congress_edges_weighted.csv.gz")
     edges = edges.rename(columns={"from": "src", "to": "dst"})
     edges["weight"] = edges["weight"].astype("int64")
     nodes = _degree_nodes(edges, "src", "dst", threshold=10)
+    if ndv_probes:
+        nodes = _add_ndv_probe_columns(nodes, "id", ndv_probe_buckets)
+    if ndv_log:
+        cols = ["degree", "high_degree"]
+        if ndv_probes:
+            cols.extend(["ndv_lo", "ndv_hi"])
+        _log_ndv("twitter_congress", nodes, cols)
 
     edges = _maybe_to_cudf(edges, engine)
     nodes = _maybe_to_cudf(nodes, engine)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
-def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
+def build_specs(
+    redteam_domain_categorical: bool = False,
+    ndv_probes: bool = False,
+    ndv_probe_buckets: int = 3,
+    ndv_log: bool = False,
+) -> List[DatasetSpec]:
     redteam_scenarios = [
         Scenario(
             "kerberos_logon_fanin",
@@ -276,30 +395,50 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
             ],
         ),
     ]
+    redteam_two_hop_chain = [
+        n(name="a"),
+        e_forward({"auth_type": "Kerberos"}, name="e1"),
+        n(name="b"),
+        e_reverse({"authentication_orientation": "LogOn"}, name="e2"),
+        n(name="c"),
+    ]
     redteam_where_scenarios = [
         WhereScenario(
             "kerberos_domain_match",
-            [
-                n(name="a"),
-                e_forward({"auth_type": "Kerberos"}, name="e1"),
-                n(name="b"),
-                e_reverse({"authentication_orientation": "LogOn"}, name="e2"),
-                n(name="c"),
-            ],
+            redteam_two_hop_chain,
             [compare(col("a", "domain"), "==", col("c", "domain"))],
         ),
         WhereScenario(
             "kerberos_domain_mismatch",
-            [
-                n(name="a"),
-                e_forward({"auth_type": "Kerberos"}, name="e1"),
-                n(name="b"),
-                e_reverse({"authentication_orientation": "LogOn"}, name="e2"),
-                n(name="c"),
-            ],
+            redteam_two_hop_chain,
             [compare(col("a", "domain"), "!=", col("c", "domain"))],
         ),
     ]
+    if ndv_probes:
+        redteam_where_scenarios.extend(
+            [
+                WhereScenario(
+                    "kerberos_ndv_lo_match",
+                    redteam_two_hop_chain,
+                    [compare(col("a", "ndv_lo"), "==", col("c", "ndv_lo"))],
+                ),
+                WhereScenario(
+                    "kerberos_ndv_hi_match",
+                    redteam_two_hop_chain,
+                    [compare(col("a", "ndv_hi"), "==", col("c", "ndv_hi"))],
+                ),
+                WhereScenario(
+                    "kerberos_ndv_lo_mismatch",
+                    redteam_two_hop_chain,
+                    [compare(col("a", "ndv_lo"), "!=", col("c", "ndv_lo"))],
+                ),
+                WhereScenario(
+                    "kerberos_ndv_hi_mismatch",
+                    redteam_two_hop_chain,
+                    [compare(col("a", "ndv_hi"), "!=", col("c", "ndv_hi"))],
+                ),
+            ]
+        )
 
     transactions_scenarios = [
         Scenario(
@@ -333,41 +472,55 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
             ],
         ),
     ]
+    transactions_two_hop_chain = [
+        n(name="a"),
+        e_forward(name="e1"),
+        n(name="b"),
+        e_forward(name="e2"),
+        n(name="c"),
+    ]
     transactions_where_scenarios = [
         WhereScenario(
             "amount_drop_two_hop",
-            [
-                n(name="a"),
-                e_forward(name="e1"),
-                n(name="b"),
-                e_forward(name="e2"),
-                n(name="c"),
-            ],
+            transactions_two_hop_chain,
             [compare(col("e1", "amount"), ">", col("e2", "amount"))],
         ),
         WhereScenario(
             "tainted_match_two_hop",
-            [
-                n(name="a"),
-                e_forward(name="e1"),
-                n(name="b"),
-                e_forward(name="e2"),
-                n(name="c"),
-            ],
+            transactions_two_hop_chain,
             [compare(col("a", "tainted_in"), "==", col("c", "tainted_in"))],
         ),
         WhereScenario(
             "tainted_mismatch_two_hop",
-            [
-                n(name="a"),
-                e_forward(name="e1"),
-                n(name="b"),
-                e_forward(name="e2"),
-                n(name="c"),
-            ],
+            transactions_two_hop_chain,
             [compare(col("a", "tainted_in"), "!=", col("c", "tainted_in"))],
         ),
     ]
+    if ndv_probes:
+        transactions_where_scenarios.extend(
+            [
+                WhereScenario(
+                    "ndv_lo_match_two_hop",
+                    transactions_two_hop_chain,
+                    [compare(col("a", "ndv_lo"), "==", col("c", "ndv_lo"))],
+                ),
+                WhereScenario(
+                    "ndv_hi_match_two_hop",
+                    transactions_two_hop_chain,
+                    [compare(col("a", "ndv_hi"), "==", col("c", "ndv_hi"))],
+                ),
+                WhereScenario(
+                    "ndv_lo_mismatch_two_hop",
+                    transactions_two_hop_chain,
+                    [compare(col("a", "ndv_lo"), "!=", col("c", "ndv_lo"))],
+                ),
+                WhereScenario(
+                    "ndv_hi_mismatch_two_hop",
+                    transactions_two_hop_chain,
+                    [compare(col("a", "ndv_hi"), "!=", col("c", "ndv_hi"))],
+                ),
+            ]
+        )
 
     facebook_scenarios = [
         Scenario(
@@ -581,7 +734,22 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
         ),
     ]
 
-    redteam_loader = partial(load_redteam, domain_categorical=redteam_domain_categorical)
+    loader_kwargs = {
+        "ndv_probes": ndv_probes,
+        "ndv_probe_buckets": ndv_probe_buckets,
+        "ndv_log": ndv_log,
+    }
+    redteam_loader = partial(
+        load_redteam,
+        domain_categorical=redteam_domain_categorical,
+        **loader_kwargs,
+    )
+    transactions_loader = partial(load_transactions, **loader_kwargs)
+    facebook_loader = partial(load_facebook, **loader_kwargs)
+    honeypot_loader = partial(load_honeypot, **loader_kwargs)
+    twitter_demo_loader = partial(load_twitter_demo, **loader_kwargs)
+    lesmiserables_loader = partial(load_lesmiserables, **loader_kwargs)
+    twitter_congress_loader = partial(load_twitter_congress, **loader_kwargs)
 
     return [
         DatasetSpec(
@@ -592,32 +760,32 @@ def build_specs(redteam_domain_categorical: bool = False) -> List[DatasetSpec]:
         ),
         DatasetSpec(
             "transactions",
-            load_transactions,
+            transactions_loader,
             transactions_scenarios,
             transactions_where_scenarios,
         ),
         DatasetSpec(
             "facebook_combined",
-            load_facebook,
+            facebook_loader,
             facebook_scenarios,
             facebook_where_scenarios,
         ),
-        DatasetSpec("honeypot", load_honeypot, honeypot_scenarios, honeypot_where_scenarios),
+        DatasetSpec("honeypot", honeypot_loader, honeypot_scenarios, honeypot_where_scenarios),
         DatasetSpec(
             "twitter_demo",
-            load_twitter_demo,
+            twitter_demo_loader,
             twitter_demo_scenarios,
             twitter_demo_where_scenarios,
         ),
         DatasetSpec(
             "lesmiserables",
-            load_lesmiserables,
+            lesmiserables_loader,
             lesmiserables_scenarios,
             lesmiserables_where_scenarios,
         ),
         DatasetSpec(
             "twitter_congress",
-            load_twitter_congress,
+            twitter_congress_loader,
             twitter_congress_scenarios,
             twitter_congress_where_scenarios,
         ),
@@ -756,9 +924,45 @@ def main() -> None:
         help="Comma-separated list: redteam50k,transactions,facebook_combined,honeypot,twitter_demo,lesmiserables,twitter_congress,all",
     )
     parser.add_argument(
+        "--skip-chain",
+        action="store_true",
+        help="Skip chain-only scenarios.",
+    )
+    parser.add_argument(
+        "--skip-where",
+        action="store_true",
+        help="Skip WHERE scenarios.",
+    )
+    parser.add_argument(
+        "--chain-filter",
+        default="",
+        help="Comma-separated substrings to select chain scenario names.",
+    )
+    parser.add_argument(
+        "--where-filter",
+        default="",
+        help="Comma-separated substrings to select WHERE scenario names.",
+    )
+    parser.add_argument(
         "--redteam-domain-categorical",
         action="store_true",
         help="Cast redteam node domain column to categorical (pandas only).",
+    )
+    parser.add_argument(
+        "--ndv-probes",
+        action="store_true",
+        help="Add ndv_lo/ndv_hi node columns and extra WHERE scenarios for NDV sensitivity.",
+    )
+    parser.add_argument(
+        "--ndv-probe-buckets",
+        type=int,
+        default=3,
+        help="Bucket count for ndv_lo when --ndv-probes is enabled.",
+    )
+    parser.add_argument(
+        "--ndv-log",
+        action="store_true",
+        help="Print NDV summaries for selected node columns.",
     )
     parser.add_argument(
         "--non-adj-mode",
@@ -809,6 +1013,38 @@ def main() -> None:
         default=None,
         help="Set GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX.",
     )
+    parser.add_argument(
+        "--non-adj-domain-semijoin",
+        action="store_true",
+        help="Enable GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN.",
+    )
+    parser.add_argument(
+        "--non-adj-domain-semijoin-auto",
+        action="store_true",
+        help="Enable GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO.",
+    )
+    parser.add_argument(
+        "--non-adj-domain-semijoin-pair-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX.",
+    )
+    parser.add_argument(
+        "--edge-where-semijoin",
+        action="store_true",
+        help="Enable GRAPHISTRY_EDGE_WHERE_SEMIJOIN.",
+    )
+    parser.add_argument(
+        "--edge-where-semijoin-auto",
+        action="store_true",
+        help="Enable GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO.",
+    )
+    parser.add_argument(
+        "--edge-where-semijoin-pair-max",
+        type=int,
+        default=None,
+        help="Set GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX.",
+    )
     args = parser.parse_args()
 
     if args.non_adj_mode:
@@ -829,6 +1065,22 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX"] = str(args.non_adj_vector_label_max)
     if args.non_adj_vector_pair_max is not None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX"] = str(args.non_adj_vector_pair_max)
+    if args.non_adj_domain_semijoin:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN"] = "1"
+    if args.non_adj_domain_semijoin_auto:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO"] = "1"
+    if args.non_adj_domain_semijoin_pair_max is not None:
+        os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX"] = str(
+            args.non_adj_domain_semijoin_pair_max
+        )
+    if args.edge_where_semijoin:
+        os.environ["GRAPHISTRY_EDGE_WHERE_SEMIJOIN"] = "1"
+    if args.edge_where_semijoin_auto:
+        os.environ["GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO"] = "1"
+    if args.edge_where_semijoin_pair_max is not None:
+        os.environ["GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX"] = str(
+            args.edge_where_semijoin_pair_max
+        )
     setup_tracer()
 
     max_total_s = args.max_scenario_seconds if args.max_scenario_seconds and args.max_scenario_seconds > 0 else None
@@ -857,7 +1109,14 @@ def main() -> None:
         where_call_s = opt_call_s if where_call_s is None else min(where_call_s, opt_call_s)
 
     dataset_filter = {d.strip() for d in args.datasets.split(",")} if args.datasets else {"all"}
-    specs = build_specs(redteam_domain_categorical=args.redteam_domain_categorical)
+    chain_filters = _parse_filters(args.chain_filter)
+    where_filters = _parse_filters(args.where_filter)
+    specs = build_specs(
+        redteam_domain_categorical=args.redteam_domain_categorical,
+        ndv_probes=args.ndv_probes,
+        ndv_probe_buckets=args.ndv_probe_buckets,
+        ndv_log=args.ndv_log,
+    )
     if "all" not in dataset_filter:
         specs = [s for s in specs if s.name in dataset_filter]
 
@@ -866,35 +1125,55 @@ def main() -> None:
     engine_enum = _as_engine(args.engine)
     for dataset in specs:
         g = dataset.loader(engine_enum)
-        chain_results.extend(
-            run_chain_scenarios(
-                g,
-                dataset.name,
-                dataset.scenarios,
-                args.engine,
-                args.runs,
-                args.warmup,
-                max_total_s=max_total_s,
-                max_call_s=max_call_s,
+        chain_scenarios = dataset.scenarios
+        where_scenarios = dataset.where_scenarios
+        if chain_filters:
+            chain_scenarios = [s for s in chain_scenarios if any(f in s.name for f in chain_filters)]
+        if where_filters:
+            where_scenarios = [s for s in where_scenarios if any(f in s.name for f in where_filters)]
+        if not args.skip_chain:
+            chain_results.extend(
+                run_chain_scenarios(
+                    g,
+                    dataset.name,
+                    chain_scenarios,
+                    args.engine,
+                    args.runs,
+                    args.warmup,
+                    max_total_s=max_total_s,
+                    max_call_s=max_call_s,
+                )
             )
-        )
-        where_results.extend(
-            run_where_scenarios(
-                g,
-                dataset.name,
-                dataset.where_scenarios,
-                engine_enum,
-                args.runs,
-                args.warmup,
-                max_total_s=max_total_s,
-                max_call_s=where_call_s,
+        if not args.skip_where:
+            where_results.extend(
+                run_where_scenarios(
+                    g,
+                    dataset.name,
+                    where_scenarios,
+                    engine_enum,
+                    args.runs,
+                    args.warmup,
+                    max_total_s=max_total_s,
+                    max_call_s=where_call_s,
+                )
             )
-        )
 
     if args.output:
         notes_extra = []
         if args.redteam_domain_categorical:
             notes_extra.append("Redteam nodes.domain cast to categorical.")
+        if args.ndv_probes:
+            notes_extra.append(f"NDV probes enabled (buckets={args.ndv_probe_buckets}).")
+        if args.ndv_log:
+            notes_extra.append("NDV logging enabled.")
+        if args.skip_chain:
+            notes_extra.append("Chain scenarios skipped.")
+        if args.skip_where:
+            notes_extra.append("WHERE scenarios skipped.")
+        if chain_filters:
+            notes_extra.append(f"Chain filter: {', '.join(chain_filters)}.")
+        if where_filters:
+            notes_extra.append(f"WHERE filter: {', '.join(where_filters)}.")
         if args.non_adj_mode:
             notes_extra.append(f"Non-adj mode: {args.non_adj_mode}.")
         if args.non_adj_value_card_max is not None:
@@ -903,6 +1182,22 @@ def main() -> None:
             notes_extra.append(f"Non-adj order: {args.non_adj_order}.")
         if args.non_adj_bounds:
             notes_extra.append("Non-adj bounds enabled.")
+        if args.non_adj_domain_semijoin:
+            notes_extra.append("Non-adj domain semijoin enabled.")
+        if args.non_adj_domain_semijoin_auto:
+            notes_extra.append("Non-adj domain semijoin auto enabled.")
+        if args.non_adj_domain_semijoin_pair_max is not None:
+            notes_extra.append(
+                f"Non-adj domain semijoin pair max: {args.non_adj_domain_semijoin_pair_max}."
+            )
+        if args.edge_where_semijoin:
+            notes_extra.append("Edge WHERE semijoin enabled.")
+        if args.edge_where_semijoin_auto:
+            notes_extra.append("Edge WHERE semijoin auto enabled.")
+        if args.edge_where_semijoin_pair_max is not None:
+            notes_extra.append(
+                f"Edge WHERE semijoin pair max: {args.edge_where_semijoin_pair_max}."
+            )
         if max_total_s is not None:
             notes_extra.append(f"Scenario timeout: {max_total_s:.1f}s total.")
         if max_call_s is not None:

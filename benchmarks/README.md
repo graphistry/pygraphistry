@@ -69,6 +69,29 @@ uv run python benchmarks/run_realdata_benchmarks.py \
   --runs 7 --warmup 1
 ```
 
+Auto mode (value for low NDV, domain semijoin for the rest):
+
+```bash
+GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO=1 \
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --datasets redteam50k,transactions \
+  --non-adj-mode auto \
+  --non-adj-value-ops "==,!=" \
+  --non-adj-value-card-max 10 \
+  --runs 3 --warmup 1 --opt-max-call-ms 0
+```
+
+Auto mode defaults to `==,!=` with a value-cardinality cap of 300 when no explicit value ops/card max are provided.
+
+To add NDV probe columns (high/low cardinality) and extra WHERE scenarios:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --datasets redteam50k,transactions \
+  --ndv-probes --ndv-probe-buckets 3 --ndv-log \
+  --runs 3 --warmup 1
+```
+
 To enable OpenTelemetry spans for df_executor:
 
 ```bash
@@ -92,6 +115,16 @@ To limit datasets:
 
 ```bash
 uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k,transactions --runs 7 --warmup 1
+```
+
+To focus on a subset of scenarios:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --datasets transactions,redteam50k \
+  --skip-chain --where-filter ndv_ \
+  --ndv-probes --ndv-probe-buckets 3 --ndv-log \
+  --runs 3 --warmup 1 --max-scenario-seconds 5 --opt-max-call-ms 0
 ```
 
 Available datasets: `redteam50k`, `transactions`, `facebook_combined`, `honeypot`, `twitter_demo`, `lesmiserables`, `twitter_congress`, `all`.

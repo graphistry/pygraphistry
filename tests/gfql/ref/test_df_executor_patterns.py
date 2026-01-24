@@ -2545,6 +2545,46 @@ class TestNonAdjacentValueMode:
         assert value_nodes == baseline_nodes
         assert value_edges == baseline_edges
 
+    def test_auto_mode_matches_baseline(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1},
+            {"id": "b", "v": 1},
+            {"id": "c", "v": 1},
+            {"id": "d", "v": 1},
+            {"id": "m1", "v": 0},
+            {"id": "m2", "v": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n({"v": 1}, name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n({"v": 1}, name="end"),
+        ]
+        where = [compare(col("start", "v"), "==", col("end", "v"))]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "10")
+        auto_mode = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        auto_nodes = set(auto_mode._nodes["id"])
+        auto_edges = set(map(tuple, auto_mode._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert baseline_nodes == {"a", "m1", "c"}
+        assert baseline_edges == {("a", "m1"), ("m1", "c")}
+        assert auto_nodes == baseline_nodes
+        assert auto_edges == baseline_edges
+
     def test_value_mode_neq_matches_baseline(self, monkeypatch):
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
@@ -2832,6 +2872,115 @@ class TestNonAdjacentMultiClause:
         monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS", "2")
         monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX", "10")
         _assert_parity(graph, chain, where)
+
+
+class TestEdgeWhereSemijoinParity:
+    """Edge-edge WHERE comparisons should match baseline with semijoin enabled."""
+
+    @pytest.fixture
+    def edge_value_graph(self):
+        nodes = pd.DataFrame([
+            {"id": "a"},
+            {"id": "b"},
+            {"id": "c"},
+            {"id": "d"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b", "w": 5},
+            {"src": "a", "dst": "b", "w": 1},
+            {"src": "b", "dst": "c", "w": 3},
+            {"src": "b", "dst": "c", "w": 10},
+            {"src": "b", "dst": "d", "w": 7},
+        ])
+        return CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+    def test_edge_where_gt_semijoin_parity(self, edge_value_graph, monkeypatch):
+        chain = [
+            n(name="a"),
+            e_forward(name="e1"),
+            n(name="b"),
+            e_forward(name="e2"),
+            n(name="c"),
+        ]
+        where = [compare(col("e1", "w"), ">", col("e2", "w"))]
+
+        baseline = execute_same_path_chain(edge_value_graph, chain, where, Engine.PANDAS)
+
+        monkeypatch.setenv("GRAPHISTRY_EDGE_WHERE_SEMIJOIN", "1")
+        semijoin = execute_same_path_chain(edge_value_graph, chain, where, Engine.PANDAS)
+
+        baseline_edges = set(
+            map(tuple, baseline._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        semijoin_edges = set(
+            map(tuple, semijoin._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        assert baseline_edges == semijoin_edges
+
+    def test_edge_where_neq_semijoin_parity(self, edge_value_graph, monkeypatch):
+        chain = [
+            n(name="a"),
+            e_forward(name="e1"),
+            n(name="b"),
+            e_forward(name="e2"),
+            n(name="c"),
+        ]
+        where = [compare(col("e1", "w"), "!=", col("e2", "w"))]
+
+        baseline = execute_same_path_chain(edge_value_graph, chain, where, Engine.PANDAS)
+
+        monkeypatch.setenv("GRAPHISTRY_EDGE_WHERE_SEMIJOIN", "1")
+        semijoin = execute_same_path_chain(edge_value_graph, chain, where, Engine.PANDAS)
+
+        baseline_edges = set(
+            map(tuple, baseline._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        semijoin_edges = set(
+            map(tuple, semijoin._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        assert baseline_edges == semijoin_edges
+
+    def test_edge_where_null_semijoin_parity(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a"},
+            {"id": "b"},
+            {"id": "c"},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "b", "w": None},
+            {"src": "a", "dst": "b", "w": 2},
+            {"src": "b", "dst": "c", "w": None},
+            {"src": "b", "dst": "c", "w": 1},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="a"),
+            e_forward(name="e1"),
+            n(name="b"),
+            e_forward(name="e2"),
+            n(name="c"),
+        ]
+        where = [compare(col("e1", "w"), ">", col("e2", "w"))]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+
+        monkeypatch.setenv("GRAPHISTRY_EDGE_WHERE_SEMIJOIN", "1")
+        semijoin = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+
+        baseline_edges = set(
+            map(tuple, baseline._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        semijoin_edges = set(
+            map(tuple, semijoin._edges[["src", "dst", "w"]].itertuples(index=False, name=None))
+        )
+        def _normalize(edges):
+            return {
+                tuple("<nan>" if pd.isna(value) else value for value in edge)
+                for edge in edges
+            }
+
+        assert _normalize(baseline_edges) == _normalize(semijoin_edges)
 
     def test_vector_strategy_mixed_ops_parity(self, monkeypatch):
         nodes = pd.DataFrame([
