@@ -150,3 +150,21 @@ uv run python benchmarks/run_realdata_benchmarks.py \
 ```
 
 Use `--kuzu-rebuild` to recreate the Kuzu database from CSVs when needed.
+
+## WHERE opt matrix (comparative)
+
+Run a focused matrix of WHERE scenarios across opt profiles (value mode, domain semijoin, auto, edge semijoin, etc).
+Outputs are grouped by profile + scenario group, with defaults targeting dense multi-clause and real-data stress cases.
+
+```bash
+uv run python benchmarks/run_where_opt_matrix.py --runs 3 --warmup 1
+```
+
+To target only dense multi-clause synthetic cases:
+
+```bash
+uv run python benchmarks/run_where_opt_matrix.py \
+  --groups synthetic_multi_clause \
+  --profiles baseline,auto,vector \
+  --runs 5 --warmup 1
+```
