@@ -32,6 +32,15 @@ Compare regular `chain()` against the Yannakakis same-path executor on synthetic
 uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /tmp/chain-vs-samepath.md
 ```
 
+To focus on dense multi-clause scenarios:
+
+```bash
+uv run python benchmarks/run_chain_vs_samepath.py \
+  --graph-filter medium_dense,large_dense \
+  --scenario-filter nonadj_multi \
+  --runs 5 --warmup 1
+```
+
 To toggle non-adjacent WHERE experiments on synthetic scenarios:
 
 ```bash

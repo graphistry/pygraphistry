@@ -130,6 +130,10 @@ def _percentile(sorted_vals: List[float], pct: float) -> float:
     return sorted_vals[low] * (1 - weight) + sorted_vals[high] * weight
 
 
+def _parse_filters(raw: str) -> List[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _summarize_times(times: List[float]) -> TimingStats:
     ordered = sorted(times)
     median_ms = statistics.median(ordered)
@@ -313,6 +317,16 @@ def main() -> None:
         default=None,
         help="Set GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX.",
     )
+    parser.add_argument(
+        "--graph-filter",
+        default="",
+        help="Comma-separated substrings to select graph spec names.",
+    )
+    parser.add_argument(
+        "--scenario-filter",
+        default="",
+        help="Comma-separated substrings to select scenario names.",
+    )
     args = parser.parse_args()
     setup_tracer()
 
@@ -346,6 +360,12 @@ def main() -> None:
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()
     graph_specs = build_graph_specs()
+    graph_filters = _parse_filters(args.graph_filter)
+    scenario_filters = _parse_filters(args.scenario_filter)
+    if graph_filters:
+        graph_specs = [spec for spec in graph_specs if any(f in spec.name for f in graph_filters)]
+    if scenario_filters:
+        scenarios = [scenario for scenario in scenarios if any(f in scenario.name for f in scenario_filters)]
 
     results: List[ResultRow] = []
     for spec in graph_specs:
