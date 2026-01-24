@@ -144,11 +144,27 @@ def _write_redteam_csvs(staging_dir: str) -> Tuple[str, str]:
     return node_csv, edge_csv
 
 
-def _ensure_redteam_db(db_path: str, staging_dir: str, rebuild: bool) -> "kuzu.Connection":
-    marker = os.path.join(db_path, ".loaded")
+def _marker_path(db_path: str, is_dir: bool) -> str:
+    if is_dir:
+        return os.path.join(db_path, ".loaded")
+    return f"{db_path}.loaded"
+
+
+def _ensure_redteam_db_path(
+    db_path: str,
+    is_dir: bool,
+    staging_dir: str,
+    rebuild: bool,
+) -> "kuzu.Connection":
+    marker = _marker_path(db_path, is_dir)
     if rebuild:
         _reset_path(db_path)
-    os.makedirs(db_path, exist_ok=True)
+        _reset_path(marker)
+
+    base_dir = db_path if is_dir else os.path.dirname(db_path)
+    if base_dir:
+        os.makedirs(base_dir, exist_ok=True)
+
     if not os.path.exists(marker):
         node_csv, edge_csv = _write_redteam_csvs(staging_dir)
         db = kuzu.Database(db_path)
@@ -163,8 +179,34 @@ def _ensure_redteam_db(db_path: str, staging_dir: str, rebuild: bool) -> "kuzu.C
         with open(marker, "w", encoding="utf-8") as handle:
             handle.write("loaded\n")
         return conn
+
     db = kuzu.Database(db_path)
     return kuzu.Connection(db)
+
+
+def _ensure_redteam_db(
+    dataset_name: str,
+    db_root: str,
+    staging_dir: str,
+    rebuild: bool,
+) -> "kuzu.Connection":
+    candidates = [
+        (os.path.join(db_root, dataset_name), True),
+        (os.path.join(db_root, f"{dataset_name}.kuzu"), False),
+    ]
+    last_error: Optional[Exception] = None
+    for db_path, is_dir in candidates:
+        try:
+            return _ensure_redteam_db_path(db_path, is_dir, staging_dir, rebuild)
+        except RuntimeError as exc:
+            last_error = exc
+            msg = str(exc).lower()
+            if "cannot be a directory" in msg or "cannot be a file" in msg:
+                continue
+            raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("Failed to initialize Kuzu database.")
 
 
 def _redteam_queries() -> List[KuzuQuery]:
@@ -197,7 +239,7 @@ def run_kuzu_comparisons(
     db_path = os.path.join(db_root, dataset_name)
     staging_dir = os.path.join(db_root, f"{dataset_name}_staging")
     os.makedirs(staging_dir, exist_ok=True)
-    conn = _ensure_redteam_db(db_path, staging_dir, rebuild)
+    conn = _ensure_redteam_db(dataset_name, db_root, staging_dir, rebuild)
 
     filters = [f for f in (scenario_filters or []) if f]
     queries = _redteam_queries()
