@@ -23,6 +23,7 @@ from graphistry.compute.ast import n, e_forward, e_reverse
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 from otel_setup import setup_tracer
+import kuzu_bench
 
 
 @dataclass(frozen=True)
@@ -870,6 +871,7 @@ def _table_lines(title: str, results: Iterable[ResultRow]) -> List[str]:
 def write_markdown(
     chain_results: Iterable[ResultRow],
     where_results: Iterable[ResultRow],
+    kuzu_results: Iterable[ResultRow],
     output_path: str,
     notes_extra: Optional[List[str]] = None,
 ) -> None:
@@ -879,6 +881,7 @@ def write_markdown(
         "Notes:",
         "- Chain results use GFQL (no WHERE).",
         "- WHERE results use the df_executor same-path engine.",
+        "- Kuzu results (if enabled) use COUNT(*) for equivalent patterns.",
         "- Datasets are loaded from `demos/data/`.",
         "- Values are median over runs; p90 and std columns show variability.",
     ]
@@ -890,6 +893,9 @@ def write_markdown(
     lines.extend(_table_lines("Chain-only (GFQL)", chain_results))
     lines.append("")
     lines.extend(_table_lines("WHERE (df_executor)", where_results))
+    if kuzu_results:
+        lines.append("")
+        lines.extend(_table_lines("Kuzu (optional)", kuzu_results))
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -1045,6 +1051,21 @@ def main() -> None:
         default=None,
         help="Set GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX.",
     )
+    parser.add_argument(
+        "--kuzu",
+        action="store_true",
+        help="Run optional Kuzu comparisons when the kuzu package is available.",
+    )
+    parser.add_argument(
+        "--kuzu-db-root",
+        default="/tmp/kuzu_bench",
+        help="Root directory for Kuzu benchmark databases.",
+    )
+    parser.add_argument(
+        "--kuzu-rebuild",
+        action="store_true",
+        help="Rebuild Kuzu databases instead of reusing cached copies.",
+    )
     args = parser.parse_args()
 
     if args.non_adj_mode:
@@ -1122,7 +1143,14 @@ def main() -> None:
 
     chain_results: List[ResultRow] = []
     where_results: List[ResultRow] = []
+    kuzu_results: List[ResultRow] = []
+    kuzu_notes: List[str] = []
+    kuzu_notes_seen = set()
     engine_enum = _as_engine(args.engine)
+    kuzu_enabled = args.kuzu and kuzu_bench.kuzu_available()
+    if args.kuzu and not kuzu_enabled:
+        kuzu_notes.append("Kuzu comparisons skipped (package not installed).")
+
     for dataset in specs:
         g = dataset.loader(engine_enum)
         chain_scenarios = dataset.scenarios
@@ -1157,6 +1185,30 @@ def main() -> None:
                     max_call_s=where_call_s,
                 )
             )
+        if kuzu_enabled:
+            results, note = kuzu_bench.run_kuzu_comparisons(
+                dataset.name,
+                args.runs,
+                args.warmup,
+                args.kuzu_db_root,
+                args.kuzu_rebuild,
+                scenario_filters=where_filters,
+                max_total_s=max_total_s,
+                max_call_s=max_call_s,
+            )
+            kuzu_results.extend(
+                ResultRow(
+                    dataset=item.dataset,
+                    scenario=item.scenario,
+                    median_ms=item.median_ms,
+                    p90_ms=item.p90_ms,
+                    std_ms=item.std_ms,
+                )
+                for item in results
+            )
+            if note and note not in kuzu_notes_seen:
+                kuzu_notes.append(note)
+                kuzu_notes_seen.add(note)
 
     if args.output:
         notes_extra = []
@@ -1204,11 +1256,18 @@ def main() -> None:
             notes_extra.append(f"Per-call timeout: {max_call_s:.1f}s.")
         if opt_call_s is not None:
             notes_extra.append(f"Opt per-call timeout: {opt_call_s * 1000:.0f}ms.")
-        write_markdown(chain_results, where_results, args.output, notes_extra=notes_extra)
+        if args.kuzu:
+            notes_extra.append(f"Kuzu comparisons enabled (db root: {args.kuzu_db_root}).")
+            if args.kuzu_rebuild:
+                notes_extra.append("Kuzu rebuild enabled.")
+        if kuzu_notes:
+            notes_extra.extend(kuzu_notes)
+        write_markdown(chain_results, where_results, kuzu_results, args.output, notes_extra=notes_extra)
 
     for title, rows in (
         ("Chain-only (GFQL)", chain_results),
         ("WHERE (df_executor)", where_results),
+        ("Kuzu (optional)", kuzu_results),
     ):
         lines = _table_lines(title, rows)
         if not lines:

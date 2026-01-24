@@ -128,3 +128,16 @@ uv run python benchmarks/run_realdata_benchmarks.py \
 ```
 
 Available datasets: `redteam50k`, `transactions`, `facebook_combined`, `honeypot`, `twitter_demo`, `lesmiserables`, `twitter_congress`, `all`.
+
+## Optional Kuzu comparisons
+
+If the `kuzu` Python package is installed, you can run optional Kuzu comparisons (currently redteam-only):
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --datasets redteam50k \
+  --kuzu --kuzu-db-root /tmp/kuzu_bench \
+  --runs 3 --warmup 1
+```
+
+Use `--kuzu-rebuild` to recreate the Kuzu database from CSVs when needed.
