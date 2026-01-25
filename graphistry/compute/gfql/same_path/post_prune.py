@@ -1554,62 +1554,8 @@ def apply_non_adjacent_where_post_prune(
                     sem_left = EdgeSemantics.from_edge(edge_left)
                     sem_right = EdgeSemantics.from_edge(edge_right)
                     if not sem_left.is_multihop and not sem_right.is_multihop:
-                        pairs_left = build_edge_pairs(edges_left, src_col, dst_col, sem_left).drop_duplicates()
-                        pairs_right = build_edge_pairs(edges_right, src_col, dst_col, sem_right).drop_duplicates()
-
-                        if not domain_is_empty(start_nodes):
-                            pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
-                        if not domain_is_empty(end_nodes):
-                            pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
-
-                        start_vals = left_values_df[["__start__", "__start_val__"]].rename(
-                            columns={"__start__": "__from__", "__start_val__": "__value__"}
-                        ).drop_duplicates()
-                        end_vals = right_values_df[["__current__", "__end_val__"]].rename(
-                            columns={"__current__": "__to__", "__end_val__": "__value__"}
-                        ).drop_duplicates()
-
-                        left_pairs = pairs_left.merge(start_vals, on="__from__", how="inner")
-                        right_pairs = pairs_right.merge(end_vals, on="__to__", how="inner")
-
-                        left_pairs = left_pairs.rename(
-                            columns={"__from__": "__start__", "__to__": "__mid__"}
-                        )[["__start__", "__mid__", "__value__"]].drop_duplicates()
-                        right_pairs = right_pairs.rename(
-                            columns={"__from__": "__mid__", "__to__": "__current__"}
-                        )[["__mid__", "__current__", "__value__"]].drop_duplicates()
-
-                        if len(left_pairs) == 0 or len(right_pairs) == 0:
-                            local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                            local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                            continue
-
-                        left_total = len(left_pairs)
-                        right_total = len(right_pairs)
-                        if clause.op in {"==", "!="}:
-                            left_totals = left_pairs.groupby("__value__").size().reset_index()
-                            left_totals.columns = ["__value__", "__left_count__"]
-                            right_totals = right_pairs.groupby("__value__").size().reset_index()
-                            right_totals.columns = ["__value__", "__right_count__"]
-                            equal_counts = left_totals.merge(
-                                right_totals, on="__value__", how="inner"
-                            )
-                            equal_pairs = (equal_counts["__left_count__"] * equal_counts["__right_count__"]).sum()
-                            try:
-                                equal_pairs_value = int(equal_pairs)
-                            except Exception:
-                                equal_pairs_value = equal_pairs
-                            if clause.op == "==":
-                                pair_est_value = equal_pairs_value
-                            else:
-                                pair_est_value = left_total * right_total - equal_pairs_value
-                        else:
-                            pair_est_value = left_total * right_total
-                        domain_semijoin_pair_est_max = max(domain_semijoin_pair_est_max, pair_est_value)
-
-                        domain_semijoin_active = domain_semijoin_enabled
                         force_semijoin = (
-                            (not domain_semijoin_active)
+                            (not domain_semijoin_enabled)
                             and domain_semijoin_auto
                             and non_adj_mode in {"auto", "auto_prefilter"}
                             and not value_mode_enabled
@@ -1618,11 +1564,21 @@ def apply_non_adjacent_where_post_prune(
                             and value_card_max is not None
                             and value_cardinality > value_card_max
                         )
+                        pair_est_approx = edge_pair_est if edge_pair_est is not None else pair_est
+                        if pair_est_approx is not None:
+                            domain_semijoin_pair_est_max = max(
+                                domain_semijoin_pair_est_max, pair_est_approx
+                            )
+
+                        domain_semijoin_active = domain_semijoin_enabled
                         if not domain_semijoin_active and domain_semijoin_auto:
                             if (
                                 force_semijoin
                                 or domain_semijoin_pair_max is None
-                                or pair_est_value > domain_semijoin_pair_max
+                                or (
+                                    pair_est_approx is not None
+                                    and pair_est_approx > domain_semijoin_pair_max
+                                )
                             ):
                                 domain_semijoin_active = True
                                 domain_semijoin_auto_used = True
@@ -1630,6 +1586,67 @@ def apply_non_adjacent_where_post_prune(
                         if not domain_semijoin_active:
                             pass
                         else:
+                            pairs_left = build_edge_pairs(
+                                edges_left, src_col, dst_col, sem_left
+                            ).drop_duplicates()
+                            pairs_right = build_edge_pairs(
+                                edges_right, src_col, dst_col, sem_right
+                            ).drop_duplicates()
+
+                            if not domain_is_empty(start_nodes):
+                                pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
+                            if not domain_is_empty(end_nodes):
+                                pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
+
+                            start_vals = left_values_df[["__start__", "__start_val__"]].rename(
+                                columns={"__start__": "__from__", "__start_val__": "__value__"}
+                            ).drop_duplicates()
+                            end_vals = right_values_df[["__current__", "__end_val__"]].rename(
+                                columns={"__current__": "__to__", "__end_val__": "__value__"}
+                            ).drop_duplicates()
+
+                            left_pairs = pairs_left.merge(start_vals, on="__from__", how="inner")
+                            right_pairs = pairs_right.merge(end_vals, on="__to__", how="inner")
+
+                            left_pairs = left_pairs.rename(
+                                columns={"__from__": "__start__", "__to__": "__mid__"}
+                            )[["__start__", "__mid__", "__value__"]].drop_duplicates()
+                            right_pairs = right_pairs.rename(
+                                columns={"__from__": "__mid__", "__to__": "__current__"}
+                            )[["__mid__", "__current__", "__value__"]].drop_duplicates()
+
+                            if len(left_pairs) == 0 or len(right_pairs) == 0:
+                                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                continue
+
+                            left_total = len(left_pairs)
+                            right_total = len(right_pairs)
+                            if clause.op in {"==", "!="}:
+                                left_totals = left_pairs.groupby("__value__").size().reset_index()
+                                left_totals.columns = ["__value__", "__left_count__"]
+                                right_totals = right_pairs.groupby("__value__").size().reset_index()
+                                right_totals.columns = ["__value__", "__right_count__"]
+                                equal_counts = left_totals.merge(
+                                    right_totals, on="__value__", how="inner"
+                                )
+                                equal_pairs = (
+                                    equal_counts["__left_count__"] * equal_counts["__right_count__"]
+                                ).sum()
+                                try:
+                                    equal_pairs_value = int(equal_pairs)
+                                except Exception:
+                                    equal_pairs_value = equal_pairs
+                                if clause.op == "==":
+                                    pair_est_value = equal_pairs_value
+                                else:
+                                    pair_est_value = left_total * right_total - equal_pairs_value
+                            else:
+                                pair_est_value = left_total * right_total
+                            domain_semijoin_pair_est_max = max(
+                                domain_semijoin_pair_est_max, pair_est_value
+                            )
+
                             if clause.op == "==":
                                 mid_values = left_pairs.merge(
                                     right_pairs, on=["__mid__", "__value__"], how="inner"
