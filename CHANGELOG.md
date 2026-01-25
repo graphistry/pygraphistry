@@ -20,6 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
 - **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
 - **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
+- **GFQL / WHERE**: Avoid building semijoin pair tables when AUTO semijoin stays inactive; uses cheap pair estimates to gate work.
+- **GFQL / WHERE**: Reduce semijoin dedup overhead and reuse cached edge pairs per edge when `allowed_edges` is unset.
 - **Compute / hop**: Undirected traversal skips oriented-pair expansion when no destination filters; modest CPU gains in undirected benchmarks.
 - **Compute / hop**: Fast-path traversal uses domain-based visited/frontier tracking to avoid per-hop concat+dedupe overhead; modest CPU improvements in synthetic benchmarks.
 
@@ -28,10 +30,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
 - **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
 - **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
+- **GFQL / WHERE**: Fixed vector-strategy guard to initialize start/end domains before pair-est gating (prevents UnboundLocalError).
 
 ### Infra
 - **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `same_path_plan.py` (planning), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, post-pruning, and WHERE filtering.
 - **Benchmarks**: Added manual hop microbench + frontier sweep scripts under `benchmarks/` (not wired into CI).
+- **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
 
 ### Tests
 - **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
