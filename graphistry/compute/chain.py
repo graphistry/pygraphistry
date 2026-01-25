@@ -134,8 +134,7 @@ class Chain(ASTSerializable):
     
     def _get_child_validators(self) -> List[ASTSerializable]:
         """Return child AST nodes that need validation."""
-        # Only return valid ASTObject instances
-        return cast(List[ASTSerializable], [op for op in self.chain if isinstance(op, ASTObject)])
+        return [op for op in self.chain if isinstance(op, ASTObject)]
 
     @classmethod
     def from_json(cls, d: Dict[str, JSONVal], validate: bool = True) -> 'Chain':

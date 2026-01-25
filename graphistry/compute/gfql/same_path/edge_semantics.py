@@ -4,9 +4,10 @@ Centralizes direction detection and column mapping for edge traversal.
 """
 
 from dataclasses import dataclass
-from typing import Any, Tuple
+from typing import Tuple
 
 from graphistry.compute.ast import ASTEdge
+from graphistry.compute.typing import DataFrameT, DomainT
 from .df_utils import series_values, domain_union
 
 @dataclass(frozen=True)
@@ -91,8 +92,8 @@ class EdgeSemantics:
             return (src_col, dst_col)
 
     def start_nodes(
-        self, edges_df, src_col: str, dst_col: str
-    ) -> Any:
+        self, edges_df: DataFrameT, src_col: str, dst_col: str
+    ) -> DomainT:
         """Get starting nodes for edge traversal (for backward propagation).
 
         For forward: returns src nodes (where traversal starts)

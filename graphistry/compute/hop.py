@@ -16,7 +16,7 @@ from graphistry.util import setup_logger
 from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
-from .typing import DataFrameT
+from .typing import DataFrameT, DomainT
 from .util import generate_safe_column_name
 
 
@@ -114,20 +114,20 @@ def hop(self: Plottable,
         DataFrameT = df_cons(engine_concrete)
     concat = df_concat(engine_concrete)
 
-    def _domain_unique(series: Any):
+    def _domain_unique(series: Any) -> DomainT:
         if engine_concrete == Engine.PANDAS:
             return pd.Index(series.dropna().unique())
         return series.dropna().unique()
 
-    def _domain_is_empty(domain: Any) -> bool:
+    def _domain_is_empty(domain: Optional[DomainT]) -> bool:
         return domain is None or len(domain) == 0
 
-    def _domain_diff(candidates: Any, visited: Any):
+    def _domain_diff(candidates: Optional[DomainT], visited: Optional[DomainT]) -> Optional[DomainT]:
         if _domain_is_empty(candidates) or _domain_is_empty(visited):
             return candidates
         return candidates[~candidates.isin(visited)]
 
-    def _domain_union(left: Any, right: Any):
+    def _domain_union(left: Optional[DomainT], right: Optional[DomainT]) -> Optional[DomainT]:
         if _domain_is_empty(left):
             return right
         if _domain_is_empty(right):
@@ -138,6 +138,7 @@ def hop(self: Plottable,
     
     nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
     target_wave_front = df_to_engine(target_wave_front, engine_concrete) if target_wave_front is not None else None
+    debugging_hop = False
 
     #TODO target_wave_front code also includes nodes for handling intermediate hops
     # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)

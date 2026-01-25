@@ -3,18 +3,20 @@
 Contains pure functions for series/dataframe operations used across the executor.
 """
 
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Union
 
 import pandas as pd
 
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT, DomainT
+
+SeriesLike = Union[SeriesT, DomainT]
 
 
-def _is_cudf_obj(obj: Any) -> bool:
+def _is_cudf_obj(obj: object) -> bool:
     return hasattr(obj, "__class__") and obj.__class__.__module__.startswith("cudf")
 
 
-def _cudf_index_op(left: Any, right: Any, op: str) -> Any:
+def _cudf_index_op(left: DomainT, right: DomainT, op: str) -> DomainT:
     method = getattr(left, op)
     try:
         return method(right, sort=False)
@@ -38,7 +40,7 @@ def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
     return pd.DataFrame(data)
 
 
-def make_bool_series(template_df: DataFrameT, value: bool) -> Any:
+def make_bool_series(template_df: DataFrameT, value: bool) -> SeriesT:
     """Create a boolean Series matching template_df's type and length.
 
     Args:
@@ -54,7 +56,7 @@ def make_bool_series(template_df: DataFrameT, value: bool) -> Any:
     return pd.Series(value, index=template_df.index)
 
 
-def to_pandas_series(series: Any) -> pd.Series:
+def to_pandas_series(series: SeriesLike) -> pd.Series:
     """Convert any series-like object to pandas Series."""
     if hasattr(series, "to_pandas"):
         return series.to_pandas()
@@ -63,7 +65,7 @@ def to_pandas_series(series: Any) -> pd.Series:
     return pd.Series(series)
 
 
-def series_unique(series: Any) -> Any:
+def series_unique(series: SeriesLike) -> Any:
     """Extract unique non-null values from a series as an array.
 
     Returns a numpy array (or cudf array) that can be passed directly to .isin().
@@ -81,7 +83,7 @@ def series_unique(series: Any) -> Any:
     return pandas_series.dropna().unique()
 
 
-def series_values(series: Any) -> Any:
+def series_values(series: SeriesLike) -> DomainT:
     """Extract unique non-null values from a series as an Index-like domain.
 
     Returns a pandas.Index for pandas objects, and cudf.Index for cuDF objects.
@@ -99,18 +101,18 @@ def series_values(series: Any) -> Any:
     return pd.Index(pandas_series.dropna().unique())
 
 
-def domain_empty(template: Optional[Any] = None) -> Any:
+def domain_empty(template: Optional[Any] = None) -> DomainT:
     if _is_cudf_obj(template):
         import cudf  # type: ignore
         return cudf.Index([])
     return pd.Index([])
 
 
-def domain_is_empty(domain: Any) -> bool:
+def domain_is_empty(domain: Optional[DomainT]) -> bool:
     return domain is None or len(domain) == 0
 
 
-def domain_from_values(values: Any, template: Optional[Any] = None) -> Any:
+def domain_from_values(values: Any, template: Optional[Any] = None) -> DomainT:
     if domain_is_empty(values):
         return domain_empty(template)
     if _is_cudf_obj(values):
@@ -126,7 +128,7 @@ def domain_from_values(values: Any, template: Optional[Any] = None) -> Any:
     return pd.Index(values)
 
 
-def domain_intersect(left: Any, right: Any) -> Any:
+def domain_intersect(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
     if domain_is_empty(left) or domain_is_empty(right):
         return domain_empty(left if left is not None else right)
     if isinstance(left, pd.Index):
@@ -136,7 +138,7 @@ def domain_intersect(left: Any, right: Any) -> Any:
     return left.intersection(right)
 
 
-def domain_union(left: Any, right: Any) -> Any:
+def domain_union(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
     if domain_is_empty(left):
         return right
     if domain_is_empty(right):
@@ -148,7 +150,7 @@ def domain_union(left: Any, right: Any) -> Any:
     return left.union(right)
 
 
-def domain_diff(left: Any, right: Any) -> Any:
+def domain_diff(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
     if domain_is_empty(left) or domain_is_empty(right):
         return left
     if isinstance(left, pd.Index):
@@ -158,7 +160,7 @@ def domain_diff(left: Any, right: Any) -> Any:
     return left.difference(right)
 
 
-def domain_to_frame(template_df: DataFrameT, domain: Any, col: str) -> DataFrameT:
+def domain_to_frame(template_df: DataFrameT, domain: Optional[DomainT], col: str) -> DataFrameT:
     if domain is None:
         return df_cons(template_df, {col: []})
     return df_cons(template_df, {col: domain})
@@ -168,7 +170,7 @@ def domain_to_frame(template_df: DataFrameT, domain: Any, col: str) -> DataFrame
 _ID_COL = "__id__"
 
 
-def series_to_id_df(series: Any, id_col: str = _ID_COL) -> DataFrameT:
+def series_to_id_df(series: SeriesLike, id_col: str = _ID_COL) -> DataFrameT:
     """Extract unique non-null values from a series as a single-column DataFrame.
 
     This is the DF-based alternative to series_values() for use with merge-based

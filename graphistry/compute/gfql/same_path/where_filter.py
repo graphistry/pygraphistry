@@ -6,8 +6,6 @@ between adjacent or multi-hop connected aliases.
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-import pandas as pd
-
 from graphistry.Engine import safe_concat
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT
