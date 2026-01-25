@@ -1,7 +1,6 @@
 import pytest
 import pandas as pd
 from datetime import datetime, date, time
-import pytz
 
 from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
@@ -20,7 +19,7 @@ class TestDateTimeValue:
         dt = DateTimeValue("2024-01-01T12:00:00", "UTC")
         assert dt.timezone == "UTC"
         assert dt.as_pandas_value().hour == 12
-        assert dt.as_pandas_value().tz.zone == "UTC"
+        assert str(dt.as_pandas_value().tz) == "UTC"
     
     def test_timezone_conversion(self):
         # Create datetime in UTC

@@ -18,7 +18,6 @@ from graphistry.compute import (
 # Standard datetime types
 import pandas as pd
 from datetime import datetime, date, time, timedelta
-import pytz  # For timezone support
 ```
 
 ## Supported Types and Standards
@@ -141,13 +140,10 @@ business_hours = g.gfql([
 ## Timezone Support
 
 ```python
-import pytz
-
 # Timezone-aware filtering
-eastern = pytz.timezone('US/Eastern')
 tz_aware_filter = g.gfql([
     n(filter_dict={
-        "timestamp": gt(pd.Timestamp("2023-01-01 12:00:00", tz=eastern))
+        "timestamp": gt(pd.Timestamp("2023-01-01 12:00:00", tz="US/Eastern"))
     })
 ])
 ```

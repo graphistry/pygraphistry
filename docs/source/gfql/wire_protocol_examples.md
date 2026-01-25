@@ -214,14 +214,12 @@ filter2 = n(edge_match={
 
 ### Python API
 ```python
-import pytz
 from graphistry.compute import DateTimeValue, gt
 
 # Using timezone-aware timestamp
-eastern = pytz.timezone('US/Eastern')
 filter1 = n(filter_dict={
     "timestamp": gt(
-        pd.Timestamp("2023-01-01 09:00:00", tz=eastern)
+        pd.Timestamp("2023-01-01 09:00:00", tz="US/Eastern")
     )
 })
 
