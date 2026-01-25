@@ -69,7 +69,7 @@ def hop(self: Plottable,
     source_node_query: Optional[str] = None,
     destination_node_query: Optional[str] = None,
     edge_query: Optional[str] = None,
-    return_as_wave_front = False,
+    return_as_wave_front: bool = False,
     target_wave_front: Optional[DataFrameT] = None,  # chain: limit hits to these for reverse pass
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
@@ -98,14 +98,6 @@ def hop(self: Plottable,
     return_as_wave_front: Exclude starting node(s) in return, returning only encountered nodes
     target_wave_front: Only consider these nodes + self._nodes for reachability
     engine: 'auto', 'pandas', 'cudf' (GPU)
-    """
-
-    """
-    When called by chain() during reverse phase:
-    - return_as_wave_front: True
-    - this hop will be `op.reverse()`
-    - nodes will be the wavefront of the next step
-    
     """
 
     if isinstance(engine, str):
@@ -149,29 +141,6 @@ def hop(self: Plottable,
 
     #TODO target_wave_front code also includes nodes for handling intermediate hops
     # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)
-
-    debugging_hop = False
-
-    if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-        logger.debug('=======================')
-        logger.debug('======== HOP ==========')
-        logger.debug('nodes:\n%s', nodes)
-        logger.debug('self._nodes:\n%s', self._nodes)
-        logger.debug('self._edges:\n%s', self._edges)
-        logger.debug('hops: %s', hops)
-        logger.debug('to_fixed_point: %s', to_fixed_point)
-        logger.debug('direction: %s', direction)
-        logger.debug('edge_match: %s', edge_match)
-        logger.debug('source_node_match: %s', source_node_match)
-        logger.debug('destination_node_match: %s', destination_node_match)
-        logger.debug('source_node_query: %s', source_node_query)
-        logger.debug('destination_node_query: %s', destination_node_query)
-        logger.debug('edge_query: %s', edge_query)
-        logger.debug('return_as_wave_front: %s', return_as_wave_front)
-        logger.debug('target_wave_front:\n%s', target_wave_front)
-        logger.debug('engine: %s', engine)
-        logger.debug('engine_concrete: %s', engine_concrete)
-        logger.debug('---------------------')
 
     if direction not in ['forward', 'reverse', 'undirected']:
         raise ValueError(f'Invalid direction: "{direction}", must be one of: "forward" (default), "reverse", "undirected"')

@@ -181,7 +181,6 @@ class DFSamePathExecutor:
         attrs = self._otel_attrs() if otel_enabled() else None
         with otel_span("gfql.df_executor.run", attrs=attrs):
             self._forward()
-            import os
             mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
 
             if mode == "oracle":

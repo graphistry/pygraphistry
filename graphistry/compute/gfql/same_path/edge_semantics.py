@@ -4,14 +4,10 @@ Centralizes direction detection and column mapping for edge traversal.
 """
 
 from dataclasses import dataclass
-from typing import Any, Tuple, TYPE_CHECKING
+from typing import Any, Tuple
 
 from graphistry.compute.ast import ASTEdge
 from .df_utils import series_values, domain_union
-
-if TYPE_CHECKING:
-    pass
-
 
 @dataclass(frozen=True)
 class EdgeSemantics:

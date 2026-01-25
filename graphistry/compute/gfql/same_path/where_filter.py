@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import pandas as pd
 
+from graphistry.Engine import safe_concat
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT
 from .edge_semantics import EdgeSemantics
@@ -122,7 +123,6 @@ def filter_edges_by_clauses(
         elif len(rev_df) == 0:
             out_df = fwd_df
         else:
-            from graphistry.Engine import safe_concat
             out_df = safe_concat([fwd_df, rev_df], ignore_index=True, sort=False)
             # Deduplicate by edge columns (src, dst) to avoid double-counting
             out_df = out_df.drop_duplicates(
