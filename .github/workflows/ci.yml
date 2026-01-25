@@ -254,6 +254,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pytest -vv \
           graphistry/tests/compute/predicates/test_str.py \
+          graphistry/tests/compute/predicates/test_temporal_values.py \
           graphistry/tests/layout/ring/test_time.py
 
 
