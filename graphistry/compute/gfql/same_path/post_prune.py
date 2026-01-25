@@ -394,6 +394,9 @@ def apply_non_adjacent_where_post_prune(
                 if start_node_idx < idx < end_node_idx
             ]
 
+            start_nodes = local_allowed_nodes.get(start_node_idx)
+            end_nodes = local_allowed_nodes.get(end_node_idx)
+
             if (
                 non_adj_mode in {"auto", "auto_prefilter"}
                 and domain_semijoin_pair_max is not None
@@ -424,9 +427,6 @@ def apply_non_adjacent_where_post_prune(
                     continue
             if len(relevant_edge_indices) == 0 or len(relevant_edge_indices) > vector_max_hops:
                 continue
-
-            start_nodes = local_allowed_nodes.get(start_node_idx)
-            end_nodes = local_allowed_nodes.get(end_node_idx)
             if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
                 continue
 
