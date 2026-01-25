@@ -13,6 +13,38 @@ def _cudf_mask_none(result: Any, mask: Any) -> Any:
     return result_pd
 
 
+def _cudf_handle_na(
+    result: Any,
+    source: Any,
+    na: Optional[bool]
+) -> Any:
+    if na is None:
+        try:
+            mask = source.isna()
+            if not bool(mask.any()):
+                return result
+        except Exception:
+            return result
+        try:
+            return result.mask(mask)
+        except Exception:
+            try:
+                result[mask] = None
+                return result
+            except Exception:
+                import cudf
+                na_mask_arr = source.to_pandas().isna().to_numpy()
+                return cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
+
+    if isinstance(na, bool):
+        try:
+            return result.fillna(na)
+        except Exception:
+            return result
+
+    return result
+
+
 def _pandas_handle_na(
     result: pd.Series,
     source: pd.Series,
@@ -74,10 +106,7 @@ class Contains(ASTPredicate):
                     flags=self.flags
                 )
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
+            return _cudf_handle_na(result, s, self.na)
         else:
             result = s.str.contains(
                 self.pat,
@@ -196,14 +225,6 @@ class Startswith(ASTPredicate):
                     import cudf
                     # Create False for all values - scalar broadcast, not Python list
                     result = cudf.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default) - match pandas behavior
-                    if self.na is None:
-                        # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na: bool = bool(s.isna().any())
-                        if has_na:
-                            # Convert to object dtype and apply mask to preserve None values
-                            na_mask_arr = s.to_pandas().isna().to_numpy()
-                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
@@ -216,9 +237,7 @@ class Startswith(ASTPredicate):
                     # OR with remaining patterns
                     for pat in patterns[1:]:
                         result = result | s_modified.str.startswith(pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _cudf_handle_na(result, s, self.na)
         elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
@@ -229,11 +248,7 @@ class Startswith(ASTPredicate):
 
         # Handle na parameter for non-tuple cases
         if is_cudf:
-            # cuDF doesn't support na parameter, use fillna
-            if self.na is not None:
-                return result.fillna(self.na)
-            else:
-                return result
+            return _cudf_handle_na(result, s, self.na)
         else:
             return _pandas_handle_na(result, s, self.na)
 
@@ -352,14 +367,6 @@ class Endswith(ASTPredicate):
                     import cudf
                     # Create False for all values - scalar broadcast, not Python list
                     result = cudf.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default) - match pandas behavior
-                    if self.na is None:
-                        # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na: bool = bool(s.isna().any())
-                        if has_na:
-                            # Convert to object dtype and apply mask to preserve None values
-                            na_mask_arr = s.to_pandas().isna().to_numpy()
-                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
                 else:
                     if not self.case:
                         s_modified = s.str.lower()
@@ -372,9 +379,7 @@ class Endswith(ASTPredicate):
                     # OR with remaining patterns
                     for pat in patterns[1:]:
                         result = result | s_modified.str.endswith(pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _cudf_handle_na(result, s, self.na)
         elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
@@ -385,11 +390,7 @@ class Endswith(ASTPredicate):
 
         # Handle na parameter for non-tuple cases
         if is_cudf:
-            # cuDF doesn't support na parameter, use fillna
-            if self.na is not None:
-                return result.fillna(self.na)
-            else:
-                return result
+            return _cudf_handle_na(result, s, self.na)
         else:
             return _pandas_handle_na(result, s, self.na)
 
@@ -488,10 +489,7 @@ class Match(ASTPredicate):
             else:
                 result = s.str.match(self.pat, flags=self.flags)
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
+            return _cudf_handle_na(result, s, self.na)
         else:
             if self.flags:
                 effective_flags = self.flags
@@ -586,10 +584,7 @@ class Fullmatch(ASTPredicate):
             else:
                 result = s.str.match(anchored_pat, flags=self.flags)
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
+            return _cudf_handle_na(result, s, self.na)
         else:
             # pandas has native fullmatch support
             result = s.str.fullmatch(
