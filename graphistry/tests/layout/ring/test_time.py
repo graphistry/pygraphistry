@@ -292,13 +292,20 @@ class Test_time_ring(NoAuthTestCase):
             })
             nodes_us = nodes.copy()
             nodes_us['t'] = nodes_us['t'].astype('datetime64[us]')
+            nodes_ms = nodes.copy()
+            nodes_ms['t'] = nodes_ms['t'].astype('datetime64[ms]')
 
             g_ns = lg.edges(edges, 's', 'd').nodes(nodes).time_ring_layout('t')
             g_us = lg.edges(edges, 's', 'd').nodes(nodes_us).time_ring_layout('t')
+            g_ms = lg.edges(edges, 's', 'd').nodes(nodes_ms).time_ring_layout('t')
 
         np.testing.assert_allclose(
             g_ns._nodes['r'].to_numpy(),
             g_us._nodes['r'].to_numpy()
+        )
+        np.testing.assert_allclose(
+            g_ns._nodes['r'].to_numpy(),
+            g_ms._nodes['r'].to_numpy()
         )
 
 
