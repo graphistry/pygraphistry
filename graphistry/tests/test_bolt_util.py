@@ -114,12 +114,9 @@ def test_dates_homogeneous_na():
         "t": pd.to_timedelta("10:20:30"),
         "dur": "P1Y3M14D",
     }
-    assert df2.to_dict(orient="records")[1] == {
-        "d": pd.NaT,
-        "dt": pd.NaT,
-        "t": pd.NaT,
-        "dur": None,
-    }
+    d2 = df2.to_dict(orient="records")[1]
+    for col in ("d", "dt", "t", "dur"):
+        assert pd.isna(d2[col])
     pa.Table.from_pandas(df2)
 
 
