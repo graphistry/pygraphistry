@@ -350,6 +350,7 @@ def apply_non_adjacent_where_post_prune(
         multi_eq_groups, multi_eq_order = _collect_multi_eq_groups(non_adjacent_clauses)
 
     endpoint_clause_counts: Dict[Tuple[int, int], int] = {}
+    endpoint_eq_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", str, str]]] = {}
     for clause in non_adjacent_clauses:
         left_binding = executor.inputs.alias_bindings.get(clause.left.alias)
         right_binding = executor.inputs.alias_bindings.get(clause.right.alias)
@@ -364,6 +365,14 @@ def apply_non_adjacent_where_post_prune(
         endpoint_clause_counts[(start_idx, end_idx)] = endpoint_clause_counts.get(
             (start_idx, end_idx), 0
         ) + 1
+        if clause.op == "==":
+            start_col = clause.left.column
+            end_col = clause.right.column
+            if left_binding.step_index > right_binding.step_index:
+                start_col, end_col = end_col, start_col
+            endpoint_eq_clauses.setdefault((start_idx, end_idx), []).append(
+                (clause, start_col, end_col)
+            )
 
     if vector_enabled and multi_eq_groups:
         for key in multi_eq_order:
@@ -1048,6 +1057,8 @@ def apply_non_adjacent_where_post_prune(
     ]
 
     for clause in remaining_clauses:
+        if id(clause) in processed_clause_ids:
+            continue
         clause_count += 1
         left_alias = clause.left.alias
         right_alias = clause.right.alias
@@ -1307,142 +1318,169 @@ def apply_non_adjacent_where_post_prune(
             if not domain_is_empty(end_nodes):
                 pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
 
-            left_mid_vals = pairs_left.merge(
-                left_values_df[["__start__", "__start_val__"]],
+            label_cols: List[str] = []
+            eq_clause = None
+            eq_entries = endpoint_eq_clauses.get((start_node_idx, end_node_idx), [])
+            if len(eq_entries) == 1:
+                eq_clause, eq_start_col, eq_end_col = eq_entries[0]
+                if eq_start_col in nodes_df.columns and eq_end_col in nodes_df.columns:
+                    label_cols = ["__label__"]
+                else:
+                    eq_clause = None
+
+            start_val_df = left_values_df.copy()
+            end_val_df = right_values_df.copy()
+            if label_cols:
+                start_labels = nodes_df[nodes_df[node_id_col].isin(start_nodes)][
+                    [node_id_col, eq_start_col]
+                ].drop_duplicates()
+                start_labels = start_labels.rename(
+                    columns={node_id_col: "__start__", eq_start_col: "__label__"}
+                )
+                end_labels = nodes_df[nodes_df[node_id_col].isin(end_nodes)][
+                    [node_id_col, eq_end_col]
+                ].drop_duplicates()
+                end_labels = end_labels.rename(
+                    columns={node_id_col: "__current__", eq_end_col: "__label__"}
+                )
+                start_val_df = start_val_df.merge(start_labels, on="__start__", how="inner")
+                end_val_df = end_val_df.merge(end_labels, on="__current__", how="inner")
+                start_val_df = start_val_df[start_val_df["__label__"].notna()]
+                end_val_df = end_val_df[end_val_df["__label__"].notna()]
+                if len(start_val_df) == 0 or len(end_val_df) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+
+            left_edges = pairs_left.merge(
+                start_val_df,
                 left_on="__from__",
                 right_on="__start__",
                 how="inner",
-            )[["__to__", "__start_val__"]].rename(columns={"__to__": "__mid__"})
-            right_mid_vals = pairs_right.merge(
-                right_values_df[["__current__", "__end_val__"]],
+            ).rename(columns={"__to__": "__mid__"})
+            left_cols = ["__start__", "__mid__", "__start_val__"] + label_cols
+            left_edges = left_edges[left_cols].drop_duplicates()
+
+            right_edges = pairs_right.merge(
+                end_val_df,
                 left_on="__to__",
                 right_on="__current__",
                 how="inner",
-            )[["__from__", "__end_val__"]].rename(columns={"__from__": "__mid__"})
+            ).rename(columns={"__from__": "__mid__"})
+            right_cols = ["__current__", "__mid__", "__end_val__"] + label_cols
+            right_edges = right_edges[right_cols].drop_duplicates()
 
-            if len(left_mid_vals) == 0 or len(right_mid_vals) == 0:
+            if len(left_edges) == 0 or len(right_edges) == 0:
                 local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
                 local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
                 continue
+
+            group_cols = ["__mid__"] + label_cols
+            if label_cols:
+                left_labels = left_edges[["__mid__", "__label__"]].drop_duplicates()
+                right_labels = right_edges[["__mid__", "__label__"]].drop_duplicates()
+                allowed_labels = left_labels.merge(
+                    right_labels, on=["__mid__", "__label__"], how="inner"
+                )
+                if len(allowed_labels) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+                left_edges = left_edges.merge(
+                    allowed_labels, on=["__mid__", "__label__"], how="inner"
+                )
+                right_edges = right_edges.merge(
+                    allowed_labels, on=["__mid__", "__label__"], how="inner"
+                )
+                if len(left_edges) == 0 or len(right_edges) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
 
             if clause.op in {"<", "<="}:
-                right_bound = (
-                    right_mid_vals.groupby("__mid__")["__end_val__"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"__end_val__": "__right_bound__"})
-                )
                 left_bound = (
-                    left_mid_vals.groupby("__mid__")["__start_val__"]
+                    left_edges.groupby(group_cols)["__start_val__"]
                     .min()
                     .reset_index()
                     .rename(columns={"__start_val__": "__left_bound__"})
                 )
-
-                start_bound = pairs_left.merge(
-                    right_bound, left_on="__to__", right_on="__mid__", how="inner"
-                )[["__from__", "__right_bound__"]]
-                start_bound = (
-                    start_bound.groupby("__from__")["__right_bound__"]
+                right_bound = (
+                    right_edges.groupby(group_cols)["__end_val__"]
                     .max()
                     .reset_index()
-                    .rename(columns={"__from__": "__start__"})
+                    .rename(columns={"__end_val__": "__right_bound__"})
                 )
-                valid_start_df = left_values_df.merge(
-                    start_bound, on="__start__", how="inner"
-                )
+                allowed = left_bound.merge(right_bound, on=group_cols, how="inner")
                 if clause.op == "<":
-                    valid_start_df = valid_start_df[
-                        valid_start_df["__start_val__"] < valid_start_df["__right_bound__"]
-                    ]
+                    allowed = allowed[allowed["__left_bound__"] < allowed["__right_bound__"]]
                 else:
-                    valid_start_df = valid_start_df[
-                        valid_start_df["__start_val__"] <= valid_start_df["__right_bound__"]
-                    ]
+                    allowed = allowed[allowed["__left_bound__"] <= allowed["__right_bound__"]]
+                if len(allowed) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
 
-                end_bound = pairs_right.merge(
-                    left_bound, left_on="__from__", right_on="__mid__", how="inner"
-                )[["__to__", "__left_bound__"]]
-                end_bound = (
-                    end_bound.groupby("__to__")["__left_bound__"]
-                    .min()
-                    .reset_index()
-                    .rename(columns={"__to__": "__current__"})
-                )
-                valid_end_df = right_values_df.merge(
-                    end_bound, on="__current__", how="inner"
+                left_eval = left_edges.merge(
+                    allowed[group_cols + ["__right_bound__"]], on=group_cols, how="inner"
                 )
                 if clause.op == "<":
-                    valid_end_df = valid_end_df[
-                        valid_end_df["__end_val__"] > valid_end_df["__left_bound__"]
-                    ]
+                    left_eval = left_eval[left_eval["__start_val__"] < left_eval["__right_bound__"]]
                 else:
-                    valid_end_df = valid_end_df[
-                        valid_end_df["__end_val__"] >= valid_end_df["__left_bound__"]
-                    ]
+                    left_eval = left_eval[left_eval["__start_val__"] <= left_eval["__right_bound__"]]
+
+                right_eval = right_edges.merge(
+                    allowed[group_cols + ["__left_bound__"]], on=group_cols, how="inner"
+                )
+                if clause.op == "<":
+                    right_eval = right_eval[right_eval["__end_val__"] > right_eval["__left_bound__"]]
+                else:
+                    right_eval = right_eval[right_eval["__end_val__"] >= right_eval["__left_bound__"]]
             else:
-                right_bound = (
-                    right_mid_vals.groupby("__mid__")["__end_val__"]
-                    .min()
-                    .reset_index()
-                    .rename(columns={"__end_val__": "__right_bound__"})
-                )
                 left_bound = (
-                    left_mid_vals.groupby("__mid__")["__start_val__"]
+                    left_edges.groupby(group_cols)["__start_val__"]
                     .max()
                     .reset_index()
                     .rename(columns={"__start_val__": "__left_bound__"})
                 )
-
-                start_bound = pairs_left.merge(
-                    right_bound, left_on="__to__", right_on="__mid__", how="inner"
-                )[["__from__", "__right_bound__"]]
-                start_bound = (
-                    start_bound.groupby("__from__")["__right_bound__"]
+                right_bound = (
+                    right_edges.groupby(group_cols)["__end_val__"]
                     .min()
                     .reset_index()
-                    .rename(columns={"__from__": "__start__"})
+                    .rename(columns={"__end_val__": "__right_bound__"})
                 )
-                valid_start_df = left_values_df.merge(
-                    start_bound, on="__start__", how="inner"
+                allowed = left_bound.merge(right_bound, on=group_cols, how="inner")
+                if clause.op == ">":
+                    allowed = allowed[allowed["__left_bound__"] > allowed["__right_bound__"]]
+                else:
+                    allowed = allowed[allowed["__left_bound__"] >= allowed["__right_bound__"]]
+                if len(allowed) == 0:
+                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    continue
+
+                left_eval = left_edges.merge(
+                    allowed[group_cols + ["__right_bound__"]], on=group_cols, how="inner"
                 )
                 if clause.op == ">":
-                    valid_start_df = valid_start_df[
-                        valid_start_df["__start_val__"] > valid_start_df["__right_bound__"]
-                    ]
+                    left_eval = left_eval[left_eval["__start_val__"] > left_eval["__right_bound__"]]
                 else:
-                    valid_start_df = valid_start_df[
-                        valid_start_df["__start_val__"] >= valid_start_df["__right_bound__"]
-                    ]
+                    left_eval = left_eval[left_eval["__start_val__"] >= left_eval["__right_bound__"]]
 
-                end_bound = pairs_right.merge(
-                    left_bound, left_on="__from__", right_on="__mid__", how="inner"
-                )[["__to__", "__left_bound__"]]
-                end_bound = (
-                    end_bound.groupby("__to__")["__left_bound__"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"__to__": "__current__"})
-                )
-                valid_end_df = right_values_df.merge(
-                    end_bound, on="__current__", how="inner"
+                right_eval = right_edges.merge(
+                    allowed[group_cols + ["__left_bound__"]], on=group_cols, how="inner"
                 )
                 if clause.op == ">":
-                    valid_end_df = valid_end_df[
-                        valid_end_df["__end_val__"] < valid_end_df["__left_bound__"]
-                    ]
+                    right_eval = right_eval[right_eval["__end_val__"] < right_eval["__left_bound__"]]
                 else:
-                    valid_end_df = valid_end_df[
-                        valid_end_df["__end_val__"] <= valid_end_df["__left_bound__"]
-                    ]
+                    right_eval = right_eval[right_eval["__end_val__"] <= right_eval["__left_bound__"]]
 
-            if len(valid_start_df) == 0 or len(valid_end_df) == 0:
+            if len(left_eval) == 0 or len(right_eval) == 0:
                 local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
                 local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
                 continue
 
-            valid_starts = series_values(valid_start_df["__start__"])
-            valid_ends = series_values(valid_end_df["__current__"])
+            valid_starts = series_values(left_eval["__start__"])
+            valid_ends = series_values(right_eval["__current__"])
             cur_start_nodes = local_allowed_nodes.get(start_node_idx)
             cur_end_nodes = local_allowed_nodes.get(end_node_idx)
             local_allowed_nodes[start_node_idx] = (
@@ -1457,6 +1495,8 @@ def apply_non_adjacent_where_post_prune(
             )
 
             ineq_agg_used = True
+            if eq_clause is not None:
+                processed_clause_ids.add(id(eq_clause))
             current_state = PathState.from_mutable(
                 local_allowed_nodes, local_allowed_edges, local_pruned_edges
             )
