@@ -63,14 +63,6 @@ def scan_paths(paths, root: str) -> SecretsCollection:
     return secrets
 
 
-def format_secrets(secrets: SecretsCollection) -> str:
-    lines = []
-    for filename, secret in secrets:
-        line_number = getattr(secret, "line_number", 0) or 0
-        lines.append(f"{filename}:{line_number} {secret.type}")
-    return "\n".join(lines)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Secret detection wrapper (serial scan)")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -112,9 +104,10 @@ def main() -> int:
     new_secrets = scanned - baseline_secrets
 
     if new_secrets:
-        report = format_secrets(new_secrets)
-        if report:
-            print(report)
+        print(
+            "ERROR: new secrets detected. Run detect-secrets locally to review the findings.",
+            file=sys.stderr,
+        )
         return 1
 
     return 0
