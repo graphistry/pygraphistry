@@ -15,6 +15,7 @@ import random
 import statistics
 import time
 import warnings
+import signal
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -143,18 +144,50 @@ def _summarize_times(times: List[float]) -> TimingStats:
     return TimingStats(median_ms=median_ms, p90_ms=p90_ms, std_ms=std_ms)
 
 
-def _time_call(fn, runs: int, warmup: int) -> TimingStats:
-    for _ in range(warmup):
+def _run_with_timeout(fn, max_seconds: Optional[float]) -> None:
+    if max_seconds is None or max_seconds <= 0:
         fn()
-    times = []
-    for _ in range(runs):
-        start = time.perf_counter()
+        return
+    if not hasattr(signal, "SIGALRM"):
         fn()
-        times.append((time.perf_counter() - start) * 1000)
-    return _summarize_times(times)
+        return
+
+    def _handler(_signum, _frame):
+        raise TimeoutError("scenario timed out")
+
+    old_handler = signal.signal(signal.SIGALRM, _handler)
+    signal.setitimer(signal.ITIMER_REAL, max_seconds)
+    try:
+        fn()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
-def run_regular(g, chain_ops: List, engine_label: str, runs: int, warmup: int) -> TimingStats:
+def _time_call(fn, runs: int, warmup: int, max_seconds: Optional[float], label: str) -> Optional[TimingStats]:
+    try:
+        for _ in range(warmup):
+            _run_with_timeout(fn, max_seconds)
+        times = []
+        for _ in range(runs):
+            start = time.perf_counter()
+            _run_with_timeout(fn, max_seconds)
+            times.append((time.perf_counter() - start) * 1000)
+        return _summarize_times(times)
+    except TimeoutError:
+        print(f"[timeout] {label} exceeded {max_seconds}s")
+        return None
+
+
+def run_regular(
+    g,
+    chain_ops: List,
+    engine_label: str,
+    runs: int,
+    warmup: int,
+    max_seconds: Optional[float],
+    label: str,
+) -> Optional[TimingStats]:
     def _call():
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -164,7 +197,7 @@ def run_regular(g, chain_ops: List, engine_label: str, runs: int, warmup: int) -
             )
             g.chain(chain_ops, engine=engine_label)
 
-    return _time_call(_call, runs, warmup)
+    return _time_call(_call, runs, warmup, max_seconds, label)
 
 
 def run_yannakakis(
@@ -174,11 +207,13 @@ def run_yannakakis(
     engine: Engine,
     runs: int,
     warmup: int,
-) -> TimingStats:
+    max_seconds: Optional[float],
+    label: str,
+) -> Optional[TimingStats]:
     def _call():
         execute_same_path_chain(g, chain_ops, where, engine, include_paths=False)
 
-    return _time_call(_call, runs, warmup)
+    return _time_call(_call, runs, warmup, max_seconds, label)
 
 
 def format_ms(value: Optional[float]) -> str:
@@ -329,6 +364,12 @@ def main() -> None:
         help="Comma-separated substrings to select scenario names.",
     )
     parser.add_argument(
+        "--max-scenario-seconds",
+        type=float,
+        default=None,
+        help="Per-scenario timeout in seconds (best-effort).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -366,6 +407,11 @@ def main() -> None:
     if args.seed is not None:
         random.seed(args.seed)
 
+    max_scenario_seconds = (
+        None if args.max_scenario_seconds is None or args.max_scenario_seconds <= 0
+        else args.max_scenario_seconds
+    )
+
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()
     graph_specs = build_graph_specs()
@@ -381,7 +427,15 @@ def main() -> None:
         g = build_graph(spec, engine_enum)
         graph_name = spec.name
         for scenario in scenarios:
-            regular_ms = run_regular(g, scenario.chain, args.engine, args.runs, args.warmup)
+            regular_ms = run_regular(
+                g,
+                scenario.chain,
+                args.engine,
+                args.runs,
+                args.warmup,
+                max_scenario_seconds,
+                f"{graph_name}:{scenario.name}:regular",
+            )
             yannakakis_ms = run_yannakakis(
                 g,
                 scenario.chain,
@@ -389,6 +443,8 @@ def main() -> None:
                 engine_enum,
                 args.runs,
                 args.warmup,
+                max_scenario_seconds,
+                f"{graph_name}:{scenario.name}:yannakakis",
             )
             results.append(
                 ResultRow(

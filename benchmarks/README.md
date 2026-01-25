@@ -34,6 +34,7 @@ uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /
 
 By default, WHERE uses auto mode (value-mode + domain semijoin auto for non-adj clauses, edge semijoin auto for edge clauses).
 To compare against baseline behavior, set `--non-adj-mode baseline`.
+Use `--max-scenario-seconds 20` to fail fast on synthetic timeouts (best-effort).
 
 To focus on dense multi-clause scenarios:
 

@@ -136,6 +136,20 @@ GROUPS = [
         note="Dense multi-clause/multi-eq stress.",
     ),
     ScenarioGroup(
+        name="synthetic_dense_timeout",
+        kind="synthetic",
+        args=[
+            "--graph-filter",
+            "medium_dense,large_dense",
+            "--scenario-filter",
+            "nonadj_multi",
+            "--seed",
+            "42",
+        ],
+        profiles=["baseline", "auto"],
+        note="Fixed-seed dense multi-clause timeout repro.",
+    ),
+    ScenarioGroup(
         name="synthetic_adjacent",
         kind="synthetic",
         args=[
@@ -159,6 +173,19 @@ GROUPS = [
         ],
         profiles=["baseline", "domain_semijoin", "auto"],
         note="High-NDV domain equality/inequality on redteam.",
+    ),
+    ScenarioGroup(
+        name="realdata_redteam_timeout",
+        kind="realdata",
+        args=[
+            "--datasets",
+            "redteam50k",
+            "--skip-chain",
+            "--where-filter",
+            "kerberos_domain",
+        ],
+        profiles=["baseline", "auto"],
+        note="Redteam domain timeout repro set.",
     ),
     ScenarioGroup(
         name="realdata_ndv_probes",
@@ -227,6 +254,8 @@ def _build_command(kind: str, args: List[str], output_path: str, runs: int, warm
         ]
         if output_path:
             cmd.extend(["--output", output_path])
+        if max_scenario_seconds is not None:
+            cmd.extend(["--max-scenario-seconds", str(max_scenario_seconds)])
         cmd.extend(args)
         return cmd
     cmd = [
