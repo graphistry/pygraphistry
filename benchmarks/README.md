@@ -41,6 +41,8 @@ uv run python benchmarks/run_chain_vs_samepath.py \
   --runs 5 --warmup 1
 ```
 
+Use `--seed` to make synthetic graph generation repeatable across runs.
+
 To toggle non-adjacent WHERE experiments on synthetic scenarios:
 
 ```bash

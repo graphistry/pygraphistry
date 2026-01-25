@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import statistics
 import time
 import warnings
@@ -327,6 +328,12 @@ def main() -> None:
         default="",
         help="Comma-separated substrings to select scenario names.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for synthetic graph generation.",
+    )
     args = parser.parse_args()
     setup_tracer()
 
@@ -356,6 +363,8 @@ def main() -> None:
         os.environ["GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX"] = str(
             args.non_adj_domain_semijoin_pair_max
         )
+    if args.seed is not None:
+        random.seed(args.seed)
 
     engine_enum = Engine.CUDF if args.engine == "cudf" else Engine.PANDAS
     scenarios = build_scenarios()

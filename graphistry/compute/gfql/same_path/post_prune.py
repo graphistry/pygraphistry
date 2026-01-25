@@ -69,6 +69,9 @@ def apply_non_adjacent_where_post_prune(
     non_adj_domain_semijoin_auto_raw = os.environ.get(
         "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO", ""
     ).strip().lower()
+    non_adj_multi_eq_semijoin_raw = os.environ.get(
+        "GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN", ""
+    ).strip().lower()
     non_adj_domain_semijoin_pair_max_raw = os.environ.get(
         "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX", ""
     ).strip()
@@ -120,6 +123,7 @@ def apply_non_adjacent_where_post_prune(
         sip_ratio = None
     domain_semijoin_enabled = non_adj_domain_semijoin_raw in {"1", "true", "yes", "on"}
     domain_semijoin_auto = non_adj_domain_semijoin_auto_raw in {"1", "true", "yes", "on"}
+    multi_eq_semijoin_enabled = non_adj_multi_eq_semijoin_raw in {"1", "true", "yes", "on"}
     try:
         domain_semijoin_pair_max = (
             int(non_adj_domain_semijoin_pair_max_raw)
@@ -326,6 +330,22 @@ def apply_non_adjacent_where_post_prune(
 
     if composite_value_enabled or vector_enabled:
         multi_eq_groups, multi_eq_order = _collect_multi_eq_groups(non_adjacent_clauses)
+
+    endpoint_clause_counts: Dict[Tuple[int, int], int] = {}
+    for clause in non_adjacent_clauses:
+        left_binding = executor.inputs.alias_bindings.get(clause.left.alias)
+        right_binding = executor.inputs.alias_bindings.get(clause.right.alias)
+        if not left_binding or not right_binding:
+            continue
+        if left_binding.kind != "node" or right_binding.kind != "node":
+            continue
+        start_idx = left_binding.step_index
+        end_idx = right_binding.step_index
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        endpoint_clause_counts[(start_idx, end_idx)] = endpoint_clause_counts.get(
+            (start_idx, end_idx), 0
+        ) + 1
 
     if vector_enabled and multi_eq_groups:
         for key in multi_eq_order:
@@ -746,6 +766,120 @@ def apply_non_adjacent_where_post_prune(
             if value_card_max is not None and label_cardinality > value_card_max:
                 continue
 
+            if (
+                multi_eq_semijoin_enabled
+                and (domain_semijoin_enabled or domain_semijoin_auto)
+                and len(relevant_edge_indices) == 2
+                and nodes_df is not None
+            ):
+                edge_idx_left, edge_idx_right = relevant_edge_indices
+                edges_left = executor.forward_steps[edge_idx_left]._edges
+                edges_right = executor.forward_steps[edge_idx_right]._edges
+                if edges_left is not None and edges_right is not None:
+                    allowed_left = local_allowed_edges.get(edge_idx_left)
+                    allowed_right = local_allowed_edges.get(edge_idx_right)
+                    if allowed_left is not None and edge_id_col and edge_id_col in edges_left.columns:
+                        edges_left = edges_left[edges_left[edge_id_col].isin(allowed_left)]
+                    if allowed_right is not None and edge_id_col and edge_id_col in edges_right.columns:
+                        edges_right = edges_right[edges_right[edge_id_col].isin(allowed_right)]
+
+                    edge_left = executor.inputs.chain[edge_idx_left]
+                    edge_right = executor.inputs.chain[edge_idx_right]
+                    if isinstance(edge_left, ASTEdge) and isinstance(edge_right, ASTEdge):
+                        sem_left = EdgeSemantics.from_edge(edge_left)
+                        sem_right = EdgeSemantics.from_edge(edge_right)
+                        if not sem_left.is_multihop and not sem_right.is_multihop:
+                            pairs_left = build_edge_pairs(edges_left, src_col, dst_col, sem_left).drop_duplicates()
+                            pairs_right = build_edge_pairs(edges_right, src_col, dst_col, sem_right).drop_duplicates()
+
+                            if not domain_is_empty(start_nodes):
+                                pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
+                            if not domain_is_empty(end_nodes):
+                                pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
+
+                            start_vals = start_df[["__start__"] + label_cols].rename(
+                                columns={"__start__": "__from__"}
+                            ).drop_duplicates()
+                            end_vals = end_df[["__current__"] + label_cols].rename(
+                                columns={"__current__": "__to__"}
+                            ).drop_duplicates()
+
+                            left_pairs = pairs_left.merge(start_vals, on="__from__", how="inner")
+                            right_pairs = pairs_right.merge(end_vals, on="__to__", how="inner")
+
+                            left_pairs = left_pairs.rename(
+                                columns={"__from__": "__start__", "__to__": "__mid__"}
+                            )[["__start__", "__mid__"] + label_cols].drop_duplicates()
+                            right_pairs = right_pairs.rename(
+                                columns={"__from__": "__mid__", "__to__": "__current__"}
+                            )[["__mid__", "__current__"] + label_cols].drop_duplicates()
+
+                            if len(left_pairs) == 0 or len(right_pairs) == 0:
+                                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                continue
+
+                            pair_est_value = len(left_pairs) * len(right_pairs)
+                            domain_semijoin_pair_est_max = max(
+                                domain_semijoin_pair_est_max, pair_est_value
+                            )
+                            semijoin_active = domain_semijoin_enabled
+                            if not semijoin_active and domain_semijoin_auto:
+                                if (
+                                    domain_semijoin_pair_max is None
+                                    or pair_est_value > domain_semijoin_pair_max
+                                ):
+                                    semijoin_active = True
+                                    domain_semijoin_auto_used = True
+
+                            if semijoin_active:
+                                mid_values = left_pairs.merge(
+                                    right_pairs, on=["__mid__"] + label_cols, how="inner"
+                                )[["__mid__"] + label_cols].drop_duplicates()
+                                domain_semijoin_pairs_max = max(
+                                    domain_semijoin_pairs_max, len(mid_values)
+                                )
+                                if len(mid_values) == 0:
+                                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                    continue
+
+                                left_pairs = left_pairs.merge(
+                                    mid_values, on=["__mid__"] + label_cols, how="inner"
+                                )
+                                right_pairs = right_pairs.merge(
+                                    mid_values, on=["__mid__"] + label_cols, how="inner"
+                                )
+
+                                valid_starts = series_values(left_pairs["__start__"])
+                                valid_ends = series_values(right_pairs["__current__"])
+
+                                if start_node_idx in local_allowed_nodes:
+                                    local_allowed_nodes[start_node_idx] = domain_intersect(
+                                        local_allowed_nodes[start_node_idx],
+                                        valid_starts,
+                                    )
+                                if end_node_idx in local_allowed_nodes:
+                                    local_allowed_nodes[end_node_idx] = domain_intersect(
+                                        local_allowed_nodes[end_node_idx],
+                                        valid_ends,
+                                    )
+
+                                domain_semijoin_used = True
+                                clause_count += len(group_entries)
+                                for _, _, clause in group_entries:
+                                    processed_clause_ids.add(id(clause))
+
+                                current_state = PathState.from_mutable(
+                                    local_allowed_nodes, local_allowed_edges, local_pruned_edges
+                                )
+                                current_state = executor.backward_propagate_constraints(
+                                    current_state, start_node_idx, end_node_idx
+                                )
+                                local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
+                                local_pruned_edges.update(current_state.pruned_edges)
+                                continue
+
             for _, _, clause in group_entries:
                 processed_clause_ids.add(id(clause))
 
@@ -884,6 +1018,7 @@ def apply_non_adjacent_where_post_prune(
             idx for idx in edge_indices
             if start_node_idx < idx < end_node_idx
         ]
+        endpoint_clause_count = endpoint_clause_counts.get((start_node_idx, end_node_idx), 1)
 
         start_nodes = local_allowed_nodes.get(start_node_idx)
         end_nodes = local_allowed_nodes.get(end_node_idx)
@@ -1065,6 +1200,12 @@ def apply_non_adjacent_where_post_prune(
             and len(right_values_df) > 0
             and (value_card_max is None or (value_cardinality is not None and value_cardinality <= value_card_max))
         )
+        skip_value_auto_semijoin = (
+            value_mode_enabled
+            and domain_semijoin_auto
+            and not domain_semijoin_enabled
+            and endpoint_clause_count <= 1
+        )
 
         if (
             (domain_semijoin_enabled or domain_semijoin_auto)
@@ -1072,7 +1213,7 @@ def apply_non_adjacent_where_post_prune(
             and len(relevant_edge_indices) == 2
             and left_values_df is not None
             and right_values_df is not None
-            and not (value_mode_enabled and domain_semijoin_auto and not domain_semijoin_enabled)
+            and not skip_value_auto_semijoin
         ):
             edge_idx_left, edge_idx_right = relevant_edge_indices
             edges_left = executor.forward_steps[edge_idx_left]._edges
