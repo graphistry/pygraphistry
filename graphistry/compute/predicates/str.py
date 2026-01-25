@@ -1,4 +1,5 @@
 from typing import Any, Optional, Union
+import re
 
 import pandas as pd
 
@@ -10,6 +11,26 @@ def _cudf_mask_none(result: Any, mask: Any) -> Any:
     result_pd = result.to_pandas().astype('object')
     result_pd.iloc[mask] = None
     return result_pd
+
+
+def _pandas_handle_na(
+    result: pd.Series,
+    source: pd.Series,
+    na: Optional[bool]
+) -> pd.Series:
+    mask = source.isna()
+    if na is None:
+        if mask.any():
+            result = result.astype('object')
+            result[mask] = None
+        return result
+
+    if mask.any():
+        result = result.copy()
+        result[mask] = na
+        if result.dtype == object:
+            result = result.infer_objects(copy=False)
+    return result
 
 
 class Contains(ASTPredicate):
@@ -58,13 +79,14 @@ class Contains(ASTPredicate):
 
             return result
         else:
-            return s.str.contains(
+            result = s.str.contains(
                 self.pat,
-                self.case,
-                self.flags,
-                self.na,
-                self.regex
+                case=self.case,
+                flags=self.flags,
+                na=self.na,
+                regex=self.regex
             )
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -153,9 +175,7 @@ class Startswith(ASTPredicate):
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.startswith(self.pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _pandas_handle_na(result, s, self.na)
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
@@ -169,9 +189,7 @@ class Startswith(ASTPredicate):
                     patterns_lower = tuple(p.lower() for p in self.pat)
                     # Use pandas native tuple support on lowercased data
                     result = s_lower.str.startswith(patterns_lower)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _pandas_handle_na(result, s, self.na)
             else:
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
@@ -217,14 +235,7 @@ class Startswith(ASTPredicate):
             else:
                 return result
         else:
-            # pandas supports na parameter for case-sensitive str patterns
-            if not self.case:
-                if self.na is not None:
-                    return result.fillna(self.na)
-                else:
-                    return result
-            else:
-                return s.str.startswith(self.pat, self.na)
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -319,9 +330,7 @@ class Endswith(ASTPredicate):
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.endswith(self.pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _pandas_handle_na(result, s, self.na)
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
@@ -336,9 +345,7 @@ class Endswith(ASTPredicate):
                     patterns_lower = tuple(p.lower() for p in self.pat)
                     # Use pandas native tuple support on lowercased data
                     result = s_lower.str.endswith(patterns_lower)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                return _pandas_handle_na(result, s, self.na)
             else:
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
@@ -384,14 +391,7 @@ class Endswith(ASTPredicate):
             else:
                 return result
         else:
-            # pandas supports na parameter for case-sensitive str patterns
-            if not self.case:
-                if self.na is not None:
-                    return result.fillna(self.na)
-                else:
-                    return result
-            else:
-                return s.str.endswith(self.pat, self.na)
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -493,7 +493,18 @@ class Match(ASTPredicate):
 
             return result
         else:
-            return s.str.match(self.pat, self.case, self.flags, self.na)
+            if self.flags:
+                effective_flags = self.flags
+                if not self.case:
+                    effective_flags |= re.IGNORECASE
+                pattern = re.compile(self.pat, effective_flags)
+                result = s.str.match(pattern, na=self.na)
+            else:
+                if not self.case:
+                    result = s.str.match(self.pat, case=False, na=self.na)
+                else:
+                    result = s.str.match(self.pat, na=self.na)
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -582,7 +593,13 @@ class Fullmatch(ASTPredicate):
             return result
         else:
             # pandas has native fullmatch support
-            return s.str.fullmatch(self.pat, self.case, self.flags, self.na)
+            result = s.str.fullmatch(
+                self.pat,
+                case=self.case,
+                flags=self.flags,
+                na=self.na
+            )
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
