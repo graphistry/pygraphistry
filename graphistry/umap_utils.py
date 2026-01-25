@@ -26,13 +26,17 @@ from .utils.plottable_memoize import check_set_memoize
 
 logger = setup_logger(__name__)
 
+DataFrameLike = Union[pd.DataFrame, Any]
+
 if TYPE_CHECKING:
-    MIXIN_BASE = FeatureMixin
+    class _UMAPMixinBase(FeatureMixin):
+        _weighted_edges_df: Optional[DataFrameLike]
+        _weighted_edges_df_from_nodes: Optional[DataFrameLike]
+        _weighted_edges_df_from_edges: Optional[DataFrameLike]
+
+    MIXIN_BASE = _UMAPMixinBase
 else:
     MIXIN_BASE = object
-
-
-DataFrameLike = Union[pd.DataFrame, Any]
 
 # Error message for empty feature matrix
 _EMPTY_FEATURES_ERROR_MSG = (
