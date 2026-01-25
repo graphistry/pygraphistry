@@ -7,10 +7,24 @@ from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
-def _cudf_mask_none(result: Any, mask: Any) -> Any:
-    result_pd = result.to_pandas().astype('object')
-    result_pd.iloc[mask] = None
-    return result_pd
+def _cudf_mask_value(result: Any, mask: Any, value: Any) -> Any:
+    try:
+        return result.mask(mask, value)
+    except Exception:
+        try:
+            result[mask] = value
+            return result
+        except Exception:
+            try:
+                mask_arr = mask.to_pandas().to_numpy()
+            except Exception:
+                mask_arr = mask
+            import cudf
+            result_pd = result.to_pandas()
+            if value is None:
+                result_pd = result_pd.astype('object')
+            result_pd.iloc[mask_arr] = value
+            return cudf.from_pandas(result_pd)
 
 
 def _cudf_handle_na(
@@ -18,25 +32,21 @@ def _cudf_handle_na(
     source: Any,
     na: Optional[bool]
 ) -> Any:
+    mask = None
+    try:
+        mask = source.isna()
+        has_mask = bool(mask.any())
+    except Exception:
+        has_mask = False
+
     if na is None:
-        try:
-            mask = source.isna()
-            if not bool(mask.any()):
-                return result
-        except Exception:
+        if not has_mask:
             return result
-        try:
-            return result.mask(mask)
-        except Exception:
-            try:
-                result[mask] = None
-                return result
-            except Exception:
-                import cudf
-                na_mask_arr = source.to_pandas().isna().to_numpy()
-                return cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
+        return _cudf_mask_value(result, mask, None)
 
     if isinstance(na, bool):
+        if has_mask:
+            return _cudf_mask_value(result, mask, na)
         try:
             return result.fillna(na)
         except Exception:

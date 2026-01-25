@@ -236,6 +236,12 @@ def test_startswith_cudf_na_handling():
     expected = cudf.Series([False, False, True])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
+    # NA=True
+    predicate = startswith('ho', na=True)
+    result = predicate(s)
+    expected = cudf.Series([False, True, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
 
 @requires_cudf
 def test_startswith_cudf_case_insensitive():
@@ -312,6 +318,12 @@ def test_endswith_cudf_na_handling():
     predicate = endswith('se', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+    # NA=True
+    predicate = endswith('se', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, True])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
@@ -410,6 +422,12 @@ def test_match_cudf_na_handling():
     predicate = match(r'\d+', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+    # NA=True
+    predicate = match(r'\d+', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
@@ -534,6 +552,12 @@ def test_fullmatch_cudf_na_handling():
     predicate = fullmatch(r'\d+', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+    # NA=True
+    predicate = fullmatch(r'\d+', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
