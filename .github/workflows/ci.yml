@@ -246,16 +246,20 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install -e .[test,bolt,nodexl]
         python -m pip install "pandas==${{ matrix.pandas-version }}"
 
-    - name: Pandas compatibility tests
+    - name: Pandas compatibility minimal suite
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-minimal.sh
+
+    - name: Pandas compatibility extra coverage
       run: |
         source pygraphistry/bin/activate
         python -m pytest -vv \
-          graphistry/tests/compute/predicates/test_str.py \
-          graphistry/tests/compute/predicates/test_temporal_values.py \
-          graphistry/tests/layout/ring/test_time.py
+          graphistry/tests/test_bolt_util.py \
+          graphistry/tests/test_nodexl.py
 
 
   test-core-python:
