@@ -10,20 +10,14 @@ from graphistry.compute.predicates.str import (
     fullmatch,
     IsUpper, isupper
 )
+from graphistry.embed_utils import check_cudf
 
 
-# Helper to check if cuDF is available
-def has_cudf():
-    try:
-        import cudf  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
+has_cudf, _ = check_cudf()
 
 # Skip tests that require cuDF when it's not available
 requires_cudf = pytest.mark.skipif(
-    not has_cudf(),
+    not has_cudf,
     reason="cudf not installed"
 )
 
