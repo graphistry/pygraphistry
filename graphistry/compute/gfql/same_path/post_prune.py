@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT
-from graphistry.compute.gfql.same_path_types import PathState
+from graphistry.compute.gfql.same_path_types import PathState, ComparisonOp
 from graphistry.otel import otel_detail_enabled
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs
@@ -114,19 +114,20 @@ def apply_non_adjacent_where_post_prune(
         vector_label_max = int(non_adj_vector_label_max) if non_adj_vector_label_max else None
     except ValueError:
         vector_label_max = None
+    vector_pair_max: Optional[int]
     try:
         vector_pair_max = int(non_adj_vector_pair_max) if non_adj_vector_pair_max else 200000
     except ValueError:
         vector_pair_max = 200000
     if vector_pair_max is not None and vector_pair_max <= 0:
         vector_pair_max = None
-    sip_ratio = 5.0
+    sip_ratio: Optional[float] = 5.0
     if non_adj_sip_ratio_raw:
         try:
             sip_ratio = float(non_adj_sip_ratio_raw)
         except ValueError:
             sip_ratio = 5.0
-    if sip_ratio <= 0:
+    if sip_ratio is not None and sip_ratio <= 0:
         sip_ratio = None
     domain_semijoin_enabled = non_adj_domain_semijoin_raw in {"1", "true", "yes", "on"}
     domain_semijoin_auto = non_adj_domain_semijoin_auto_raw in {"1", "true", "yes", "on"}
@@ -138,6 +139,7 @@ def apply_non_adjacent_where_post_prune(
     multi_eq_semijoin_enabled = non_adj_multi_eq_semijoin_raw in {"1", "true", "yes", "on"}
     ineq_agg_enabled = non_adj_ineq_agg_raw in {"1", "true", "yes", "on"}
     try:
+        domain_semijoin_pair_max: Optional[int]
         domain_semijoin_pair_max = (
             int(non_adj_domain_semijoin_pair_max_raw)
             if non_adj_domain_semijoin_pair_max_raw
@@ -428,8 +430,8 @@ def apply_non_adjacent_where_post_prune(
                 non_adj_mode in {"auto", "auto_prefilter"}
                 and domain_semijoin_pair_max is not None
             ):
-                start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
-                end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
+                start_count = 0 if start_nodes is None else len(start_nodes)
+                end_count = 0 if end_nodes is None else len(end_nodes)
                 pair_est = start_count * end_count
                 value_pair_guard_pair_est_max = max(value_pair_guard_pair_est_max, pair_est)
                 guard = pair_est > domain_semijoin_pair_max
@@ -446,9 +448,11 @@ def apply_non_adjacent_where_post_prune(
                         if local_allowed_edges.get(relevant_edge_indices[1]) is not None
                         else (len(edge_right) if edge_right is not None else 0)
                     )
-                    edge_pair_est = edge_left_count * edge_right_count
-                    value_pair_guard_edge_est_max = max(value_pair_guard_edge_est_max, edge_pair_est)
-                    guard = guard or (edge_pair_est > domain_semijoin_pair_max)
+                    vector_edge_pair_est = edge_left_count * edge_right_count
+                    value_pair_guard_edge_est_max = max(
+                        value_pair_guard_edge_est_max, vector_edge_pair_est
+                    )
+                    guard = guard or (vector_edge_pair_est > domain_semijoin_pair_max)
                 if guard:
                     value_pair_guard_used = True
                     continue
@@ -1287,10 +1291,10 @@ def apply_non_adjacent_where_post_prune(
                 right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
                 bounds_used = True
 
-        start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
-        end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
+        start_count = 0 if start_nodes is None else len(start_nodes)
+        end_count = 0 if end_nodes is None else len(end_nodes)
         pair_est = start_count * end_count
-        edge_pair_est = None
+        edge_pair_est: Optional[int] = None
         if len(relevant_edge_indices) == 2:
             edge_left = executor.forward_steps[relevant_edge_indices[0]]._edges
             edge_right = executor.forward_steps[relevant_edge_indices[1]]._edges
@@ -1327,7 +1331,13 @@ def apply_non_adjacent_where_post_prune(
             and clause.op in {"<", "<=", ">", ">="}
             and len(relevant_edge_indices) == 2
             and domain_semijoin_pair_max is not None
-            and (pair_est > domain_semijoin_pair_max or (edge_pair_est is not None and edge_pair_est > domain_semijoin_pair_max))
+            and (
+                pair_est > domain_semijoin_pair_max
+                or (
+                    edge_pair_est is not None
+                    and edge_pair_est > domain_semijoin_pair_max
+                )
+            )
         ):
             ineq_agg_pair_est_max = max(ineq_agg_pair_est_max, pair_est)
             edge_idx_left, edge_idx_right = relevant_edge_indices
@@ -1360,21 +1370,21 @@ def apply_non_adjacent_where_post_prune(
             if not domain_is_empty(end_nodes):
                 pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
 
-            label_cols: List[str] = []
+            ineq_label_cols: List[str] = []
             eq_clause = None
             eq_entries = endpoint_eq_clauses.get((start_node_idx, end_node_idx), [])
             if len(eq_entries) == 1:
                 eq_clause, eq_start_col, eq_end_col = eq_entries[0]
                 if eq_start_col in nodes_df.columns and eq_end_col in nodes_df.columns:
-                    label_cols = ["__label__"]
+                    ineq_label_cols = ["__label__"]
                 else:
                     eq_clause = None
-            if not label_cols:
+            if not ineq_label_cols:
                 continue
 
             start_val_df = left_values_df.copy()
             end_val_df = right_values_df.copy()
-            if label_cols:
+            if ineq_label_cols:
                 start_labels = nodes_df[nodes_df[node_id_col].isin(start_nodes)][
                     [node_id_col, eq_start_col]
                 ].drop_duplicates()
@@ -1402,7 +1412,7 @@ def apply_non_adjacent_where_post_prune(
                 right_on="__start__",
                 how="inner",
             ).rename(columns={"__to__": "__mid__"})
-            left_cols = ["__start__", "__mid__", "__start_val__"] + label_cols
+            left_cols = ["__start__", "__mid__", "__start_val__"] + ineq_label_cols
             left_edges = left_edges[left_cols].drop_duplicates()
 
             right_edges = pairs_right.merge(
@@ -1411,7 +1421,7 @@ def apply_non_adjacent_where_post_prune(
                 right_on="__current__",
                 how="inner",
             ).rename(columns={"__from__": "__mid__"})
-            right_cols = ["__current__", "__mid__", "__end_val__"] + label_cols
+            right_cols = ["__current__", "__mid__", "__end_val__"] + ineq_label_cols
             right_edges = right_edges[right_cols].drop_duplicates()
 
             if len(left_edges) == 0 or len(right_edges) == 0:
@@ -1419,8 +1429,8 @@ def apply_non_adjacent_where_post_prune(
                 local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
                 continue
 
-            group_cols = ["__mid__"] + label_cols
-            if label_cols:
+            group_cols = ["__mid__"] + ineq_label_cols
+            if ineq_label_cols:
                 left_labels = left_edges[["__mid__", "__label__"]].drop_duplicates()
                 right_labels = right_edges[["__mid__", "__label__"]].drop_duplicates()
                 allowed_labels = left_labels.merge(
@@ -2101,6 +2111,7 @@ def apply_edge_where_post_prune(
     edge_semijoin_auto = edge_semijoin_auto_raw in {"1", "true", "yes", "on"}
     if not edge_semijoin_auto_raw and non_adj_mode in {"auto", "auto_prefilter"}:
         edge_semijoin_auto = True
+    edge_semijoin_pair_max: Optional[int]
     try:
         edge_semijoin_pair_max = (
             int(edge_semijoin_pair_max_raw)
@@ -2215,14 +2226,15 @@ def apply_edge_where_post_prune(
             if left_pos > right_pos:
                 left_edge_idx, right_edge_idx = right_edge_idx, left_edge_idx
                 left_pos, right_pos = right_pos, left_pos
-                op = {
+                reverse_ops: Dict[ComparisonOp, ComparisonOp] = {
                     "<": ">",
                     "<=": ">=",
                     ">": "<",
                     ">=": "<=",
                     "==": "==",
                     "!=": "!=",
-                }.get(op, op)
+                }
+                op = reverse_ops[op]
 
             if op not in {"==", "!=", "<", "<=", ">", ">="}:
                 fast_path_full_cover = False
