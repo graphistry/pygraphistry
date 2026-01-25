@@ -291,6 +291,9 @@ def apply_non_adjacent_where_post_prune(
     domain_semijoin_pairs_max = 0
     domain_semijoin_auto_used = False
     domain_semijoin_pair_est_max = 0
+    value_pair_guard_used = False
+    value_pair_guard_pair_est_max = 0
+    value_pair_guard_edge_est_max = 0
     vector_used = False
     vector_label_card_max = 0
     vector_candidate_pairs_max = 0
@@ -371,6 +374,35 @@ def apply_non_adjacent_where_post_prune(
                 idx for idx in edge_indices
                 if start_node_idx < idx < end_node_idx
             ]
+
+            if (
+                non_adj_mode in {"auto", "auto_prefilter"}
+                and domain_semijoin_pair_max is not None
+            ):
+                start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
+                end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
+                pair_est = start_count * end_count
+                value_pair_guard_pair_est_max = max(value_pair_guard_pair_est_max, pair_est)
+                guard = pair_est > domain_semijoin_pair_max
+                if len(relevant_edge_indices) == 2:
+                    edge_left = executor.forward_steps[relevant_edge_indices[0]]._edges
+                    edge_right = executor.forward_steps[relevant_edge_indices[1]]._edges
+                    edge_left_count = (
+                        len(local_allowed_edges[relevant_edge_indices[0]])
+                        if local_allowed_edges.get(relevant_edge_indices[0]) is not None
+                        else (len(edge_left) if edge_left is not None else 0)
+                    )
+                    edge_right_count = (
+                        len(local_allowed_edges[relevant_edge_indices[1]])
+                        if local_allowed_edges.get(relevant_edge_indices[1]) is not None
+                        else (len(edge_right) if edge_right is not None else 0)
+                    )
+                    edge_pair_est = edge_left_count * edge_right_count
+                    value_pair_guard_edge_est_max = max(value_pair_guard_edge_est_max, edge_pair_est)
+                    guard = guard or (edge_pair_est > domain_semijoin_pair_max)
+                if guard:
+                    value_pair_guard_used = True
+                    continue
             if len(relevant_edge_indices) == 0 or len(relevant_edge_indices) > vector_max_hops:
                 continue
 
@@ -1088,6 +1120,37 @@ def apply_non_adjacent_where_post_prune(
             local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
             continue
 
+        if (
+            auto_value_mode
+            and value_mode_requested
+            and domain_semijoin_pair_max is not None
+            and endpoint_clause_count > 1
+        ):
+            start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
+            end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
+            pair_est = start_count * end_count
+            value_pair_guard_pair_est_max = max(value_pair_guard_pair_est_max, pair_est)
+            guard = pair_est > domain_semijoin_pair_max
+            if len(relevant_edge_indices) == 2:
+                edge_left = executor.forward_steps[relevant_edge_indices[0]]._edges
+                edge_right = executor.forward_steps[relevant_edge_indices[1]]._edges
+                edge_left_count = (
+                    len(local_allowed_edges[relevant_edge_indices[0]])
+                    if local_allowed_edges.get(relevant_edge_indices[0]) is not None
+                    else (len(edge_left) if edge_left is not None else 0)
+                )
+                edge_right_count = (
+                    len(local_allowed_edges[relevant_edge_indices[1]])
+                    if local_allowed_edges.get(relevant_edge_indices[1]) is not None
+                    else (len(edge_right) if edge_right is not None else 0)
+                )
+                edge_pair_est = edge_left_count * edge_right_count
+                value_pair_guard_edge_est_max = max(value_pair_guard_edge_est_max, edge_pair_est)
+                guard = guard or (edge_pair_est > domain_semijoin_pair_max)
+            if guard:
+                value_pair_guard_used = True
+                value_mode_requested = False
+
         if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
             if clause.op == "==":
                 allowed_values = domain_intersect(left_values_domain, right_values_domain)
@@ -1672,6 +1735,9 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.singleton_used", singleton_used)
         span.set_attribute("gfql.non_adjacent.bounds_used", bounds_used)
         span.set_attribute("gfql.non_adjacent.order_used", order_used)
+        span.set_attribute("gfql.non_adjacent.value_pair_guard_used", value_pair_guard_used)
+        span.set_attribute("gfql.non_adjacent.value_pair_guard_pair_est_max", value_pair_guard_pair_est_max)
+        span.set_attribute("gfql.non_adjacent.value_pair_guard_edge_est_max", value_pair_guard_edge_est_max)
         span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
         if value_card_max is not None:

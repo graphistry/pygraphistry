@@ -18,6 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Compute / hop**: Refactored hop traversal to precompute node predicate domains and unify direction handling; synthetic CPU benchmarks show modest median improvements with some regressions on undirected/range scenarios.
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
 - **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
+- **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
 - **Compute / hop**: Undirected traversal skips oriented-pair expansion when no destination filters; modest CPU gains in undirected benchmarks.
 - **Compute / hop**: Fast-path traversal uses domain-based visited/frontier tracking to avoid per-hop concat+dedupe overhead; modest CPU improvements in synthetic benchmarks.
 
