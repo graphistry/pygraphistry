@@ -79,6 +79,9 @@ def apply_non_adjacent_where_post_prune(
     non_adj_domain_semijoin_pair_max_raw = os.environ.get(
         "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX", ""
     ).strip()
+    non_adj_ineq_agg_raw = os.environ.get(
+        "GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG", ""
+    ).strip().lower()
     non_adj_value_ops_raw = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS", "").strip().lower()
     if non_adj_value_ops_raw:
         value_mode_ops = {
@@ -133,6 +136,7 @@ def apply_non_adjacent_where_post_prune(
     ):
         domain_semijoin_auto = True
     multi_eq_semijoin_enabled = non_adj_multi_eq_semijoin_raw in {"1", "true", "yes", "on"}
+    ineq_agg_enabled = non_adj_ineq_agg_raw in {"1", "true", "yes", "on"}
     try:
         domain_semijoin_pair_max = (
             int(non_adj_domain_semijoin_pair_max_raw)
@@ -294,6 +298,8 @@ def apply_non_adjacent_where_post_prune(
     value_pair_guard_used = False
     value_pair_guard_pair_est_max = 0
     value_pair_guard_edge_est_max = 0
+    ineq_agg_used = False
+    ineq_agg_pair_est_max = 0
     vector_used = False
     vector_label_card_max = 0
     vector_candidate_pairs_max = 0
@@ -1120,37 +1126,6 @@ def apply_non_adjacent_where_post_prune(
             local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
             continue
 
-        if (
-            auto_value_mode
-            and value_mode_requested
-            and domain_semijoin_pair_max is not None
-            and endpoint_clause_count > 1
-        ):
-            start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
-            end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
-            pair_est = start_count * end_count
-            value_pair_guard_pair_est_max = max(value_pair_guard_pair_est_max, pair_est)
-            guard = pair_est > domain_semijoin_pair_max
-            if len(relevant_edge_indices) == 2:
-                edge_left = executor.forward_steps[relevant_edge_indices[0]]._edges
-                edge_right = executor.forward_steps[relevant_edge_indices[1]]._edges
-                edge_left_count = (
-                    len(local_allowed_edges[relevant_edge_indices[0]])
-                    if local_allowed_edges.get(relevant_edge_indices[0]) is not None
-                    else (len(edge_left) if edge_left is not None else 0)
-                )
-                edge_right_count = (
-                    len(local_allowed_edges[relevant_edge_indices[1]])
-                    if local_allowed_edges.get(relevant_edge_indices[1]) is not None
-                    else (len(edge_right) if edge_right is not None else 0)
-                )
-                edge_pair_est = edge_left_count * edge_right_count
-                value_pair_guard_edge_est_max = max(value_pair_guard_edge_est_max, edge_pair_est)
-                guard = guard or (edge_pair_est > domain_semijoin_pair_max)
-            if guard:
-                value_pair_guard_used = True
-                value_mode_requested = False
-
         if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
             if clause.op == "==":
                 allowed_values = domain_intersect(left_values_domain, right_values_domain)
@@ -1258,6 +1233,239 @@ def apply_non_adjacent_where_post_prune(
                 left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
                 right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
                 bounds_used = True
+
+        start_count = 0 if domain_is_empty(start_nodes) else len(start_nodes)
+        end_count = 0 if domain_is_empty(end_nodes) else len(end_nodes)
+        pair_est = start_count * end_count
+        edge_pair_est = None
+        if len(relevant_edge_indices) == 2:
+            edge_left = executor.forward_steps[relevant_edge_indices[0]]._edges
+            edge_right = executor.forward_steps[relevant_edge_indices[1]]._edges
+            edge_left_count = (
+                len(local_allowed_edges[relevant_edge_indices[0]])
+                if local_allowed_edges.get(relevant_edge_indices[0]) is not None
+                else (len(edge_left) if edge_left is not None else 0)
+            )
+            edge_right_count = (
+                len(local_allowed_edges[relevant_edge_indices[1]])
+                if local_allowed_edges.get(relevant_edge_indices[1]) is not None
+                else (len(edge_right) if edge_right is not None else 0)
+            )
+            edge_pair_est = edge_left_count * edge_right_count
+
+        if (
+            auto_value_mode
+            and value_mode_requested
+            and domain_semijoin_pair_max is not None
+            and endpoint_clause_count > 1
+        ):
+            value_pair_guard_pair_est_max = max(value_pair_guard_pair_est_max, pair_est)
+            guard = pair_est > domain_semijoin_pair_max
+            if edge_pair_est is not None:
+                value_pair_guard_edge_est_max = max(value_pair_guard_edge_est_max, edge_pair_est)
+                guard = guard or (edge_pair_est > domain_semijoin_pair_max)
+            if guard:
+                value_pair_guard_used = True
+                value_mode_requested = False
+
+        if (
+            ineq_agg_enabled
+            and auto_value_mode
+            and clause.op in {"<", "<=", ">", ">="}
+            and len(relevant_edge_indices) == 2
+            and domain_semijoin_pair_max is not None
+            and (pair_est > domain_semijoin_pair_max or (edge_pair_est is not None and edge_pair_est > domain_semijoin_pair_max))
+        ):
+            ineq_agg_pair_est_max = max(ineq_agg_pair_est_max, pair_est)
+            edge_idx_left, edge_idx_right = relevant_edge_indices
+            edges_left = executor.forward_steps[edge_idx_left]._edges
+            edges_right = executor.forward_steps[edge_idx_right]._edges
+            if edges_left is None or edges_right is None:
+                continue
+
+            allowed_left = local_allowed_edges.get(edge_idx_left)
+            allowed_right = local_allowed_edges.get(edge_idx_right)
+            if allowed_left is not None and edge_id_col and edge_id_col in edges_left.columns:
+                edges_left = edges_left[edges_left[edge_id_col].isin(allowed_left)]
+            if allowed_right is not None and edge_id_col and edge_id_col in edges_right.columns:
+                edges_right = edges_right[edges_right[edge_id_col].isin(allowed_right)]
+
+            edge_left = executor.inputs.chain[edge_idx_left]
+            edge_right = executor.inputs.chain[edge_idx_right]
+            if not isinstance(edge_left, ASTEdge) or not isinstance(edge_right, ASTEdge):
+                continue
+            sem_left = EdgeSemantics.from_edge(edge_left)
+            sem_right = EdgeSemantics.from_edge(edge_right)
+            if sem_left.is_multihop or sem_right.is_multihop:
+                continue
+
+            pairs_left = build_edge_pairs(edges_left, src_col, dst_col, sem_left).drop_duplicates()
+            pairs_right = build_edge_pairs(edges_right, src_col, dst_col, sem_right).drop_duplicates()
+
+            if not domain_is_empty(start_nodes):
+                pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
+            if not domain_is_empty(end_nodes):
+                pairs_right = pairs_right[pairs_right["__to__"].isin(end_nodes)]
+
+            left_mid_vals = pairs_left.merge(
+                left_values_df[["__start__", "__start_val__"]],
+                left_on="__from__",
+                right_on="__start__",
+                how="inner",
+            )[["__to__", "__start_val__"]].rename(columns={"__to__": "__mid__"})
+            right_mid_vals = pairs_right.merge(
+                right_values_df[["__current__", "__end_val__"]],
+                left_on="__to__",
+                right_on="__current__",
+                how="inner",
+            )[["__from__", "__end_val__"]].rename(columns={"__from__": "__mid__"})
+
+            if len(left_mid_vals) == 0 or len(right_mid_vals) == 0:
+                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                continue
+
+            if clause.op in {"<", "<="}:
+                right_bound = (
+                    right_mid_vals.groupby("__mid__")["__end_val__"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"__end_val__": "__right_bound__"})
+                )
+                left_bound = (
+                    left_mid_vals.groupby("__mid__")["__start_val__"]
+                    .min()
+                    .reset_index()
+                    .rename(columns={"__start_val__": "__left_bound__"})
+                )
+
+                start_bound = pairs_left.merge(
+                    right_bound, left_on="__to__", right_on="__mid__", how="inner"
+                )[["__from__", "__right_bound__"]]
+                start_bound = (
+                    start_bound.groupby("__from__")["__right_bound__"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"__from__": "__start__"})
+                )
+                valid_start_df = left_values_df.merge(
+                    start_bound, on="__start__", how="inner"
+                )
+                if clause.op == "<":
+                    valid_start_df = valid_start_df[
+                        valid_start_df["__start_val__"] < valid_start_df["__right_bound__"]
+                    ]
+                else:
+                    valid_start_df = valid_start_df[
+                        valid_start_df["__start_val__"] <= valid_start_df["__right_bound__"]
+                    ]
+
+                end_bound = pairs_right.merge(
+                    left_bound, left_on="__from__", right_on="__mid__", how="inner"
+                )[["__to__", "__left_bound__"]]
+                end_bound = (
+                    end_bound.groupby("__to__")["__left_bound__"]
+                    .min()
+                    .reset_index()
+                    .rename(columns={"__to__": "__current__"})
+                )
+                valid_end_df = right_values_df.merge(
+                    end_bound, on="__current__", how="inner"
+                )
+                if clause.op == "<":
+                    valid_end_df = valid_end_df[
+                        valid_end_df["__end_val__"] > valid_end_df["__left_bound__"]
+                    ]
+                else:
+                    valid_end_df = valid_end_df[
+                        valid_end_df["__end_val__"] >= valid_end_df["__left_bound__"]
+                    ]
+            else:
+                right_bound = (
+                    right_mid_vals.groupby("__mid__")["__end_val__"]
+                    .min()
+                    .reset_index()
+                    .rename(columns={"__end_val__": "__right_bound__"})
+                )
+                left_bound = (
+                    left_mid_vals.groupby("__mid__")["__start_val__"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"__start_val__": "__left_bound__"})
+                )
+
+                start_bound = pairs_left.merge(
+                    right_bound, left_on="__to__", right_on="__mid__", how="inner"
+                )[["__from__", "__right_bound__"]]
+                start_bound = (
+                    start_bound.groupby("__from__")["__right_bound__"]
+                    .min()
+                    .reset_index()
+                    .rename(columns={"__from__": "__start__"})
+                )
+                valid_start_df = left_values_df.merge(
+                    start_bound, on="__start__", how="inner"
+                )
+                if clause.op == ">":
+                    valid_start_df = valid_start_df[
+                        valid_start_df["__start_val__"] > valid_start_df["__right_bound__"]
+                    ]
+                else:
+                    valid_start_df = valid_start_df[
+                        valid_start_df["__start_val__"] >= valid_start_df["__right_bound__"]
+                    ]
+
+                end_bound = pairs_right.merge(
+                    left_bound, left_on="__from__", right_on="__mid__", how="inner"
+                )[["__to__", "__left_bound__"]]
+                end_bound = (
+                    end_bound.groupby("__to__")["__left_bound__"]
+                    .max()
+                    .reset_index()
+                    .rename(columns={"__to__": "__current__"})
+                )
+                valid_end_df = right_values_df.merge(
+                    end_bound, on="__current__", how="inner"
+                )
+                if clause.op == ">":
+                    valid_end_df = valid_end_df[
+                        valid_end_df["__end_val__"] < valid_end_df["__left_bound__"]
+                    ]
+                else:
+                    valid_end_df = valid_end_df[
+                        valid_end_df["__end_val__"] <= valid_end_df["__left_bound__"]
+                    ]
+
+            if len(valid_start_df) == 0 or len(valid_end_df) == 0:
+                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                continue
+
+            valid_starts = series_values(valid_start_df["__start__"])
+            valid_ends = series_values(valid_end_df["__current__"])
+            cur_start_nodes = local_allowed_nodes.get(start_node_idx)
+            cur_end_nodes = local_allowed_nodes.get(end_node_idx)
+            local_allowed_nodes[start_node_idx] = (
+                domain_intersect(cur_start_nodes, valid_starts)
+                if cur_start_nodes is not None
+                else valid_starts
+            )
+            local_allowed_nodes[end_node_idx] = (
+                domain_intersect(cur_end_nodes, valid_ends)
+                if cur_end_nodes is not None
+                else valid_ends
+            )
+
+            ineq_agg_used = True
+            current_state = PathState.from_mutable(
+                local_allowed_nodes, local_allowed_edges, local_pruned_edges
+            )
+            current_state = executor.backward_propagate_constraints(
+                current_state, start_node_idx, end_node_idx
+            )
+            local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
+            local_pruned_edges.update(current_state.pruned_edges)
+            continue
 
         value_cardinality = None
         if left_values_domain is not None or right_values_domain is not None:
@@ -1738,6 +1946,8 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.value_pair_guard_used", value_pair_guard_used)
         span.set_attribute("gfql.non_adjacent.value_pair_guard_pair_est_max", value_pair_guard_pair_est_max)
         span.set_attribute("gfql.non_adjacent.value_pair_guard_edge_est_max", value_pair_guard_edge_est_max)
+        span.set_attribute("gfql.non_adjacent.ineq_agg_used", ineq_agg_used)
+        span.set_attribute("gfql.non_adjacent.ineq_agg_pair_est_max", ineq_agg_pair_est_max)
         span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
         if value_card_max is not None:

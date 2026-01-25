@@ -2792,6 +2792,49 @@ class TestNonAdjacentMultiClause:
         assert guarded_nodes == baseline_nodes
         assert guarded_edges == baseline_edges
 
+    def test_multi_clause_ineq_agg_parity(self, monkeypatch):
+        nodes = pd.DataFrame([
+            {"id": "a", "v": 1, "v_mod10": 1},
+            {"id": "b", "v": 2, "v_mod10": 2},
+            {"id": "c", "v": 3, "v_mod10": 1},
+            {"id": "d", "v": 1, "v_mod10": 1},
+            {"id": "m1", "v": 0, "v_mod10": 0},
+            {"id": "m2", "v": 0, "v_mod10": 0},
+        ])
+        edges = pd.DataFrame([
+            {"src": "a", "dst": "m1"},
+            {"src": "m1", "dst": "c"},
+            {"src": "b", "dst": "m2"},
+            {"src": "m2", "dst": "d"},
+        ])
+        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+
+        chain = [
+            n(name="start"),
+            e_forward(),
+            n(name="mid"),
+            e_forward(),
+            n(name="end"),
+        ]
+        where = [
+            compare(col("start", "v_mod10"), "==", col("end", "v_mod10")),
+            compare(col("start", "v"), "<", col("end", "v")),
+        ]
+
+        baseline = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        baseline_nodes = set(baseline._nodes["id"])
+        baseline_edges = set(map(tuple, baseline._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG", "1")
+        monkeypatch.setenv("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX", "1")
+        agg_mode = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        agg_nodes = set(agg_mode._nodes["id"])
+        agg_edges = set(map(tuple, agg_mode._edges[["src", "dst"]].itertuples(index=False, name=None)))
+
+        assert agg_nodes == baseline_nodes
+        assert agg_edges == baseline_edges
+
     def test_multi_eq_value_mode_matches_expected(self, monkeypatch):
         nodes = pd.DataFrame([
             {"id": "a", "group": 1, "v_mod10": 1},

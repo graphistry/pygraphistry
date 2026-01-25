@@ -104,6 +104,13 @@ uv run python benchmarks/run_realdata_benchmarks.py \
   --runs 3 --warmup 1 --opt-max-call-ms 0
 ```
 
+To experiment with aggregated inequality pruning for 2-hop non-adj clauses:
+
+```bash
+GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG=1 \
+uv run python benchmarks/run_realdata_benchmarks.py --datasets redteam50k --runs 3 --warmup 1
+```
+
 Auto mode defaults to `==,!=` with a value-cardinality cap of 300 when no explicit value ops/card max are provided.
 
 To add NDV probe columns (high/low cardinality) and extra WHERE scenarios:

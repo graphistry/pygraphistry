@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 - **Compute / hop**: Added `GRAPHISTRY_HOP_FAST_PATH` (set to `0`/`false`/`off`) to disable fast-path traversal for benchmarking or compatibility checks.
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN` for multi-equality semijoin pruning (2-hop, experimental).
+- **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG` for aggregated inequality pruning on 2-hop non-adj clauses (experimental).
 
 ### Performance
 - **Compute / hop**: Refactored hop traversal to precompute node predicate domains and unify direction handling; synthetic CPU benchmarks show modest median improvements with some regressions on undirected/range scenarios.

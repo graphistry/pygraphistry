@@ -69,6 +69,16 @@ PROFILES = {
         },
         note="Auto value/domain mode + edge semijoin auto.",
     ),
+    "auto_ineq_agg": Profile(
+        name="auto_ineq_agg",
+        env={
+            "GRAPHISTRY_NON_ADJ_WHERE_MODE": "auto",
+            "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO": "1",
+            "GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO": "1",
+            "GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG": "1",
+        },
+        note="Auto + aggregated inequality pruning (2-hop).",
+    ),
     "value_low_ndv": Profile(
         name="value_low_ndv",
         env={
@@ -132,7 +142,7 @@ GROUPS = [
             "--scenario-filter",
             "nonadj_multi,nonadj_multi_eq,3hop_where_nonadj_multi_eq",
         ],
-        profiles=["baseline", "auto", "vector"],
+        profiles=["baseline", "auto", "auto_ineq_agg", "vector"],
         note="Dense multi-clause/multi-eq stress.",
     ),
     ScenarioGroup(
@@ -146,7 +156,7 @@ GROUPS = [
             "--seed",
             "42",
         ],
-        profiles=["baseline", "auto"],
+        profiles=["baseline", "auto", "auto_ineq_agg"],
         note="Fixed-seed dense multi-clause timeout repro.",
     ),
     ScenarioGroup(
@@ -184,7 +194,7 @@ GROUPS = [
             "--where-filter",
             "kerberos_domain",
         ],
-        profiles=["baseline", "auto"],
+        profiles=["baseline", "auto", "auto_ineq_agg"],
         note="Redteam domain timeout repro set.",
     ),
     ScenarioGroup(
