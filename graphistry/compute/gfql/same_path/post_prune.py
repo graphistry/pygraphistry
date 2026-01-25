@@ -1327,6 +1327,8 @@ def apply_non_adjacent_where_post_prune(
                     label_cols = ["__label__"]
                 else:
                     eq_clause = None
+            if not label_cols:
+                continue
 
             start_val_df = left_values_df.copy()
             end_val_df = right_values_df.copy()
