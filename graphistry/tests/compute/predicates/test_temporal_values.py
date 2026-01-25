@@ -5,7 +5,7 @@ from datetime import datetime, date, time
 from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
-from graphistry.compute.predicates.comparison import gt
+from graphistry.compute.predicates.comparison import gt, lt, le, ge, eq, ne
 from graphistry.embed_utils import check_cudf
 
 
@@ -135,6 +135,25 @@ class TestTemporalComparisons:
         result = predicate(s)
         expected = pd.Series([False, True])
         pd.testing.assert_series_equal(result, expected)
+
+    @pytest.mark.parametrize("unit", ["us", "ms"])
+    @pytest.mark.parametrize(
+        "predicate_factory, expected",
+        [
+            (lt, [True, False]),
+            (le, [True, False]),
+            (ge, [False, True]),
+            (eq, [False, False]),
+            (ne, [True, True]),
+        ],
+    )
+    def test_comparison_unit_variants(self, unit, predicate_factory, expected):
+        s = pd.Series(pd.to_datetime(["2024-01-01 05:00:00", "2024-01-01 08:00:00"]))
+        s = s.astype(f"datetime64[{unit}]")
+        predicate = predicate_factory(DateTimeValue("2024-01-01T06:00:00", "UTC"))
+        result = predicate(s)
+        expected_series = pd.Series(expected)
+        pd.testing.assert_series_equal(result, expected_series)
 
     def test_gt_converts_timezone_aware_series(self):
         s = pd.Series(pd.to_datetime(["2024-01-01 12:00:00", "2024-01-01 14:00:00"], utc=True))
