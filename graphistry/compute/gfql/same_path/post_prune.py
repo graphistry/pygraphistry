@@ -284,6 +284,10 @@ def apply_non_adjacent_where_post_prune(
     last_state_rows = 0
     left_value_count_max = 0
     right_value_count_max = 0
+    mid_intersect_rows_max = 0
+    mid_label_intersect_rows_max = 0
+    pairs_left_rows_max = 0
+    pairs_right_rows_max = 0
     value_mode_used = False
     prefilter_used = False
     singleton_used = False
@@ -869,6 +873,8 @@ def apply_non_adjacent_where_post_prune(
                             right_pairs = right_pairs.rename(
                                 columns={"__from__": "__mid__", "__to__": "__current__"}
                             )[["__mid__", "__current__"] + label_cols].drop_duplicates()
+                            pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
+                            pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
                             if len(left_pairs) == 0 or len(right_pairs) == 0:
                                 local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
@@ -892,6 +898,13 @@ def apply_non_adjacent_where_post_prune(
                                 mid_values = left_pairs.merge(
                                     right_pairs, on=["__mid__"] + label_cols, how="inner"
                                 )[["__mid__"] + label_cols].drop_duplicates()
+                                mid_intersect_rows_max = max(
+                                    mid_intersect_rows_max, len(mid_values)
+                                )
+                                if label_cols:
+                                    mid_label_intersect_rows_max = max(
+                                        mid_label_intersect_rows_max, len(mid_values)
+                                    )
                                 domain_semijoin_pairs_max = max(
                                     domain_semijoin_pairs_max, len(mid_values)
                                 )
@@ -1614,6 +1627,8 @@ def apply_non_adjacent_where_post_prune(
                             right_pairs = right_pairs.rename(
                                 columns={"__from__": "__mid__", "__to__": "__current__"}
                             )[["__mid__", "__current__", "__value__"]].drop_duplicates()
+                            pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
+                            pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
                             if len(left_pairs) == 0 or len(right_pairs) == 0:
                                 local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
@@ -1651,6 +1666,9 @@ def apply_non_adjacent_where_post_prune(
                                 mid_values = left_pairs.merge(
                                     right_pairs, on=["__mid__", "__value__"], how="inner"
                                 )[["__mid__", "__value__"]].drop_duplicates()
+                                mid_intersect_rows_max = max(
+                                    mid_intersect_rows_max, len(mid_values)
+                                )
                                 domain_semijoin_pairs_max = max(
                                     domain_semijoin_pairs_max, len(mid_values)
                                 )
@@ -1728,6 +1746,10 @@ def apply_non_adjacent_where_post_prune(
                                 )
                                 right_eval = right_eval[right_mask]
 
+                                mid_intersect_rows_max = max(
+                                    mid_intersect_rows_max,
+                                    max(len(left_eval), len(right_eval)),
+                                )
                                 domain_semijoin_pairs_max = max(
                                     domain_semijoin_pairs_max,
                                     max(len(left_eval), len(right_eval)),
@@ -1812,6 +1834,10 @@ def apply_non_adjacent_where_post_prune(
                                             right_eval["__value__"] <= right_eval["__left_max__"]
                                         ]
 
+                                mid_intersect_rows_max = max(
+                                    mid_intersect_rows_max,
+                                    max(len(left_eval), len(right_eval)),
+                                )
                                 domain_semijoin_pairs_max = max(
                                     domain_semijoin_pairs_max,
                                     max(len(left_eval), len(right_eval)),
@@ -2009,6 +2035,12 @@ def apply_non_adjacent_where_post_prune(
         span.set_attribute("gfql.non_adjacent.ineq_agg_pair_est_max", ineq_agg_pair_est_max)
         span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
         span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
+        span.set_attribute("gfql.non_adjacent.mid_intersect_rows_max", mid_intersect_rows_max)
+        span.set_attribute(
+            "gfql.non_adjacent.mid_label_intersect_rows_max", mid_label_intersect_rows_max
+        )
+        span.set_attribute("gfql.non_adjacent.pairs_left_rows_max", pairs_left_rows_max)
+        span.set_attribute("gfql.non_adjacent.pairs_right_rows_max", pairs_right_rows_max)
         if value_card_max is not None:
             span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
         span.set_attribute("gfql.non_adjacent.value_ops", ",".join(sorted(value_mode_ops)))
