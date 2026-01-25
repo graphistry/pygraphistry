@@ -51,8 +51,12 @@ def apply_non_adjacent_where_post_prune(
     if not executor.inputs.where:
         return state
 
-    # Experimental non-adjacent WHERE modes; default baseline unless explicitly set.
-    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "baseline").strip().lower()
+    # Experimental non-adjacent WHERE modes; default auto unless explicitly set.
+    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto").strip().lower()
+    if not non_adj_mode:
+        non_adj_mode = "auto"
+    if not non_adj_mode:
+        non_adj_mode = "auto"
     non_adj_strategy = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY", "").strip().lower()
     non_adj_order = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_ORDER", "").strip().lower()
     bounds_enabled = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS", "").strip().lower() in {
@@ -123,6 +127,11 @@ def apply_non_adjacent_where_post_prune(
         sip_ratio = None
     domain_semijoin_enabled = non_adj_domain_semijoin_raw in {"1", "true", "yes", "on"}
     domain_semijoin_auto = non_adj_domain_semijoin_auto_raw in {"1", "true", "yes", "on"}
+    if (
+        not non_adj_domain_semijoin_auto_raw
+        and non_adj_mode in {"auto", "auto_prefilter"}
+    ):
+        domain_semijoin_auto = True
     multi_eq_semijoin_enabled = non_adj_multi_eq_semijoin_raw in {"1", "true", "yes", "on"}
     try:
         domain_semijoin_pair_max = (
@@ -1693,9 +1702,12 @@ def apply_edge_where_post_prune(
 
     edge_semijoin_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN", "").strip().lower()
     edge_semijoin_auto_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO", "").strip().lower()
+    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto").strip().lower()
     edge_semijoin_pair_max_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX", "").strip()
     edge_semijoin_enabled = edge_semijoin_raw in {"1", "true", "yes", "on"}
     edge_semijoin_auto = edge_semijoin_auto_raw in {"1", "true", "yes", "on"}
+    if not edge_semijoin_auto_raw and non_adj_mode in {"auto", "auto_prefilter"}:
+        edge_semijoin_auto = True
     try:
         edge_semijoin_pair_max = (
             int(edge_semijoin_pair_max_raw)

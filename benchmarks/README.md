@@ -32,6 +32,9 @@ Compare regular `chain()` against the Yannakakis same-path executor on synthetic
 uv run python benchmarks/run_chain_vs_samepath.py --runs 7 --warmup 1 --output /tmp/chain-vs-samepath.md
 ```
 
+By default, WHERE uses auto mode (value-mode + domain semijoin auto for non-adj clauses, edge semijoin auto for edge clauses).
+To compare against baseline behavior, set `--non-adj-mode baseline`.
+
 To focus on dense multi-clause scenarios:
 
 ```bash
@@ -60,6 +63,14 @@ Run GFQL chain scenarios on demo datasets plus WHERE scenarios (df_executor), wi
 
 ```bash
 uv run python benchmarks/run_realdata_benchmarks.py --runs 7 --warmup 1 --output /tmp/realdata-gfql.md
+```
+
+To force baseline WHERE behavior for comparisons:
+
+```bash
+uv run python benchmarks/run_realdata_benchmarks.py \
+  --non-adj-mode baseline \
+  --runs 7 --warmup 1 --output /tmp/realdata-baseline.md
 ```
 
 To test categorical domains for redteam:

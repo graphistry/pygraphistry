@@ -12,10 +12,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `same_path_plan.py`, `df_executor.py` implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 - **Compute / hop**: Added `GRAPHISTRY_HOP_FAST_PATH` (set to `0`/`false`/`off`) to disable fast-path traversal for benchmarking or compatibility checks.
+- **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN` for multi-equality semijoin pruning (2-hop, experimental).
 
 ### Performance
 - **Compute / hop**: Refactored hop traversal to precompute node predicate domains and unify direction handling; synthetic CPU benchmarks show modest median improvements with some regressions on undirected/range scenarios.
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
+- **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
 - **Compute / hop**: Undirected traversal skips oriented-pair expansion when no destination filters; modest CPU gains in undirected benchmarks.
 - **Compute / hop**: Fast-path traversal uses domain-based visited/frontier tracking to avoid per-hop concat+dedupe overhead; modest CPU improvements in synthetic benchmarks.
 
