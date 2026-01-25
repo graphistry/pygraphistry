@@ -5,6 +5,23 @@ from datetime import datetime, date, time
 from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
+from graphistry.compute.predicates.comparison import gt
+
+
+# Helper to check if cuDF is available
+def has_cudf():
+    try:
+        import cudf  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Skip tests that require cuDF when it's not available
+requires_cudf = pytest.mark.skipif(
+    not has_cudf(),
+    reason="cudf not installed"
+)
 
 
 class TestDateTimeValue:
@@ -30,6 +47,12 @@ class TestDateTimeValue:
         # Should be same instant but displayed in EST
         assert dt_est.as_pandas_value().hour == 7  # 12 UTC = 7 EST
         assert dt_utc.as_pandas_value().timestamp() == dt_est.as_pandas_value().timestamp()
+
+    def test_from_pandas_timestamp_naive_utc(self):
+        ts = pd.Timestamp("2024-01-01 12:00:00")
+        dt = DateTimeValue.from_pandas_timestamp(ts)
+        assert dt.timezone == "UTC"
+        assert str(dt.as_pandas_value().tz) == "UTC"
     
     def test_to_json(self):
         dt = DateTimeValue("2024-01-01T12:00:00Z", "UTC")
@@ -100,3 +123,35 @@ class TestTemporalValueFromJson:
         json_data = {"type": "invalid", "value": "something"}
         with pytest.raises(ValueError, match="Unknown temporal value type"):
             temporal_value_from_json(json_data)
+
+
+class TestTemporalComparisons:
+    def test_gt_localizes_naive_series(self):
+        s = pd.Series(pd.to_datetime(["2024-01-01 05:00:00", "2024-01-01 08:00:00"]))
+        predicate = gt(DateTimeValue("2024-01-01T06:00:00", "UTC"))
+        result = predicate(s)
+        expected = pd.Series([False, True])
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_gt_converts_timezone_aware_series(self):
+        s = pd.Series(pd.to_datetime(["2024-01-01 12:00:00", "2024-01-01 14:00:00"], utc=True))
+        predicate = gt(DateTimeValue("2024-01-01T08:00:00", "US/Eastern"))
+        result = predicate(s)
+        expected = pd.Series([False, True])
+        pd.testing.assert_series_equal(result, expected)
+
+    @requires_cudf
+    def test_gt_cudf_parity(self):
+        import cudf
+        s_pandas = pd.Series(pd.to_datetime(["2024-01-01 05:00:00", "2024-01-01 08:00:00"]))
+        s_cudf = cudf.Series(s_pandas)
+        if not hasattr(s_cudf, "dt") or not hasattr(s_cudf.dt, "tz_localize"):
+            pytest.skip("cudf timezone localization not supported")
+        try:
+            _ = s_cudf.dt.tz_localize("UTC")
+        except Exception:
+            pytest.skip("cudf timezone localization not supported")
+        predicate = gt(DateTimeValue("2024-01-01T06:00:00", "UTC"))
+        result_pandas = predicate(s_pandas)
+        result_cudf = predicate(s_cudf).to_pandas()
+        pd.testing.assert_series_equal(result_pandas, result_cudf)
