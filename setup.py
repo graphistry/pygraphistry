@@ -12,6 +12,7 @@ core_requires = [
   'palettable >= 3.0',
   'pandas',
   'pyarrow >= 0.15.0',
+  'pytz',
   'requests',
   'squarify',
   'typing-extensions',
@@ -44,7 +45,8 @@ dev_extras = {
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],
-    'build': ['build']
+    'build': ['build'],
+    'devtools': ['detect-secrets', 'pre-commit']
 }
 
 base_extras_light = {
