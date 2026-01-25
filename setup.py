@@ -12,6 +12,7 @@ core_requires = [
   'palettable >= 3.0',
   'pandas',
   'pyarrow >= 0.15.0',
+  'pytz',
   'requests',
   'squarify',
   'typing-extensions',
