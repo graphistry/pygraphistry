@@ -252,6 +252,7 @@ class Startswith(ASTPredicate):
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
         else:
+            assert result is not None
             return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
@@ -387,6 +388,7 @@ class Endswith(ASTPredicate):
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
         else:
+            assert result is not None
             return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
