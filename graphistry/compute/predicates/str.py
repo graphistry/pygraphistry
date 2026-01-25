@@ -29,7 +29,7 @@ def _pandas_handle_na(
         result = result.copy()
         result[mask] = na
         if result.dtype == object:
-            result = result.infer_objects(copy=False)
+            result = result.infer_objects()
     return result
 
 
@@ -497,8 +497,7 @@ class Match(ASTPredicate):
                 effective_flags = self.flags
                 if not self.case:
                     effective_flags |= re.IGNORECASE
-                pattern = re.compile(self.pat, effective_flags)
-                result = s.str.match(pattern, na=self.na)
+                result = s.str.match(self.pat, flags=effective_flags, na=self.na)
             else:
                 if not self.case:
                     result = s.str.match(self.pat, case=False, na=self.na)
