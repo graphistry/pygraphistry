@@ -1,7 +1,7 @@
 """GFQL unified entrypoint for chains and DAGs"""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any, cast
+from typing import List, Union, Optional, Dict, Any
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.util import setup_logger
@@ -276,9 +276,7 @@ def gfql(self: Plottable,
                     chain_items.append(item)
                 else:
                     raise TypeError(f"Unsupported chain entry type: {type(item)}")
-            where_meta = parse_where_json(
-                cast(Optional[List[Dict[str, Dict[str, str]]]], query.get("where"))
-            )
+            where_meta = parse_where_json(query.get("where"))
             query = Chain(chain_items, where=where_meta)
         elif isinstance(query, dict):
             # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
