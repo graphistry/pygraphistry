@@ -5,6 +5,7 @@ import sys
 
 from detect_secrets.constants import VerifiedResult
 from detect_secrets.core import baseline
+from detect_secrets.core.potential_secret import PotentialSecret
 from detect_secrets.core.scan import get_files_to_scan
 from detect_secrets.core.secrets_collection import SecretsCollection
 from detect_secrets.settings import default_settings, get_settings
@@ -32,9 +33,27 @@ def ensure_default_plugins() -> None:
     get_settings().set(settings)
 
 
-def load_baseline(baseline_path: str):
+def normalize_secrets(secrets: SecretsCollection) -> SecretsCollection:
+    normalized = SecretsCollection(root=secrets.root)
+    for filename, secret in secrets:
+        data = secret.json()
+        data["filename"] = filename
+        normalized[filename].add(PotentialSecret.load_secret_from_dict(data))
+    return normalized
+
+
+def load_baseline(baseline_path: str) -> SecretsCollection:
     baseline_data = baseline.load_from_file(baseline_path)
-    return baseline.load(baseline_data, filename=baseline_path)
+    baseline_data = baseline.upgrade(baseline_data)
+    baseline.configure_settings_from_baseline(baseline_data, filename=baseline_path)
+
+    secrets = SecretsCollection()
+    for filename, entries in baseline_data.get("results", {}).items():
+        for entry in entries:
+            data = dict(entry)
+            data["filename"] = filename
+            secrets[filename].add(PotentialSecret.load_secret_from_dict(data))
+    return secrets
 
 
 def scan_paths(paths, root: str) -> SecretsCollection:
@@ -79,17 +98,17 @@ def main() -> int:
         ensure_default_plugins()
         configure_filters(args.exclude_files, False, args.baseline)
         secrets = scan_paths(paths, root=root)
-        baseline.save_to_file(secrets, args.baseline)
+        baseline.save_to_file(normalize_secrets(secrets), args.baseline)
         return 0
 
     if not os.path.exists(args.baseline):
         print(f"ERROR: baseline not found at {args.baseline}", file=sys.stderr)
         return 2
 
-    baseline_secrets = load_baseline(args.baseline)
+    baseline_secrets = normalize_secrets(load_baseline(args.baseline))
     ensure_default_plugins()
     configure_filters(args.exclude_files, args.only_verified, args.baseline)
-    scanned = scan_paths(paths, root=root)
+    scanned = normalize_secrets(scan_paths(paths, root=root))
     new_secrets = scanned - baseline_secrets
 
     if new_secrets:
