@@ -123,16 +123,18 @@ def hop(self: Plottable,
         return domain is None or len(domain) == 0
 
     def _domain_diff(candidates: Optional[DomainT], visited: Optional[DomainT]) -> Optional[DomainT]:
-        if _domain_is_empty(candidates) or _domain_is_empty(visited):
+        if candidates is None or visited is None:
+            return candidates
+        if len(candidates) == 0 or len(visited) == 0:
             return candidates
         return candidates[~candidates.isin(visited)]
 
     def _domain_union(left: Optional[DomainT], right: Optional[DomainT]) -> Optional[DomainT]:
-        if _domain_is_empty(left):
+        if left is None or len(left) == 0:
             return right
-        if _domain_is_empty(right):
+        if right is None or len(right) == 0:
             return left
-        if engine_concrete == Engine.PANDAS and isinstance(left, pd.Index):
+        if engine_concrete == Engine.PANDAS and isinstance(left, pd.Index) and isinstance(right, pd.Index):
             return left.append(right)
         return concat([left, right], ignore_index=True)
     
@@ -297,9 +299,10 @@ def hop(self: Plottable,
         base_target_nodes = g2._nodes
     else:
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
-        def _build_allowed_ids(
-            base_nodes: DataFrameT,
-            match_dict: Optional[dict],
+
+    def _build_allowed_ids(
+        base_nodes: DataFrameT,
+        match_dict: Optional[dict],
         match_query: Optional[str],
     ) -> Optional[DataFrameT]:
         if match_dict is None and match_query is None:

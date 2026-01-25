@@ -129,8 +129,10 @@ def domain_from_values(values: Any, template: Optional[Any] = None) -> DomainT:
 
 
 def domain_intersect(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
-    if domain_is_empty(left) or domain_is_empty(right):
+    if left is None or right is None:
         return domain_empty(left if left is not None else right)
+    if len(left) == 0 or len(right) == 0:
+        return domain_empty(left)
     if isinstance(left, pd.Index):
         return left.intersection(right)
     if _is_cudf_obj(left):
@@ -139,9 +141,9 @@ def domain_intersect(left: Optional[DomainT], right: Optional[DomainT]) -> Domai
 
 
 def domain_union(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
-    if domain_is_empty(left):
-        return right
-    if domain_is_empty(right):
+    if left is None or len(left) == 0:
+        return right if right is not None else domain_empty(left)
+    if right is None or len(right) == 0:
         return left
     if isinstance(left, pd.Index):
         return left.union(right)
@@ -151,7 +153,9 @@ def domain_union(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
 
 
 def domain_diff(left: Optional[DomainT], right: Optional[DomainT]) -> DomainT:
-    if domain_is_empty(left) or domain_is_empty(right):
+    if left is None or len(left) == 0:
+        return domain_empty(left)
+    if right is None or len(right) == 0:
         return left
     if isinstance(left, pd.Index):
         return left.difference(right)
