@@ -122,7 +122,6 @@ class Contains(ASTPredicate):
                 self.pat,
                 case=self.case,
                 flags=self.flags,
-                na=self.na,
                 regex=self.regex
             )
             return _pandas_handle_na(result, s, self.na)
@@ -199,6 +198,7 @@ class Startswith(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = None
 
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
@@ -214,21 +214,15 @@ class Startswith(ASTPredicate):
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.startswith(self.pat)
-                return _pandas_handle_na(result, s, self.na)
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     result = pd.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default)
-                    if self.na is None:
-                        result = result.astype(object)
-                        result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
                     patterns_lower = tuple(p.lower() for p in self.pat)
                     # Use pandas native tuple support on lowercased data
                     result = s_lower.str.startswith(patterns_lower)
-                return _pandas_handle_na(result, s, self.na)
             else:
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
@@ -247,7 +241,6 @@ class Startswith(ASTPredicate):
                     # OR with remaining patterns
                     for pat in patterns[1:]:
                         result = result | s_modified.str.startswith(pat)
-                return _cudf_handle_na(result, s, self.na)
         elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
@@ -256,7 +249,6 @@ class Startswith(ASTPredicate):
         else:
             result = s.str.startswith(self.pat)
 
-        # Handle na parameter for non-tuple cases
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
         else:
@@ -340,6 +332,7 @@ class Endswith(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = None
 
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
@@ -355,22 +348,16 @@ class Endswith(ASTPredicate):
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
                 result = s.str.endswith(self.pat)
-                return _pandas_handle_na(result, s, self.na)
             elif not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     # Create False for all values - scalar broadcast, not Python list
                     result = pd.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default)
-                    if self.na is None:
-                        result = result.astype(object)
-                        result[s.isna()] = None
                 else:
                     s_lower = s.str.lower()
                     patterns_lower = tuple(p.lower() for p in self.pat)
                     # Use pandas native tuple support on lowercased data
                     result = s_lower.str.endswith(patterns_lower)
-                return _pandas_handle_na(result, s, self.na)
             else:
                 # cuDF - need manual OR logic (workaround for bug #20237)
                 if len(self.pat) == 0:
@@ -389,7 +376,6 @@ class Endswith(ASTPredicate):
                     # OR with remaining patterns
                     for pat in patterns[1:]:
                         result = result | s_modified.str.endswith(pat)
-                return _cudf_handle_na(result, s, self.na)
         elif not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
@@ -398,7 +384,6 @@ class Endswith(ASTPredicate):
         else:
             result = s.str.endswith(self.pat)
 
-        # Handle na parameter for non-tuple cases
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
         else:
@@ -486,6 +471,7 @@ class Match(ASTPredicate):
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.match/
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = None
 
         if is_cudf:
             if not self.case:
@@ -498,19 +484,18 @@ class Match(ASTPredicate):
                 result = s_modified.str.match(pat_modified, flags=self.flags)
             else:
                 result = s.str.match(self.pat, flags=self.flags)
+        else:
+            effective_flags = self.flags
+            if not self.case:
+                effective_flags |= re.IGNORECASE
+            if effective_flags:
+                result = s.str.match(self.pat, flags=effective_flags)
+            else:
+                result = s.str.match(self.pat)
 
+        if is_cudf:
             return _cudf_handle_na(result, s, self.na)
         else:
-            if self.flags:
-                effective_flags = self.flags
-                if not self.case:
-                    effective_flags |= re.IGNORECASE
-                result = s.str.match(self.pat, flags=effective_flags, na=self.na)
-            else:
-                if not self.case:
-                    result = s.str.match(self.pat, case=False, na=self.na)
-                else:
-                    result = s.str.match(self.pat, na=self.na)
             return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
@@ -577,6 +562,7 @@ class Fullmatch(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = None
 
         if is_cudf:
             # cuDF doesn't have fullmatch, use match() with anchors as
@@ -593,16 +579,19 @@ class Fullmatch(ASTPredicate):
                 result = s_modified.str.match(pat_modified, flags=self.flags)
             else:
                 result = s.str.match(anchored_pat, flags=self.flags)
-
-            return _cudf_handle_na(result, s, self.na)
         else:
             # pandas has native fullmatch support
-            result = s.str.fullmatch(
-                self.pat,
-                case=self.case,
-                flags=self.flags,
-                na=self.na
-            )
+            effective_flags = self.flags
+            if not self.case:
+                effective_flags |= re.IGNORECASE
+            if effective_flags:
+                result = s.str.fullmatch(self.pat, flags=effective_flags)
+            else:
+                result = s.str.fullmatch(self.pat)
+
+        if is_cudf:
+            return _cudf_handle_na(result, s, self.na)
+        else:
             return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
