@@ -22,6 +22,7 @@ def has_cudf():
         # Other exceptions (CUDARuntimeError) if GPU not available
         return False
 
+
 # Cache result to avoid repeated GPU checks
 _cudf_available = None
 
