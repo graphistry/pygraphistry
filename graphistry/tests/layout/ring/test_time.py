@@ -268,6 +268,40 @@ class Test_time_ring(NoAuthTestCase):
         assert labels == ['2014', '2015'] or labels == ['2014-11', '2014-12', '2015-01', '2015-02', '2015-03', '2015-04']
 
 
+    def test_ring_pd_us_ns_equivalence(self):
+
+        lg = LGFull()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            edges = pd.DataFrame({
+                's': ['a', 'b', 'c', 'd', 'm', 'd1'],
+                'd': ['b', 'c', 'd', 'd', 'm', 'd2']
+            })
+            nodes = pd.DataFrame({
+                'n': ['a', 'b', 'c', 'd', 'm', 'd1', 'd2'],
+                't': pd.Series([
+                    '2015-01-16 18:39:37',
+                    '2015-01-29 02:15:35',
+                    '2014-12-30 18:59:20',
+                    '2015-01-20 08:12:27',
+                    '2014-11-22 19:47:15',
+                    '2014-11-21 14:38:07',
+                    '2014-11-20 15:28:12'
+                    ],
+                    dtype='datetime64[ns]')
+            })
+            nodes_us = nodes.copy()
+            nodes_us['t'] = nodes_us['t'].astype('datetime64[us]')
+
+            g_ns = lg.edges(edges, 's', 'd').nodes(nodes).time_ring_layout('t')
+            g_us = lg.edges(edges, 's', 'd').nodes(nodes_us).time_ring_layout('t')
+
+        np.testing.assert_allclose(
+            g_ns._nodes['r'].to_numpy(),
+            g_us._nodes['r'].to_numpy()
+        )
+
+
     def test_ring_pd_axis_positions(self):
         
         lg = LGFull()

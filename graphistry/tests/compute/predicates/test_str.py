@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+import re
 
 from graphistry.compute.predicates.str import (
     contains,
@@ -348,6 +349,15 @@ def test_match_pandas_case_insensitive():
     predicate = match(r'mouse', case=False)
     result = predicate(s)
     expected = pd.Series([True, True, True, False])
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_match_pandas_case_insensitive_with_flags():
+    """Test case-insensitive matching with explicit flags in pandas"""
+    s = pd.Series(['Mouse', 'mouse', 'MOUSE', 'dog', None])
+    predicate = match(r'mouse', case=False, flags=re.IGNORECASE)
+    result = predicate(s)
+    expected = pd.Series([True, True, True, False, None], dtype=object)
     pd.testing.assert_series_equal(result, expected)
 
 
