@@ -537,6 +537,23 @@ class TestHypergraphPandas(NoAuthTestCase):
         nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
         assert len(nodes_arr) == HONEYPOT_NODES
 
+    @pytest.mark.parametrize("unit", ["ms", "us"])
+    def test_hyper_to_pa_mixed2_unit_variants(self, unit):
+        df = honeypot_pdf().copy()
+        for col in ("time(max)", "time(min)"):
+            df[col] = df[col].astype(f"datetime64[{unit}]")
+
+        hg = hypergraph(**honeypot_hyperparams(df))
+
+        for col in ("time(max)", "time(min)"):
+            assert is_datetime64_any_dtype(hg.graph._edges.dtypes[col])
+            assert is_datetime64_any_dtype(hg.graph._nodes.dtypes[col])
+
+        edges_arr = pa.Table.from_pandas(hg.graph._edges)
+        assert len(edges_arr) == HONEYPOT_EDGES
+        nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
+        assert len(nodes_arr) == HONEYPOT_NODES
+
     def test_hyper_to_pa_na(self):
 
         df = pd.DataFrame({"x": ["a", None, "c"], "y": [1, 2, None]})

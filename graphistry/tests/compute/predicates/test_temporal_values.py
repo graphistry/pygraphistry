@@ -127,6 +127,15 @@ class TestTemporalComparisons:
         expected = pd.Series([False, True])
         pd.testing.assert_series_equal(result, expected)
 
+    @pytest.mark.parametrize("unit", ["us", "ms"])
+    def test_gt_naive_series_unit_variants(self, unit):
+        s = pd.Series(pd.to_datetime(["2024-01-01 05:00:00", "2024-01-01 08:00:00"]))
+        s = s.astype(f"datetime64[{unit}]")
+        predicate = gt(DateTimeValue("2024-01-01T06:00:00", "UTC"))
+        result = predicate(s)
+        expected = pd.Series([False, True])
+        pd.testing.assert_series_equal(result, expected)
+
     def test_gt_converts_timezone_aware_series(self):
         s = pd.Series(pd.to_datetime(["2024-01-01 12:00:00", "2024-01-01 14:00:00"], utc=True))
         predicate = gt(DateTimeValue("2024-01-01T08:00:00", "US/Eastern"))
