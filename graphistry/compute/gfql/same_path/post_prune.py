@@ -869,10 +869,10 @@ def apply_non_adjacent_where_post_prune(
 
                             left_pairs = left_pairs.rename(
                                 columns={"__from__": "__start__", "__to__": "__mid__"}
-                            )[["__start__", "__mid__"] + label_cols].drop_duplicates()
+                            )[["__start__", "__mid__"] + label_cols]
                             right_pairs = right_pairs.rename(
                                 columns={"__from__": "__mid__", "__to__": "__current__"}
-                            )[["__mid__", "__current__"] + label_cols].drop_duplicates()
+                            )[["__mid__", "__current__"] + label_cols]
                             pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
@@ -895,9 +895,11 @@ def apply_non_adjacent_where_post_prune(
                                     domain_semijoin_auto_used = True
 
                             if semijoin_active:
-                                mid_values = left_pairs.merge(
-                                    right_pairs, on=["__mid__"] + label_cols, how="inner"
-                                )[["__mid__"] + label_cols].drop_duplicates()
+                                left_mid_labels = left_pairs[["__mid__"] + label_cols].drop_duplicates()
+                                right_mid_labels = right_pairs[["__mid__"] + label_cols].drop_duplicates()
+                                mid_values = left_mid_labels.merge(
+                                    right_mid_labels, on=["__mid__"] + label_cols, how="inner"
+                                )
                                 mid_intersect_rows_max = max(
                                     mid_intersect_rows_max, len(mid_values)
                                 )
@@ -1623,10 +1625,10 @@ def apply_non_adjacent_where_post_prune(
 
                             left_pairs = left_pairs.rename(
                                 columns={"__from__": "__start__", "__to__": "__mid__"}
-                            )[["__start__", "__mid__", "__value__"]].drop_duplicates()
+                            )[["__start__", "__mid__", "__value__"]]
                             right_pairs = right_pairs.rename(
                                 columns={"__from__": "__mid__", "__to__": "__current__"}
-                            )[["__mid__", "__current__", "__value__"]].drop_duplicates()
+                            )[["__mid__", "__current__", "__value__"]]
                             pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
@@ -1663,9 +1665,11 @@ def apply_non_adjacent_where_post_prune(
                             )
 
                             if clause.op == "==":
-                                mid_values = left_pairs.merge(
-                                    right_pairs, on=["__mid__", "__value__"], how="inner"
-                                )[["__mid__", "__value__"]].drop_duplicates()
+                                left_mid_values = left_pairs[["__mid__", "__value__"]].drop_duplicates()
+                                right_mid_values = right_pairs[["__mid__", "__value__"]].drop_duplicates()
+                                mid_values = left_mid_values.merge(
+                                    right_mid_values, on=["__mid__", "__value__"], how="inner"
+                                )
                                 mid_intersect_rows_max = max(
                                     mid_intersect_rows_max, len(mid_values)
                                 )
