@@ -70,6 +70,7 @@ def _umap_otel_attrs(
         attrs["graphistry.umap.inplace"] = inplace
     return attrs
 
+
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
 else:
