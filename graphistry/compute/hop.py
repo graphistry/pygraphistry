@@ -140,9 +140,6 @@ def hop(self: Plottable,
     target_wave_front = df_to_engine(target_wave_front, engine_concrete) if target_wave_front is not None else None
     debugging_hop = False
 
-    #TODO target_wave_front code also includes nodes for handling intermediate hops
-    # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)
-
     if direction not in ['forward', 'reverse', 'undirected']:
         raise ValueError(f'Invalid direction: "{direction}", must be one of: "forward" (default), "reverse", "undirected"')
     
@@ -300,11 +297,9 @@ def hop(self: Plottable,
         base_target_nodes = g2._nodes
     else:
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
-    #TODO precompute src/dst match subset if multihop?
-
-    def _build_allowed_ids(
-        base_nodes: DataFrameT,
-        match_dict: Optional[dict],
+        def _build_allowed_ids(
+            base_nodes: DataFrameT,
+            match_dict: Optional[dict],
         match_query: Optional[str],
     ) -> Optional[DataFrameT]:
         if match_dict is None and match_query is None:
