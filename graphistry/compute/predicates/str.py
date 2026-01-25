@@ -196,10 +196,7 @@ class Startswith(ASTPredicate):
         self.case = case
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = None
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.startswith/
@@ -213,47 +210,48 @@ class Startswith(ASTPredicate):
             # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
-                result = s.str.startswith(self.pat)
-            elif not is_cudf and not self.case:
+                return s.str.startswith(self.pat)
+            if not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    result = pd.Series(False, index=s.index)
-                else:
-                    s_lower = s.str.lower()
-                    patterns_lower = tuple(p.lower() for p in self.pat)
-                    # Use pandas native tuple support on lowercased data
-                    result = s_lower.str.startswith(patterns_lower)
+                    return pd.Series(False, index=s.index)
+                s_lower = s.str.lower()
+                patterns_lower = tuple(p.lower() for p in self.pat)
+                # Use pandas native tuple support on lowercased data
+                return s_lower.str.startswith(patterns_lower)
+
+            # cuDF - need manual OR logic (workaround for bug #20237)
+            if len(self.pat) == 0:
+                import cudf
+                # Create False for all values - scalar broadcast, not Python list
+                return cudf.Series(False, index=s.index)
+            if not self.case:
+                s_modified = s.str.lower()
+                patterns = [p.lower() for p in self.pat]
             else:
-                # cuDF - need manual OR logic (workaround for bug #20237)
-                if len(self.pat) == 0:
-                    import cudf
-                    # Create False for all values - scalar broadcast, not Python list
-                    result = cudf.Series(False, index=s.index)
-                else:
-                    if not self.case:
-                        s_modified = s.str.lower()
-                        patterns = [p.lower() for p in self.pat]
-                    else:
-                        s_modified = s
-                        patterns = list(self.pat)
-                    # Start with first pattern
-                    result = s_modified.str.startswith(patterns[0])
-                    # OR with remaining patterns
-                    for pat in patterns[1:]:
-                        result = result | s_modified.str.startswith(pat)
-        elif not self.case:
+                s_modified = s
+                patterns = list(self.pat)
+            # Start with first pattern
+            result = s_modified.str.startswith(patterns[0])
+            # OR with remaining patterns
+            for pat in patterns[1:]:
+                result = result | s_modified.str.startswith(pat)
+            return result
+
+        if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
             pat_modified = self.pat.lower()
-            result = s_modified.str.startswith(pat_modified)
-        else:
-            result = s.str.startswith(self.pat)
+            return s_modified.str.startswith(pat_modified)
 
+        return s.str.startswith(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
-        else:
-            assert result is not None
-            return _pandas_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -331,10 +329,7 @@ class Endswith(ASTPredicate):
         self.case = case
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = None
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.endswith/
@@ -348,48 +343,49 @@ class Endswith(ASTPredicate):
             # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
-                result = s.str.endswith(self.pat)
-            elif not is_cudf and not self.case:
+                return s.str.endswith(self.pat)
+            if not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     # Create False for all values - scalar broadcast, not Python list
-                    result = pd.Series(False, index=s.index)
-                else:
-                    s_lower = s.str.lower()
-                    patterns_lower = tuple(p.lower() for p in self.pat)
-                    # Use pandas native tuple support on lowercased data
-                    result = s_lower.str.endswith(patterns_lower)
+                    return pd.Series(False, index=s.index)
+                s_lower = s.str.lower()
+                patterns_lower = tuple(p.lower() for p in self.pat)
+                # Use pandas native tuple support on lowercased data
+                return s_lower.str.endswith(patterns_lower)
+
+            # cuDF - need manual OR logic (workaround for bug #20237)
+            if len(self.pat) == 0:
+                import cudf
+                # Create False for all values - scalar broadcast, not Python list
+                return cudf.Series(False, index=s.index)
+            if not self.case:
+                s_modified = s.str.lower()
+                patterns = [p.lower() for p in self.pat]
             else:
-                # cuDF - need manual OR logic (workaround for bug #20237)
-                if len(self.pat) == 0:
-                    import cudf
-                    # Create False for all values - scalar broadcast, not Python list
-                    result = cudf.Series(False, index=s.index)
-                else:
-                    if not self.case:
-                        s_modified = s.str.lower()
-                        patterns = [p.lower() for p in self.pat]
-                    else:
-                        s_modified = s
-                        patterns = list(self.pat)
-                    # Start with first pattern
-                    result = s_modified.str.endswith(patterns[0])
-                    # OR with remaining patterns
-                    for pat in patterns[1:]:
-                        result = result | s_modified.str.endswith(pat)
-        elif not self.case:
+                s_modified = s
+                patterns = list(self.pat)
+            # Start with first pattern
+            result = s_modified.str.endswith(patterns[0])
+            # OR with remaining patterns
+            for pat in patterns[1:]:
+                result = result | s_modified.str.endswith(pat)
+            return result
+
+        if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
             pat_modified = self.pat.lower()
-            result = s_modified.str.endswith(pat_modified)
-        else:
-            result = s.str.endswith(self.pat)
+            return s_modified.str.endswith(pat_modified)
 
+        return s.str.endswith(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
-        else:
-            assert result is not None
-            return _pandas_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -468,13 +464,10 @@ class Match(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround cuDF not supporting 'case' and 'na' parameters
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.match/
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = None
-
         if is_cudf:
             if not self.case:
                 s_modified = s.str.lower()
@@ -483,22 +476,22 @@ class Match(ASTPredicate):
                     if isinstance(self.pat, str)
                     else self.pat
                 )
-                result = s_modified.str.match(pat_modified, flags=self.flags)
-            else:
-                result = s.str.match(self.pat, flags=self.flags)
-        else:
-            effective_flags = self.flags
-            if not self.case:
-                effective_flags |= re.IGNORECASE
-            if effective_flags:
-                result = s.str.match(self.pat, flags=effective_flags)
-            else:
-                result = s.str.match(self.pat)
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(self.pat, flags=self.flags)
 
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.match(self.pat, flags=effective_flags)
+        return s.str.match(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
-        else:
-            return _pandas_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -562,10 +555,7 @@ class Fullmatch(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = None
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
             # cuDF doesn't have fullmatch, use match() with anchors as
             # workaround. fullmatch('abc') is equivalent to match('^abc$')
@@ -578,23 +568,23 @@ class Fullmatch(ASTPredicate):
                     if isinstance(anchored_pat, str)
                     else anchored_pat
                 )
-                result = s_modified.str.match(pat_modified, flags=self.flags)
-            else:
-                result = s.str.match(anchored_pat, flags=self.flags)
-        else:
-            # pandas has native fullmatch support
-            effective_flags = self.flags
-            if not self.case:
-                effective_flags |= re.IGNORECASE
-            if effective_flags:
-                result = s.str.fullmatch(self.pat, flags=effective_flags)
-            else:
-                result = s.str.fullmatch(self.pat)
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(anchored_pat, flags=self.flags)
 
+        # pandas has native fullmatch support
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.fullmatch(self.pat, flags=effective_flags)
+        return s.str.fullmatch(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
             return _cudf_handle_na(result, s, self.na)
-        else:
-            return _pandas_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
