@@ -353,6 +353,33 @@ def apply_non_adjacent_where_post_prune(
     if composite_value_enabled or vector_enabled:
         multi_eq_groups, multi_eq_order = _collect_multi_eq_groups(non_adjacent_clauses)
 
+    edge_pairs_cache: Dict[int, DataFrameT] = {}
+
+    def _edge_pairs_cached(
+        edge_idx: int,
+        sem: EdgeSemantics,
+        allowed_edges: Optional[Any],
+    ) -> DataFrameT:
+        edges_df = executor.forward_steps[edge_idx]._edges
+        if edges_df is None or len(edges_df) == 0:
+            template = nodes_df if nodes_df is not None else executor.inputs.graph._edges
+            if template is None:
+                import pandas as pd
+
+                return pd.DataFrame({"__from__": [], "__to__": []})
+            return df_cons(template, {"__from__": [], "__to__": []})
+
+        if allowed_edges is None:
+            cached = edge_pairs_cache.get(edge_idx)
+            if cached is None:
+                cached = build_edge_pairs(edges_df, src_col, dst_col, sem)
+                edge_pairs_cache[edge_idx] = cached
+            return cached
+
+        if edge_id_col and edge_id_col in edges_df.columns:
+            edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
+        return build_edge_pairs(edges_df, src_col, dst_col, sem)
+
     endpoint_clause_counts: Dict[Tuple[int, int], int] = {}
     endpoint_eq_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", str, str]]] = {}
     for clause in non_adjacent_clauses:
@@ -838,10 +865,6 @@ def apply_non_adjacent_where_post_prune(
                 if edges_left is not None and edges_right is not None:
                     allowed_left = local_allowed_edges.get(edge_idx_left)
                     allowed_right = local_allowed_edges.get(edge_idx_right)
-                    if allowed_left is not None and edge_id_col and edge_id_col in edges_left.columns:
-                        edges_left = edges_left[edges_left[edge_id_col].isin(allowed_left)]
-                    if allowed_right is not None and edge_id_col and edge_id_col in edges_right.columns:
-                        edges_right = edges_right[edges_right[edge_id_col].isin(allowed_right)]
 
                     edge_left = executor.inputs.chain[edge_idx_left]
                     edge_right = executor.inputs.chain[edge_idx_right]
@@ -849,8 +872,12 @@ def apply_non_adjacent_where_post_prune(
                         sem_left = EdgeSemantics.from_edge(edge_left)
                         sem_right = EdgeSemantics.from_edge(edge_right)
                         if not sem_left.is_multihop and not sem_right.is_multihop:
-                            pairs_left = build_edge_pairs(edges_left, src_col, dst_col, sem_left).drop_duplicates()
-                            pairs_right = build_edge_pairs(edges_right, src_col, dst_col, sem_right).drop_duplicates()
+                            pairs_left = _edge_pairs_cached(
+                                edge_idx_left, sem_left, allowed_left
+                            )
+                            pairs_right = _edge_pairs_cached(
+                                edge_idx_right, sem_right, allowed_right
+                            )
 
                             if not domain_is_empty(start_nodes):
                                 pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
@@ -1311,10 +1338,6 @@ def apply_non_adjacent_where_post_prune(
 
             allowed_left = local_allowed_edges.get(edge_idx_left)
             allowed_right = local_allowed_edges.get(edge_idx_right)
-            if allowed_left is not None and edge_id_col and edge_id_col in edges_left.columns:
-                edges_left = edges_left[edges_left[edge_id_col].isin(allowed_left)]
-            if allowed_right is not None and edge_id_col and edge_id_col in edges_right.columns:
-                edges_right = edges_right[edges_right[edge_id_col].isin(allowed_right)]
 
             edge_left = executor.inputs.chain[edge_idx_left]
             edge_right = executor.inputs.chain[edge_idx_right]
@@ -1325,8 +1348,12 @@ def apply_non_adjacent_where_post_prune(
             if sem_left.is_multihop or sem_right.is_multihop:
                 continue
 
-            pairs_left = build_edge_pairs(edges_left, src_col, dst_col, sem_left).drop_duplicates()
-            pairs_right = build_edge_pairs(edges_right, src_col, dst_col, sem_right).drop_duplicates()
+            pairs_left = _edge_pairs_cached(
+                edge_idx_left, sem_left, allowed_left
+            ).drop_duplicates()
+            pairs_right = _edge_pairs_cached(
+                edge_idx_right, sem_right, allowed_right
+            ).drop_duplicates()
 
             if not domain_is_empty(start_nodes):
                 pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
@@ -1558,10 +1585,6 @@ def apply_non_adjacent_where_post_prune(
             if edges_left is not None and edges_right is not None:
                 allowed_left = local_allowed_edges.get(edge_idx_left)
                 allowed_right = local_allowed_edges.get(edge_idx_right)
-                if allowed_left is not None and edge_id_col and edge_id_col in edges_left.columns:
-                    edges_left = edges_left[edges_left[edge_id_col].isin(allowed_left)]
-                if allowed_right is not None and edge_id_col and edge_id_col in edges_right.columns:
-                    edges_right = edges_right[edges_right[edge_id_col].isin(allowed_right)]
 
                 edge_left = executor.inputs.chain[edge_idx_left]
                 edge_right = executor.inputs.chain[edge_idx_right]
@@ -1601,13 +1624,12 @@ def apply_non_adjacent_where_post_prune(
                         if not domain_semijoin_active:
                             pass
                         else:
-                            pairs_left = build_edge_pairs(
-                                edges_left, src_col, dst_col, sem_left
-                            ).drop_duplicates()
-                            pairs_right = build_edge_pairs(
-                                edges_right, src_col, dst_col, sem_right
-                            ).drop_duplicates()
-
+                            pairs_left = _edge_pairs_cached(
+                                edge_idx_left, sem_left, allowed_left
+                            )
+                            pairs_right = _edge_pairs_cached(
+                                edge_idx_right, sem_right, allowed_right
+                            )
                             if not domain_is_empty(start_nodes):
                                 pairs_left = pairs_left[pairs_left["__from__"].isin(start_nodes)]
                             if not domain_is_empty(end_nodes):
