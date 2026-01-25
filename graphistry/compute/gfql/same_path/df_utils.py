@@ -34,7 +34,7 @@ def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
     Returns:
         New DataFrame of same type as template_df
     """
-    if template_df.__class__.__module__.startswith("cudf"):
+    if _is_cudf_obj(template_df):
         import cudf  # type: ignore
         return cudf.DataFrame(data)
     return pd.DataFrame(data)
@@ -50,7 +50,7 @@ def make_bool_series(template_df: DataFrameT, value: bool) -> SeriesT:
     Returns:
         Boolean series of same type and length as template_df
     """
-    if template_df.__class__.__module__.startswith("cudf"):
+    if _is_cudf_obj(template_df):
         import cudf  # type: ignore
         return cudf.Series([value] * len(template_df))
     return pd.Series(value, index=template_df.index)
