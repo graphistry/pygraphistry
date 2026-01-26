@@ -9,9 +9,6 @@ from graphistry.tests.test_compute import CGFull
 
 @pytest.fixture(scope='module')
 def g_long_forwards_chain() -> CGFull:
-    """
-    a->b->c->d->e
-    """
     return (CGFull()
         .edges(pd.DataFrame({
             's': ['a', 'b', 'c', 'd'],
@@ -39,9 +36,6 @@ def n_d(g_long_forwards_chain: CGFull) -> pd.DataFrame:
 
 
 class TestMultiHopForward():
-    """
-    Test multi-hop as used by chain, corresponding to chain multi-hop tests
-    """
 
     def test_hop_short_forward(self, g_long_forwards_chain: CGFull, n_a):
         g2 = g_long_forwards_chain.hop(
@@ -552,15 +546,6 @@ def test_hop_pred_cudf():
 
 
 def test_hop_none_edge_binding_internal_index():
-    """Test that hop() correctly handles graphs with no edge binding.
-
-    When g._edge is None, hop() internally generates a temporary edge index
-    column using generate_safe_column_name to avoid conflicts. This test
-    verifies that:
-    1. hop() works correctly without an edge binding
-    2. The internal index column is properly cleaned up
-    3. No internal columns leak into the result
-    """
     # Create a graph with NO edge binding (g._edge = None)
     edges_df = pd.DataFrame({
         's': ['a', 'b', 'c'],
@@ -593,7 +578,6 @@ def test_hop_none_edge_binding_internal_index():
 
 
 def test_hop_custom_edge_binding_preserved():
-    """Test that hop() preserves custom edge binding."""
     # Create a graph WITH an edge binding
     edges_df = pd.DataFrame({
         's': ['a', 'b', 'c'],
