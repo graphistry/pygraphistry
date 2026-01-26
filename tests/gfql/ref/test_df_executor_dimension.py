@@ -13,19 +13,11 @@ from graphistry.compute.gfql.df_executor import (
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.tests.test_compute import CGFull
 
-# Import shared helpers - pytest auto-loads conftest.py
 from tests.gfql.ref.conftest import _assert_parity
 
+
 class TestWhereClauseEdgeColumns:
-    """
-    Test WHERE clauses referencing edge columns (not just node columns).
-
-    Edge steps can be named and their columns referenced in WHERE clauses.
-    This tests negation and other operators on edge attributes.
-    """
-
     def test_edge_column_equality_two_edges(self):
-        """Compare edge columns across two edge steps: e1.etype == e2.etype"""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -57,7 +49,6 @@ class TestWhereClauseEdgeColumns:
         assert "d" not in result_nodes, "d: e1.etype != e2.etype (follow!=block)"
 
     def test_edge_column_negation_two_edges(self):
-        """Compare edge columns with !=: e1.etype != e2.etype"""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -89,7 +80,6 @@ class TestWhereClauseEdgeColumns:
         assert "c" not in result_nodes, "c: e1.etype == e2.etype (follow==follow)"
 
     def test_edge_column_inequality(self):
-        """Compare edge columns with >: e1.weight > e2.weight"""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -121,7 +111,6 @@ class TestWhereClauseEdgeColumns:
         assert "d" not in result_nodes, "d: e1.weight < e2.weight (10 < 15)"
 
     def test_mixed_node_and_edge_columns(self):
-        """Mix node and edge columns: a.priority > e1.weight"""
         nodes = pd.DataFrame([
             {"id": "a", "priority": 10},
             {"id": "b", "priority": 5},
@@ -149,25 +138,6 @@ class TestWhereClauseEdgeColumns:
         assert "c" not in result_nodes, "c: a.priority(10) < e.weight(15)"
 
     def test_edge_negation_diamond_topology(self):
-        """
-        Diamond with edge column negation.
-
-            a
-           / \\
-     (w=5)e1  e2(w=10)
-         /     \\
-        b       c
-         \\     /
-     (w=5)e3  e4(w=10)
-           \\ /
-            d
-
-        Clause: e1.weight != e3.weight
-        - Path a->b->d via e1(w=5)->e3(w=5): 5==5 FAILS
-        - Path a->c->d via e2(w=10)->e4(w=10): 10==10 FAILS
-
-        But if we use different weights:
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -205,11 +175,6 @@ class TestWhereClauseEdgeColumns:
         # The key is that the valid path exists
 
     def test_edge_and_node_negation_combined(self):
-        """
-        Combine node != and edge != constraints.
-
-        a.x != b.x AND e1.type != e2.type
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},   # same as a
@@ -247,9 +212,6 @@ class TestWhereClauseEdgeColumns:
         assert "c" not in result_nodes, "no valid path - all fail one constraint"
 
     def test_edge_and_node_negation_one_valid_path(self):
-        """
-        Combine node != and edge != with one valid path.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},   # same as a - FAILS node
@@ -287,11 +249,6 @@ class TestWhereClauseEdgeColumns:
         assert "b1" not in result_nodes, "b1 fails node constraint"
 
     def test_three_edge_negation_chain(self):
-        """
-        Three edges with chained negation: e1.type != e2.type AND e2.type != e3.type
-
-        This creates an interesting pattern where middle edge type must differ from both.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -327,9 +284,6 @@ class TestWhereClauseEdgeColumns:
         assert "d" in result_nodes, "d: A!=B AND B!=C"
 
     def test_three_edge_negation_chain_fails(self):
-        """
-        Three edges where chained negation fails in the middle.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -365,12 +319,6 @@ class TestWhereClauseEdgeColumns:
         assert "d" not in result_nodes, "d: B==B fails second constraint"
 
     def test_edge_negation_multihop_single_step(self):
-        """
-        Multi-hop edge step with negation between start node and edge.
-
-        Note: This tests if we can reference edge columns from a multi-hop edge step.
-        The edge step spans multiple hops but we name it as one step.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "threshold": 5},
             {"id": "b", "threshold": 10},
@@ -403,27 +351,8 @@ class TestWhereClauseEdgeColumns:
 
 
 class TestEdgeWhereDirectionAndHops:
-    """
-    5-Whys derived tests for Bug 9.
-
-    Bug 9 revealed that edge column WHERE clauses were untested across dimensions:
-    - Forward vs reverse vs undirected edge direction
-    - Single-hop vs multi-hop edges
-    - NULL values in edge columns
-    - Type coercion scenarios
-    """
 
     def test_edge_where_reverse_direction(self):
-        """
-        Edge column WHERE with reverse edges.
-
-        Graph: a <- b <- c (edges point left)
-        Traverse: start from a, reverse through edges
-
-        e1(b->a): etype=follow
-        e2(c->b): etype=follow (VALID: same)
-        e2(c->b): etype=block (INVALID: different)
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -455,12 +384,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e1.etype(follow) != e2.etype(block)"
 
     def test_edge_where_undirected_both_orientations(self):
-        """
-        Edge column WHERE with undirected edges tests both orientations.
-
-        Graph: a -- b -- c -- d
-        Where b--c can be traversed in either direction.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -493,13 +416,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "c" in result_nodes or "d" in result_nodes, "path continues"
 
     def test_edge_where_undirected_mixed_types(self):
-        """
-        Undirected edges with different types - only matching pairs valid.
-
-        a --[friend]-- b --[friend]-- c
-                       |
-                       +--[enemy]-- d
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -531,9 +447,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e1.friend != e2.enemy"
 
     def test_edge_where_null_values_excluded(self):
-        """
-        WHERE clause should exclude paths where edge column is NULL.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -566,9 +479,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e1.follow != e2.NULL"
 
     def test_edge_where_null_inequality(self):
-        """
-        NULL != X should be False (SQL semantics), so path should be excluded.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -599,9 +509,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "c" not in result_nodes, "c excluded due to NULL comparison"
 
     def test_edge_where_numeric_comparison(self):
-        """
-        Test numeric comparison operators on edge columns.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -636,9 +543,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "e" not in result_nodes, "e: e1.weight(10) < e2.weight(15)"
 
     def test_edge_where_le_ge_operators(self):
-        """
-        Test <= and >= operators on edge columns.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -670,12 +574,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e1.weight(10) > e2.weight(5)"
 
     def test_edge_where_three_edges_chain(self):
-        """
-        Three edge steps with chained comparisons.
-
-        a -e1-> b -e2-> c -e3-> d
-        WHERE e1.type == e2.type AND e2.type == e3.type
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -711,12 +609,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" in result_nodes, "d reachable via path with all matching edge types"
 
     def test_edge_where_three_edges_one_mismatch(self):
-        """
-        Three edges where one breaks the chain.
-
-        a -e1(x)-> b -e2(x)-> c -e3(y)-> d
-        WHERE e1.type == e2.type AND e2.type == e3.type
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -753,12 +645,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e2.x != e3.y"
 
     def test_edge_where_mixed_forward_reverse(self):
-        """
-        Mix of forward and reverse edges with edge column WHERE.
-
-        a -> b <- c
-        e1 is forward (a->b), e2 is reverse (b<-c stored as c->b)
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -790,12 +676,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d: e1.friend != e2.enemy"
 
     def test_edge_where_with_node_filter(self):
-        """
-        Combine edge WHERE with node filter predicates.
-
-        a -> b -> c (filter: b.x > 5)
-        a -> d -> c (d.x = 3, filtered out)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 1},
             {"id": "b", "x": 10},
@@ -829,9 +709,6 @@ class TestEdgeWhereDirectionAndHops:
         assert "d" not in result_nodes, "d filtered by node predicate"
 
     def test_edge_where_string_vs_numeric(self):
-        """
-        Test that string comparison works (no type coercion issues).
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -861,20 +738,10 @@ class TestEdgeWhereDirectionAndHops:
 
 
 class TestDimensionCoverageMatrix:
-    """
-    Systematic tests for dimension coverage matrix identified in deep 5-whys.
-
-    Tests cover combinations of:
-    - Direction: forward, reverse, undirected
-    - Operator: ==, !=, <, <=, >, >=
-    - Entity: node columns, edge columns
-    - Data: non-null, NULL (None/NaN), mixed positions
-    """
 
     # --- Reverse edges with inequality operators ---
 
     def test_reverse_edge_less_than(self):
-        """Reverse edges with < operator on edge columns."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -906,7 +773,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c: e1.weight(10) >= e2.weight(5)"
 
     def test_reverse_edge_greater_equal(self):
-        """Reverse edges with >= operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -940,7 +806,6 @@ class TestDimensionCoverageMatrix:
     # --- Undirected edges with inequality operators ---
 
     def test_undirected_edge_less_than(self):
-        """Undirected edges with < operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -972,7 +837,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c: e1.weight(10) >= e2.weight(5)"
 
     def test_undirected_edge_less_equal(self):
-        """Undirected edges with <= operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1006,7 +870,6 @@ class TestDimensionCoverageMatrix:
     # --- NULL with inequality operators ---
 
     def test_null_less_than_excluded(self):
-        """NULL < X should be excluded (SQL: NULL comparison is NULL)."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1036,7 +899,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: NULL < 10 is NULL"
 
     def test_null_greater_than_excluded(self):
-        """X > NULL should be excluded."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1066,7 +928,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: 10 > NULL is NULL"
 
     def test_null_less_equal_excluded(self):
-        """NULL <= X should be excluded."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1095,7 +956,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: NULL <= 10 is NULL"
 
     def test_null_greater_equal_excluded(self):
-        """X >= NULL should be excluded."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1126,7 +986,6 @@ class TestDimensionCoverageMatrix:
     # --- Mixed NULL positions ---
 
     def test_both_null_equality(self):
-        """NULL == NULL should be False (SQL semantics)."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1156,7 +1015,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: NULL == NULL is NULL"
 
     def test_both_null_inequality(self):
-        """NULL != NULL should be False (SQL semantics)."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1186,7 +1044,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: NULL != NULL is NULL"
 
     def test_null_mixed_with_valid_paths(self):
-        """Some paths have NULL, others don't - only non-null paths should match."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1220,7 +1077,6 @@ class TestDimensionCoverageMatrix:
     # --- NaN vs None distinction ---
 
     def test_nan_explicit(self):
-        """Test with explicit np.nan values."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1249,7 +1105,6 @@ class TestDimensionCoverageMatrix:
         assert "c" not in result_nodes, "c excluded: 10.0 == NaN is NaN"
 
     def test_none_in_string_column(self):
-        """Test with None in string column (stays as None, not NaN)."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1280,7 +1135,6 @@ class TestDimensionCoverageMatrix:
     # --- Node column NULL handling ---
 
     def test_node_column_null(self):
-        """NULL in node columns should also be handled correctly."""
         nodes = pd.DataFrame([
             {"id": "a", "val": 10},
             {"id": "b", "val": None},
@@ -1311,20 +1165,10 @@ class TestDimensionCoverageMatrix:
 
 
 class TestRemainingDimensionGaps:
-    """
-    Fill remaining gaps in the dimension coverage matrix.
-
-    Gaps identified:
-    - Reverse + > and <=
-    - Undirected + >, >=, !=
-    - Multi-hop with edge WHERE
-    - Node-to-edge comparisons with different directions
-    """
 
     # --- Reverse + remaining operators ---
 
     def test_reverse_edge_greater_than(self):
-        """Reverse edges with > operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1356,7 +1200,6 @@ class TestRemainingDimensionGaps:
         assert "d" not in result_nodes, "d: e1.weight(10) <= e2.weight(15)"
 
     def test_reverse_edge_less_equal(self):
-        """Reverse edges with <= operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1390,7 +1233,6 @@ class TestRemainingDimensionGaps:
     # --- Undirected + remaining operators ---
 
     def test_undirected_edge_greater_than(self):
-        """Undirected edges with > operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1422,7 +1264,6 @@ class TestRemainingDimensionGaps:
         assert "d" not in result_nodes, "d: e1.weight(10) <= e2.weight(15)"
 
     def test_undirected_edge_greater_equal(self):
-        """Undirected edges with >= operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1454,7 +1295,6 @@ class TestRemainingDimensionGaps:
         assert "d" not in result_nodes, "d: e1.weight(10) < e2.weight(15)"
 
     def test_undirected_edge_not_equal(self):
-        """Undirected edges with != operator."""
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1488,17 +1328,6 @@ class TestRemainingDimensionGaps:
     # --- Multi-hop with edge WHERE ---
 
     def test_multihop_single_step_edge_where(self):
-        """
-        Multi-hop edge step with edge column WHERE.
-
-        a --(w=10)--> b --(w=5)--> c --(w=10)--> d
-
-        Chain: a -> [1-3 hops] -> end
-        WHERE: e.weight == 10
-
-        Note: Multi-hop edges aggregate all edges in the step. The WHERE
-        should filter paths based on individual edge attributes.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1523,18 +1352,6 @@ class TestRemainingDimensionGaps:
         _assert_parity(graph, chain, where)
 
     def test_two_multihop_steps_edge_where(self):
-        """
-        Two multi-hop steps with edge WHERE between them.
-
-        a --(w=10)--> b --(w=10)--> c
-                      |
-                      +--(w=5)--> d --(w=10)--> e
-
-        Chain: a -[1-2 hops]-> mid -[1 hop]-> end
-        WHERE: first edge weight == second edge weight
-
-        This tests multi-hop where the edge alias covers multiple possible edges.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1573,7 +1390,6 @@ class TestRemainingDimensionGaps:
     # --- Node-to-edge comparisons with different directions ---
 
     def test_node_to_edge_reverse(self):
-        """Node column compared to edge column with reverse edges."""
         nodes = pd.DataFrame([
             {"id": "a", "threshold": 10},
             {"id": "b", "threshold": 5},
@@ -1601,7 +1417,6 @@ class TestRemainingDimensionGaps:
         assert "b" in result_nodes, "b: start.threshold(10) == e.weight(10)"
 
     def test_node_to_edge_undirected(self):
-        """Node column compared to edge column with undirected edges."""
         nodes = pd.DataFrame([
             {"id": "a", "threshold": 10},
             {"id": "b", "threshold": 5},
@@ -1629,11 +1444,6 @@ class TestRemainingDimensionGaps:
         assert "b" in result_nodes, "b: start.threshold(10) == e.weight(10)"
 
     def test_three_way_mixed_columns(self):
-        """
-        Three-way comparison: node + edge + node columns.
-
-        a.x == e.weight AND e.weight == b.y
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 10},
             {"id": "b", "y": 10},
@@ -1666,11 +1476,6 @@ class TestRemainingDimensionGaps:
     # --- Edge direction combinations ---
 
     def test_forward_then_reverse_edge_where(self):
-        """
-        Forward edge followed by reverse edge with edge WHERE.
-
-        a -> b <- c
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1702,11 +1507,6 @@ class TestRemainingDimensionGaps:
         assert "d" not in result_nodes, "d: e1.call != e2.callback"
 
     def test_reverse_then_forward_edge_where(self):
-        """
-        Reverse edge followed by forward edge with edge WHERE.
-
-        a <- b -> c
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1738,11 +1538,6 @@ class TestRemainingDimensionGaps:
         assert "d" not in result_nodes, "d: e1.out != e2.in"
 
     def test_undirected_then_forward_edge_where(self):
-        """
-        Undirected edge followed by forward edge.
-
-        a -- b -> c
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1776,17 +1571,6 @@ class TestRemainingDimensionGaps:
     # --- Complex topologies ---
 
     def test_diamond_with_edge_where_all_match(self):
-        """
-        Diamond topology where all edges have same type.
-
-            a
-           / \\
-          b   c
-           \\ /
-            d
-
-        All edges have etype="x", so all paths valid.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1820,19 +1604,6 @@ class TestRemainingDimensionGaps:
         assert "c" in result_nodes, "c on valid path"
 
     def test_diamond_with_edge_where_partial_match(self):
-        """
-        Diamond where only one path has matching edge types.
-
-            a
-           / \\
-          b   c
-           \\ /
-            d
-
-        Path a->b->d: x->x (VALID)
-        Path a->c->d: y->y (VALID)
-        But a->b->d and a->c->d both valid, so all nodes included.
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
@@ -1865,18 +1636,6 @@ class TestRemainingDimensionGaps:
         assert "d" in result_nodes, "d reachable via both valid paths"
 
     def test_diamond_with_edge_where_one_invalid(self):
-        """
-        Diamond where only one path has matching edge types.
-
-            a
-           / \\
-          b   c
-           \\ /
-            d
-
-        Path a->b->d: x->x (VALID)
-        Path a->c->d: y->x (INVALID - y != x)
-        """
         nodes = pd.DataFrame([
             {"id": "a"},
             {"id": "b"},
