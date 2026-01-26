@@ -59,8 +59,6 @@ _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
 
 @dataclass(frozen=True)
 class AliasBinding:
-    """Metadata describing which chain step an alias refers to."""
-
     alias: str
     step_index: int
     kind: AliasKind
@@ -69,8 +67,6 @@ class AliasBinding:
 
 @dataclass(frozen=True)
 class SamePathExecutorInputs:
-    """Container for all metadata needed by the cuDF executor."""
-
     graph: Plottable
     chain: Sequence[ASTObject]
     where: Sequence[WhereComparison]
@@ -81,8 +77,6 @@ class SamePathExecutorInputs:
 
 
 class DFSamePathExecutor:
-    """Runs a forward/backward/forward pass using pandas or cuDF dataframes."""
-
     def __init__(self, inputs: SamePathExecutorInputs) -> None:
         self.inputs = inputs
         self.meta = ChainMeta.from_chain(inputs.chain, inputs.alias_bindings)
@@ -152,32 +146,11 @@ class DFSamePathExecutor:
         edge_idx: int,
         state: Optional[PathState] = None,
     ) -> Optional[DataFrameT]:
-        """Get edges DataFrame for a step, checking state.pruned_edges first.
-
-        Args:
-            edge_idx: The edge step index
-            state: Optional PathState with pruned_edges. If provided and has
-                   an entry for edge_idx, returns that. Otherwise falls back
-                   to forward_steps.
-
-        Returns:
-            The edges DataFrame for this step, or None if not available.
-        """
         if state is not None and edge_idx in state.pruned_edges:
             return state.pruned_edges[edge_idx]
         return self.forward_steps[edge_idx]._edges
 
     def run(self) -> Plottable:
-        """Execute same-path traversal with Yannakakis-style pruning.
-
-        Uses native vectorized implementation for both pandas and cuDF.
-        The oracle path is only used for testing/debugging via environment variable.
-
-        Environment variable GRAPHISTRY_CUDF_SAME_PATH_MODE controls behavior:
-        - 'auto' (default): Use native path for all engines
-        - 'strict': Require cudf when Engine.CUDF is requested, raise if unavailable
-        - 'oracle': Use O(n!) reference implementation (TESTING ONLY - never use in production)
-        """
         attrs = self._otel_attrs() if otel_enabled() else None
         with otel_span("gfql.df_executor.run", attrs=attrs):
             self._forward()
@@ -251,16 +224,6 @@ class DFSamePathExecutor:
         self.alias_frames[alias] = alias_frame
 
     def _apply_forward_where_pruning(self) -> None:
-        """Apply WHERE clause constraints to prune alias frames forward.
-
-        For each WHERE clause, if one alias has known values from pattern filters,
-        propagate those constraints to other aliases in the clause.
-
-        This handles cases like:
-        - Chain: a:account -> r -> c:user{id=user1}
-        - WHERE: a.owner_id == c.id
-        - Since c.id is constrained to {user1}, we prune a to owner_id IN {user1}
-        """
         if not self.inputs.where:
             return
 
@@ -339,7 +302,6 @@ class DFSamePathExecutor:
         left_col: str,
         right_col: str,
     ) -> bool:
-        """DF-native equality prune to avoid host syncs in cuDF mode."""
         left_frame = self.alias_frames.get(left_alias)
         right_frame = self.alias_frames.get(right_alias)
         if left_frame is None or right_frame is None:
@@ -388,12 +350,6 @@ class DFSamePathExecutor:
         left_col: str,
         right_col: str,
     ) -> None:
-        """Apply min/max constraint pruning for inequality comparisons.
-
-        For a.score < c.score:
-        - Prune a to rows where a.score < max(c.score)
-        - Prune c to rows where c.score > min(a.score)
-        """
         left_frame = self.alias_frames.get(left_alias)
         right_frame = self.alias_frames.get(right_alias)
         if left_frame is None or right_frame is None:
@@ -426,7 +382,6 @@ class DFSamePathExecutor:
             self.alias_frames[right_alias] = new_right
 
     def _should_attempt_gpu(self) -> bool:
-        """Decide whether to try GPU kernels for same-path execution."""
 
         mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
         if mode not in {"auto", "oracle", "strict"}:
@@ -449,7 +404,6 @@ class DFSamePathExecutor:
         return True
 
     def _unsafe_run_test_only_oracle(self) -> Plottable:
-        """O(n!) reference implementation - TESTING ONLY, never call from production code."""
         oracle = enumerate_chain(
             self.inputs.graph,
             self.inputs.chain,
@@ -464,7 +418,6 @@ class DFSamePathExecutor:
         return self._materialize_from_oracle(nodes_df, edges_df)
 
     def _run_native(self) -> Plottable:
-        """Native vectorized path using backward-prune for same-path filtering."""
         with otel_span("gfql.df_executor.compute_allowed_tags") as span:
             allowed_tags = self._compute_allowed_tags()
             if span is not None and otel_detail_enabled():
@@ -508,7 +461,6 @@ class DFSamePathExecutor:
     def _update_alias_frames_from_oracle(
         self, tags: Dict[str, Any]
     ) -> None:
-        """Filter captured frames using oracle tags to ensure path coherence."""
 
         for alias, binding in self.inputs.alias_bindings.items():
             if alias not in tags:
@@ -539,7 +491,6 @@ class DFSamePathExecutor:
     def _materialize_from_oracle(
         self, nodes_df: DataFrameT, edges_df: DataFrameT
     ) -> Plottable:
-        """Build a Plottable from oracle node/edge outputs, preserving bindings."""
 
         g = self.inputs.graph
         edge_id = g._edge
@@ -564,7 +515,6 @@ class DFSamePathExecutor:
         return g_out
 
     def _compute_allowed_tags(self) -> Dict[str, Any]:
-        """Seed allowed ids from alias frames (post-forward pruning)."""
 
         out: Dict[str, Any] = {}
         for alias, binding in self.inputs.alias_bindings.items():
@@ -578,11 +528,6 @@ class DFSamePathExecutor:
         return out
 
     def _backward_prune(self, allowed_tags: Dict[str, Any]) -> PathState:
-        """Propagate allowed ids backward across edges to enforce path coherence.
-
-        Returns:
-            Immutable PathState with allowed_nodes, allowed_edges, and pruned_edges.
-        """
 
         self.meta.validate()  # Raises if chain structure is invalid
         node_indices = self.meta.node_indices
@@ -705,20 +650,6 @@ class DFSamePathExecutor:
         start_node_idx: int,
         end_node_idx: int,
     ) -> PathState:
-        """Re-propagate constraints backward through a range of edges.
-
-        Filters edges and nodes between start_node_idx and end_node_idx
-        to reflect new constraints. Does NOT apply WHERE clauses - only
-        propagates endpoint constraints.
-
-        Args:
-            state: Current immutable PathState
-            start_node_idx: Start node index for re-propagation (exclusive)
-            end_node_idx: End node index for re-propagation (exclusive)
-
-        Returns:
-            New PathState with updated constraints.
-        """
         from graphistry.compute.gfql.same_path.multihop import (
             filter_multihop_edges_by_endpoints,
             find_multihop_start_nodes,
@@ -827,7 +758,6 @@ class DFSamePathExecutor:
         return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, pruned_edges)
 
     def _materialize_filtered(self, state: PathState) -> Plottable:
-        """Build result graph from allowed node/edge ids and refresh alias frames."""
 
         nodes_df = self.inputs.graph._nodes
         node_id = self._node_column
@@ -1082,7 +1012,6 @@ def build_same_path_inputs(
     engine: Engine,
     include_paths: bool = False,
 ) -> SamePathExecutorInputs:
-    """Construct executor inputs, deriving planner metadata and validations."""
 
     bindings = _collect_alias_bindings(chain)
     _validate_where_aliases(bindings, where)
@@ -1106,7 +1035,6 @@ def execute_same_path_chain(
     engine: Engine,
     include_paths: bool = False,
 ) -> Plottable:
-    """Convenience wrapper used by Chain execution once hooked up."""
 
     inputs = build_same_path_inputs(g, chain, where, engine, include_paths)
     executor = DFSamePathExecutor(inputs)
