@@ -172,6 +172,18 @@ uv run python benchmarks/run_realdata_benchmarks.py \
 
 Use `--kuzu-rebuild` to recreate the Kuzu database from CSVs when needed.
 
+## Graph-benchmark q1-q9
+
+Replay the q1-q9 queries from https://github.com/prrao87/graph-benchmark against Graphistry.
+See `benchmarks/graph_benchmark.md` for setup details.
+
+```bash
+uv run python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-q1-q9.json
+```
+
 ## WHERE opt matrix (comparative)
 
 Run a focused matrix of WHERE scenarios across opt profiles (value mode, domain semijoin, auto, edge semijoin, etc).
