@@ -1112,6 +1112,12 @@ class GraphistryClient(AuthManagerProtocol):
         """
         return cast(Plotter, self.gexf(source, name=name, description=description))
 
+    def to_gexf(self, path: Optional[str] = None, **kwargs: Any) -> str:
+        """
+        Export the current graph to a GEXF string (optionally writing to disk).
+        """
+        return cast(str, self._plotter().to_gexf(path, **kwargs))
+
     def gremlin(self, queries: Union[str, Iterable[str]]) -> Plotter:
         """Run one or more gremlin queries and get back the result as a graph object
         To support cosmosdb, sends as strings
@@ -2544,6 +2550,7 @@ sso_state = PyGraphistry.sso_state
 scene_settings = PyGraphistry.scene_settings
 gexf = PyGraphistry.gexf
 from_gexf = PyGraphistry.from_gexf
+to_gexf = PyGraphistry.to_gexf
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id

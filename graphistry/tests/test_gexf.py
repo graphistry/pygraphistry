@@ -1,5 +1,7 @@
 import os
+import tempfile
 
+import pandas as pd
 import pytest
 
 import graphistry
@@ -81,3 +83,60 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "invalid-edge-missing-node.gexf")
         with pytest.raises(ValueError, match="missing node ids"):
             graphistry.gexf(path)
+
+    def test_to_gexf_roundtrip(self):
+        nodes = pd.DataFrame(
+            {
+                "node_id": ["a", "b"],
+                "label": ["Alpha", "Beta"],
+                "viz_color": ["#112233", "#445566"],
+                "viz_size": [2.5, 3.5],
+                "viz_x": [1.0, 2.0],
+                "viz_y": [3.0, 4.0],
+                "viz_opacity": [0.2, 0.8],
+                "group": ["g1", "g2"],
+            }
+        )
+        edges = pd.DataFrame(
+            {
+                "source": ["a"],
+                "target": ["b"],
+                "label": ["connects"],
+                "viz_color": ["#AABBCC"],
+                "viz_thickness": [1.5],
+                "viz_opacity": [0.6],
+                "weight": [2.5],
+                "relation": ["r1"],
+            }
+        )
+        g = (
+            graphistry.edges(edges, "source", "target")
+            .nodes(nodes, "node_id")
+            .bind(
+                point_title="label",
+                point_color="viz_color",
+                point_size="viz_size",
+                point_x="viz_x",
+                point_y="viz_y",
+                point_opacity="viz_opacity",
+                edge_title="label",
+                edge_color="viz_color",
+                edge_size="viz_thickness",
+                edge_opacity="viz_opacity",
+                edge_weight="weight",
+            )
+        )
+        xml_str = g.to_gexf(version="1.2draft")
+        g2 = graphistry.gexf(xml_str.encode("utf-8"))
+
+        assert set(g2._nodes["group"]) == {"g1", "g2"}
+        assert g2._edges["relation"].iloc[0] == "r1"
+        assert g2._nodes["viz_color"].iloc[0] == "#112233"
+        assert g2._edges["viz_color"].iloc[0] == "#AABBCC"
+        assert g2._edges["viz_thickness"].iloc[0] == pytest.approx(1.5)
+        assert g2._edges["weight"].iloc[0] == pytest.approx(2.5)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = os.path.join(tmpdir, "out.gexf")
+            g.to_gexf(out_path)
+            assert os.path.exists(out_path)

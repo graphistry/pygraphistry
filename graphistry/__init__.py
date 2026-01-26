@@ -54,6 +54,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     scene_settings,
     nodexl,
     gexf,
+    to_gexf,
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry,

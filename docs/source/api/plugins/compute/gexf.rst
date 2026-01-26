@@ -16,6 +16,15 @@ Use :func:`graphistry.gexf` (or :meth:`graphistry.PlotterBase.PlotterBase.from_g
     g = graphistry.gexf("my_graph.gexf")
     g.plot()
 
+**Export**
+
+You can export a graph to GEXF using :func:`graphistry.to_gexf` or :meth:`graphistry.PlotterBase.PlotterBase.to_gexf`:
+
+::
+
+    xml_str = g.to_gexf()
+    g.to_gexf("out.gexf")
+
 **Viz attribute mapping**
 
 The loader maps standard GEXF viz attributes into Graphistry bindings:

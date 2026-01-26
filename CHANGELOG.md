@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-- **GEXF**: Added GEXF loader with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
+- **GEXF**: Added GEXF import/export with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
 
 ### Tests
 - **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
