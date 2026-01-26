@@ -26,6 +26,7 @@ from tests.gfql.ref.conftest import (
     requires_gpu,
 )
 
+
 def test_build_inputs_collects_alias_metadata():
     chain = [
         n({"type": "account"}, name="a"),
@@ -467,21 +468,6 @@ def test_dispatch_chain_list_and_single_ast():
 class TestP0FeatureComposition:
 
     def test_where_respected_after_min_hops_backtracking(self):
-        """
-        P0 Test 1: WHERE must be respected after min_hops backtracking.
-
-        Graph:
-          a(v=1) -> b -> c -> d(v=10)   (3 hops, valid path)
-          a(v=1) -> x -> y(v=0)         (2 hops, dead end for min=3)
-
-        Chain: n(a) -[min_hops=2, max_hops=3]-> n(end)
-        WHERE: a.value < end.value
-
-        After backtracking prunes the x->y branch (doesn't reach 3 hops),
-        WHERE should still filter: only paths where a.value < end.value.
-
-        Risk: Backtracking may keep paths that violate WHERE.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "type": "start", "value": 5},
             {"id": "b", "type": "mid", "value": 3},
@@ -517,22 +503,6 @@ class TestP0FeatureComposition:
         assert "d" in result_ids, "Node d satisfies WHERE but was excluded"
 
     def test_reverse_direction_where_semantics(self):
-        """
-        P0 Test 2: WHERE semantics must be consistent with reverse direction.
-
-        Graph: a(v=1) -> b(v=5) -> c(v=3) -> d(v=9)
-
-        Chain: n(name='start') -[e_reverse, min_hops=2]-> n(name='end')
-        Starting at d, traversing backward.
-        WHERE: start.value > end.value
-
-        Reverse traversal from d:
-        - hop 1: c (start=d, v=9)
-        - hop 2: b (end=b, v=5) -> d.value(9) > b.value(5) ✓
-        - hop 3: a (end=a, v=1) -> d.value(9) > a.value(1) ✓
-
-        Risk: Direction swap could flip WHERE semantics.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "value": 1},
             {"id": "b", "value": 5},
@@ -565,22 +535,6 @@ class TestP0FeatureComposition:
         assert "d" in result_ids, "Start node excluded"
 
     def test_non_adjacent_alias_where(self):
-        """
-        P0 Test 3: WHERE between non-adjacent aliases must be applied.
-
-        Chain: n(name='a') -> e -> n(name='b') -> e -> n(name='c')
-        WHERE: a.id == c.id  (aliases 2 edges apart)
-
-        This tests cycles where we return to the starting node.
-
-        Graph:
-          x -> y -> x  (cycle)
-          x -> y -> z  (no cycle)
-
-        Only paths where a.id == c.id should be kept.
-
-        Risk: cuDF backward prune only checks adjacent aliases.
-        """
         nodes = pd.DataFrame([
             {"id": "x", "type": "node"},
             {"id": "y", "type": "node"},
@@ -616,22 +570,6 @@ class TestP0FeatureComposition:
             assert "z" not in set(result._nodes["id"]), "z violates WHERE but executor included it"
 
     def test_non_adjacent_alias_where_inequality(self):
-        """
-        P0 Test 3b: Non-adjacent WHERE with inequality operators (<, >, <=, >=).
-
-        Chain: n(name='a') -> e -> n(name='b') -> e -> n(name='c')
-        WHERE: a.v < c.v  (aliases 2 edges apart, inequality)
-
-        Graph with numeric values:
-          n1(v=1) -> n2(v=5) -> n3(v=10)
-          n1(v=1) -> n2(v=5) -> n4(v=3)
-
-        Paths:
-          n1 -> n2 -> n3: a.v=1 < c.v=10 (valid)
-          n1 -> n2 -> n4: a.v=1 < c.v=3  (valid)
-
-        All paths satisfy a.v < c.v.
-        """
         nodes = pd.DataFrame([
             {"id": "n1", "v": 1},
             {"id": "n2", "v": 5},
@@ -657,18 +595,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_non_adjacent_alias_where_inequality_filters(self):
-        """
-        P0 Test 3c: Non-adjacent WHERE inequality that actually filters some paths.
-
-        Chain: n(name='a') -> e -> n(name='b') -> e -> n(name='c')
-        WHERE: a.v > c.v  (start value must be greater than end value)
-
-        Graph:
-          n1(v=10) -> n2(v=5) -> n3(v=1)   a.v=10 > c.v=1  (valid)
-          n1(v=10) -> n2(v=5) -> n4(v=20)  a.v=10 > c.v=20 (invalid)
-
-        Only paths where a.v > c.v should be kept.
-        """
         nodes = pd.DataFrame([
             {"id": "n1", "v": 10},
             {"id": "n2", "v": 5},
@@ -706,18 +632,6 @@ class TestP0FeatureComposition:
         assert "n3" in set(oracle.nodes["id"]), "n3 satisfies WHERE but oracle excluded it"
 
     def test_non_adjacent_alias_where_not_equal(self):
-        """
-        P0 Test 3d: Non-adjacent WHERE with != operator.
-
-        Chain: n(name='a') -> e -> n(name='b') -> e -> n(name='c')
-        WHERE: a.id != c.id  (aliases must be different nodes)
-
-        Graph:
-          x -> y -> x  (cycle, a.id == c.id, should be excluded)
-          x -> y -> z  (different, a.id != c.id, should be included)
-
-        Only paths where a.id != c.id should be kept.
-        """
         nodes = pd.DataFrame([
             {"id": "x", "type": "node"},
             {"id": "y", "type": "node"},
@@ -754,19 +668,6 @@ class TestP0FeatureComposition:
             assert "z" in set(result._nodes["id"]), "z satisfies WHERE but executor excluded it"
 
     def test_non_adjacent_alias_where_lte_gte(self):
-        """
-        P0 Test 3e: Non-adjacent WHERE with <= and >= operators.
-
-        Chain: n(name='a') -> e -> n(name='b') -> e -> n(name='c')
-        WHERE: a.v <= c.v  (start value must be <= end value)
-
-        Graph:
-          n1(v=5) -> n2(v=5) -> n3(v=5)   a.v=5 <= c.v=5  (valid, equal)
-          n1(v=5) -> n2(v=5) -> n4(v=10)  a.v=5 <= c.v=10 (valid, less)
-          n1(v=5) -> n2(v=5) -> n5(v=1)   a.v=5 <= c.v=1  (invalid)
-
-        Only paths where a.v <= c.v should be kept.
-        """
         nodes = pd.DataFrame([
             {"id": "n1", "v": 5},
             {"id": "n2", "v": 5},
@@ -808,11 +709,6 @@ class TestP0FeatureComposition:
         assert "n4" in set(oracle.nodes["id"]), "n4 satisfies WHERE but oracle excluded it"
 
     def test_non_adjacent_where_forward_forward(self):
-        """
-        P0 Test 3f: Non-adjacent WHERE with forward-forward topology (a->b->c).
-
-        This is the base case already covered, but explicit for completeness.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -843,13 +739,6 @@ class TestP0FeatureComposition:
         assert "d" not in set(result._nodes["id"]), "d violates WHERE but included"
 
     def test_non_adjacent_where_reverse_reverse(self):
-        """
-        P0 Test 3g: Non-adjacent WHERE with reverse-reverse topology (a<-b<-c).
-
-        Graph edges: c->b->a (but we traverse in reverse)
-        Chain: n(start) <-e- n(mid) <-e- n(end)
-        Semantically: start is where we begin, end is where we finish traversing.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -877,13 +766,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_non_adjacent_where_forward_reverse(self):
-        """
-        P0 Test 3h: Non-adjacent WHERE with forward-reverse topology (a->b<-c).
-
-        Graph: a->b and c->b (both point to b)
-        Chain: n(start) -e-> n(mid) <-e- n(end)
-        This finds paths where start reaches mid via forward, and end reaches mid via reverse.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -916,18 +798,6 @@ class TestP0FeatureComposition:
         assert "d" in result_nodes, "d satisfies WHERE but excluded"
 
     def test_non_adjacent_where_reverse_forward(self):
-        """
-        P0 Test 3i: Non-adjacent WHERE with reverse-forward topology (a<-b->c).
-
-        Graph: b->a, b->c, b->d (b points to all)
-        Chain: n(start) <-e- n(mid) -e-> n(end)
-
-        Valid paths with start.v < end.v:
-          a(v=1) -> b -> c(v=10): 1 < 10 valid
-          a(v=1) -> b -> d(v=0): 1 < 0 invalid (but d can still be start!)
-          d(v=0) -> b -> a(v=1): 0 < 1 valid
-          d(v=0) -> b -> c(v=10): 0 < 10 valid
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -961,11 +831,6 @@ class TestP0FeatureComposition:
         assert "d" in result_nodes, "d can be start (d->b->a, d->b->c)"
 
     def test_non_adjacent_where_multihop_forward(self):
-        """
-        P0 Test 3j: Non-adjacent WHERE with multi-hop edge (a-[1..2]->b->c).
-
-        Chain: n(start) -[hops 1-2]-> n(mid) -e-> n(end)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -994,11 +859,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_non_adjacent_where_multihop_reverse(self):
-        """
-        P0 Test 3k: Non-adjacent WHERE with multi-hop reverse edge.
-
-        Chain: n(start) <-[hops 1-2]- n(mid) <-e- n(end)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1027,11 +887,6 @@ class TestP0FeatureComposition:
     # ===== Single-hop topology tests (direct a->c without middle node) =====
 
     def test_single_hop_forward_where(self):
-        """
-        P0 Test 4a: Single-hop forward topology (a->c).
-
-        Chain: n(start) -e-> n(end), WHERE start.v < end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1056,11 +911,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_single_hop_reverse_where(self):
-        """
-        P0 Test 4b: Single-hop reverse topology (a<-c).
-
-        Chain: n(start) <-e- n(end), WHERE start.v < end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1083,12 +933,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_single_hop_undirected_where(self):
-        """
-        P0 Test 4c: Single-hop undirected topology (a<->c).
-
-        Chain: n(start) <-e-> n(end), WHERE start.v < end.v
-        Tests both directions of each edge.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1110,11 +954,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_single_hop_with_self_loop(self):
-        """
-        P0 Test 4d: Single-hop with self-loop (a->a).
-
-        Tests that self-loops are handled correctly.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -1139,11 +978,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_single_hop_equality_self_loop(self):
-        """
-        P0 Test 4e: Single-hop equality with self-loop.
-
-        Self-loops satisfy start.v == end.v.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 5},  # Same value as a
@@ -1169,11 +1003,6 @@ class TestP0FeatureComposition:
     # ===== Cycle topology tests =====
 
     def test_cycle_single_node(self):
-        """
-        P0 Test 5a: Self-loop cycle (a->a).
-
-        Tests single-node cycles with WHERE clause.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -1196,11 +1025,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_cycle_triangle(self):
-        """
-        P0 Test 5b: Triangle cycle (a->b->c->a).
-
-        Tests cycles in multi-hop traversal.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1223,11 +1047,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_cycle_with_branch(self):
-        """
-        P0 Test 5c: Cycle with branch (a->b->a and a->c).
-
-        Tests cycles combined with branching topology.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1252,14 +1071,6 @@ class TestP0FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_oracle_cudf_parity_comprehensive(self):
-        """
-        P0 Test 4: Oracle and cuDF executor must produce identical results.
-
-        Parametrized across multiple scenarios combining:
-        - Different hop ranges
-        - Different WHERE operators
-        - Different graph topologies
-        """
         scenarios = [
             # (nodes, edges, chain, where, description)
             (
@@ -1368,18 +1179,6 @@ class TestP0FeatureComposition:
 class TestP1FeatureComposition:
 
     def test_multi_hop_edge_where_filtering(self):
-        """
-        P1 Test 5: WHERE must be applied even for multi-hop edges.
-
-        The cuDF executor has `_is_single_hop()` check that may skip
-        WHERE filtering for multi-hop edges.
-
-        Graph: a(v=1) -> b(v=5) -> c(v=3) -> d(v=9)
-        Chain: n(a) -[min_hops=2, max_hops=3]-> n(end)
-        WHERE: a.value < end.value
-
-        Risk: WHERE skipped for multi-hop edges.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "value": 5},
             {"id": "b", "value": 3},
@@ -1416,18 +1215,6 @@ class TestP1FeatureComposition:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_output_slicing_with_where(self):
-        """
-        P1 Test 6: Output slicing must interact correctly with WHERE.
-
-        Graph: a(v=1) -> b(v=2) -> c(v=3) -> d(v=4)
-        Chain: n(a) -[max_hops=3, output_min=2, output_max=2]-> n(end)
-        WHERE: a.value < end.value
-
-        Output slice keeps only hop 2 (node c).
-        WHERE: a.value(1) < c.value(3) ✓
-
-        Risk: Slicing applied before/after WHERE could give different results.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "value": 1},
             {"id": "b", "value": 2},
@@ -1451,15 +1238,6 @@ class TestP1FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_label_seeds_with_output_min_hops(self):
-        """
-        P1 Test 7: label_seeds=True with output_min_hops > 0.
-
-        Seeds are at hop 0, but output_min_hops=2 excludes hop 0.
-        This is a potential conflict.
-
-        Graph: seed -> b -> c -> d
-        Chain: n(seed) -[output_min=2, label_seeds=True]-> n(end)
-        """
         nodes = pd.DataFrame([
             {"id": "seed", "value": 1},
             {"id": "b", "value": 2},
@@ -1490,18 +1268,6 @@ class TestP1FeatureComposition:
         _assert_parity(graph, chain, where)
 
     def test_multiple_where_mixed_hop_ranges(self):
-        """
-        P1 Test 8: Multiple WHERE clauses with different hop ranges per edge.
-
-        Chain: n(a) -[hops=1]-> n(b) -[min_hops=1, max_hops=2]-> n(c)
-        WHERE: a.v < b.v AND b.v < c.v
-
-        Graph:
-          a1(v=1) -> b1(v=5) -> c1(v=10)
-          a1(v=1) -> b2(v=2) -> c2(v=3) -> c3(v=4)
-
-        Both paths should satisfy the WHERE clauses.
-        """
         nodes = pd.DataFrame([
             {"id": "a1", "type": "A", "v": 1},
             {"id": "b1", "type": "B", "v": 5},
@@ -1540,12 +1306,6 @@ class TestP1FeatureComposition:
 class TestUnfilteredStarts:
 
     def test_unfiltered_start_node_multihop(self):
-        """
-        Unfiltered start node with multi-hop works via public API.
-
-        Chain: n() -[min_hops=2, max_hops=3]-> n()
-        WHERE: start.v < end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1575,9 +1335,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_unfiltered_start_single_hop(self):
-        """
-        Unfiltered start node with single-hop.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1605,9 +1362,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_unfiltered_start_with_cycle(self):
-        """
-        Unfiltered start with cycle in graph.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1635,12 +1389,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_unfiltered_start_multihop_reverse(self):
-        """
-        Unfiltered start node with multi-hop REVERSE traversal + WHERE.
-
-        Tests the reverse direction code path with unfiltered starts.
-        Chain: n() <-[min_hops=2, max_hops=2]- n()
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1669,12 +1417,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_unfiltered_start_multihop_undirected(self):
-        """
-        Unfiltered start node with multi-hop UNDIRECTED traversal + WHERE.
-
-        Tests undirected edges with unfiltered starts.
-        Chain: n() -[undirected, min_hops=2, max_hops=2]- n()
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1701,11 +1443,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_filtered_start_multihop_reverse_where(self):
-        """
-        Filtered start node with multi-hop REVERSE + WHERE.
-
-        Ensures hop labels work correctly for reverse direction.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1734,11 +1471,6 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
     def test_filtered_start_multihop_undirected_where(self):
-        """
-        Filtered start with multi-hop UNDIRECTED + WHERE.
-
-        Ensures hop labels work correctly for undirected edges.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1775,12 +1507,6 @@ class TestOracleLimitations:
         strict=True,
     )
     def test_edge_alias_on_multihop(self):
-        """
-        ORACLE LIMITATION: Edge alias on multi-hop edge.
-
-        The oracle raises an error when an edge alias is used on a multi-hop edge.
-        This is documented in enumerator.py:109.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1809,12 +1535,6 @@ class TestOracleLimitations:
 class TestP0ReverseMultihop:
 
     def test_reverse_multihop_basic(self):
-        """
-        P0: Reverse multi-hop basic case.
-
-        Chain: n(start) <-[min_hops=1, max_hops=2]- n(end)
-        WHERE: start.v < end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1844,12 +1564,6 @@ class TestP0ReverseMultihop:
         assert "c" in result_ids, "c satisfies WHERE but excluded"
 
     def test_reverse_multihop_filters_correctly(self):
-        """
-        P0: Reverse multi-hop that actually filters some paths.
-
-        Chain: n(start) <-[min_hops=1, max_hops=2]- n(end)
-        WHERE: start.v > end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},  # start has high value
             {"id": "b", "v": 5},   # 10 > 5 valid
@@ -1880,9 +1594,6 @@ class TestP0ReverseMultihop:
         assert "d" in result_ids, "d satisfies WHERE but excluded"
 
     def test_reverse_multihop_with_cycle(self):
-        """
-        P0: Reverse multi-hop with cycle in graph.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1905,9 +1616,6 @@ class TestP0ReverseMultihop:
         _assert_parity(graph, chain, where)
 
     def test_reverse_multihop_undirected_comparison(self):
-        """
-        P0: Compare reverse multi-hop with equivalent undirected.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1936,13 +1644,6 @@ class TestP0ReverseMultihop:
 class TestP0MultipleStarts:
 
     def test_two_valid_starts(self):
-        """
-        P0: Two nodes match start filter.
-
-        Graph:
-          a1(v=1) -> b -> c(v=10)
-          a2(v=2) -> b -> c(v=10)
-        """
         nodes = pd.DataFrame([
             {"id": "a1", "type": "start", "v": 1},
             {"id": "a2", "type": "start", "v": 2},
@@ -1966,12 +1667,6 @@ class TestP0MultipleStarts:
         _assert_parity(graph, chain, where)
 
     def test_multiple_starts_different_paths(self):
-        """
-        P0: Multiple starts with different path outcomes.
-
-        start1 -> path1 (satisfies WHERE)
-        start2 -> path2 (violates WHERE)
-        """
         nodes = pd.DataFrame([
             {"id": "s1", "type": "start", "v": 1},
             {"id": "s2", "type": "start", "v": 100},  # High value
@@ -2007,12 +1702,6 @@ class TestP0MultipleStarts:
         assert "e2" not in result_ids, "e2 path violates WHERE but e2 included"
 
     def test_multiple_starts_shared_intermediate(self):
-        """
-        P0: Multiple starts sharing intermediate nodes.
-
-        s1 -> shared -> end1
-        s2 -> shared -> end2
-        """
         nodes = pd.DataFrame([
             {"id": "s1", "type": "start", "v": 1},
             {"id": "s2", "type": "start", "v": 2},
@@ -2042,10 +1731,8 @@ class TestP0MultipleStarts:
 
 
 class TestProductionEntrypointsUseNative:
-    """Ensure g.gfql() with WHERE uses the native executor."""
 
     def test_gfql_pandas_where_uses_yannakakis_executor(self, monkeypatch):
-        """Production g.gfql() with pandas + WHERE must use Yannakakis executor."""
         native_called = False
 
         original_run_native = DFSamePathExecutor._run_native
@@ -2082,7 +1769,6 @@ class TestProductionEntrypointsUseNative:
     # - Users should use gfql() for WHERE support, which is tested by test_gfql_pandas_where_uses_yannakakis_executor
 
     def test_executor_run_pandas_uses_native_not_oracle(self, monkeypatch):
-        """DFSamePathExecutor.run() with pandas must use _run_native, not oracle."""
         oracle_called = False
 
         import graphistry.compute.gfql.df_executor as df_executor_module
@@ -2119,10 +1805,8 @@ class TestProductionEntrypointsUseNative:
 
 
 class TestDFExecutorFeatureParity:
-    """Feature parity for df_executor vs chain outputs."""
 
     def test_named_alias_tags_with_where(self):
-        """df_executor should add boolean tag columns for named aliases."""
         nodes = pd.DataFrame({'id': [0, 1, 2, 3], 'v': [0, 1, 2, 3]})
         edges = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3], 'eid': [0, 1, 2]})
         g = CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst')
@@ -2146,7 +1830,6 @@ class TestDFExecutorFeatureParity:
         # assert 'a' in result_with_where._nodes.columns, "df_executor should have 'a' column"
 
     def test_hop_labels_preserved_with_where(self):
-        """df_executor should preserve hop labels when label_edge_hops is specified."""
         nodes = pd.DataFrame({'id': [0, 1, 2, 3], 'v': [0, 1, 2, 3]})
         edges = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3], 'eid': [0, 1, 2]})
         g = CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst')
@@ -2173,7 +1856,6 @@ class TestDFExecutorFeatureParity:
         assert 'hop' in result_with_where._edges.columns, "df_executor should have 'hop' column"
 
     def test_output_slicing_with_where(self):
-        """df_executor should respect output_min_hops/output_max_hops."""
         nodes = pd.DataFrame({'id': ['a', 'b', 'c', 'd', 'e'], 'v': [0, 1, 2, 3, 4]})
         edges = pd.DataFrame({
             'src': ['a', 'b', 'c', 'd'],
