@@ -116,6 +116,27 @@ def _nodes_by_type(nodes: Any, node_type: str) -> Any:
     return nodes[nodes["node_type"] == node_type]
 
 
+def _build_preindexed_graphs(
+    nodes: Any,
+    edges: Any,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+    engine: str,
+    spec: Dict[str, Tuple[List[str], List[str]]],
+) -> Dict[str, Any]:
+    nodes_by_type = {t: _nodes_by_type(nodes, t) for t in nodes_df["node_type"].unique().tolist()}
+    edges_by_rel = {r: _edges_by_rel(edges, r) for r in edges_df["rel"].unique().tolist()}
+
+    def _graph_for(types: List[str], rels: List[str]) -> Any:
+        nodes_parts = [nodes_by_type[t] for t in types]
+        edges_parts = [edges_by_rel[r] for r in rels]
+        g_nodes = _concat_frames(engine, nodes_parts)
+        g_edges = _concat_frames(engine, edges_parts)
+        return graphistry.nodes(g_nodes, "node_id").edges(g_edges, "src", "dst")
+
+    return {name: _graph_for(types, rels) for name, (types, rels) in spec.items()}
+
+
 def _timed(label: str, fn: Callable[[], Any], runs: int, warmup: int) -> Tuple[Any, List[float]]:
     for _ in range(warmup):
         fn()
@@ -405,6 +426,11 @@ def main() -> None:
     parser.add_argument("--graph-benchmark-root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--engine", choices=["pandas", "cudf"], default="pandas")
     parser.add_argument("--mode", choices=["baseline", "preindexed", "presorted"], default=DEFAULT_MODE)
+    parser.add_argument(
+        "--include-preindex",
+        action="store_true",
+        help="For preindexed mode, report per-query medians including preindex build time.",
+    )
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=0)
     parser.add_argument("--output-json", type=Path, default=None)
@@ -423,44 +449,83 @@ def main() -> None:
     nodes = _maybe_to_cudf(args.engine, nodes_df)
     edges = _maybe_to_cudf(args.engine, edges_df)
 
+    if args.include_preindex and args.mode != "preindexed":
+        raise ValueError("--include-preindex requires --mode preindexed")
+
     if args.mode == "presorted":
         nodes = nodes.sort_values(["node_type", "node_id"])
         edges = edges.sort_values(["rel", "src", "dst"])
 
     g_full = graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
-    nodes_by_type = {t: _nodes_by_type(nodes, t) for t in nodes_df["node_type"].unique().tolist()}
-    edges_by_rel = {r: _edges_by_rel(edges, r) for r in edges_df["rel"].unique().tolist()}
-
-    def _graph_for(types: List[str], rels: List[str]) -> Any:
-        if args.mode != "preindexed":
-            return g_full
-        nodes_parts = [nodes_by_type[t] for t in types]
-        edges_parts = [edges_by_rel[r] for r in rels]
-        g_nodes = _concat_frames(args.engine, nodes_parts)
-        g_edges = _concat_frames(args.engine, edges_parts)
-        return graphistry.nodes(g_nodes, "node_id").edges(g_edges, "src", "dst")
 
     results: Dict[str, Dict[str, Any]] = {}
+    preindex_ms_by_query: Dict[str, float] = {}
+    preindex_total_ms: Optional[float] = None
 
     def _run(label: str, fn: Callable[[], pd.DataFrame]) -> None:
         _, times = _timed(label, fn, runs=args.runs, warmup=args.warmup)
-        results[label] = {
-            "median_ms": _median(times),
+        median_ms = _median(times)
+        result = {
+            "median_ms": median_ms,
             "runs": times,
         }
+        if args.include_preindex and label in preindex_ms_by_query:
+            preindex_ms = preindex_ms_by_query[label]
+            result["preindex_ms"] = preindex_ms
+            result["median_ms_with_preindex"] = median_ms + preindex_ms
+        results[label] = result
 
     if args.mode == "preindexed":
-        g_q1 = _graph_for(["Person"], ["FOLLOWS"])
+        preindex_graphs: Dict[str, Tuple[List[str], List[str]]] = {
+            "g_q1": (["Person"], ["FOLLOWS"]),
+            "g_q2_lives": (["Person", "City"], ["LIVES_IN"]),
+            "g_q3": (["Person", "City", "State", "Country"], ["LIVES_IN", "CITY_IN", "STATE_IN"]),
+            "g_q5_interest": (["Person", "Interest"], ["HAS_INTEREST"]),
+            "g_q5_location": (["Person", "City"], ["LIVES_IN"]),
+            "g_q7_interest": (["Person", "Interest"], ["HAS_INTEREST"]),
+            "g_q7_location": (["Person", "City", "State"], ["LIVES_IN", "CITY_IN"]),
+        }
+        preindex_by_query: Dict[str, List[str]] = {
+            "q1": ["g_q1"],
+            "q2": ["g_q1", "g_q2_lives"],
+            "q3": ["g_q3"],
+            "q4": ["g_q3"],
+            "q5": ["g_q5_interest", "g_q5_location"],
+            "q6": ["g_q5_interest", "g_q5_location"],
+            "q7": ["g_q7_interest", "g_q7_location"],
+            "q8": ["g_q1"],
+            "q9": ["g_q1"],
+        }
+
+        if args.include_preindex:
+            for label, graph_names in preindex_by_query.items():
+                spec = {name: preindex_graphs[name] for name in graph_names}
+                start = perf_counter()
+                _build_preindexed_graphs(nodes, edges, nodes_df, edges_df, args.engine, spec)
+                preindex_ms_by_query[label] = (perf_counter() - start) * 1000.0
+
+        start = perf_counter()
+        all_graphs = _build_preindexed_graphs(
+            nodes,
+            edges,
+            nodes_df,
+            edges_df,
+            args.engine,
+            preindex_graphs,
+        )
+        preindex_total_ms = (perf_counter() - start) * 1000.0
+
+        g_q1 = all_graphs["g_q1"]
         g_q2_follow = g_q1
-        g_q2_lives = _graph_for(["Person", "City"], ["LIVES_IN"])
-        g_q3 = _graph_for(["Person", "City", "State", "Country"], ["LIVES_IN", "CITY_IN", "STATE_IN"])
+        g_q2_lives = all_graphs["g_q2_lives"]
+        g_q3 = all_graphs["g_q3"]
         g_q4 = g_q3
-        g_q5_interest = _graph_for(["Person", "Interest"], ["HAS_INTEREST"])
-        g_q5_location = _graph_for(["Person", "City"], ["LIVES_IN"])
+        g_q5_interest = all_graphs["g_q5_interest"]
+        g_q5_location = all_graphs["g_q5_location"]
         g_q6_interest = g_q5_interest
         g_q6_location = g_q5_location
-        g_q7_interest = _graph_for(["Person", "Interest"], ["HAS_INTEREST"])
-        g_q7_location = _graph_for(["Person", "City", "State"], ["LIVES_IN", "CITY_IN"])
+        g_q7_interest = all_graphs["g_q7_interest"]
+        g_q7_location = all_graphs["g_q7_location"]
         g_q8 = g_q1
         g_q9 = g_q8
     else:
@@ -525,6 +590,7 @@ def main() -> None:
     output = {
         "engine": args.engine,
         "mode": args.mode,
+        "preindex_total_ms": preindex_total_ms,
         "results": results,
     }
     print(json.dumps(output, indent=2, sort_keys=True))

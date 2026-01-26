@@ -38,6 +38,16 @@ python benchmarks/graph_benchmark_q1_q9.py \
   --runs 5 --warmup 1
 ```
 
+Include preindex build time in per-query medians (adds `preindex_ms` and `median_ms_with_preindex`):
+
+```sh
+python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --mode preindexed \
+  --include-preindex \
+  --runs 5 --warmup 1
+```
+
 Presorted variant (global sort by rel/src/dst and node_type/node_id):
 
 ```sh

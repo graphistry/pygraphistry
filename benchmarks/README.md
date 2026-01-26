@@ -194,6 +194,17 @@ uv run python benchmarks/graph_benchmark_q1_q9.py \
   --output-json /tmp/graph-benchmark-q1-q9-preindexed.json
 ```
 
+Include preindex build time in per-query medians (adds `preindex_ms` and `median_ms_with_preindex`):
+
+```bash
+uv run python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --mode preindexed \
+  --include-preindex \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-q1-q9-preindexed-with-preindex.json
+```
+
 Presorted variant (global sort by rel/src/dst and node_type/node_id):
 
 ```bash
