@@ -18,7 +18,6 @@ from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
-# Import shared helpers - pytest auto-loads conftest.py
 from tests.gfql.ref.conftest import (
     _make_graph,
     _make_hop_graph,
@@ -535,7 +534,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check: y should NOT be in results (violates WHERE)
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         assert result._nodes is not None
         result_ids = set(result._nodes["id"])
@@ -583,7 +581,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         assert result._nodes is not None
         result_ids = set(result._nodes["id"])
@@ -633,7 +630,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check: only x->y->x path satisfies a.id == c.id
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
@@ -723,7 +719,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check: n4 should NOT be in results (10 > 20 is false)
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
@@ -772,7 +767,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check: x->y->x path should be excluded (x == x)
         # x->y->z path should be included (x != z)
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         oracle = enumerate_chain(
@@ -825,7 +819,6 @@ class TestP0FeatureComposition:
 
         _assert_parity(graph, chain, where)
 
-        # Explicit check
         result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
@@ -2304,4 +2297,3 @@ class TestDFExecutorFeatureParity:
             f"Output slicing mismatch: chain={len(result_no_where._edges)}, "
             f"df_executor={len(result_with_where._edges)}"
         )
-

@@ -33,6 +33,44 @@ if TYPE_CHECKING:
         WhereComparison,
     )
 
+_BOOL_TRUE = {"1", "true", "yes", "on"}
+
+
+def _env_lower(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip().lower()
+
+
+def _env_optional_flag(name: str) -> Optional[bool]:
+    raw = _env_lower(name)
+    if not raw:
+        return None
+    return raw in _BOOL_TRUE
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = _env_optional_flag(name)
+    return default if value is None else value
+
+
+def _env_optional_int(name: str) -> Optional[int]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _env_optional_float(name: str) -> Optional[float]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
 
 def apply_non_adjacent_where_post_prune(
     executor: "DFSamePathExecutor",
@@ -51,38 +89,47 @@ def apply_non_adjacent_where_post_prune(
     if not executor.inputs.where:
         return state
 
-    # Experimental non-adjacent WHERE modes; default auto unless explicitly set.
-    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto").strip().lower()
-    if not non_adj_mode:
-        non_adj_mode = "auto"
-    if not non_adj_mode:
-        non_adj_mode = "auto"
-    non_adj_strategy = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY", "").strip().lower()
-    non_adj_order = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_ORDER", "").strip().lower()
-    bounds_enabled = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS", "").strip().lower() in {
-        "1", "true", "yes", "on"
-    }
-    non_adj_value_card_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX", "").strip()
-    non_adj_vector_max_hops = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS", "").strip()
-    non_adj_vector_label_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX", "").strip()
-    non_adj_vector_pair_max = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX", "").strip()
-    non_adj_sip_ratio_raw = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_SIP_RATIO", "").strip()
-    non_adj_domain_semijoin_raw = os.environ.get(
-        "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN", ""
-    ).strip().lower()
-    non_adj_domain_semijoin_auto_raw = os.environ.get(
-        "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO", ""
-    ).strip().lower()
-    non_adj_multi_eq_semijoin_raw = os.environ.get(
-        "GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN", ""
-    ).strip().lower()
-    non_adj_domain_semijoin_pair_max_raw = os.environ.get(
-        "GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX", ""
-    ).strip()
-    non_adj_ineq_agg_raw = os.environ.get(
-        "GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG", ""
-    ).strip().lower()
-    non_adj_value_ops_raw = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS", "").strip().lower()
+    non_adj_mode = _env_lower("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto") or "auto"
+    non_adj_strategy = _env_lower("GRAPHISTRY_NON_ADJ_WHERE_STRATEGY")
+    non_adj_order = _env_lower("GRAPHISTRY_NON_ADJ_WHERE_ORDER")
+    bounds_enabled = _env_flag("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS")
+
+    value_card_max = _env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX")
+    if value_card_max is None and non_adj_mode in {"auto", "auto_prefilter"}:
+        value_card_max = 300
+
+    vector_max_hops = _env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_MAX_HOPS")
+    if vector_max_hops is None:
+        vector_max_hops = 3
+    vector_label_max = _env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_LABEL_MAX")
+    vector_pair_max = _env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_VECTOR_PAIR_MAX")
+    if vector_pair_max is None:
+        vector_pair_max = 200000
+    if vector_pair_max is not None and vector_pair_max <= 0:
+        vector_pair_max = None
+
+    sip_ratio = _env_optional_float("GRAPHISTRY_NON_ADJ_WHERE_SIP_RATIO")
+    if sip_ratio is None:
+        sip_ratio = 5.0
+    if sip_ratio is not None and sip_ratio <= 0:
+        sip_ratio = None
+
+    domain_semijoin_enabled = _env_flag("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN")
+    domain_semijoin_auto = _env_optional_flag("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO")
+    if domain_semijoin_auto is None and non_adj_mode in {"auto", "auto_prefilter"}:
+        domain_semijoin_auto = True
+    domain_semijoin_auto = bool(domain_semijoin_auto)
+
+    multi_eq_semijoin_enabled = _env_flag("GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN")
+    ineq_agg_enabled = _env_flag("GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG")
+
+    domain_semijoin_pair_max = _env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_PAIR_MAX")
+    if domain_semijoin_pair_max is None:
+        domain_semijoin_pair_max = vector_pair_max if vector_pair_max is not None else 200000
+    if domain_semijoin_pair_max is not None and domain_semijoin_pair_max <= 0:
+        domain_semijoin_pair_max = None
+
+    non_adj_value_ops_raw = _env_lower("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS")
     if non_adj_value_ops_raw:
         value_mode_ops = {
             op.strip()
@@ -90,65 +137,11 @@ def apply_non_adjacent_where_post_prune(
             if op.strip()
         }
     else:
-        if non_adj_mode in {"auto", "auto_prefilter"}:
-            value_mode_ops = {"==", "!="}
-        else:
-            value_mode_ops = {"=="}
-    value_mode_ops = {
-        op for op in value_mode_ops
-        if op in {"==", "!=", "<", "<=", ">", ">="}
-    }
+        value_mode_ops = {"==", "!="} if non_adj_mode in {"auto", "auto_prefilter"} else {"=="}
+    value_mode_ops = {op for op in value_mode_ops if op in {"==", "!=", "<", "<=", ">", ">="}}
     if not value_mode_ops:
         value_mode_ops = {"=="}
-    try:
-        value_card_max = int(non_adj_value_card_max) if non_adj_value_card_max else None
-    except ValueError:
-        value_card_max = None
-    if value_card_max is None and non_adj_mode in {"auto", "auto_prefilter"}:
-        value_card_max = 300
-    try:
-        vector_max_hops = int(non_adj_vector_max_hops) if non_adj_vector_max_hops else 3
-    except ValueError:
-        vector_max_hops = 3
-    try:
-        vector_label_max = int(non_adj_vector_label_max) if non_adj_vector_label_max else None
-    except ValueError:
-        vector_label_max = None
-    vector_pair_max: Optional[int]
-    try:
-        vector_pair_max = int(non_adj_vector_pair_max) if non_adj_vector_pair_max else 200000
-    except ValueError:
-        vector_pair_max = 200000
-    if vector_pair_max is not None and vector_pair_max <= 0:
-        vector_pair_max = None
-    sip_ratio: Optional[float] = 5.0
-    if non_adj_sip_ratio_raw:
-        try:
-            sip_ratio = float(non_adj_sip_ratio_raw)
-        except ValueError:
-            sip_ratio = 5.0
-    if sip_ratio is not None and sip_ratio <= 0:
-        sip_ratio = None
-    domain_semijoin_enabled = non_adj_domain_semijoin_raw in {"1", "true", "yes", "on"}
-    domain_semijoin_auto = non_adj_domain_semijoin_auto_raw in {"1", "true", "yes", "on"}
-    if (
-        not non_adj_domain_semijoin_auto_raw
-        and non_adj_mode in {"auto", "auto_prefilter"}
-    ):
-        domain_semijoin_auto = True
-    multi_eq_semijoin_enabled = non_adj_multi_eq_semijoin_raw in {"1", "true", "yes", "on"}
-    ineq_agg_enabled = non_adj_ineq_agg_raw in {"1", "true", "yes", "on"}
-    try:
-        domain_semijoin_pair_max: Optional[int]
-        domain_semijoin_pair_max = (
-            int(non_adj_domain_semijoin_pair_max_raw)
-            if non_adj_domain_semijoin_pair_max_raw
-            else (vector_pair_max if vector_pair_max is not None else 200000)
-        )
-    except ValueError:
-        domain_semijoin_pair_max = vector_pair_max if vector_pair_max is not None else 200000
-    if domain_semijoin_pair_max is not None and domain_semijoin_pair_max <= 0:
-        domain_semijoin_pair_max = None
+
     if vector_label_max is None:
         vector_label_max = value_card_max if value_card_max is not None else 1000
 
@@ -222,6 +215,21 @@ def apply_non_adjacent_where_post_prune(
 
         non_adjacent_clauses = sorted(non_adjacent_clauses, key=_clause_order_key)
 
+    def _apply_op(series: Any, op: str, value: Any) -> Any:
+        if op == "==":
+            return series == value
+        if op == "!=":
+            return series != value
+        if op == "<":
+            return series < value
+        if op == "<=":
+            return series <= value
+        if op == ">":
+            return series > value
+        if op == ">=":
+            return series >= value
+        return series == value
+
     def _filter_values_df_by_const(
         values_df: Any,
         value_col: str,
@@ -233,51 +241,17 @@ def apply_non_adjacent_where_post_prune(
         if values_df is None or len(values_df) == 0:
             return values_df
         if const_on_left:
-            if op == "==":
-                mask = values_df[value_col] == const_value
-            elif op == "!=":
-                mask = values_df[value_col] != const_value
-            elif op == "<":
-                mask = values_df[value_col] > const_value
-            elif op == "<=":
-                mask = values_df[value_col] >= const_value
-            elif op == ">":
-                mask = values_df[value_col] < const_value
-            elif op == ">=":
-                mask = values_df[value_col] <= const_value
-            else:
-                mask = values_df[value_col] == const_value
-        else:
-            if op == "==":
-                mask = values_df[value_col] == const_value
-            elif op == "!=":
-                mask = values_df[value_col] != const_value
-            elif op == "<":
-                mask = values_df[value_col] < const_value
-            elif op == "<=":
-                mask = values_df[value_col] <= const_value
-            elif op == ">":
-                mask = values_df[value_col] > const_value
-            elif op == ">=":
-                mask = values_df[value_col] >= const_value
-            else:
-                mask = values_df[value_col] == const_value
+            op = {
+                "<": ">",
+                "<=": ">=",
+                ">": "<",
+                ">=": "<=",
+            }.get(op, op)
+        mask = _apply_op(values_df[value_col], op, const_value)
         return values_df[mask]
 
     def _scalar_clause(left: Any, op: str, right: Any) -> bool:
-        if op == "==":
-            return left == right
-        if op == "!=":
-            return left != right
-        if op == "<":
-            return left < right
-        if op == "<=":
-            return left <= right
-        if op == ">":
-            return left > right
-        if op == ">=":
-            return left >= right
-        return False
+        return bool(_apply_op(left, op, right))
 
     clause_count = 0
     state_rows_max = 0
@@ -2103,22 +2077,14 @@ def apply_edge_where_post_prune(
     if not executor.inputs.where:
         return state
 
-    edge_semijoin_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN", "").strip().lower()
-    edge_semijoin_auto_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO", "").strip().lower()
-    non_adj_mode = os.environ.get("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto").strip().lower()
-    edge_semijoin_pair_max_raw = os.environ.get("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX", "").strip()
-    edge_semijoin_enabled = edge_semijoin_raw in {"1", "true", "yes", "on"}
-    edge_semijoin_auto = edge_semijoin_auto_raw in {"1", "true", "yes", "on"}
-    if not edge_semijoin_auto_raw and non_adj_mode in {"auto", "auto_prefilter"}:
+    edge_semijoin_enabled = _env_flag("GRAPHISTRY_EDGE_WHERE_SEMIJOIN")
+    edge_semijoin_auto = _env_optional_flag("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO")
+    non_adj_mode = _env_lower("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto") or "auto"
+    if edge_semijoin_auto is None and non_adj_mode in {"auto", "auto_prefilter"}:
         edge_semijoin_auto = True
-    edge_semijoin_pair_max: Optional[int]
-    try:
-        edge_semijoin_pair_max = (
-            int(edge_semijoin_pair_max_raw)
-            if edge_semijoin_pair_max_raw
-            else 200000
-        )
-    except ValueError:
+    edge_semijoin_auto = bool(edge_semijoin_auto)
+    edge_semijoin_pair_max = _env_optional_int("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX")
+    if edge_semijoin_pair_max is None:
         edge_semijoin_pair_max = 200000
     if edge_semijoin_pair_max is not None and edge_semijoin_pair_max <= 0:
         edge_semijoin_pair_max = None

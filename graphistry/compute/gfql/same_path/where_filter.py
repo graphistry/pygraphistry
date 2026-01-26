@@ -34,24 +34,7 @@ def filter_edges_by_clauses(
     allowed_nodes: Dict[int, Any],
     sem: EdgeSemantics,
 ) -> DataFrameT:
-    """Filter edges using WHERE clauses that connect adjacent aliases.
-
-    For forward edges: left_alias matches src, right_alias matches dst.
-    For reverse edges: left_alias matches dst, right_alias matches src.
-    For undirected edges: try both orientations, keep edges matching either.
-
-    Args:
-        executor: The executor instance with inputs and alias_frames
-        edges_df: DataFrame of edges to filter
-        left_alias: Left node alias name
-        right_alias: Right node alias name
-        allowed_nodes: Dict mapping step indices to allowed node ID domains
-        sem: EdgeSemantics for direction handling
-
-    Returns:
-        Filtered edges DataFrame
-    """
-    # Early return for empty edges - no filtering needed
+    """Filter edges for adjacent WHERE clauses (forward/reverse/undirected)."""
     if len(edges_df) == 0:
         return edges_df
 
@@ -89,7 +72,6 @@ def filter_edges_by_clauses(
     if node_col in right_cols:
         right_cols.remove(node_col)
 
-    # Prefix value columns to avoid collision when merging
     lf = lf[[node_col] + left_cols].rename(columns={
         node_col: "__left_id__",
         **{c: f"__L_{c}" for c in left_cols}
@@ -99,21 +81,17 @@ def filter_edges_by_clauses(
         **{c: f"__R_{c}" for c in right_cols}
     })
 
-    # For undirected edges, we need to try both orientations
     if sem.is_undirected:
-        # Orientation 1: src=left, dst=right (forward)
         fwd_df = _merge_and_filter_edges(
             executor, edges_df, lf, rf, left_alias, right_alias, relevant,
             left_merge_col=src_col,
             right_merge_col=dst_col
         )
-        # Orientation 2: dst=left, src=right (reverse)
         rev_df = _merge_and_filter_edges(
             executor, edges_df, lf, rf, left_alias, right_alias, relevant,
             left_merge_col=dst_col,
             right_merge_col=src_col
         )
-        # Combine both orientations - keep edges that match either
         if len(fwd_df) == 0 and len(rev_df) == 0:
             return fwd_df  # Empty dataframe with correct schema
         elif len(fwd_df) == 0:
@@ -122,14 +100,11 @@ def filter_edges_by_clauses(
             out_df = fwd_df
         else:
             out_df = safe_concat([fwd_df, rev_df], ignore_index=True, sort=False)
-            # Deduplicate by edge columns (src, dst) to avoid double-counting
             out_df = out_df.drop_duplicates(
                 subset=[src_col, dst_col]
             )
         return out_df
 
-    # For reverse edges, left_alias is reached via dst column, right_alias via src column
-    # For forward edges, left_alias is reached via src column, right_alias via dst column
     if sem.is_reverse:
         left_merge_col = dst_col
         right_merge_col = src_col
@@ -157,22 +132,7 @@ def _merge_and_filter_edges(
     left_merge_col: str,
     right_merge_col: str,
 ) -> DataFrameT:
-    """Helper to merge edges with alias frames and apply WHERE clauses.
-
-    Args:
-        executor: The executor instance for accessing minmax summaries
-        edges_df: DataFrame of edges to filter
-        lf: Left frame with __left_id__ and __L_* columns
-        rf: Right frame with __right_id__ and __R_* columns
-        left_alias: Left node alias name
-        right_alias: Right node alias name
-        relevant: List of WHERE clauses to apply
-        left_merge_col: Column to merge left frame on
-        right_merge_col: Column to merge right frame on
-
-    Returns:
-        Filtered edges DataFrame
-    """
+    """Merge edges with alias frames and apply WHERE clauses."""
     out_df = edges_df.merge(
         lf,
         left_on=left_merge_col,
@@ -191,7 +151,6 @@ def _merge_and_filter_edges(
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
         right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
 
-        # Columns are pre-prefixed: __L_* for left, __R_* for right
         if node_col and left_col == node_col:
             col_left = "__left_id__"
         else:

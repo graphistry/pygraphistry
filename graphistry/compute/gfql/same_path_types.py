@@ -112,20 +112,14 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
     return result
 
 
-# ---------------------------------------------------------------------------
-# Immutable PathState for Yannakakis execution
-# ---------------------------------------------------------------------------
-
 IdDomain = Any
 
 
 def _mp(d: Dict) -> MappingProxyType:
-    """Wrap dict in MappingProxyType for true immutability."""
     return MappingProxyType(d)
 
 
 def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
-    """Return new MappingProxyType with key updated."""
     d = dict(m)
     d[k] = v
     return _mp(d)
@@ -133,14 +127,7 @@ def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
 
 @dataclass(frozen=True)
 class PathState:
-    """Immutable state for same-path execution.
-
-    Contains allowed node/edge ID domains per step index and pruned edge DataFrames.
-    Mappings are immutable (MappingProxyType); domains are Index-like objects.
-
-    Used by the Yannakakis-style semi-join executor for WHERE clause evaluation.
-    All state transitions create new PathState instances (functional style).
-    """
+    """Immutable state for same-path execution."""
 
     allowed_nodes: Mapping[int, IdDomain]
     allowed_edges: Mapping[int, IdDomain]
@@ -148,7 +135,6 @@ class PathState:
 
     @classmethod
     def empty(cls) -> "PathState":
-        """Create empty PathState."""
         return cls(
             allowed_nodes=_mp({}),
             allowed_edges=_mp({}),
@@ -162,7 +148,6 @@ class PathState:
         allowed_edges: Dict[int, IdDomain],
         pruned_edges: Optional[Dict[int, Any]] = None,
     ) -> "PathState":
-        """Create PathState from mutable dicts."""
         return cls(
             allowed_nodes=_mp(dict(allowed_nodes)),
             allowed_edges=_mp(dict(allowed_edges)),
@@ -170,18 +155,12 @@ class PathState:
         )
 
     def to_mutable(self) -> tuple:
-        """Convert to mutable dicts for local processing.
-
-        Returns:
-            (allowed_nodes: Dict[int, Domain], allowed_edges: Dict[int, Domain])
-        """
         return (
             dict(self.allowed_nodes),
             dict(self.allowed_edges),
         )
 
     def restrict_nodes(self, idx: int, keep: IdDomain) -> "PathState":
-        """Return new PathState with node domain at idx intersected with keep."""
         cur = self.allowed_nodes.get(idx)
         new = domain_intersect(cur, keep) if cur is not None else keep
         return PathState(
@@ -191,7 +170,6 @@ class PathState:
         )
 
     def set_nodes(self, idx: int, nodes: IdDomain) -> "PathState":
-        """Return new PathState with node domain at idx replaced."""
         return PathState(
             allowed_nodes=_update_map(self.allowed_nodes, idx, nodes),
             allowed_edges=self.allowed_edges,

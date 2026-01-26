@@ -1,7 +1,4 @@
-"""BFS traversal utilities for same-path execution.
-
-Contains pure functions for building edge pairs and computing BFS reachability.
-"""
+"""BFS traversal utilities for same-path execution."""
 
 from typing import Any, Sequence
 
@@ -21,14 +18,7 @@ from .df_utils import (
 def build_edge_pairs(
     edges_df: DataFrameT, src_col: str, dst_col: str, sem: EdgeSemantics
 ) -> DataFrameT:
-    """Build normalized edge pairs for BFS traversal based on EdgeSemantics.
-
-    Returns DataFrame with columns ['__from__', '__to__'] representing
-    directed edges according to the edge semantics.
-
-    For undirected edges, both directions are included.
-    For directed edges, direction follows sem.join_cols().
-    """
+    """Build normalized edge pairs for BFS traversal."""
     if sem.is_undirected:
         fwd = edges_df[[src_col, dst_col]].rename(
             columns={src_col: '__from__', dst_col: '__to__'}
@@ -49,21 +39,7 @@ def build_edge_pairs(
 def bfs_reachability(
     edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hops: int, hop_col: str
 ) -> DataFrameT:
-    """Compute BFS reachability with hop distance tracking.
-
-    Returns DataFrame with columns ['__node__', hop_col] where hop_col
-    contains the minimum hop distance from the start set to each node.
-
-    Args:
-        edge_pairs: DataFrame with ['__from__', '__to__'] columns
-        start_nodes: Starting node domain (hop 0)
-        max_hops: Maximum number of hops to traverse
-        hop_col: Name for the hop distance column in output
-
-    Returns:
-        DataFrame with all reachable nodes and their hop distances
-    """
-    # Use same DataFrame type as input
+    """Compute BFS reachability with hop distance tracking."""
     start_domain = domain_from_values(start_nodes, edge_pairs)
     result = domain_to_frame(edge_pairs, start_domain, '__node__')
     result[hop_col] = 0
@@ -76,7 +52,6 @@ def bfs_reachability(
         next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
         next_df = next_df.rename(columns={'__to__': '__node__'})
 
-        # Filter out already visited nodes using domain operations
         candidate_nodes = series_values(next_df['__node__'])
         new_node_ids = domain_diff(candidate_nodes, visited_idx)
         if domain_is_empty(new_node_ids):

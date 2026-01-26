@@ -1,8 +1,4 @@
-"""Multi-hop edge traversal utilities for same-path execution.
-
-Contains functions for filtering multi-hop edges and finding valid start nodes
-using bidirectional reachability propagation.
-"""
+"""Multi-hop edge traversal utilities for same-path execution."""
 
 from typing import Any, List, Optional
 
@@ -31,71 +27,34 @@ def filter_multihop_edges_by_endpoints(
     src_col: str,
     dst_col: str,
 ) -> DataFrameT:
-    """
-    Filter multi-hop edges to only those participating in valid paths
-    from left_allowed to right_allowed.
-
-    Uses vectorized bidirectional reachability propagation:
-    1. Forward: find nodes reachable from left_allowed at each hop
-    2. Backward: find nodes that can reach right_allowed at each hop
-    3. Keep edges connecting forward-reachable to backward-reachable nodes
-
-    Args:
-        edges_df: DataFrame of edges
-        edge_op: ASTEdge operation with hop constraints
-        left_allowed: Allowed start node domain
-        right_allowed: Allowed end node domain
-        sem: EdgeSemantics for direction handling
-        src_col: Source column name
-        dst_col: Destination column name
-
-    Returns:
-        Filtered edges DataFrame
-    """
+    """Filter multi-hop edges to only those on valid paths between endpoints."""
     if not src_col or not dst_col or domain_is_empty(left_allowed) or domain_is_empty(right_allowed):
         return edges_df
 
-    # Only max_hops needed here - min_hops is enforced at path level, not per-edge
     max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
         edge_op.hops if edge_op.hops is not None else 1
     )
 
-    # Build edge pairs and compute bidirectional reachability
     edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
     fwd_df = bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
     rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
     bwd_df = bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
 
-    # An edge (u, v) is valid if:
-    # - u is forward-reachable at hop h_fwd (path length from left_allowed to u)
-    # - v is backward-reachable at hop h_bwd (path length from v to right_allowed)
-    # - h_fwd + 1 + h_bwd is in [min_hops, max_hops]
     if len(fwd_df) == 0 or len(bwd_df) == 0:
         return edges_df.iloc[:0]
 
-    # Yannakakis: min hop is correct here - edge validity uses shortest path through node
     fwd_df = fwd_df.groupby('__node__')['__fwd_hop__'].min().reset_index()
     bwd_df = bwd_df.groupby('__node__')['__bwd_hop__'].min().reset_index()
 
-    # Join edges with hop distances
     if sem.is_undirected:
-        # For undirected, check both directions
-        # An edge is valid if it lies on ANY valid path from left_allowed to right_allowed.
-        # This means: fwd_hop(u) + 1 + bwd_hop(v) <= max_hops
-        # We also need at least one path through the edge to have length >= min_hops.
-
-        # Direction 1: src is fwd, dst is bwd
         edges_annotated1 = edges_df.merge(
             fwd_df, left_on=src_col, right_on='__node__', how='inner'
         ).merge(
             bwd_df, left_on=dst_col, right_on='__node__', how='inner', suffixes=('', '_bwd')
         )
         edges_annotated1['__total_hops__'] = edges_annotated1['__fwd_hop__'] + 1 + edges_annotated1['__bwd_hop__']
-        # Keep edges that can be part of a valid path (total <= max_hops)
-        # The min_hops constraint is enforced at the path level, not per-edge
         valid1 = edges_annotated1[edges_annotated1['__total_hops__'] <= max_hops]
 
-        # Direction 2: dst is fwd, src is bwd
         edges_annotated2 = edges_df.merge(
             fwd_df, left_on=dst_col, right_on='__node__', how='inner'
         ).merge(
@@ -104,12 +63,10 @@ def filter_multihop_edges_by_endpoints(
         edges_annotated2['__total_hops__'] = edges_annotated2['__fwd_hop__'] + 1 + edges_annotated2['__bwd_hop__']
         valid2 = edges_annotated2[edges_annotated2['__total_hops__'] <= max_hops]
 
-        # Get original edge columns only
         orig_cols = list(edges_df.columns)
         valid_edges = concat_frames([valid1[orig_cols], valid2[orig_cols]])
         return valid_edges.drop_duplicates() if valid_edges is not None else edges_df.iloc[:0]
     else:
-        # Determine which column is "source" (fwd) and which is "dest" (bwd)
         fwd_col, bwd_col = sem.endpoint_cols(src_col, dst_col)
 
         edges_annotated = edges_df.merge(
@@ -119,11 +76,8 @@ def filter_multihop_edges_by_endpoints(
         )
         edges_annotated['__total_hops__'] = edges_annotated['__fwd_hop__'] + 1 + edges_annotated['__bwd_hop__']
 
-        # Keep edges that can be part of a valid path (total <= max_hops)
-        # The min_hops constraint is enforced at the path level, not per-edge
         valid_edges = edges_annotated[edges_annotated['__total_hops__'] <= max_hops]
 
-        # Return only original columns
         orig_cols = list(edges_df.columns)
         return valid_edges[orig_cols]
 
@@ -136,22 +90,7 @@ def find_multihop_start_nodes(
     src_col: str,
     dst_col: str,
 ) -> Any:
-    """
-    Find nodes that can start multi-hop paths reaching right_allowed.
-
-    Uses vectorized hop-by-hop backward propagation via merge+groupby.
-
-    Args:
-        edges_df: DataFrame of edges
-        edge_op: ASTEdge operation with hop constraints
-        right_allowed: Allowed destination node domain
-        sem: EdgeSemantics for direction handling
-        src_col: Source column name
-        dst_col: Destination column name
-
-    Returns:
-        Domain of valid start node IDs
-    """
+    """Find nodes that can start multi-hop paths reaching right_allowed."""
     if not src_col or not dst_col or domain_is_empty(right_allowed):
         return domain_empty(edges_df)
 
@@ -160,9 +99,6 @@ def find_multihop_start_nodes(
         edge_op.hops if edge_op.hops is not None else 1
     )
 
-    # Build edge pairs for backward traversal (inverted direction)
-    # For forward edges, backward trace goes dst->src
-    # Create inverted semantics for backward traversal
     inverted_sem = EdgeSemantics(
         is_reverse=not sem.is_reverse,
         is_undirected=sem.is_undirected,
@@ -172,22 +108,13 @@ def find_multihop_start_nodes(
     )
     edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, inverted_sem)
 
-    # Vectorized backward BFS: propagate reachability hop by hop
-    # Use DataFrame-based tracking throughout (no Python sets internally)
-    # Start with right_allowed as target destinations (hop 0 means "at the destination")
-    # We trace backward to find nodes that can REACH these destinations
-
     right_domain = domain_from_values(right_allowed, edge_pairs)
     frontier = domain_to_frame(edge_pairs, right_domain, '__node__')
     all_visited = frontier.copy()
     visited_idx = right_domain
     valid_starts_frames: List[DataFrameT] = []
 
-    # Collect nodes at each hop distance FROM the destination
     for hop in range(1, max_hops + 1):
-        # Join with edges to find nodes one hop back from frontier
-        # edge_pairs: __from__ = dst (target), __to__ = src (predecessor)
-        # We want nodes (__to__) that can reach frontier nodes (__from__)
         new_frontier = edge_pairs.merge(
             frontier,
             left_on='__from__',

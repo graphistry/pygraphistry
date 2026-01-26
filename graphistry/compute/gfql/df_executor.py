@@ -186,8 +186,6 @@ class DFSamePathExecutor:
             if mode == "oracle":
                 return self._unsafe_run_test_only_oracle()
 
-            # Check strict mode before running native
-            # _should_attempt_gpu() will raise RuntimeError if strict + cudf requested but unavailable
             if mode == "strict":
                 self._should_attempt_gpu()  # Raises if cudf unavailable in strict mode
 
@@ -217,7 +215,6 @@ class DFSamePathExecutor:
                 self.forward_steps.append(g_step)
                 self._capture_alias_frame(op, g_step, idx)
 
-            # Forward pruning: apply WHERE clause constraints to captured frames
             self._apply_forward_where_pruning()
             if span is not None and otel_detail_enabled():
                 for key, value in self._alias_frame_stats().items():
@@ -271,7 +268,6 @@ class DFSamePathExecutor:
             if span is not None and otel_detail_enabled():
                 for key, value in self._alias_frame_stats().items():
                     span.set_attribute(f"{key}_before", value)
-            # Iterate until no more pruning happens (fixed-point)
             changed = True
             while changed:
                 changed = False
@@ -299,19 +295,16 @@ class DFSamePathExecutor:
                             ):
                                 changed = True
                             continue
-                        # Equality: values must match
                         left_values = series_values(left_frame[left_col])
                         right_values = series_values(right_frame[right_col])
                         common = domain_intersect(left_values, right_values)
 
-                        # Prune left frame
                         if not left_values.equals(common):
                             new_left = left_frame[left_frame[left_col].isin(common)]
                             if len(new_left) < len(left_frame):
                                 self.alias_frames[left_alias] = new_left
                                 changed = True
 
-                        # Prune right frame
                         if not right_values.equals(common):
                             new_right = right_frame[right_frame[right_col].isin(common)]
                             if len(new_right) < len(right_frame):
@@ -319,10 +312,8 @@ class DFSamePathExecutor:
                                 changed = True
 
                     elif clause.op == "!=":
-                        # Inequality: no simple pruning possible without full join
                         pass
                     elif clause.op in {"<", "<=", ">", ">="}:
-                        # Min/max constraints: prune based on range overlap
                         self._apply_minmax_forward_prune(
                             clause, left_alias, right_alias, left_col, right_col
                         )
@@ -411,19 +402,16 @@ class DFSamePathExecutor:
         left_vals = left_frame[left_col]
         right_vals = right_frame[right_col]
 
-        # Get bounds
         left_min, left_max = left_vals.min(), left_vals.max()
         right_min, right_max = right_vals.min(), right_vals.max()
 
         if clause.op == "<":
-            # left < right: left must be < max(right), right must be > min(left)
             new_left = left_frame[left_vals < right_max]
             new_right = right_frame[right_vals > left_min]
         elif clause.op == "<=":
             new_left = left_frame[left_vals <= right_max]
             new_right = right_frame[right_vals >= left_min]
         elif clause.op == ">":
-            # left > right: left must be > min(right), right must be < max(left)
             new_left = left_frame[left_vals > right_min]
             new_right = right_frame[right_vals < left_max]
         elif clause.op == ">=":
@@ -444,11 +432,9 @@ class DFSamePathExecutor:
         if mode not in {"auto", "oracle", "strict"}:
             mode = "auto"
 
-        # force oracle path
         if mode == "oracle":
             return False
 
-        # only CUDF engine supports GPU fastpath
         if self.inputs.engine != Engine.CUDF:
             return False
 
@@ -517,7 +503,6 @@ class DFSamePathExecutor:
                     span.set_attribute("gfql.materialize_edges", len(out._edges))
             return out
 
-    # Alias for backwards compatibility
     _run_gpu = _run_native
 
     def _update_alias_frames_from_oracle(
@@ -527,7 +512,6 @@ class DFSamePathExecutor:
 
         for alias, binding in self.inputs.alias_bindings.items():
             if alias not in tags:
-                # if oracle didn't emit the alias, leave any existing capture intact
                 continue
             frame = self._lookup_binding_frame(binding)
             if frame is None:
@@ -570,7 +554,6 @@ class DFSamePathExecutor:
         if src and src not in edges_df.columns:
             raise ValueError(f"Oracle edges missing source column '{src}'")
         if edge_id and edge_id not in edges_df.columns:
-            # Enumerators may synthesize an edge id column when original graph lacked one
             if "__enumerator_edge_id__" in edges_df.columns:
                 edges_df = edges_df.rename(columns={"__enumerator_edge_id__": edge_id})
             else:
@@ -605,12 +588,10 @@ class DFSamePathExecutor:
         node_indices = self.meta.node_indices
         edge_indices = self.meta.edge_indices
 
-        # Build state using mutable dicts internally (converted to immutable at end)
         allowed_nodes: Dict[int, Any] = {}
         allowed_edges: Dict[int, Any] = {}
-        pruned_edges: Dict[int, Any] = {}  # Track pruned edges instead of mutating forward_steps
+        pruned_edges: Dict[int, Any] = {}
 
-        # Seed node allowances from tags or full frames
         for idx in node_indices:
             node_alias = self.meta.alias_for_step(idx)
             frame = self.forward_steps[idx]._nodes
@@ -621,7 +602,6 @@ class DFSamePathExecutor:
             else:
                 allowed_nodes[idx] = series_values(frame[self._node_column])
 
-        # Walk edges backward
         for edge_pos in range(len(edge_indices) - 1, -1, -1):
             edge_idx = edge_indices[edge_pos]
             right_node_idx = node_indices[edge_pos + 1]
@@ -637,39 +617,30 @@ class DFSamePathExecutor:
                 continue
             sem = EdgeSemantics.from_edge(edge_op)
 
-            # For single-hop edges, filter by allowed dst first
-            # For multi-hop, defer dst filtering to _filter_multihop_by_where
-            # For reverse edges, "dst" in traversal = "src" in edge data
-            # For undirected edges, "dst" can be either src or dst column
             if not sem.is_multihop:
                 allowed_dst = allowed_nodes.get(right_node_idx)
                 if allowed_dst is not None:
                     if sem.is_undirected:
-                        # Undirected: right node can be reached via either src or dst column
                         if self._source_column and self._destination_column:
                             filtered = filtered[
                                 filtered[self._source_column].isin(allowed_dst)
                                 | filtered[self._destination_column].isin(allowed_dst)
                             ]
                     else:
-                        # For directed edges, filter by the "end" column
                         _, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
                         if end_col and end_col in filtered.columns:
                             filtered = filtered[
                                 filtered[end_col].isin(allowed_dst)
                             ]
 
-            # Apply value-based clauses between adjacent aliases
             left_alias = self.meta.alias_for_step(left_node_idx)
             right_alias = self.meta.alias_for_step(right_node_idx)
             if left_alias and right_alias:
                 if not sem.is_multihop:
-                    # Single-hop: filter edges directly
                     filtered = filter_edges_by_clauses(
                         self, filtered, left_alias, right_alias, allowed_nodes, sem
                     )
                 else:
-                    # Multi-hop: filter nodes first, then keep connecting edges
                     filtered = filter_multihop_by_where(
                         self, filtered, edge_op, left_alias, right_alias, allowed_nodes
                     )
@@ -681,11 +652,7 @@ class DFSamePathExecutor:
                         filtered[self._edge_column].isin(allowed_edge_ids)
                     ]
 
-            # Update allowed_nodes based on filtered edges
-            # For reverse edges, swap src/dst semantics
-            # For undirected edges, both src and dst can be either left or right node
             if sem.is_undirected:
-                # Undirected: both src and dst can be left or right nodes
                 if self._source_column and self._destination_column:
                     all_nodes_in_edges = (
                         domain_union(
@@ -693,14 +660,12 @@ class DFSamePathExecutor:
                             series_values(filtered[self._destination_column]),
                         )
                     )
-                    # Right node is constrained by allowed_dst already filtered above
                     current_dst = allowed_nodes.get(right_node_idx)
                     allowed_nodes[right_node_idx] = (
                         domain_intersect(current_dst, all_nodes_in_edges)
                         if current_dst is not None
                         else all_nodes_in_edges
                     )
-                    # Left node is any node in the filtered edges
                     current = allowed_nodes.get(left_node_idx)
                     allowed_nodes[left_node_idx] = (
                         domain_intersect(current, all_nodes_in_edges)
@@ -708,7 +673,6 @@ class DFSamePathExecutor:
                         else all_nodes_in_edges
                     )
             else:
-                # Directed: use endpoint_cols to get proper column mapping
                 start_col, end_col = sem.endpoint_cols(self._source_column or '', self._destination_column or '')
                 if end_col and end_col in filtered.columns:
                     allowed_dst_actual = series_values(filtered[end_col])
@@ -730,11 +694,9 @@ class DFSamePathExecutor:
             if self._edge_column and self._edge_column in filtered.columns:
                 allowed_edges[edge_idx] = series_values(filtered[self._edge_column])
 
-            # Track pruned edges
             if len(filtered) < len(edges_df):
                 pruned_edges[edge_idx] = filtered
 
-        # Return immutable PathState (no mutation of forward_steps)
         return PathState.from_mutable(allowed_nodes, allowed_edges, pruned_edges)
 
     def backward_propagate_constraints(
