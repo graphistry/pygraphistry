@@ -29,7 +29,7 @@ NODE_FILES = {
 EDGE_FILES = [
     ("follows.parquet", "FOLLOWS", "Person", "Person"),
     ("lives_in.parquet", "LIVES_IN", "Person", "City"),
-    ("interests.parquet", "HAS_INTEREST", "Person", "Interest"),
+    ("interested_in.parquet", "HAS_INTEREST", "Person", "Interest"),
     ("city_in.parquet", "CITY_IN", "City", "State"),
     ("state_in.parquet", "STATE_IN", "State", "Country"),
 ]
@@ -72,7 +72,11 @@ def _load_nodes(nodes_path: Path) -> Tuple[pd.DataFrame, Dict[str, int]]:
 def _load_edges(edges_path: Path, offsets: Dict[str, int]) -> pd.DataFrame:
     edges: List[pd.DataFrame] = []
     for filename, rel, src_type, dst_type in EDGE_FILES:
-        df = pd.read_parquet(edges_path / filename).rename(columns={"from": "src", "to": "dst"})
+        path = edges_path / filename
+        if not path.exists() and filename in {"interested_in.parquet", "interests.parquet"}:
+            fallback = "interests.parquet" if filename == "interested_in.parquet" else "interested_in.parquet"
+            path = edges_path / fallback
+        df = pd.read_parquet(path).rename(columns={"from": "src", "to": "dst"})
         df["src"] = df["src"].astype("int64") + offsets[src_type]
         df["dst"] = df["dst"].astype("int64") + offsets[dst_type]
         df["rel"] = rel
