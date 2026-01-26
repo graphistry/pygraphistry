@@ -34,7 +34,6 @@ def filter_edges_by_clauses(
     allowed_nodes: Dict[int, Any],
     sem: EdgeSemantics,
 ) -> DataFrameT:
-    """Filter edges for adjacent WHERE clauses (forward/reverse/undirected)."""
     if len(edges_df) == 0:
         return edges_df
 
@@ -132,7 +131,6 @@ def _merge_and_filter_edges(
     left_merge_col: str,
     right_merge_col: str,
 ) -> DataFrameT:
-    """Merge edges with alias frames and apply WHERE clauses."""
     out_df = edges_df.merge(
         lf,
         left_on=left_merge_col,
@@ -175,27 +173,6 @@ def filter_multihop_by_where(
     right_alias: str,
     allowed_nodes: Dict[int, Any],
 ) -> DataFrameT:
-    """Filter multi-hop edges by WHERE clauses connecting start/end aliases.
-
-    For multi-hop traversals, edges_df contains all edges in the path. The src/dst
-    columns represent intermediate connections, not the start/end aliases directly.
-
-    Strategy:
-    1. Identify which (start, end) pairs satisfy WHERE clauses
-    2. Trace paths to find valid edges: start nodes connect via hop 1, end nodes via last hop
-    3. Keep only edges that participate in valid paths
-
-    Args:
-        executor: The executor instance with inputs and alias_frames
-        edges_df: DataFrame of edges to filter
-        edge_op: ASTEdge operation with hop constraints
-        left_alias: Left node alias name
-        right_alias: Right node alias name
-        allowed_nodes: Dict mapping step indices to allowed node ID domains
-
-    Returns:
-        Filtered edges DataFrame
-    """
     relevant = [
         clause
         for clause in executor.inputs.where

@@ -27,7 +27,6 @@ def filter_multihop_edges_by_endpoints(
     src_col: str,
     dst_col: str,
 ) -> DataFrameT:
-    """Filter multi-hop edges to only those on valid paths between endpoints."""
     if not src_col or not dst_col or domain_is_empty(left_allowed) or domain_is_empty(right_allowed):
         return edges_df
 
@@ -90,7 +89,6 @@ def find_multihop_start_nodes(
     src_col: str,
     dst_col: str,
 ) -> Any:
-    """Find nodes that can start multi-hop paths reaching right_allowed."""
     if not src_col or not dst_col or domain_is_empty(right_allowed):
         return domain_empty(edges_df)
 

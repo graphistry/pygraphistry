@@ -9,7 +9,6 @@ from .df_utils import series_values, domain_union
 
 @dataclass(frozen=True)
 class EdgeSemantics:
-    """Encapsulates edge direction semantics for traversal."""
     is_reverse: bool
     is_undirected: bool
     is_multihop: bool
@@ -18,7 +17,6 @@ class EdgeSemantics:
 
     @staticmethod
     def from_edge(edge_op: ASTEdge) -> "EdgeSemantics":
-        """Create EdgeSemantics from an ASTEdge operation."""
         is_reverse = edge_op.direction == "reverse"
         is_undirected = edge_op.direction == "undirected"
 
@@ -41,14 +39,12 @@ class EdgeSemantics:
         )
 
     def join_cols(self, src_col: str, dst_col: str) -> Tuple[str, str]:
-        """Get (join_column, result_column) for direction-aware joins."""
         if self.is_reverse:
             return (dst_col, src_col)
         else:
             return (src_col, dst_col)
 
     def endpoint_cols(self, src_col: str, dst_col: str) -> Tuple[str, str]:
-        """Get (start_column, end_column) based on direction."""
         if self.is_reverse:
             return (dst_col, src_col)
         else:
@@ -57,7 +53,6 @@ class EdgeSemantics:
     def start_nodes(
         self, edges_df: DataFrameT, src_col: str, dst_col: str
     ) -> DomainT:
-        """Return starting nodes for edge traversal (backward propagation)."""
         if self.is_undirected:
             return domain_union(
                 series_values(edges_df[src_col]),

@@ -127,7 +127,6 @@ def _update_map(m: Mapping, k: Any, v: Any) -> MappingProxyType:
 
 @dataclass(frozen=True)
 class PathState:
-    """Immutable state for same-path execution."""
 
     allowed_nodes: Mapping[int, IdDomain]
     allowed_edges: Mapping[int, IdDomain]
@@ -177,7 +176,6 @@ class PathState:
         )
 
     def restrict_edges(self, idx: int, keep: IdDomain) -> "PathState":
-        """Return new PathState with edge domain at idx intersected with keep."""
         cur = self.allowed_edges.get(idx)
         new = domain_intersect(cur, keep) if cur is not None else keep
         return PathState(
@@ -187,7 +185,6 @@ class PathState:
         )
 
     def set_edges(self, idx: int, edges: IdDomain) -> "PathState":
-        """Return new PathState with edge domain at idx replaced."""
         return PathState(
             allowed_nodes=self.allowed_nodes,
             allowed_edges=_update_map(self.allowed_edges, idx, edges),
@@ -195,7 +192,6 @@ class PathState:
         )
 
     def with_pruned_edges(self, edge_idx: int, df: Any) -> "PathState":
-        """Return new PathState with pruned edges DataFrame at edge_idx."""
         return PathState(
             allowed_nodes=self.allowed_nodes,
             allowed_edges=self.allowed_edges,
@@ -207,16 +203,11 @@ class PathState:
         mutable_nodes: Dict[int, Any],
         mutable_edges: Dict[int, Any],
     ) -> None:
-        """Sync this immutable state back to mutable dicts.
-
-        Clears and updates the mutable dicts in-place.
-        """
         mutable_nodes.clear()
         mutable_nodes.update(dict(self.allowed_nodes))
         mutable_edges.clear()
         mutable_edges.update(dict(self.allowed_edges))
 
     def sync_pruned_to_forward_steps(self, forward_steps: List[Any]) -> None:
-        """Sync pruned_edges back to forward_steps (mutates forward_steps)."""
         for edge_idx, df in self.pruned_edges.items():
             forward_steps[edge_idx]._edges = df

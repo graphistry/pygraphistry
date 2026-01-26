@@ -77,15 +77,6 @@ def apply_non_adjacent_where_post_prune(
     state: PathState,
     span: Optional[Any] = None,
 ) -> PathState:
-    """Apply WHERE on non-adjacent node aliases by tracing paths.
-
-    Args:
-        executor: The executor instance with chain metadata and state
-        state: Current PathState with allowed_nodes/allowed_edges
-
-    Returns:
-        New PathState with constraints applied
-    """
     if not executor.inputs.where:
         return state
 
@@ -2065,15 +2056,6 @@ def apply_edge_where_post_prune(
     executor: "DFSamePathExecutor",
     state: PathState,
 ) -> PathState:
-    """Apply WHERE on edge columns by enumerating paths.
-
-    Args:
-        executor: The executor instance with chain metadata and state
-        state: Current PathState with allowed_nodes/allowed_edges
-
-    Returns:
-        New PathState with constraints applied
-    """
     if not executor.inputs.where:
         return state
 

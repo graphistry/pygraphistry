@@ -18,7 +18,6 @@ from .df_utils import (
 def build_edge_pairs(
     edges_df: DataFrameT, src_col: str, dst_col: str, sem: EdgeSemantics
 ) -> DataFrameT:
-    """Build normalized edge pairs for BFS traversal."""
     if sem.is_undirected:
         fwd = edges_df[[src_col, dst_col]].rename(
             columns={src_col: '__from__', dst_col: '__to__'}
@@ -39,7 +38,6 @@ def build_edge_pairs(
 def bfs_reachability(
     edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hops: int, hop_col: str
 ) -> DataFrameT:
-    """Compute BFS reachability with hop distance tracking."""
     start_domain = domain_from_values(start_nodes, edge_pairs)
     result = domain_to_frame(edge_pairs, start_domain, '__node__')
     result[hop_col] = 0

@@ -25,7 +25,6 @@ def _cudf_index_op(left: DomainT, right: DomainT, op: str) -> DomainT:
 
 
 def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
-    """Construct a DataFrame matching template_df's engine."""
     if _is_cudf_obj(template_df):
         import cudf  # type: ignore
         return cudf.DataFrame(data)
@@ -33,7 +32,6 @@ def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
 
 
 def make_bool_series(template_df: DataFrameT, value: bool) -> SeriesT:
-    """Return a boolean Series matching template_df's type and length."""
     if _is_cudf_obj(template_df):
         import cudf  # type: ignore
         return cudf.Series([value] * len(template_df))
@@ -41,7 +39,6 @@ def make_bool_series(template_df: DataFrameT, value: bool) -> SeriesT:
 
 
 def to_pandas_series(series: SeriesLike) -> pd.Series:
-    """Convert a series-like object to pandas."""
     if hasattr(series, "to_pandas"):
         return series.to_pandas()
     if isinstance(series, pd.Series):
@@ -50,7 +47,6 @@ def to_pandas_series(series: SeriesLike) -> pd.Series:
 
 
 def series_values(series: SeriesLike) -> DomainT:
-    """Return unique non-null values as an Index-like domain."""
     if _is_cudf_obj(series):
         import cudf  # type: ignore
         if isinstance(series, cudf.Index):
@@ -136,7 +132,6 @@ _ID_COL = "__id__"
 
 
 def series_to_id_df(series: SeriesLike, id_col: str = _ID_COL) -> DataFrameT:
-    """Return unique non-null values as a single-column DataFrame."""
     if hasattr(series, '__class__') and series.__class__.__module__.startswith("cudf"):
         return series.dropna().drop_duplicates().to_frame(name=id_col)
 
@@ -147,7 +142,6 @@ def series_to_id_df(series: SeriesLike, id_col: str = _ID_COL) -> DataFrameT:
 def evaluate_clause(
     series_left: Any, op: str, series_right: Any, *, null_safe: bool = False
 ) -> Any:
-    """Vectorized comparison with optional NULL-safe semantics."""
     if null_safe:
         # SQL NULL semantics: any comparison with NULL is NULL (treated as False)
         # pandas != returns True for X != NaN, so we need to check for NULL first
@@ -182,10 +176,6 @@ def evaluate_clause(
 
 
 def concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
-    """Concatenate frames, returning None if empty.
-
-    Handles both pandas and cudf DataFrames automatically.
-    """
     non_empty = [f for f in frames if f is not None and len(f) > 0]
     if not non_empty:
         return None
