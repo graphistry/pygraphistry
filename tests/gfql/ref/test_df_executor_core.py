@@ -461,36 +461,10 @@ def test_dispatch_chain_list_and_single_ast():
         assert set(result._edges["dst"]) == set(oracle.edges["dst"])
 
 
-# ============================================================================
-# Feature Composition Tests - Multi-hop + WHERE
-# ============================================================================
-#
-# KNOWN LIMITATION: The cuDF same-path executor has architectural limitations
-# with multi-hop edges combined with WHERE clauses:
-#
-# 1. Backward prune assumes single-hop edges where each edge step directly
-#    connects adjacent node steps. Multi-hop edges break this assumption.
-#
-# 2. For multi-hop edges, _is_single_hop() gates WHERE clause filtering,
-#    so WHERE between start/end of a multi-hop edge may not be applied
-#    during backward prune.
-#
-# 3. The oracle correctly handles these cases, so oracle parity tests
-#    catch the discrepancy.
-#
-# These tests are marked xfail to document the known limitations.
-# See issue #871 for the testing roadmap.
-# ============================================================================
+# --- Feature composition: multi-hop + WHERE (xfail; known limitation #871)
 
 
 class TestP0FeatureComposition:
-    """
-    Critical tests for hop ranges + WHERE clause composition.
-    These catch subtle bugs in feature interactions.
-
-    These tests are currently xfail due to known limitations in the
-    cuDF executor's handling of multi-hop + WHERE combinations.
-    """
 
     def test_where_respected_after_min_hops_backtracking(self):
         """
@@ -1388,18 +1362,10 @@ class TestP0FeatureComposition:
                     f"{desc}: edge dst mismatch"
 
 
-# ============================================================================
-# P1 TESTS: High Confidence - Important but not blocking
-# ============================================================================
+# --- P1 tests: high confidence, not blocking
 
 
 class TestP1FeatureComposition:
-    """
-    Important tests for edge cases in feature composition.
-
-    These tests are currently xfail due to known limitations in the
-    cuDF executor's handling of multi-hop + WHERE combinations.
-    """
 
     def test_multi_hop_edge_where_filtering(self):
         """
@@ -1568,27 +1534,10 @@ class TestP1FeatureComposition:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# UNFILTERED START TESTS - Known limitations of native Yannakakis path
-# ============================================================================
-#
-# The native Yannakakis implementation (_run_native) has limitations with:
-# - Unfiltered start nodes (n() with no predicates) combined with multi-hop
-# - Complex path patterns where forward pass doesn't capture all valid starts
-#
-# These tests are marked xfail to document the limitation. The oracle path
-# handles these correctly but is O(n!) and not suitable for production.
-# TODO: Fix _run_native to handle unfiltered starts properly
-# ============================================================================
+# --- Unfiltered-start tests (xfail; native Yannakakis limitation)
 
 
 class TestUnfilteredStarts:
-    """
-    Tests for unfiltered start nodes.
-
-    The native path handles unfiltered start + multihop by using alias frames
-    instead of hop labels (which become ambiguous when all nodes can be starts).
-    """
 
     def test_unfiltered_start_node_multihop(self):
         """
@@ -1816,17 +1765,10 @@ class TestUnfilteredStarts:
         assert set(result._nodes["id"]) == set(oracle.nodes["id"])
 
 
-# ============================================================================
-# ORACLE LIMITATIONS - These are actual oracle limitations, not executor bugs
-# ============================================================================
+# --- Oracle limitations (not executor bugs)
 
 
 class TestOracleLimitations:
-    """
-    Tests for oracle limitations (not executor bugs).
-
-    These test features the oracle doesn't support.
-    """
 
     @pytest.mark.xfail(
         reason="Oracle doesn't support edge aliases on multi-hop edges",
@@ -1861,17 +1803,10 @@ class TestOracleLimitations:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# P0 ADDITIONAL TESTS: Reverse + Multi-hop
-# ============================================================================
+# --- P0 additional tests: reverse + multihop
 
 
 class TestP0ReverseMultihop:
-    """
-    P0 Tests: Reverse direction with multi-hop edges.
-
-    These test combinations that revealed bugs during session 3.
-    """
 
     def test_reverse_multihop_basic(self):
         """
@@ -1995,17 +1930,10 @@ class TestP0ReverseMultihop:
         _assert_parity(graph, chain_rev, where)
 
 
-# ============================================================================
-# P0 ADDITIONAL TESTS: Multiple Valid Starts
-# ============================================================================
+# --- P0 additional tests: multiple valid starts
 
 
 class TestP0MultipleStarts:
-    """
-    P0 Tests: Multiple valid start nodes (not all, not one).
-
-    This tests the middle ground between single filtered start and all-as-starts.
-    """
 
     def test_two_valid_starts(self):
         """
@@ -2110,18 +2038,11 @@ class TestP0MultipleStarts:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# ENTRYPOINT TESTS: Verify production paths use Yannakakis, NOT oracle
-# ============================================================================
+# --- Entrypoint tests: ensure production uses Yannakakis
 
 
 class TestProductionEntrypointsUseNative:
-    """Verify g.gfql() and g.chain() with WHERE use native Yannakakis executor.
-
-    These are "no-shit" tests - if they fail, production is either:
-    1. Using the O(n!) oracle enumerator instead of vectorized Yannakakis
-    2. Not using the same-path executor at all (skipping WHERE optimization)
-    """
+    """Ensure g.gfql() with WHERE uses the native executor."""
 
     def test_gfql_pandas_where_uses_yannakakis_executor(self, monkeypatch):
         """Production g.gfql() with pandas + WHERE must use Yannakakis executor."""
@@ -2193,25 +2114,12 @@ class TestProductionEntrypointsUseNative:
         assert result._nodes is not None
 
 
-# ============================================================================
-# P1 TESTS: Operators × Single-hop Systematic
-# ============================================================================
-
-
-# ============================================================================
-# FEATURE PARITY TESTS: df_executor should match chain.py output features
-# ============================================================================
+# --- P1 tests: operators × single-hop systematic
+# --- Feature parity: df_executor vs chain.py output features
 
 
 class TestDFExecutorFeatureParity:
-    """Tests that df_executor (with WHERE) produces same output features as chain (without WHERE).
-
-    When a user adds a WHERE clause, they shouldn't lose features like:
-    - Named alias boolean tags (e.g., 'a' column in nodes)
-    - Hop labels (label_edge_hops, label_node_hops)
-    - Output slicing (output_min_hops, output_max_hops)
-    - Seed labeling (label_seeds)
-    """
+    """Feature parity for df_executor vs chain outputs."""
 
     def test_named_alias_tags_with_where(self):
         """df_executor should add boolean tag columns for named aliases."""
