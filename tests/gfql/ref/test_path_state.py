@@ -12,8 +12,6 @@ def idx(values):
 
 
 class TestPathStateImmutability:
-    """Test that PathState is truly immutable."""
-
     def test_empty_creates_empty_state(self):
         state = PathState.empty()
         assert len(state.allowed_nodes) == 0
@@ -77,7 +75,6 @@ class TestPathStateImmutability:
 
 
 class TestPathStateRestrictNodes:
-    """Test restrict_nodes returns new state with intersection."""
 
     def test_restrict_nodes_returns_new_object(self):
         s1 = PathState.from_mutable({0: idx([1, 2, 3])}, {})
@@ -110,7 +107,6 @@ class TestPathStateRestrictNodes:
 
 
 class TestPathStateRestrictEdges:
-    """Test restrict_edges returns new state with intersection."""
 
     def test_restrict_edges_returns_new_object(self):
         s1 = PathState.from_mutable({}, {1: idx([10, 20, 30])})
@@ -122,7 +118,6 @@ class TestPathStateRestrictEdges:
 
 
 class TestPathStateSetNodes:
-    """Test set_nodes replaces the node set entirely."""
 
     def test_set_nodes_replaces_value(self):
         s1 = PathState.from_mutable({0: idx([1, 2])}, {})
@@ -140,7 +135,6 @@ class TestPathStateSetNodes:
 
 
 class TestPathStateWithPrunedEdges:
-    """Test with_pruned_edges stores DataFrame."""
 
     def test_with_pruned_edges_stores_df(self):
         import pandas as pd
@@ -166,7 +160,6 @@ class TestPathStateWithPrunedEdges:
 
 
 class TestPathStateSyncMethods:
-    """Test sync methods for backward compatibility."""
 
     def test_sync_to_mutable_updates_dicts(self):
         state = PathState.from_mutable(
@@ -205,7 +198,6 @@ class TestPathStateSyncMethods:
 
 
 class TestPathStateRoundTrip:
-    """Test conversion round-trips preserve data."""
 
     def test_mutable_to_immutable_to_mutable(self):
         original_nodes = {0: idx([1, 2, 3]), 2: idx([4, 5])}
@@ -221,10 +213,8 @@ class TestPathStateRoundTrip:
 
 
 class TestPathStateImmutabilityContracts:
-    """Contract tests to ensure immutability is enforced at API boundaries."""
 
     def test_pathstate_methods_return_new_objects(self):
-        """All PathState methods must return new objects, not mutate in place."""
         import pandas as pd
 
         s1 = PathState.from_mutable({0: idx([1, 2, 3])}, {1: idx([10, 20])})
@@ -256,7 +246,6 @@ class TestPathStateImmutabilityContracts:
         assert 0 not in s1.pruned_edges  # Original unchanged
 
     def test_pathstate_cannot_be_modified_after_creation(self):
-        """PathState fields cannot be modified after creation."""
         state = PathState.from_mutable({0: idx([1, 2])}, {1: idx([10])})
 
         # Cannot reassign fields (frozen dataclass)
@@ -277,7 +266,6 @@ class TestPathStateImmutabilityContracts:
             state.allowed_nodes[99] = idx([1])  # type: ignore
 
     def test_from_mutable_creates_deep_copy(self):
-        """from_mutable must not hold references to input mutable data."""
         nodes = {0: idx([1, 2, 3])}
         edges = {1: idx([10, 20])}
 
@@ -292,7 +280,6 @@ class TestPathStateImmutabilityContracts:
         assert set(state.allowed_edges[1]) == {10, 20}
 
     def test_to_mutable_creates_independent_copy(self):
-        """to_mutable must return data that doesn't affect original PathState."""
         state = PathState.from_mutable({0: idx([1, 2, 3])}, {1: idx([10, 20])})
 
         nodes, edges = state.to_mutable()
