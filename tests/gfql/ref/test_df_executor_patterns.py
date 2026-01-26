@@ -17,11 +17,11 @@ from graphistry.tests.test_compute import CGFull
 
 from tests.gfql.ref.conftest import _assert_parity
 
+
 class TestP1OperatorsSingleHop:
 
     @pytest.fixture
     def basic_graph(self):
-        """Graph for operator tests."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 5},   # Same as a
@@ -37,7 +37,6 @@ class TestP1OperatorsSingleHop:
         return CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
 
     def test_single_hop_eq(self, basic_graph):
-        """P1: Single-hop with == operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "==", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -48,7 +47,6 @@ class TestP1OperatorsSingleHop:
         assert "b" in set(result._nodes["id"])
 
     def test_single_hop_neq(self, basic_graph):
-        """P1: Single-hop with != operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "!=", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -60,7 +58,6 @@ class TestP1OperatorsSingleHop:
         assert "d" in result_ids, "d participates in valid paths"
 
     def test_single_hop_lt(self, basic_graph):
-        """P1: Single-hop with < operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -70,7 +67,6 @@ class TestP1OperatorsSingleHop:
         assert "c" in set(result._nodes["id"])
 
     def test_single_hop_gt(self, basic_graph):
-        """P1: Single-hop with > operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), ">", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -80,7 +76,6 @@ class TestP1OperatorsSingleHop:
         assert "d" in set(result._nodes["id"])
 
     def test_single_hop_lte(self, basic_graph):
-        """P1: Single-hop with <= operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -92,7 +87,6 @@ class TestP1OperatorsSingleHop:
         assert "c" in result_ids
 
     def test_single_hop_gte(self, basic_graph):
-        """P1: Single-hop with >= operator."""
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), ">=", col("end", "v"))]
         _assert_parity(basic_graph, chain, where)
@@ -110,12 +104,6 @@ class TestP1OperatorsSingleHop:
 class TestP2LongerPaths:
 
     def test_four_node_chain(self):
-        """
-        P2: Chain of 4 nodes (3 edges).
-
-        a -> b -> c -> d
-        WHERE: a.v < d.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -143,12 +131,6 @@ class TestP2LongerPaths:
         _assert_parity(graph, chain, where)
 
     def test_five_node_chain_multiple_where(self):
-        """
-        P2: Chain of 5 nodes with multiple WHERE clauses.
-
-        a -> b -> c -> d -> e
-        WHERE: a.v < c.v AND c.v < e.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 3},
@@ -183,12 +165,6 @@ class TestP2LongerPaths:
         _assert_parity(graph, chain, where)
 
     def test_long_chain_with_multihop(self):
-        """
-        P2: Long chain with multi-hop edges.
-
-        a -[1..2]-> mid -[1..2]-> end
-        WHERE: a.v < end.v
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 3},
@@ -216,12 +192,6 @@ class TestP2LongerPaths:
         _assert_parity(graph, chain, where)
 
     def test_long_chain_filters_partial_path(self):
-        """
-        P2: Long chain where only partial paths satisfy WHERE.
-
-        a -> b -> c -> d1 (satisfies)
-        a -> b -> c -> d2 (violates)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 3},
@@ -263,7 +233,6 @@ class TestP1OperatorsMultihop:
 
     @pytest.fixture
     def multihop_graph(self):
-        """Graph for multi-hop operator tests."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -280,7 +249,6 @@ class TestP1OperatorsMultihop:
         return CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
 
     def test_multihop_eq(self, multihop_graph):
-        """P1: Multi-hop with == operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -290,7 +258,6 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
     def test_multihop_neq(self, multihop_graph):
-        """P1: Multi-hop with != operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -300,7 +267,6 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
     def test_multihop_lt(self, multihop_graph):
-        """P1: Multi-hop with < operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -310,7 +276,6 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
     def test_multihop_gt(self, multihop_graph):
-        """P1: Multi-hop with > operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -320,7 +285,6 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
     def test_multihop_lte(self, multihop_graph):
-        """P1: Multi-hop with <= operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -330,7 +294,6 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
     def test_multihop_gte(self, multihop_graph):
-        """P1: Multi-hop with >= operator."""
         chain = [
             n({"id": "a"}, name="start"),
             e_forward(min_hops=1, max_hops=2),
@@ -346,7 +309,6 @@ class TestP1OperatorsMultihop:
 class TestP1UndirectedMultihop:
 
     def test_undirected_multihop_basic(self):
-        """P1: Undirected multi-hop basic case."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -368,7 +330,6 @@ class TestP1UndirectedMultihop:
         _assert_parity(graph, chain, where)
 
     def test_undirected_multihop_bidirectional(self):
-        """P1: Undirected multi-hop can traverse both directions."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -397,7 +358,6 @@ class TestP1UndirectedMultihop:
 class TestP1MixedDirectionChains:
 
     def test_forward_reverse_forward(self):
-        """P1: Forward-reverse-forward chain."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -425,7 +385,6 @@ class TestP1MixedDirectionChains:
         _assert_parity(graph, chain, where)
 
     def test_reverse_forward_reverse(self):
-        """P1: Reverse-forward-reverse chain."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},
             {"id": "b", "v": 5},
@@ -453,7 +412,6 @@ class TestP1MixedDirectionChains:
         _assert_parity(graph, chain, where)
 
     def test_mixed_with_multihop(self):
-        """P1: Mixed directions with multi-hop edges."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 3},
@@ -487,7 +445,6 @@ class TestP1MixedDirectionChains:
 class TestP2EdgeCases:
 
     def test_single_node_graph(self):
-        """P2: Graph with single node and self-loop."""
         nodes = pd.DataFrame([{"id": "a", "v": 5}])
         edges = pd.DataFrame([{"src": "a", "dst": "a"}])
         graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
@@ -502,7 +459,6 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
     def test_disconnected_components(self):
-        """P2: Graph with disconnected components."""
         nodes = pd.DataFrame([
             {"id": "a1", "v": 1},
             {"id": "a2", "v": 5},
@@ -525,7 +481,6 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
     def test_dense_graph(self):
-        """P2: Dense graph with many edges."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -553,7 +508,6 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
     def test_null_values_in_comparison(self):
-        """P2: Nodes with null values in comparison column."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": None},  # Null value
@@ -575,7 +529,6 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
     def test_string_comparison(self):
-        """P2: String values in comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "name": "alice"},
             {"id": "b", "name": "bob"},
@@ -597,7 +550,6 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
     def test_multiple_where_all_operators(self):
-        """P2: Multiple WHERE clauses with different operators."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "w": 10},
             {"id": "b", "v": 5, "w": 5},
@@ -629,10 +581,8 @@ class TestP2EdgeCases:
 
 
 class TestBugPatternMultihopBackprop:
-    """Multi-hop backward propagation edge cases."""
 
     def test_three_consecutive_multihop_edges(self):
-        """Three consecutive multi-hop edges - stress test for backward prop."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -666,7 +616,6 @@ class TestBugPatternMultihopBackprop:
         _assert_parity(graph, chain, where)
 
     def test_multihop_with_output_slicing_and_where(self):
-        """Multi-hop with output_min_hops/output_max_hops + WHERE."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -690,7 +639,6 @@ class TestBugPatternMultihopBackprop:
         _assert_parity(graph, chain, where)
 
     def test_multihop_diamond_graph(self):
-        """Multi-hop through a diamond-shaped graph (multiple paths)."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -717,16 +665,8 @@ class TestBugPatternMultihopBackprop:
 
 
 class TestBugPatternMergeSuffix:
-    """
-    Tests for merge suffix handling with same-named columns.
-
-    Bug pattern: When left_col == right_col, pandas merge creates
-    suffixed columns (e.g., 'v' and 'v__r') but code may compare
-    column to itself instead of to the suffixed version.
-    """
 
     def test_same_column_eq(self):
-        """Same column name with == operator."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -751,7 +691,6 @@ class TestBugPatternMergeSuffix:
         _assert_parity(graph, chain, where)
 
     def test_same_column_lt(self):
-        """Same column name with < operator."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -776,7 +715,6 @@ class TestBugPatternMergeSuffix:
         _assert_parity(graph, chain, where)
 
     def test_same_column_lte(self):
-        """Same column name with <= operator."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -801,7 +739,6 @@ class TestBugPatternMergeSuffix:
         _assert_parity(graph, chain, where)
 
     def test_same_column_gt(self):
-        """Same column name with > operator."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -826,7 +763,6 @@ class TestBugPatternMergeSuffix:
         _assert_parity(graph, chain, where)
 
     def test_same_column_gte(self):
-        """Same column name with >= operator."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -852,16 +788,8 @@ class TestBugPatternMergeSuffix:
 
 
 class TestBugPatternUndirected:
-    """
-    Tests for undirected edge handling in various contexts.
-
-    Bug pattern: Code checks `is_reverse = direction == "reverse"` but
-    doesn't handle `direction == "undirected"`, treating it as forward.
-    Undirected requires bidirectional adjacency.
-    """
 
     def test_undirected_non_adjacent_where(self):
-        """Undirected edges with non-adjacent WHERE clause."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -887,7 +815,6 @@ class TestBugPatternUndirected:
         _assert_parity(graph, chain, where)
 
     def test_undirected_multiple_where(self):
-        """Undirected edges with multiple WHERE clauses."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "w": 10},
             {"id": "b", "v": 5, "w": 5},
@@ -913,7 +840,6 @@ class TestBugPatternUndirected:
         _assert_parity(graph, chain, where)
 
     def test_mixed_directed_undirected_chain(self):
-        """Chain with both directed and undirected edges."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -939,7 +865,6 @@ class TestBugPatternUndirected:
         _assert_parity(graph, chain, where)
 
     def test_undirected_with_self_loop(self):
-        """Undirected edge with self-loop."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -960,7 +885,6 @@ class TestBugPatternUndirected:
         _assert_parity(graph, chain, where)
 
     def test_undirected_reverse_undirected_chain(self):
-        """Chain: undirected -> reverse -> undirected."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -989,10 +913,8 @@ class TestBugPatternUndirected:
 
 
 class TestImpossibleConstraints:
-    """Test cases with impossible/contradictory constraints that should return empty results."""
 
     def test_contradictory_lt_gt_same_column(self):
-        """Impossible: a.v < b.v AND a.v > b.v (can't be both)."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -1018,7 +940,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_contradictory_eq_neq_same_column(self):
-        """Impossible: a.v == b.v AND a.v != b.v (can't be both)."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 5},
@@ -1044,7 +965,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_contradictory_lte_gt_same_column(self):
-        """Impossible: a.v <= b.v AND a.v > b.v (can't be both)."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -1070,7 +990,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_no_paths_satisfy_predicate(self):
-        """All edges exist but no path satisfies the predicate."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 100},  # Highest value
             {"id": "b", "v": 50},
@@ -1095,7 +1014,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_multihop_no_valid_endpoints(self):
-        """Multi-hop where no endpoints satisfy the predicate."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 100},
             {"id": "b", "v": 50},
@@ -1120,7 +1038,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_contradictory_on_different_columns(self):
-        """Multiple predicates on different columns that are contradictory."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 5, "w": 10},
             {"id": "b", "v": 10, "w": 5},  # v is higher, w is lower
@@ -1148,7 +1065,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_chain_with_impossible_intermediate(self):
-        """Chain where intermediate step makes path impossible."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 100},  # This would make mid.v > end.v impossible
@@ -1173,7 +1089,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_non_adjacent_impossible_constraint(self):
-        """Non-adjacent WHERE clause that's impossible to satisfy."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 100},  # Highest
             {"id": "b", "v": 50},
@@ -1198,7 +1113,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_empty_graph_with_constraints(self):
-        """Empty graph should return empty even with valid-looking constraints."""
         nodes = pd.DataFrame({"id": [], "v": []})
         edges = pd.DataFrame({"src": [], "dst": []})
         graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
@@ -1213,7 +1127,6 @@ class TestImpossibleConstraints:
         _assert_parity(graph, chain, where)
 
     def test_no_edges_with_constraints(self):
-        """Nodes exist but no edges - should return empty."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 10},
@@ -1232,12 +1145,6 @@ class TestImpossibleConstraints:
 
 
 class TestFiveWhysAmplification:
-    """
-    Tests derived from 5-whys analysis of bugs found in PR #846.
-
-    Each test targets a root cause that wasn't covered by existing tests.
-    See alloy/README.md for bug list and issue #871 for verification roadmap.
-    """
 
     # =========================================================================
     # Bug 1: Backward traversal join direction
@@ -1245,12 +1152,6 @@ class TestFiveWhysAmplification:
     # =========================================================================
 
     def test_reverse_multihop_with_unreachable_intermediate(self):
-        """
-        Reverse multi-hop where some intermediates are unreachable from start.
-
-        Bug pattern: Join direction error causes wrong nodes to appear reachable.
-        This catches bugs where reverse traversal join uses wrong column order.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},   # start
             {"id": "b", "v": 5},   # reachable from a in reverse (b->a exists)
@@ -1281,15 +1182,6 @@ class TestFiveWhysAmplification:
         assert "y" not in result_ids, "y is unreachable but appeared in results"
 
     def test_reverse_multihop_asymmetric_fanout(self):
-        """
-        Reverse traversal with asymmetric fan-out to test join direction.
-
-        Graph: a <- b <- c
-               a <- b <- d
-               e <- f (isolated)
-
-        Bug pattern: Wrong join direction could include f when tracing from a.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1330,12 +1222,6 @@ class TestFiveWhysAmplification:
     # =========================================================================
 
     def test_aggressive_where_empties_mid_pass(self):
-        """
-        WHERE clause that eliminates all candidates during backward pass.
-
-        Bug pattern: Missing early return when pruned sets become empty,
-        leading to empty DataFrames propagating through merges.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1000},  # Very high value
             {"id": "b", "v": 1},
@@ -1361,12 +1247,6 @@ class TestFiveWhysAmplification:
         _assert_parity(graph, chain, where)
 
     def test_where_eliminates_all_intermediates(self):
-        """
-        Non-adjacent WHERE that eliminates all valid intermediate nodes.
-
-        This tests that empty set propagation is handled correctly when
-        intermediates are filtered out but endpoints exist.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 100},  # Intermediate - will be filtered (100 > 2)
@@ -1396,13 +1276,6 @@ class TestFiveWhysAmplification:
     # =========================================================================
 
     def test_non_adjacent_where_references_unreached_value(self):
-        """
-        Non-adjacent WHERE where the comparison value exists in graph
-        but not in forward-reachable set.
-
-        Bug pattern: Using alias_frames (only reached nodes) instead of
-        full graph nodes for value lookups.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},
             {"id": "b", "v": 20},
@@ -1433,12 +1306,6 @@ class TestFiveWhysAmplification:
         assert "z" not in result_ids  # Unreachable
 
     def test_non_adjacent_multihop_value_comparison(self):
-        """
-        Multi-hop chain with non-adjacent WHERE comparing first and last.
-
-        Tests that value comparison uses correct node sets even when
-        intermediate nodes don't have the compared property.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "w": 100},
             {"id": "b", "v": None, "w": None},  # Intermediate, no v/w
@@ -1466,18 +1333,6 @@ class TestFiveWhysAmplification:
     # =========================================================================
 
     def test_diamond_convergent_multihop_where(self):
-        """
-        Diamond graph where multiple paths converge, with WHERE filtering.
-
-        Bug pattern: Backward prune filters wrong edges when multiple
-        paths exist through different intermediates.
-
-        Graph:   a
-               / | \\
-              b  c  d
-               \\ | /
-                 e
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 10},
@@ -1510,15 +1365,6 @@ class TestFiveWhysAmplification:
         assert "e" in result_ids, "e reachable via multiple 2-hop paths"
 
     def test_parallel_paths_different_lengths(self):
-        """
-        Multiple paths of different lengths to same destination.
-
-        Bug pattern: Path length tracking confused when same node
-        reachable at multiple hop distances.
-
-        Graph: a -> b -> c -> d  (3 hops)
-               a -> d            (1 hop)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1555,15 +1401,6 @@ class TestFiveWhysAmplification:
     # =========================================================================
 
     def test_undirected_multihop_bidirectional_traversal(self):
-        """
-        Undirected multi-hop that requires traversing edges in both directions.
-
-        Bug pattern: Undirected treated as forward-only when is_reverse check
-        doesn't account for undirected needing bidirectional adjacency.
-
-        Graph edges: a->b, c->b (b is hub)
-        Undirected should allow: a-b-c path
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1591,12 +1428,6 @@ class TestFiveWhysAmplification:
         assert "c" in result_ids, "c reachable via undirected 2-hop"
 
     def test_undirected_reverse_mixed_chain(self):
-        """
-        Chain mixing undirected and reverse edges.
-
-        Tests that direction handling is correct when switching between
-        undirected (bidirectional) and reverse (dst->src) modes.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1624,11 +1455,6 @@ class TestFiveWhysAmplification:
         _assert_parity(graph, chain, where)
 
     def test_undirected_multihop_with_aggressive_where(self):
-        """
-        Undirected multi-hop with WHERE that filters aggressively.
-
-        Combines undirected direction handling with empty-set scenarios.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 100},  # High value start
             {"id": "b", "v": 50},
@@ -1654,26 +1480,8 @@ class TestFiveWhysAmplification:
 
 
 class TestMinHopsEdgeFiltering:
-    """
-    Tests derived from Bug 6 (found via test amplification):
-    min_hops constraint was incorrectly applied at edge level instead of path level.
-
-    Root cause 5-whys:
-    - Why 1: test_undirected_multihop_bidirectional_traversal returned empty
-    - Why 2: No edges passed _filter_multihop_edges_by_endpoints
-    - Why 3: Edge (a,b) had total_hops=1 < min_hops=2
-    - Why 4: Filter required total_hops >= min_hops per-edge
-    - Why 5: Confusion between path-level and edge-level constraints
-
-    Key insight: Intermediate edges don't individually satisfy min_hops bounds.
-    The min_hops constraint applies to complete paths, not individual edges.
-    """
 
     def test_min_hops_2_linear_chain(self):
-        """
-        Linear chain a->b->c with min_hops=2.
-        Edge (a,b) has total_hops=1 but is still needed for the 2-hop path.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1702,10 +1510,6 @@ class TestMinHopsEdgeFiltering:
         assert edge_count == 2, f"Both edges needed for 2-hop path, got {edge_count}"
 
     def test_min_hops_3_long_chain(self):
-        """
-        Long chain a->b->c->d with min_hops=3.
-        All intermediate edges needed even though each has total_hops < 3.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -1735,10 +1539,6 @@ class TestMinHopsEdgeFiltering:
         assert edge_count == 3, f"All 3 edges needed for 3-hop path, got {edge_count}"
 
     def test_min_hops_equals_max_hops_exact_path(self):
-        """
-        min_hops == max_hops requires exactly that path length.
-        Tests edge case where only one path length is valid.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1768,9 +1568,6 @@ class TestMinHopsEdgeFiltering:
         assert "c" in result_ids, "c reachable in exactly 2 hops via a->b->c"
 
     def test_min_hops_reverse_chain(self):
-        """
-        Reverse traversal with min_hops - same edge filtering applies.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},  # Start
             {"id": "b", "v": 5},
@@ -1796,10 +1593,6 @@ class TestMinHopsEdgeFiltering:
         assert "c" in result_ids, "c reachable in 2 reverse hops"
 
     def test_min_hops_undirected_chain(self):
-        """
-        Undirected traversal with min_hops=2 on linear chain.
-        This is similar to the bug that was found.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1826,10 +1619,6 @@ class TestMinHopsEdgeFiltering:
         assert "c" in result_ids, "c reachable in 2 undirected hops"
 
     def test_min_hops_sparse_critical_intermediate(self):
-        """
-        Sparse graph where removing any intermediate edge breaks the only valid path.
-        Tests that all edges on the critical path are kept.
-        """
         nodes = pd.DataFrame([
             {"id": "start", "v": 0},
             {"id": "mid1", "v": 1},
@@ -1857,13 +1646,6 @@ class TestMinHopsEdgeFiltering:
         assert result._edges is not None and len(result._edges) == 3, "All 3 edges are critical"
 
     def test_min_hops_with_branch_not_taken(self):
-        """
-        Graph with a branch that doesn't lead to valid endpoints.
-        Only edges on valid paths should be included.
-
-        Graph: start -> a -> b -> end
-               start -> x (dead end, no path to end)
-        """
         nodes = pd.DataFrame([
             {"id": "start", "v": 0},
             {"id": "a", "v": 1},
@@ -1894,10 +1676,6 @@ class TestMinHopsEdgeFiltering:
         assert "x" not in result_ids, "Dead end should not be in results"
 
     def test_min_hops_mixed_directions(self):
-        """
-        Chain with mixed directions and min_hops > 1.
-        forward -> reverse -> forward with min_hops on one segment.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1931,27 +1709,8 @@ class TestMinHopsEdgeFiltering:
 
 
 class TestMultiplePathLengths:
-    """
-    Tests for scenarios where same node is reachable at different hop distances.
-
-    Derived from depth-wise 5-whys on Bug 7:
-    - Why: goal_nodes missed nodes reachable via longer paths
-    - Why: node_hop_records only tracks min hop (anti-join discards duplicates)
-    - Why: BFS optimizes for "first seen" not "all paths"
-    - Why: No test existed for "same node reachable at multiple distances"
-
-    These tests verify the Yannakakis semijoin property holds when nodes
-    appear at multiple hop distances.
-    """
 
     def test_diamond_with_shortcut(self):
-        """
-        Node 'c' reachable at hop 1 (shortcut) AND hop 2 (via b).
-        With min_hops=2, both paths to 'c' should be preserved.
-
-        Graph: a -> b -> c
-               a -> c (shortcut)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1980,14 +1739,6 @@ class TestMultiplePathLengths:
         assert "c" in result_ids, "c is endpoint of valid 2-hop path"
 
     def test_triple_paths_different_lengths(self):
-        """
-        Node 'd' reachable at hop 1, 2, AND 3.
-        Each path length should work independently.
-
-        Graph: a -> d (1 hop)
-               a -> b -> d (2 hops)
-               a -> b -> c -> d (3 hops)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -2020,10 +1771,6 @@ class TestMultiplePathLengths:
         assert "d" in result_ids, "d is endpoint"
 
     def test_triple_paths_exact_min_hops_3(self):
-        """
-        Same graph as above but with min_hops=3.
-        Only the 3-hop path should be included.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -2056,11 +1803,6 @@ class TestMultiplePathLengths:
         assert "d" in result_ids, "d is endpoint of 3-hop path"
 
     def test_cycle_multiple_path_lengths(self):
-        """
-        Cycle where 'a' is reachable at hop 0 (start) and hop 3 (via cycle).
-
-        Graph: a -> b -> c -> a (cycle)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -2092,12 +1834,6 @@ class TestMultiplePathLengths:
         assert "c" in result_ids, "c is on cycle"
 
     def test_parallel_paths_with_min_hops_filter(self):
-        """
-        Two parallel paths of different lengths, filter by min_hops.
-
-        Graph: a -> x -> d (2 hops)
-               a -> y -> z -> d (3 hops)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "x", "v": 2},
@@ -2133,12 +1869,6 @@ class TestMultiplePathLengths:
         assert "x" not in result_ids, "x is only on 2-hop path, excluded by min_hops=3"
 
     def test_undirected_multiple_routes(self):
-        """
-        Undirected graph where same node reachable via different routes.
-
-        Graph edges: a-b, b-c, a-c (triangle)
-        Undirected: c reachable from a in 1 hop (a-c) or 2 hops (a-b-c)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -2168,12 +1898,6 @@ class TestMultiplePathLengths:
         assert "c" in result_ids, "c is endpoint of 2-hop path"
 
     def test_reverse_multiple_path_lengths(self):
-        """
-        Reverse traversal with node reachable at multiple distances.
-
-        Graph: c -> b -> a (reverse from a: a <- b <- c)
-               c -> a (shortcut, reverse: a <- c)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},
             {"id": "b", "v": 5},
@@ -2203,14 +1927,8 @@ class TestMultiplePathLengths:
 
 
 class TestPredicateTypes:
-    """
-    Tests for different data types in WHERE predicates.
-
-    Covers: numeric, string, boolean, datetime, null/NaN handling.
-    """
 
     def test_boolean_comparison_eq(self):
-        """Boolean equality comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "active": True},
             {"id": "b", "active": False},
@@ -2233,7 +1951,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_boolean_comparison_lt(self):
-        """Boolean less-than comparison (False < True)."""
         nodes = pd.DataFrame([
             {"id": "a", "active": False},
             {"id": "b", "active": False},
@@ -2256,7 +1973,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_datetime_comparison(self):
-        """Datetime comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "ts": pd.Timestamp("2024-01-01")},
             {"id": "b", "ts": pd.Timestamp("2024-06-01")},
@@ -2279,7 +1995,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_float_comparison_with_decimals(self):
-        """Float comparison with decimal values."""
         nodes = pd.DataFrame([
             {"id": "a", "score": 1.5},
             {"id": "b", "score": 2.7},
@@ -2302,7 +2017,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_nan_in_numeric_comparison(self):
-        """NaN values in numeric comparison (NaN comparisons are False)."""
         nodes = pd.DataFrame([
             {"id": "a", "v": 1.0},
             {"id": "b", "v": np.nan},  # NaN
@@ -2325,7 +2039,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_string_lexicographic_comparison(self):
-        """String lexicographic comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "name": "apple"},
             {"id": "b", "name": "banana"},
@@ -2353,7 +2066,6 @@ class TestPredicateTypes:
         assert "c" in result_ids  # apple < cherry
 
     def test_string_equality(self):
-        """String equality comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "tag": "important"},
             {"id": "b", "tag": "normal"},
@@ -2382,17 +2094,6 @@ class TestPredicateTypes:
         # The executor returns ALL nodes participating in valid paths, not just endpoints
 
     def test_neq_with_nulls(self):
-        """!= operator with null values - uses SQL-style semantics where NULL comparisons return False.
-
-        Oracle behavior (correct for query semantics):
-          - Any comparison with NULL returns False (unknown)
-          - 1 != NULL -> False, not True
-
-        Pandas behavior (used by native executor):
-          - 1 != None -> True (Python semantics)
-
-        GFQL follows SQL-style NULL semantics for predictable query behavior.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": None},
@@ -2425,7 +2126,6 @@ class TestPredicateTypes:
         _assert_parity(graph, chain, where)
 
     def test_multihop_with_datetime_range(self):
-        """Multi-hop with datetime range comparison."""
         nodes = pd.DataFrame([
             {"id": "a", "created": pd.Timestamp("2024-01-01")},
             {"id": "b", "created": pd.Timestamp("2024-03-01")},
@@ -2912,7 +2612,6 @@ class TestNonAdjacentMultiClause:
 
 
 class TestEdgeWhereSemijoinParity:
-    """Edge-edge WHERE comparisons should match baseline with semijoin enabled."""
 
     @pytest.fixture
     def edge_value_graph(self):
