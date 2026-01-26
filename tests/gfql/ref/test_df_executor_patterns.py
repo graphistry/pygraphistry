@@ -15,15 +15,9 @@ from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
-# Import shared helpers - pytest auto-loads conftest.py
 from tests.gfql.ref.conftest import _assert_parity
 
 class TestP1OperatorsSingleHop:
-    """
-    P1 Tests: All comparison operators with single-hop edges.
-
-    Systematic coverage of ==, !=, <, >, <=, >= for single-hop.
-    """
 
     @pytest.fixture
     def basic_graph(self):
@@ -110,17 +104,10 @@ class TestP1OperatorsSingleHop:
         assert "d" in result_ids
 
 
-# ============================================================================
-# P2 TESTS: Longer Paths (4+ nodes)
-# ============================================================================
+# --- P2 tests: longer paths (4+ nodes)
 
 
 class TestP2LongerPaths:
-    """
-    P2 Tests: Paths with 4+ nodes.
-
-    Tests that WHERE clauses work correctly for longer chains.
-    """
 
     def test_four_node_chain(self):
         """
@@ -269,17 +256,10 @@ class TestP2LongerPaths:
         assert "d2" not in result_ids, "d2 violates WHERE but included"
 
 
-# ============================================================================
-# P1 TESTS: Operators × Multi-hop Systematic
-# ============================================================================
+# --- P1 tests: operators × multihop systematic
 
 
 class TestP1OperatorsMultihop:
-    """
-    P1 Tests: All comparison operators with multi-hop edges.
-
-    Systematic coverage of ==, !=, <, >, <=, >= for multi-hop.
-    """
 
     @pytest.fixture
     def multihop_graph(self):
@@ -360,15 +340,10 @@ class TestP1OperatorsMultihop:
         _assert_parity(multihop_graph, chain, where)
 
 
-# ============================================================================
-# P1 TESTS: Undirected + Multi-hop
-# ============================================================================
+# --- P1 tests: undirected + multihop
 
 
 class TestP1UndirectedMultihop:
-    """
-    P1 Tests: Undirected edges with multi-hop traversal.
-    """
 
     def test_undirected_multihop_basic(self):
         """P1: Undirected multi-hop basic case."""
@@ -416,15 +391,10 @@ class TestP1UndirectedMultihop:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# P1 TESTS: Mixed Direction Chains
-# ============================================================================
+# --- P1 tests: mixed direction chains
 
 
 class TestP1MixedDirectionChains:
-    """
-    P1 Tests: Chains with mixed edge directions (forward, reverse, undirected).
-    """
 
     def test_forward_reverse_forward(self):
         """P1: Forward-reverse-forward chain."""
@@ -511,15 +481,10 @@ class TestP1MixedDirectionChains:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# P2 TESTS: Edge Cases and Boundary Conditions
-# ============================================================================
+# --- P2 tests: edge cases and boundary conditions
 
 
 class TestP2EdgeCases:
-    """
-    P2 Tests: Edge cases and boundary conditions.
-    """
 
     def test_single_node_graph(self):
         """P2: Graph with single node and self-loop."""
@@ -660,24 +625,11 @@ class TestP2EdgeCases:
         _assert_parity(graph, chain, where)
 
 
-# ============================================================================
-# P3 TESTS: Bug Pattern Coverage (from 5 Whys analysis)
-# ============================================================================
-#
-# These tests target specific bug patterns discovered during debugging:
-# 1. Multi-hop backward propagation edge cases
-# 2. Merge suffix handling for same-named columns
-# 3. Undirected edge handling in various contexts
-# ============================================================================
+# --- P3 tests: bug pattern coverage
 
 
 class TestBugPatternMultihopBackprop:
-    """
-    Tests for multi-hop backward propagation edge cases.
-
-    Bug pattern: Code that filters edges by endpoints breaks for multi-hop
-    because intermediate nodes aren't in left_allowed or right_allowed sets.
-    """
+    """Multi-hop backward propagation edge cases."""
 
     def test_three_consecutive_multihop_edges(self):
         """Three consecutive multi-hop edges - stress test for backward prop."""
