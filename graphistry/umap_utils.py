@@ -1138,3 +1138,4 @@ class UMAPMixin(MIXIN_BASE):
 
         if not inplace:
             return res
+
