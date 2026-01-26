@@ -5,6 +5,7 @@ Summary-only log for notable benchmark runs. Raw per-scenario outputs live in
 
 | Date | Commit | Scripts | Summary | Notes |
 |------|--------|---------|---------|-------|
+| 2026-01-26 | 74ff9021 (feat/where-clause-executor) | `graph_benchmark_q1_q9.py` (runs=5, warmup=1) | q1–q9 medians: q1 1.42s, q2 1.77s, q3 0.95s, q4 0.84s, q5 1.00s, q6 1.03s, q7 1.23s, q8 0.22s, q9 0.40s (pandas). | Raw output: `plans/pr-886-where/benchmarks/phase-graph-benchmark-q1-q9.md` |
 | 2026-01-17 | f492135e (feat/where-clause-executor) | `run_chain_vs_samepath.py` (median-of-7, warmup-1); `run_realdata_benchmarks.py` (median-of-7, warmup-1) | Synthetic: yann/regular median ~0.51x (52/54 wins). Real data: expanded to 7 datasets, medians ~30–173ms. | Raw outputs: `plans/pr-886-where/benchmarks/phase-12-revert-8-11.md`, `plans/pr-886-where/benchmarks/phase-13-realdata.md` |
 | 2026-01-17 | 7080e356 (feat/where-clause-executor) | `run_realdata_benchmarks.py` (median-of-7, warmup-1) | Real data now includes WHERE (df_executor): redteam ~14s, transactions ~11s, others ~14–282ms. Chain-only medians ~31–175ms. | Raw outputs: `plans/pr-886-where/benchmarks/phase-14-realdata.md` |
 | 2026-01-17 | 2e2e7e18 (feat/where-clause-executor) | `run_realdata_benchmarks.py` (median-of-7, warmup-1) | Added per-section scores. Chain score (median of medians) 72.78ms; WHERE score 247.07ms. | Raw outputs: `plans/pr-886-where/benchmarks/phase-14-realdata.md` |
