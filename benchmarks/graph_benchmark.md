@@ -29,6 +29,15 @@ python benchmarks/graph_benchmark_q1_q9.py \
   --output-json /tmp/graph_benchmark_q1_q9.json
 ```
 
+Preindexed variant (relation/type split per query, still vectorized pandas):
+
+```sh
+python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --mode preindexed \
+  --runs 5 --warmup 1
+```
+
 ## Notes
 
 - q1-q7 use GFQL filters to match the graph-benchmark query intent, then pandas aggregates for counts/averages.

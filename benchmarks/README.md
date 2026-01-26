@@ -184,6 +184,16 @@ uv run python benchmarks/graph_benchmark_q1_q9.py \
   --output-json /tmp/graph-benchmark-q1-q9.json
 ```
 
+Preindexed variant (relation/type split per query):
+
+```bash
+uv run python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --mode preindexed \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-q1-q9-preindexed.json
+```
+
 ## WHERE opt matrix (comparative)
 
 Run a focused matrix of WHERE scenarios across opt profiles (value mode, domain semijoin, auto, edge semijoin, etc).
