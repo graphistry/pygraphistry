@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://gexf.net/1.3"
+      xmlns:viz="http://gexf.net/1.3/viz"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://gexf.net/1.3 http://gexf.net/1.3/gexf.xsd"
+      version="1.3">
+  <meta lastmodifieddate="2026-01-01">
+    <creator>graphistry</creator>
+    <description>Sample 1.3 viz</description>
+  </meta>
+  <graph mode="static" defaultedgetype="undirected">
+    <attributes class="node">
+      <attribute id="0" title="group" type="string"/>
+    </attributes>
+    <nodes>
+      <node id="u0" label="Unit0">
+        <attvalues>
+          <attvalue for="0" value="A"/>
+        </attvalues>
+        <viz:color hex="#FF7700" alpha="0.5"/>
+        <viz:position x="1.0" y="2.0"/>
+        <viz:size value="4.0"/>
+      </node>
+      <node id="u1" label="Unit1">
+        <attvalues>
+          <attvalue for="0" value="B"/>
+        </attvalues>
+        <viz:color hex="#00AAFF" alpha="0.25"/>
+        <viz:position x="3.0" y="4.0"/>
+        <viz:size value="2.0"/>
+      </node>
+    </nodes>
+    <edges>
+      <edge id="e20" source="u0" target="u1" label="undirected">
+        <viz:color hex="#112233" alpha="0.6"/>
+        <viz:thickness value="1.5"/>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

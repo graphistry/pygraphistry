@@ -53,11 +53,13 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     org_name,
     scene_settings,
     nodexl,
+    gexf,
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry,
     GraphistryClient,
     from_igraph,
+    from_gexf,
     from_cugraph
 )
 

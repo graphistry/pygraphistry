@@ -113,6 +113,7 @@ GPU-accelerated readers via `cuDF <https://docs.rapids.ai/api/cudf/stable/>`_  (
 Others, often via `fsspec <https://filesystem-spec.readthedocs.io/en/latest/>`_:
 
 * Azure blobstore
+* GEXF
 * GML
 * S3
 * XLS(X)

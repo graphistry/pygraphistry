@@ -12,6 +12,14 @@ graphistry.plugins.cugraph module
    :undoc-members:
    :show-inheritance:
 
+graphistry.plugins.gexf module
+------------------------------
+
+.. automodule:: graphistry.plugins.gexf
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 graphistry.plugins.graphviz module
 ----------------------------------
 

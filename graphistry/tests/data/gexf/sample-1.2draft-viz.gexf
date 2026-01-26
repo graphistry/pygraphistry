@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft"
+      xmlns:viz="http://www.gexf.net/1.2draft/viz"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd"
+      version="1.2">
+  <meta lastmodifieddate="2026-01-01">
+    <creator>graphistry</creator>
+    <description>Sample 1.2draft viz</description>
+  </meta>
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="category" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="0" title="relation" type="string"/>
+    </attributes>
+    <nodes>
+      <node id="n10" label="Delta">
+        <attvalues>
+          <attvalue for="0" value="typeA"/>
+        </attvalues>
+        <viz:color r="239" g="173" b="66" a="0.5"/>
+        <viz:position x="10.0" y="20.5" z="0.0"/>
+        <viz:size value="2.5"/>
+        <viz:shape value="disc"/>
+      </node>
+      <node id="n11" label="Epsilon">
+        <attvalues>
+          <attvalue for="0" value="typeB"/>
+        </attvalues>
+        <viz:color r="10" g="20" b="30" a="1.0"/>
+        <viz:position x="-5.0" y="7.5" z="0.0"/>
+        <viz:size value="1.25"/>
+        <viz:shape value="square"/>
+      </node>
+    </nodes>
+    <edges>
+      <edge id="e10" source="n10" target="n11" label="relates" weight="2.0">
+        <attvalues>
+          <attvalue for="0" value="peer"/>
+        </attvalues>
+        <viz:color r="157" g="213" b="78" a="0.8"/>
+        <viz:thickness value="3.5"/>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

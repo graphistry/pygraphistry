@@ -1096,6 +1096,22 @@ class GraphistryClient(AuthManagerProtocol):
 
         return cast(Plotter, self._plotter().nodexl(xls_or_url, source, engine, verbose))
 
+    def gexf(self, source: Any, name: Optional[str] = None, description: Optional[str] = None) -> Plotter:
+        """
+        Load a GEXF file/URL/stream into a Plotter.
+
+        :param source: Path, URL, bytes, or file-like object containing GEXF XML
+        :param name: Optional Graphistry dataset name override
+        :param description: Optional Graphistry dataset description override
+        """
+        return cast(Plotter, self._plotter().from_gexf(source, name=name, description=description))
+
+    def from_gexf(self, source: Any, name: Optional[str] = None, description: Optional[str] = None) -> Plotter:
+        """
+        Alias for :meth:`gexf`.
+        """
+        return cast(Plotter, self.gexf(source, name=name, description=description))
+
     def gremlin(self, queries: Union[str, Iterable[str]]) -> Plotter:
         """Run one or more gremlin queries and get back the result as a graph object
         To support cosmosdb, sends as strings
@@ -2526,6 +2542,8 @@ org_name = PyGraphistry.org_name
 idp_name = PyGraphistry.idp_name
 sso_state = PyGraphistry.sso_state
 scene_settings = PyGraphistry.scene_settings
+gexf = PyGraphistry.gexf
+from_gexf = PyGraphistry.from_gexf
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id

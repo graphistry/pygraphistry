@@ -15,6 +15,7 @@ from graphistry.client_session import ClientSession, AuthManagerProtocol, Datase
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
+from .plugins.gexf import from_gexf
 from .plugins.graphviz import layout_graphviz, render_graphviz
 from graphistry.plugins_types.graphviz_types import (
     Format,
@@ -2227,6 +2228,7 @@ class PlotterBase(Plottable):
             raise ValueError(f"Unexpected render mode resolution: {render_mode}")
 
     from_igraph = from_igraph
+    from_gexf = from_gexf
     to_igraph = to_igraph
     compute_igraph = compute_igraph
     layout_igraph = layout_igraph
