@@ -404,7 +404,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--graph-benchmark-root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--engine", choices=["pandas", "cudf"], default="pandas")
-    parser.add_argument("--mode", choices=["baseline", "preindexed"], default=DEFAULT_MODE)
+    parser.add_argument("--mode", choices=["baseline", "preindexed", "presorted"], default=DEFAULT_MODE)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=0)
     parser.add_argument("--output-json", type=Path, default=None)
@@ -422,6 +422,10 @@ def main() -> None:
 
     nodes = _maybe_to_cudf(args.engine, nodes_df)
     edges = _maybe_to_cudf(args.engine, edges_df)
+
+    if args.mode == "presorted":
+        nodes = nodes.sort_values(["node_type", "node_id"])
+        edges = edges.sort_values(["rel", "src", "dst"])
 
     g_full = graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
     nodes_by_type = {t: _nodes_by_type(nodes, t) for t in nodes_df["node_type"].unique().tolist()}

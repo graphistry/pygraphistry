@@ -38,6 +38,15 @@ python benchmarks/graph_benchmark_q1_q9.py \
   --runs 5 --warmup 1
 ```
 
+Presorted variant (global sort by rel/src/dst and node_type/node_id):
+
+```sh
+python benchmarks/graph_benchmark_q1_q9.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --mode presorted \
+  --runs 5 --warmup 1
+```
+
 ## Notes
 
 - q1-q7 use GFQL filters to match the graph-benchmark query intent, then pandas aggregates for counts/averages.
