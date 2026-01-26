@@ -58,13 +58,6 @@ def _gfql_otel_attrs(
 
 
 def detect_query_type(query: Any) -> QueryType:
-    """Detect query type for policy context.
-
-    Returns:
-        'dag' for ASTLet queries
-        'chain' for list/Chain queries
-        'single' for single ASTObject queries
-    """
     if isinstance(query, ASTLet):
         return "dag"
     elif isinstance(query, (list, Chain)):
@@ -218,30 +211,24 @@ def gfql(self: Plottable,
         # Dict → DAG execution (convenience)
         g.gfql({'people': n({'type': 'person'})})
     """
-    # Create ExecutionContext at start
     context = ExecutionContext()
 
-    # Recursion prevention - check if we're already in a policy execution
     if policy and context.policy_depth >= 1:
         logger.debug('Policy disabled due to recursion depth limit (depth=%d)', context.policy_depth)
-        policy = None  # Disable policy for recursive calls
+        policy = None
 
-    # Set depth for this execution
     policy_depth = context.policy_depth
     if policy:
         context.policy_depth = policy_depth + 1
 
-    # Expand policy shortcuts to full hook names (e.g., 'pre' → all pre* hooks)
     expanded_policy: Optional[PolicyDict] = None
     if policy:
         expanded_policy = expand_policy(policy)
 
     try:
-        # Get current execution depth (0 for top-level)
         current_depth = context.execution_depth
         current_path = context.operation_path
 
-        # Preload policy phase - before any processing
         if expanded_policy and 'preload' in expanded_policy:
             policy_context: PolicyContext = {
                 'phase': 'preload',
@@ -256,16 +243,12 @@ def gfql(self: Plottable,
             }
 
             try:
-                # Policy can only accept (None) or deny (exception)
                 expanded_policy['preload'](policy_context)
-
             except PolicyException as e:
-                # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = policy_context.get('query_type')
                 raise
 
-        # Handle dict convenience first
         if isinstance(query, dict) and "chain" in query:
             chain_items: List[ASTObject] = []
             for item in query["chain"]:
@@ -279,7 +262,6 @@ def gfql(self: Plottable,
             where_meta = parse_where_json(query.get("where"))
             query = Chain(chain_items, where=where_meta)
         elif isinstance(query, dict):
-            # Auto-wrap ASTNode and ASTEdge values in Chain for GraphOperation compatibility
             wrapped_dict = {}
             for key, value in query.items():
                 if isinstance(value, (ASTNode, ASTEdge)):
@@ -289,16 +271,12 @@ def gfql(self: Plottable,
                     wrapped_dict[key] = value
             query = ASTLet(wrapped_dict)  # type: ignore
 
-        # Push execution depth and operation path before dispatching
-        # This moves us from depth 0 (gfql entry) to depth 1 (chain/let execution)
         context.push_depth()
 
-        # Determine query type segment for operation path
         query_segment = 'dag' if isinstance(query, ASTLet) else 'chain'
         context.push_path(query_segment)
 
         try:
-            # Dispatch based on type - check specific types before generic
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
                 return chain_let_impl(self, query, engine, output, policy=expanded_policy, context=context)
@@ -308,7 +286,6 @@ def gfql(self: Plottable,
                     logger.warning('output parameter ignored for chain queries')
                 return _chain_dispatch(self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
-                # Single ASTObject -> execute as single-item chain
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
@@ -318,7 +295,6 @@ def gfql(self: Plottable,
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
 
-                # Convert any dictionaries in the list to AST objects
                 converted_query: List[ASTObject] = []
                 for item in query:
                     if isinstance(item, dict):
@@ -334,11 +310,9 @@ def gfql(self: Plottable,
                     f"Got {type(query).__name__}"
                 )
         finally:
-            # Pop execution depth and operation path when returning
             context.pop_depth()
             context.pop_path()
     finally:
-        # Reset policy depth
         if policy:
             context.policy_depth = policy_depth
 
@@ -350,9 +324,6 @@ def _chain_dispatch(
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
-    """Dispatch chain execution, using same-path executor for WHERE clauses."""
-
-    # Use same-path Yannakakis executor for ANY engine with WHERE clause
     if chain_obj.where:
         is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
         engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
