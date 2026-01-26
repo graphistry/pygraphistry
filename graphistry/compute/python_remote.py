@@ -125,7 +125,6 @@ def python_remote_generic(
     
     assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
-    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
     engine_resolved = resolve_engine(engine, self)
     if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
         raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
@@ -134,7 +133,6 @@ def python_remote_generic(
     engine_str = engine_resolved.value
 
     # TODO remove auto-indent when server updated
-    # workaround parsing bug by indenting each line by 4 spaces
     code_indented = "\n".join(["    " + line for line in code.split("\n")])
 
     request_body = {
@@ -147,7 +145,6 @@ def python_remote_generic(
 
     url = f"{self.base_url_server()}/api/v2/datasets/{dataset_id}/python"
 
-    # Prepare headers
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
@@ -156,19 +153,15 @@ def python_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    # Enhanced error handling for GFQL validation errors
     if not response.ok:
         try:
-            # Try to parse JSON error response for more details
             if response.headers.get('content-type', '').startswith('application/json'):
                 error_data = response.json()
                 error_msg = error_data.get('error', str(error_data))
                 raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
         except ValueError:
-            # Re-raise ValueError (which includes our custom message)
             raise
         except Exception:
-            # Fall back to default error handling for other JSON parsing errors
             pass
         response.raise_for_status()
 
@@ -215,22 +208,18 @@ def python_remote_generic(
 
                 return self.edges(edges_df).nodes(nodes_df)
         except zipfile.BadZipFile as e:
-            # Handle case where response is not a zip file (e.g., error response)
             try:
-                # Try to parse as JSON error response
                 if response.headers.get('content-type', '').startswith('application/json'):
                     error_data = response.json()
                     error_msg = error_data.get('error', str(error_data))
                     raise ValueError(f"GFQL remote operation failed: {error_msg} (Expected zip file but got JSON error)")
                 else:
-                    # Try to decode as text for better error context
                     try:
-                        error_text = response.content.decode('utf-8')[:500]  # First 500 chars
+                        error_text = response.content.decode('utf-8')[:500]
                         raise ValueError(f"GFQL remote operation failed: Expected zip file but received: {error_text}")
                     except UnicodeDecodeError:
                         raise ValueError(f"GFQL remote operation failed: Expected zip file but received invalid data (HTTP {response.status_code})")
             except Exception:
-                # Fallback: re-raise original BadZipFile with more context
                 raise ValueError(f"GFQL remote operation failed: {str(e)} - Response may be an error message instead of expected zip file")
     elif output_type in ["nodes", "edges", "table"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)

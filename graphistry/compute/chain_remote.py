@@ -52,7 +52,6 @@ def chain_remote_generic(
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
-    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
     engine_resolved = resolve_engine(engine, self)
     if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
         raise ValueError(f"Remote GFQL only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
@@ -66,7 +65,6 @@ def chain_remote_generic(
         else:
             format = "parquet"
 
-    # Validate persist compatibility early
     if persist and output_type in ["nodes", "edges"]:
         raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
                         f"Use output_type='all' for persistence support.")
@@ -97,13 +95,11 @@ def chain_remote_generic(
     if persist:
         request_body["persist"] = persist
 
-        # Include privacy settings for persisted dataset
         if hasattr(self, '_privacy') and self._privacy is not None:
             request_body["privacy"] = dict(self._privacy)
 
     url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
-    # Prepare headers
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
@@ -112,27 +108,19 @@ def chain_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    # Enhanced error handling for GFQL validation errors
     if not response.ok:
         try:
-            # Try to parse JSON error response for more details
             if response.headers.get('content-type', '').startswith('application/json'):
                 error_data = response.json()
                 error_msg = error_data.get('error', str(error_data))
                 raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
             else:
-                # Fallback to generic error with response text
                 raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
         except (ValueError,) as ve:
-            # Re-raise our custom ValueError
             raise ve
         except Exception:
-            # If JSON parsing fails, re-raise the original HTTP error
             response.raise_for_status()
 
-    # deserialize based on output_type & format
-
-    # Determine DataFrame library by checking both edges and nodes
     edges_is_cudf = self._edges is not None and 'cudf.core.dataframe' in str(getmodule(self._edges))
     nodes_is_cudf = self._nodes is not None and 'cudf.core.dataframe' in str(getmodule(self._nodes))
 
@@ -180,18 +168,15 @@ def chain_remote_generic(
 
                 result = self.edges(edges_df).nodes(nodes_df)
 
-                # Check for metadata.json in zip (both persist and GFQL metadata)
                 if 'metadata.json' in zip_ref.namelist():
                     try:
                         metadata_content = zip_ref.read('metadata.json')
                         metadata = json.loads(metadata_content.decode('utf-8'))
 
                         if persist:
-                            # Extract dataset_id for URL generation
                             if 'dataset_id' in metadata:
                                 result._dataset_id = metadata['dataset_id']
 
-                                # Generate URL using existing infrastructure
                                 if result._dataset_id:  # Type guard
                                     info: DatasetInfo = {
                                         'name': result._dataset_id,
@@ -201,7 +186,6 @@ def chain_remote_generic(
 
                                     result._url = result._pygraphistry._viz_url(info, result._url_params)
 
-                            # Optionally restore privacy settings
                             if 'privacy' in metadata:
                                 result._privacy = metadata['privacy']
 
@@ -223,18 +207,14 @@ def chain_remote_generic(
 
                 return result
         except zipfile.BadZipFile as e:
-            # Server likely returned an error response instead of zip data
-            # Try to parse the response as JSON for a better error message
             try:
                 if response.headers.get('content-type', '').startswith('application/json'):
                     error_data = response.json()
                     error_msg = error_data.get('error', str(error_data))
                     raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
                 else:
-                    # Show the response text for debugging
                     raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
             except Exception:
-                # If all else fails, re-raise the original BadZipFile error with context
                 raise ValueError(f"GFQL remote operation failed - server response is not a valid zip file. "
                                f"This usually indicates a server validation error. Response status: {response.status_code}") from e
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
@@ -265,12 +245,10 @@ def chain_remote_generic(
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
 
-        # Handle persist response - set dataset_id if provided
         if persist:
             if 'dataset_id' in o:
                 result._dataset_id = o['dataset_id']
 
-                # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
                     dataset_info: DatasetInfo = {
                         'name': result._dataset_id,
