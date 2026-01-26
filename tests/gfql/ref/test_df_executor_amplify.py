@@ -8,25 +8,11 @@ from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.tests.test_compute import CGFull
-
-# Import shared helpers - pytest auto-loads conftest.py
 from tests.gfql.ref.conftest import _assert_parity
 
+
 class TestYannakakisPrinciple:
-    """
-    Tests validating the Yannakakis semijoin principle:
-    - Edge included iff it participates in at least one valid complete path
-    - No edge excluded that could be part of a valid path
-    - No spurious edges included that aren't on any valid path
-    """
-
     def test_dead_end_branch_pruning(self):
-        """
-        Edges leading to nodes that fail WHERE should be excluded.
-
-        Graph: a -> b -> c (valid path, c.v > a.v)
-               a -> x -> y (dead end, y.v < a.v)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 6},
@@ -66,13 +52,6 @@ class TestYannakakisPrinciple:
         assert ("a", "x") not in result_edges, "edge to dead-end should be pruned"
 
     def test_all_valid_paths_included(self):
-        """
-        Multiple valid paths - all edges on any valid path must be included.
-
-        Graph: a -> b -> d (valid)
-               a -> c -> d (valid)
-        Both paths are valid, so all edges should be included.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -109,12 +88,6 @@ class TestYannakakisPrinciple:
         assert ("c", "d") in result_edges
 
     def test_spurious_edge_exclusion(self):
-        """
-        Edges not on any complete path must be excluded.
-
-        Graph: a -> b -> c (valid 2-hop path)
-               b -> x (dangles off, not part of any complete path)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -151,12 +124,6 @@ class TestYannakakisPrinciple:
         assert "x" in result_nodes, "x is actually on valid path a->b->x"
 
     def test_where_prunes_intermediate_edges(self):
-        """
-        WHERE filtering can prune intermediate edges.
-
-        Graph: a -> b -> c -> d
-        WHERE requires intermediate values to be in a specific range.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 100},  # b.v is way higher than d.v
@@ -187,14 +154,6 @@ class TestYannakakisPrinciple:
         assert result_nodes == {"a", "b", "c", "d"}
 
     def test_convergent_diamond_all_paths_included(self):
-        """
-        Diamond pattern where both paths are valid.
-
-        Graph:     b
-               a <   > d
-                   c
-        Both a->b->d and a->c->d are valid 2-hop paths.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -227,13 +186,6 @@ class TestYannakakisPrinciple:
         assert len(result_edges) == 4
 
     def test_mixed_valid_invalid_branches(self):
-        """
-        Some branches valid, some invalid - only valid branch edges included.
-
-        Graph: a -> b -> c (c.v=10 > a.v=1, valid)
-               a -> x -> y (y.v=0 < a.v=1, invalid)
-               a -> p -> q (q.v=2 > a.v=1, valid)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -274,22 +226,8 @@ class TestYannakakisPrinciple:
 
 
 class TestHopLabelingPatterns:
-    """
-    Tests for the anti-join patterns used in hop labeling.
-
-    The anti-join patterns in hop.py (lines 661, 682) are used for display
-    (hop labels), not filtering. These tests verify they don't affect path validity.
-    """
 
     def test_hop_labels_dont_affect_validity(self):
-        """
-        Nodes reachable via multiple paths should all be included,
-        regardless of which path labels them first.
-
-        Graph: a -> b -> d (2 hops)
-               a -> c -> d (2 hops)
-        Node 'd' is reachable via two paths - both should work.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -320,13 +258,6 @@ class TestHopLabelingPatterns:
         assert result_nodes == {"a", "b", "c", "d"}
 
     def test_multiple_seeds_hop_labels(self):
-        """
-        Multiple seeds with overlapping reachable nodes.
-
-        Seeds: a, b
-        Graph: a -> c, b -> c, c -> d
-        Both seeds can reach c and d.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -357,12 +288,6 @@ class TestHopLabelingPatterns:
         assert {"a", "b", "c", "d"} <= result_nodes
 
     def test_hop_labels_with_min_hops(self):
-        """
-        Hop labels with min_hops > 1 - intermediate nodes still included.
-
-        Graph: a -> b -> c -> d
-        With min_hops=2, path a->b->c->d valid at hops 2 and 3.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 3},
@@ -392,12 +317,6 @@ class TestHopLabelingPatterns:
         assert result_nodes == {"a", "b", "c", "d"}
 
     def test_edge_hop_labels_consistent(self):
-        """
-        Edge hop labels should be consistent across multiple paths.
-
-        Graph: a -> b -> c
-               a -> b (same edge used in 1-hop and as part of 2-hop)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -428,12 +347,6 @@ class TestHopLabelingPatterns:
         assert ("b", "c") in edge_pairs
 
     def test_undirected_hop_labels(self):
-        """
-        Undirected traversal - nodes reachable in both directions.
-
-        Graph: a - b - c (undirected)
-        From a, can reach b at hop 1, c at hop 2.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -462,29 +375,10 @@ class TestHopLabelingPatterns:
 
 
 class TestSensitivePhenomena:
-    """
-    Tests for sensitive phenomena identified through deep 5-whys analysis.
-
-    These test edge cases that have historically caused bugs:
-    1. Asymmetric reachability (forward ≠ reverse)
-    2. Filter cascades creating empty intermediates
-    3. Non-adjacent WHERE with complex patterns
-    4. Path length boundary conditions
-    5. Shared edge semantics
-    6. Self-loops and cycles
-    """
 
     # --- Asymmetric Reachability ---
 
     def test_asymmetric_graph_forward_only_node(self):
-        """
-        Node reachable only via forward traversal.
-
-        Graph: a -> b -> c
-               d -> b (d has no path TO it, only FROM it)
-        Forward from a: reaches b, c
-        Reverse from a: reaches nothing
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -515,13 +409,6 @@ class TestSensitivePhenomena:
         assert "d" not in result_nodes  # d is not reachable forward from a
 
     def test_asymmetric_graph_reverse_only_node(self):
-        """
-        Node reachable only via reverse traversal.
-
-        Graph: b -> a, c -> b
-        From a (reverse): reaches b, c
-        From a (forward): reaches nothing
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 10},
             {"id": "b", "v": 5},
@@ -549,12 +436,6 @@ class TestSensitivePhenomena:
         assert "c" in result_nodes
 
     def test_undirected_finds_reverse_only_node(self):
-        """
-        Undirected traversal should find nodes only reachable "backwards".
-
-        Graph: b -> a (edge points TO a)
-        Undirected from a: should reach b (traversing edge backwards)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 10},
@@ -580,12 +461,6 @@ class TestSensitivePhenomena:
     # --- Filter Cascades ---
 
     def test_filter_eliminates_all_at_step(self):
-        """
-        Node filter eliminates all matches, creating empty intermediate.
-
-        Graph: a -> b -> c
-        Filter: node must have type="special" (none do)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "normal"},
             {"id": "b", "v": 5, "type": "normal"},
@@ -613,12 +488,6 @@ class TestSensitivePhenomena:
             assert len(result._nodes) == 0 or set(result._nodes["id"]) == {"a"}
 
     def test_where_eliminates_all_paths(self):
-        """
-        WHERE clause eliminates all valid paths.
-
-        Graph: a -> b -> c (all v increasing)
-        WHERE: start.v > end.v (impossible since v increases)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -649,12 +518,6 @@ class TestSensitivePhenomena:
     # --- Non-Adjacent WHERE Edge Cases ---
 
     def test_three_step_start_to_end_comparison(self):
-        """
-        Three-step chain with start-to-end comparison (skipping middle).
-
-        Chain: start -[2 hops]-> middle -[1 hop]-> end
-        WHERE: start.v < end.v (ignores middle)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 100},  # Middle has high value (should be ignored)
@@ -687,12 +550,6 @@ class TestSensitivePhenomena:
         assert "d" in result_nodes
 
     def test_multiple_non_adjacent_constraints(self):
-        """
-        Multiple non-adjacent WHERE constraints.
-
-        Chain: a -> b -> c
-        WHERE: a.v < c.v AND a.type == c.type
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "X"},
             {"id": "b", "v": 5, "type": "Y"},
@@ -728,12 +585,6 @@ class TestSensitivePhenomena:
     # --- Path Length Boundary Conditions ---
 
     def test_min_hops_zero_includes_seed(self):
-        """
-        min_hops=0 should include the seed node itself.
-
-        Graph: a -> b
-        With min_hops=0, 'a' is a valid endpoint (0 hops from itself)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -760,12 +611,6 @@ class TestSensitivePhenomena:
         assert "b" in result_nodes
 
     def test_max_hops_exceeds_graph_diameter(self):
-        """
-        max_hops larger than graph diameter should work fine.
-
-        Graph: a -> b -> c (diameter = 2)
-        max_hops = 10 should still only find paths up to length 2
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -794,13 +639,6 @@ class TestSensitivePhenomena:
     # --- Shared Edge Semantics ---
 
     def test_edge_used_by_multiple_destinations(self):
-        """
-        Single edge participates in paths to different destinations.
-
-        Graph: a -> b -> c
-                    b -> d
-        Edge a->b is used for both path to c and path to d.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -834,13 +672,6 @@ class TestSensitivePhenomena:
         assert ("a", "b") in result_edges
 
     def test_diamond_shared_edges(self):
-        """
-        Diamond pattern where edges are shared.
-
-        Graph: a -> b -> d
-               a -> c -> d
-        Two paths share start (a) and end (d).
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -872,11 +703,6 @@ class TestSensitivePhenomena:
     # --- Self-Loops and Cycles ---
 
     def test_self_loop_edge(self):
-        """
-        Graph with self-loop edge.
-
-        Graph: a -> a (self-loop), a -> b
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 10},
@@ -902,12 +728,6 @@ class TestSensitivePhenomena:
         assert "b" in result_nodes
 
     def test_small_cycle_with_min_hops(self):
-        """
-        Small cycle with min_hops constraint.
-
-        Graph: a -> b -> a (cycle)
-        With min_hops=2, can reach a via the cycle.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 5},
             {"id": "b", "v": 3},
@@ -934,12 +754,6 @@ class TestSensitivePhenomena:
         assert "a" in result_nodes, "should reach a via cycle at hop 2"
 
     def test_cycle_with_branch(self):
-        """
-        Cycle with a branch leading out.
-
-        Graph: a -> b -> c -> a (cycle)
-               c -> d (branch)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 2},
@@ -972,20 +786,8 @@ class TestSensitivePhenomena:
 
 
 class TestNodeEdgeMatchFilters:
-    """
-    Tests for source_node_match, destination_node_match, and edge_match filters.
-
-    These filters restrict traversal based on node/edge attributes, independent
-    of the endpoint node filters or WHERE clauses.
-    """
 
     def test_destination_node_match_single_hop(self):
-        """
-        destination_node_match restricts which nodes can be reached.
-
-        Graph: a -> b (target), a -> c (other)
-        With destination_node_match={'type': 'target'}, only b should be reached.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "source"},
             {"id": "b", "v": 10, "type": "target"},
@@ -1012,12 +814,6 @@ class TestNodeEdgeMatchFilters:
         assert "c" not in result_nodes, "should not reach other type node"
 
     def test_source_node_match_single_hop(self):
-        """
-        source_node_match restricts which nodes can be traversed FROM.
-
-        Graph: a (good) -> c, b (bad) -> c
-        With source_node_match={'type': 'good'}, only path from a should exist.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "good"},
             {"id": "b", "v": 5, "type": "bad"},
@@ -1044,12 +840,6 @@ class TestNodeEdgeMatchFilters:
         assert "b" not in result_nodes, "bad type source should be excluded"
 
     def test_edge_match_single_hop(self):
-        """
-        edge_match restricts which edges can be traversed.
-
-        Graph: a -friend-> b, a -enemy-> c
-        With edge_match={'type': 'friend'}, only path via friend edge should exist.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 10},
@@ -1076,14 +866,6 @@ class TestNodeEdgeMatchFilters:
         assert "c" not in result_nodes, "should not reach via enemy edge"
 
     def test_destination_node_match_multi_hop(self):
-        """
-        destination_node_match applies at EACH hop, not just final.
-
-        Graph: a -> b (target) -> c (target)
-        With destination_node_match={'type': 'target'}, b and c must both be targets.
-        Note: destination_node_match filters destinations at every hop step,
-        so intermediate nodes must also match.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "source"},
             {"id": "b", "v": 5, "type": "target"},  # intermediate must also be target
@@ -1110,13 +892,6 @@ class TestNodeEdgeMatchFilters:
         assert "c" in result_nodes, "should reach c (target) at hop 2"
 
     def test_combined_source_and_dest_match(self):
-        """
-        Both source_node_match and destination_node_match together.
-
-        Graph: a (sender) -> c, b (receiver) -> c, a -> d
-        source_node_match={'role': 'sender'}, destination_node_match={'type': 'target'}
-        Only a->c path should work (a is sender, c would need to be target)
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "role": "sender", "type": "node"},
             {"id": "b", "v": 5, "role": "receiver", "type": "node"},
@@ -1151,12 +926,6 @@ class TestNodeEdgeMatchFilters:
         assert "d" not in result_nodes, "other d should be excluded as destination"
 
     def test_edge_match_multi_hop(self):
-        """
-        edge_match restricts which edges can be used in multi-hop.
-
-        Graph: a -good-> b -good-> c, b -bad-> d
-        With edge_match={'quality': 'good'}, only a-b-c path should work.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1},
             {"id": "b", "v": 5},
@@ -1186,14 +955,6 @@ class TestNodeEdgeMatchFilters:
         assert "d" not in result_nodes, "should not reach d via bad edge"
 
     def test_undirected_with_destination_match(self):
-        """
-        destination_node_match with undirected traversal.
-
-        Graph: b -> a, b -> c (both targets)
-        Undirected from a with destination_node_match={'type': 'target'}
-        should find b and c (all targets along the path).
-        Note: destination_node_match applies at each hop, so b must also be target.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "v": 1, "type": "source"},
             {"id": "b", "v": 5, "type": "target"},  # must also be target for multi-hop
@@ -1221,20 +982,8 @@ class TestNodeEdgeMatchFilters:
 
 
 class TestWhereClauseConjunction:
-    """
-    Test conjunction (AND) semantics for multiple WHERE clauses.
-
-    Current behavior: Multiple WHERE clauses are treated as conjunction (AND).
-    This is compatible with Yannakakis pruning because AND is monotonic -
-    adding constraints can only reduce the valid set, never expand it.
-
-    Disjunction (OR) is NOT supported because it breaks monotonic pruning:
-    - A node might fail one clause but satisfy another via a different path
-    - Pruning based on one clause could remove nodes needed by another
-    """
 
     def test_conjunction_two_clauses_same_columns(self):
-        """Two clauses on same column pair: a.x > c.x AND a.y < c.y"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 10, "y": 1},
             {"id": "b", "x": 5, "y": 5},
@@ -1269,7 +1018,6 @@ class TestWhereClauseConjunction:
         assert "e" not in result_nodes, "e fails x clause"
 
     def test_conjunction_three_clauses(self):
-        """Three clauses: a.x == c.x AND a.y < c.y AND a.z > c.z"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 1, "z": 10},
             {"id": "b", "x": 5, "y": 5, "z": 5},
@@ -1305,7 +1053,6 @@ class TestWhereClauseConjunction:
         assert "e" not in result_nodes, "e fails x clause"
 
     def test_conjunction_adjacent_and_nonadjacent(self):
-        """Mix adjacent and non-adjacent clauses: a.x == b.x AND a.y < c.y"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 1},
             {"id": "b1", "x": 5, "y": 5},   # x matches a
@@ -1345,7 +1092,6 @@ class TestWhereClauseConjunction:
         assert "c2" not in result_nodes, "c2 has y<1"
 
     def test_conjunction_multihop_single_edge_step(self):
-        """Conjunction with multi-hop: a.x > c.x AND a.y < c.y via 2-hop edge"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 10, "y": 1},
             {"id": "b", "x": 7, "y": 5},
@@ -1377,7 +1123,6 @@ class TestWhereClauseConjunction:
         assert "d" not in result_nodes, "d fails y clause"
 
     def test_conjunction_with_impossible_combination(self):
-        """Clauses that are individually satisfiable but not together."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 5},
             {"id": "b", "x": 3, "y": 7},   # x<5 AND y>5 - satisfies both!
@@ -1408,7 +1153,6 @@ class TestWhereClauseConjunction:
         assert "c" not in result_nodes, "c fails: 5<7"
 
     def test_conjunction_empty_result(self):
-        """All paths fail at least one clause."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 5},
             {"id": "b", "x": 10, "y": 10},  # fails x clause (5 < 10, not >)
@@ -1440,25 +1184,6 @@ class TestWhereClauseConjunction:
         assert "c" not in result_nodes, "c fails y clause"
 
     def test_conjunction_diamond_multiple_paths(self):
-        """
-        Diamond topology where different paths might satisfy different clauses.
-
-        With conjunction, a node is included only if SOME path to it satisfies ALL clauses.
-        This is the key Yannakakis property - we don't need ALL paths to work,
-        just at least one complete valid path.
-
-            a
-           / \\
-          b1  b2
-           \\ /
-            c
-
-        Clauses: a.x == b.x AND a.y < c.y
-        b1.x = 5 (matches a.x=5), b2.x = 9 (doesn't match)
-        c.y = 10 > a.y = 1
-
-        Path a->b1->c should work. Path a->b2->c fails at b2.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 1},
             {"id": "b1", "x": 5, "y": 5},   # x matches
@@ -1502,7 +1227,6 @@ class TestWhereClauseConjunction:
             assert ("a", "b2") not in edge_pairs, "edge a->b2 should be excluded"
 
     def test_conjunction_undirected_multihop(self):
-        """Conjunction with undirected multi-hop traversal."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 10, "y": 1},
             {"id": "b", "x": 7, "y": 5},
@@ -1532,19 +1256,8 @@ class TestWhereClauseConjunction:
 
 
 class TestWhereClauseNegation:
-    """
-    Test negation (!=) in WHERE clauses, including combinations with other operators.
-
-    Negation is tricky for Yannakakis pruning because:
-    - `a.x != c.x` doesn't give useful global bounds (everything except one value is valid)
-    - Early pruning is skipped for != (see _prune_clause)
-    - Per-edge filtering still works correctly
-
-    These tests verify != works alone and in combination with other operators.
-    """
 
     def test_negation_simple(self):
-        """Simple != clause: exclude paths where values match."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 5},   # same as a - INVALID
@@ -1571,7 +1284,6 @@ class TestWhereClauseNegation:
         assert "b" not in result_nodes, "b has same x value as a"
 
     def test_negation_with_equality(self):
-        """Combine != and ==: a.x != c.x AND a.y == c.y"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 10},
             {"id": "b", "x": 5, "y": 10},   # x same, y same - INVALID (x match fails !=)
@@ -1604,7 +1316,6 @@ class TestWhereClauseNegation:
         assert "d" not in result_nodes, "d: y!=10 fails =="
 
     def test_negation_with_inequality(self):
-        """Combine != and >: a.x != c.x AND a.y > c.y"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 10},
             {"id": "b", "x": 5, "y": 5},    # x same - INVALID
@@ -1637,7 +1348,6 @@ class TestWhereClauseNegation:
         assert "d" not in result_nodes, "d: 10<15 fails >"
 
     def test_double_negation(self):
-        """Two != clauses: a.x != c.x AND a.y != c.y"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 10},
             {"id": "b", "x": 5, "y": 20},   # x same - INVALID
@@ -1670,7 +1380,6 @@ class TestWhereClauseNegation:
         assert "c" not in result_nodes, "c: y==10 fails second !="
 
     def test_negation_multihop(self):
-        """!= with multi-hop traversal."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 7},
@@ -1699,7 +1408,6 @@ class TestWhereClauseNegation:
         assert "c" not in result_nodes, "c has same x value as a"
 
     def test_negation_adjacent_steps(self):
-        """!= between adjacent steps: a.x != b.x"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},   # same - INVALID
@@ -1732,7 +1440,6 @@ class TestWhereClauseNegation:
         assert "b1" not in result_nodes, "b1 has same x as a"
 
     def test_negation_nonadjacent_with_equality_adjacent(self):
-        """Mix: a.x == b.x (adjacent) AND a.y != c.y (non-adjacent)"""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 10},
             {"id": "b1", "x": 5, "y": 7},   # x matches a
@@ -1772,7 +1479,6 @@ class TestWhereClauseNegation:
         assert "c1" not in result_nodes, "c1 has y==10"
 
     def test_negation_all_match_empty_result(self):
-        """All endpoints have same value - empty result."""
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 5},
@@ -1799,21 +1505,6 @@ class TestWhereClauseNegation:
         assert "c" not in result_nodes, "c has same x"
 
     def test_negation_diamond_one_path_valid(self):
-        """
-        Diamond where only one path satisfies != constraint.
-
-            a (x=5)
-           / \\
-      (x=5)b1  b2(x=10)
-           \\ /
-            c (x=5)
-
-        Clause: a.x != b.x
-        - Path a->b1->c: b1.x=5 == a.x=5, FAILS
-        - Path a->b2->c: b2.x=10 != a.x=5, VALID
-
-        c should be included (reachable via valid path), but b1 should be excluded.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},   # same as a - invalid path
@@ -1854,17 +1545,6 @@ class TestWhereClauseNegation:
             assert ("a", "b2") in edge_pairs, "edge a->b2 included"
 
     def test_negation_diamond_both_paths_fail(self):
-        """
-        Diamond where BOTH paths fail != constraint - c should be excluded.
-
-            a (x=5)
-           / \\
-      (x=5)b1  b2(x=5)
-           \\ /
-            c
-
-        Both b1 and b2 have x=5 == a.x, so no valid path to c.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},
@@ -1898,21 +1578,6 @@ class TestWhereClauseNegation:
         assert "b2" not in result_nodes, "b2 fails !="
 
     def test_negation_convergent_paths_different_intermediates(self):
-        """
-        Multiple paths to same end with different intermediate constraints.
-
-            a (x=5, y=10)
-           /|\\
-          b1 b2 b3
-           \\|/
-            c (x=10, y=10)
-
-        Clauses: a.x != b.x AND a.y == c.y
-        - b1.x=5 (fails !=), b2.x=10 (passes), b3.x=5 (fails)
-        - c.y=10 == a.y=10 (passes)
-
-        Only path a->b2->c is valid.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5, "y": 10},
             {"id": "b1", "x": 5, "y": 7},
@@ -1953,14 +1618,6 @@ class TestWhereClauseNegation:
         assert "b3" not in result_nodes, "b3 fails !="
 
     def test_negation_conflict_start_end_same_value(self):
-        """
-        Negation between start and end where they happen to have same value.
-
-        a (x=5) -> b -> c (x=5)
-
-        Clause: a.x != c.x
-        a.x=5 == c.x=5, so path is invalid.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 10},
@@ -1987,21 +1644,6 @@ class TestWhereClauseNegation:
         assert "c" not in result_nodes, "c has same x as start"
 
     def test_negation_multiple_ends_some_match(self):
-        """
-        Multiple endpoints, some match start value (fail !=), others don't.
-
-              a (x=5)
-             /|\\
-            b1 b2 b3
-            |  |  |
-            c1 c2 c3
-           (5)(10)(5)
-
-        Clause: a.x != c.x
-        - c1.x=5 == a.x FAILS
-        - c2.x=10 != a.x PASSES
-        - c3.x=5 == a.x FAILS
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 7},
@@ -2041,18 +1683,6 @@ class TestWhereClauseNegation:
         assert "b3" not in result_nodes, "b3 only leads to invalid c3"
 
     def test_negation_cycle_same_node_different_hops(self):
-        """
-        Cycle where same node appears at different hops.
-
-        a (x=5) -> b (x=10) -> c (x=5) -> a
-
-        With min_hops=2, max_hops=3:
-        - hop 2: c (x=5 == a.x, FAILS !=)
-        - hop 3: a (x=5 == a.x, FAILS !=)
-
-        But b at hop 1 has x=10 != 5, if we can reach it as endpoint.
-        With min_hops=1, max_hops=1: b should pass.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 10},
@@ -2093,25 +1723,6 @@ class TestWhereClauseNegation:
         assert "c" not in result2_nodes, "c.x=5 == a.x=5"
 
     def test_negation_undirected_diamond(self):
-        """
-        Undirected diamond with negation constraint.
-
-        Graph edges (directed): b1 <- a -> b2, c -> b1, c -> b2
-        Undirected traversal from a.
-
-            a (x=5)
-           / \\
-          b1  b2
-           \\ /
-            c
-
-        With undirected, can reach c via a->b1->c or a->b2->c.
-        Clause: a.x != b.x
-        - b1.x=5 == a.x FAILS
-        - b2.x=10 != a.x PASSES
-
-        c should be reachable via b2.
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b1", "x": 5},
@@ -2145,16 +1756,6 @@ class TestWhereClauseNegation:
         assert "b1" not in result_nodes, "b1 fails !="
 
     def test_negation_with_equality_conflicting_requirements(self):
-        """
-        Conflicting constraints: a.x != b.x AND b.x == c.x
-
-        This requires:
-        1. b.x different from a.x
-        2. c.x same as b.x (thus also different from a.x)
-
-        a (x=5) -> b (x=10) -> c (x=10)  VALID: 5!=10, 10==10
-        a (x=5) -> b (x=10) -> d (x=5)   INVALID: 5!=10 passes, but 10!=5 fails ==
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 10},
@@ -2190,18 +1791,6 @@ class TestWhereClauseNegation:
         assert "d" not in result_nodes, "d: b.x!=d.x fails =="
 
     def test_negation_transitive_chain(self):
-        """
-        Chain with negation propagating through: a.x != b.x AND b.x != c.x
-
-        a (x=5) -> b (x=10) -> c (x=5)
-        - 5 != 10: PASS
-        - 10 != 5: PASS
-        Both constraints satisfied!
-
-        a (x=5) -> b (x=10) -> d (x=10)
-        - 5 != 10: PASS
-        - 10 != 10: FAIL
-        """
         nodes = pd.DataFrame([
             {"id": "a", "x": 5},
             {"id": "b", "x": 10},
@@ -2234,5 +1823,4 @@ class TestWhereClauseNegation:
 
         assert "c" in result_nodes, "c: 5!=10 AND 10!=5"
         assert "d" not in result_nodes, "d: 10==10 fails second !="
-
 
