@@ -25,6 +25,14 @@ VIZ_NAMESPACES = {
     "http://www.gexf.net/1.3/viz",
 }
 
+GEXF_NODE_SHAPE_ICON_MAP = {
+    "disc": "circle",
+    "square": "square",
+    "triangle": "caret-up",
+    "diamond": "diamond",
+    "image": "picture-o",
+}
+
 EXPORT_VERSION_CONFIG = {
     "1.1draft": {
         "gexf_ns": "http://www.gexf.net/1.1draft",
@@ -224,7 +232,7 @@ def _parse_attvalues(parent: ET.Element, attr_defs: Dict[str, AttrDef], row: Dic
             row[title] = _coerce_value(raw_value, attr_type)
 
 
-def _parse_viz(parent: ET.Element, row: Dict[str, Any]) -> None:
+def _parse_viz(parent: ET.Element, row: Dict[str, Any], element_kind: str) -> None:
     for child in list(parent):
         ns = _namespace(child.tag)
         if ns not in VIZ_NAMESPACES:
@@ -265,6 +273,15 @@ def _parse_viz(parent: ET.Element, row: Dict[str, Any]) -> None:
             value = child.attrib.get("value")
             if value is not None:
                 row["viz_shape"] = value
+                if element_kind == "node":
+                    icon_value = GEXF_NODE_SHAPE_ICON_MAP.get(value)
+                    if value == "image":
+                        uri = child.attrib.get("uri")
+                        if uri:
+                            row["viz_shape_uri"] = uri
+                            icon_value = uri
+                    if icon_value is not None:
+                        row["viz_shape_icon"] = icon_value
 
 
 def gexf_to_dfs(
@@ -325,7 +342,7 @@ def gexf_to_dfs(
             row["label"] = label
         _apply_attr_defaults(node_attr_defs, row)
         _parse_attvalues(node, node_attr_defs, row)
-        _parse_viz(node, row)
+        _parse_viz(node, row, "node")
         node_rows.append(row)
 
     if len(node_ids) != len(set(node_ids)):
@@ -354,7 +371,7 @@ def gexf_to_dfs(
                 row["weight"] = _coerce_value(weight, "float")
             _apply_attr_defaults(edge_attr_defs, row)
             _parse_attvalues(edge, edge_attr_defs, row)
-            _parse_viz(edge, row)
+            _parse_viz(edge, row, "edge")
             edge_rows.append(row)
 
     nodes_df = pd.DataFrame(node_rows)
@@ -407,6 +424,8 @@ def from_gexf(
         bindings["point_x"] = "viz_x"
     if "viz_y" in nodes_df.columns:
         bindings["point_y"] = "viz_y"
+    if "viz_shape_icon" in nodes_df.columns:
+        bindings["point_icon"] = "viz_shape_icon"
 
     if "label" in edges_df.columns:
         bindings["edge_title"] = "label"

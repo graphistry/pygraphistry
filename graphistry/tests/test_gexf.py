@@ -48,6 +48,7 @@ class TestGEXF(NoAuthTestCase):
         self.assertEqual(g._edge_opacity, "viz_opacity")
         self.assertEqual(g._edge_weight, "weight")
         self.assertEqual(g._url_params.get("play"), 0)
+        self.assertEqual(g._point_icon, "viz_shape_icon")
 
         node_n10 = g._nodes[g._nodes["node_id"] == "n10"].iloc[0]
         assert node_n10["viz_color"] == "#EFAD42"
@@ -55,12 +56,16 @@ class TestGEXF(NoAuthTestCase):
         assert node_n10["viz_x"] == pytest.approx(10.0)
         assert node_n10["viz_y"] == pytest.approx(20.5)
         assert node_n10["viz_size"] == pytest.approx(2.5)
+        assert node_n10["viz_shape_icon"] == "circle"
 
         edge_e10 = g._edges[g._edges["edge_id"] == "e10"].iloc[0]
         assert edge_e10["viz_color"] == "#9DD54E"
         assert edge_e10["viz_opacity"] == pytest.approx(0.8)
         assert edge_e10["viz_thickness"] == pytest.approx(3.5)
         assert edge_e10["weight"] == pytest.approx(2.0)
+
+        node_n11 = g._nodes[g._nodes["node_id"] == "n11"].iloc[0]
+        assert node_n11["viz_shape_icon"] == "square"
 
     def test_gexf_13_viz_hex(self):
         path = os.path.join(DATA_DIR, "sample-1.3-viz.gexf")

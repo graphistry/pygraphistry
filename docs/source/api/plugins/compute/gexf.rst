@@ -36,6 +36,7 @@ The loader maps standard GEXF viz attributes into Graphistry bindings:
 - ``viz:position`` → ``point_x`` / ``point_y`` (and auto-sets ``play=0``)
 - ``viz:thickness`` → ``edge_size``
 - ``viz:color`` alpha → ``point_opacity`` / ``edge_opacity``
+- ``viz:shape`` (nodes) → ``point_icon`` (FA4 mapping: disc→circle, square→square, triangle→caret-up, diamond→diamond; image uses the ``uri`` when available)
 - edge ``weight`` → ``edge_weight``
 
 **Validation**
