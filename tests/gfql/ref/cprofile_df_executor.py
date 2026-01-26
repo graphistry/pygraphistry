@@ -16,7 +16,6 @@ from graphistry.compute.gfql.same_path_types import col, compare, where_to_json
 
 
 def make_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Create a graph for profiling."""
     import random
     random.seed(42)
 
@@ -36,14 +35,12 @@ def make_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def profile_simple_query(g, n_runs=5):
-    """Profile a simple query."""
     chain = [n(name="a"), e_forward(name="e"), n(name="c")]
     for _ in range(n_runs):
         g.gfql({"chain": chain, "where": []}, engine="pandas")
 
 
 def profile_multihop_query(g, n_runs=5):
-    """Profile a multihop query."""
     chain = [
         n({"id": 0}, name="a"),
         e_forward(min_hops=1, max_hops=3, name="e"),
@@ -54,7 +51,6 @@ def profile_multihop_query(g, n_runs=5):
 
 
 def profile_where_query(g, n_runs=5):
-    """Profile a query with WHERE clause."""
     chain = [n(name="a"), e_forward(name="e"), n(name="c")]
     where = [compare(col("a", "v"), "<", col("c", "v"))]
     where_json = where_to_json(where)
@@ -63,9 +59,6 @@ def profile_where_query(g, n_runs=5):
 
 
 def profile_samepath_query(g_small, n_runs=5):
-    """Profile same-path executor (requires WHERE + cudf engine hint)."""
-    # The same-path executor is triggered by cudf engine + WHERE
-    # But we're using pandas, so we need to call it directly
     from graphistry.compute.gfql.df_executor import (
         build_same_path_inputs,
         execute_same_path_chain,
@@ -93,7 +86,6 @@ def profile_samepath_query(g_small, n_runs=5):
 
 
 def run_profile(func, g, name):
-    """Run profiler and print top functions."""
     print(f"\n{'='*60}")
     print(f"Profiling: {name}")
     print(f"{'='*60}")
@@ -103,7 +95,6 @@ def run_profile(func, g, name):
     func(g)
     profiler.disable()
 
-    # Get stats
     s = io.StringIO()
     stats = pstats.Stats(profiler, stream=s)
     stats.sort_stats('cumulative')
@@ -122,7 +113,6 @@ def main():
     g_small = graphistry.nodes(nodes_small, 'id').edges(edges_small, 'src', 'dst')
     print(f"Small graph: {len(nodes_small)} nodes, {len(edges_small)} edges")
 
-    # Warmup
     print("\nWarmup...")
     chain = [n(name="a"), e_forward(name="e"), n(name="c")]
     g.gfql({"chain": chain, "where": []}, engine="pandas")

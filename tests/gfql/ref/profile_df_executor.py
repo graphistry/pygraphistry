@@ -10,8 +10,6 @@ import time
 import pandas as pd
 from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
-
-# Import the executor and test utilities
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
 from graphistry.compute.gfql.same_path_types import WhereComparison, StepColumnRef, col, compare, where_to_json
@@ -30,12 +28,10 @@ class ProfileResult:
 
 
 def make_linear_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Create a linear graph: 0 -> 1 -> 2 -> ... -> n-1"""
     nodes = pd.DataFrame({
         'id': list(range(n_nodes)),
         'v': list(range(n_nodes)),
     })
-    # Create edges ensuring we don't exceed available nodes
     edges_list = []
     for i in range(min(n_edges, n_nodes - 1)):
         edges_list.append({'src': i, 'dst': i + 1, 'eid': i})
@@ -44,7 +40,6 @@ def make_linear_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.Data
 
 
 def make_dense_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Create a denser graph with multiple paths."""
     import random
     random.seed(42)
 
@@ -72,17 +67,13 @@ def profile_query(
     n_edges: int,
     n_runs: int = 3
 ) -> ProfileResult:
-    """Profile a single query, return average time."""
 
     from graphistry.compute.chain import Chain
 
-    # Convert WHERE to JSON format
     where_json = where_to_json(where) if where else []
 
-    # Warmup
     result = g.gfql({"chain": chain, "where": where_json}, engine="pandas")
 
-    # Timed runs
     times = []
     for _ in range(n_runs):
         start = time.perf_counter()
@@ -108,10 +99,8 @@ def profile_query(
 
 
 def run_profiles() -> List[ProfileResult]:
-    """Run all profiling scenarios."""
     results = []
 
-    # Define scenarios
     scenarios = [
         # (name, n_nodes, n_edges, graph_type)
         ('tiny', 100, 200, 'linear'),

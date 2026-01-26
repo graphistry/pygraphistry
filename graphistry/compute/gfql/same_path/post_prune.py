@@ -144,7 +144,6 @@ def apply_non_adjacent_where_post_prune(
         right_binding = executor.inputs.alias_bindings.get(right_alias)
         if left_binding and right_binding:
             if left_binding.kind == "node" and right_binding.kind == "node":
-                # Non-adjacent = step indices differ by more than 2
                 if not executor.meta.are_steps_adjacent_nodes(
                     left_binding.step_index, right_binding.step_index
                 ):
@@ -1877,7 +1876,6 @@ def apply_non_adjacent_where_post_prune(
         if value_mode_enabled:
             value_mode_used = True
 
-        # State table propagation: (current_node, start_label) pairs
         if left_values_df is not None and len(left_values_df) > 0:
             if value_mode_enabled:
                 state_df = left_values_df[['__start__', state_label_col]].rename(
@@ -2089,9 +2087,7 @@ def apply_edge_where_post_prune(
     node_indices = executor.meta.node_indices
     edge_indices = executor.meta.edge_indices
 
-    # Work on local copies (internal immutability pattern)
     local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
-    # Preserve existing pruned_edges from input state
     pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
     edge_overrides: Dict[int, DataFrameT] = {}
 
@@ -2515,7 +2511,6 @@ def apply_edge_where_post_prune(
             edge_overrides[right_edge_idx] = right_edges_filtered
 
     if fast_path_full_cover:
-        # Fast path: 2-hop single edge-edge clause, prune by endpoints (baseline semantics).
         if any(domain_is_empty(local_allowed_nodes.get(idx)) for idx in node_indices):
             for idx in node_indices:
                 local_allowed_nodes[idx] = domain_empty(nodes_df_template)
