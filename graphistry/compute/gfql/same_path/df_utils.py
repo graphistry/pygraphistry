@@ -127,7 +127,6 @@ def domain_to_frame(template_df: DataFrameT, domain: Optional[DomainT], col: str
     return df_cons(template_df, {col: domain})
 
 
-# Standard column name for ID DataFrames used in semi-joins
 _ID_COL = "__id__"
 
 
@@ -181,7 +180,6 @@ def concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
         return None
     if len(non_empty) == 1:
         return non_empty[0]
-    # Check if cudf
     first = non_empty[0]
     if first.__class__.__module__.startswith("cudf"):
         import cudf  # type: ignore

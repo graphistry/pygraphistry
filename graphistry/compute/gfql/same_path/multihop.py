@@ -125,13 +125,9 @@ def find_multihop_start_nodes(
 
         new_frontier = new_frontier.rename(columns={'__to__': '__node__'})
 
-        # Collect valid starts (nodes at hop distance in [min_hops, max_hops])
-        # These are nodes that can reach right_allowed in exactly `hop` hops
         if hop >= min_hops:
             valid_starts_frames.append(new_frontier[['__node__']])
 
-        # Anti-join: filter out nodes already visited to avoid infinite loops
-        # Use domain-based filtering
         candidate_nodes = series_values(new_frontier['__node__'])
         new_node_ids = domain_diff(candidate_nodes, visited_idx)
         if domain_is_empty(new_node_ids):
@@ -146,7 +142,6 @@ def find_multihop_start_nodes(
             break
         all_visited = all_visited_new
 
-    # Combine all valid starts and return as a domain
     if valid_starts_frames:
         valid_starts_df = concat_frames(valid_starts_frames)
         if valid_starts_df is not None:
