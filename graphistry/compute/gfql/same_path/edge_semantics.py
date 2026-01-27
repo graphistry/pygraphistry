@@ -45,10 +45,7 @@ class EdgeSemantics:
             return (src_col, dst_col)
 
     def endpoint_cols(self, src_col: str, dst_col: str) -> Tuple[str, str]:
-        if self.is_reverse:
-            return (dst_col, src_col)
-        else:
-            return (src_col, dst_col)
+        return self.join_cols(src_col, dst_col)
 
     def start_nodes(
         self, edges_df: DataFrameT, src_col: str, dst_col: str
