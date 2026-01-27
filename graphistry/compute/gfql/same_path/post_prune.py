@@ -338,6 +338,61 @@ def apply_non_adjacent_where_post_prune(
         if entries:
             _mark_group_entries_processed(entries)
 
+    def _empty_pair(left_df: DataFrameT, right_df: DataFrameT, start_idx: int, end_idx: int) -> bool:
+        if len(left_df) == 0 or len(right_df) == 0:
+            _set_empty_nodes(start_idx, end_idx)
+            return True
+        return False
+
+    def _ineq_eval_pairs(
+        left_pairs: DataFrameT,
+        right_pairs: DataFrameT,
+        op: str,
+    ) -> tuple:
+        if op in {"<", "<="}:
+            left_bound = (
+                right_pairs.groupby("__mid__")["__value__"]
+                .max()
+                .reset_index()
+                .rename(columns={"__value__": "__right_bound__"})
+            )
+            right_bound = (
+                left_pairs.groupby("__mid__")["__value__"]
+                .min()
+                .reset_index()
+                .rename(columns={"__value__": "__left_bound__"})
+            )
+            left_eval = left_pairs.merge(left_bound, on="__mid__", how="inner")
+            right_eval = right_pairs.merge(right_bound, on="__mid__", how="inner")
+            if op == "<":
+                left_eval = left_eval[left_eval["__value__"] < left_eval["__right_bound__"]]
+                right_eval = right_eval[right_eval["__value__"] > right_eval["__left_bound__"]]
+            else:
+                left_eval = left_eval[left_eval["__value__"] <= left_eval["__right_bound__"]]
+                right_eval = right_eval[right_eval["__value__"] >= right_eval["__left_bound__"]]
+        else:
+            left_bound = (
+                right_pairs.groupby("__mid__")["__value__"]
+                .min()
+                .reset_index()
+                .rename(columns={"__value__": "__right_bound__"})
+            )
+            right_bound = (
+                left_pairs.groupby("__mid__")["__value__"]
+                .max()
+                .reset_index()
+                .rename(columns={"__value__": "__left_bound__"})
+            )
+            left_eval = left_pairs.merge(left_bound, on="__mid__", how="inner")
+            right_eval = right_pairs.merge(right_bound, on="__mid__", how="inner")
+            if op == ">":
+                left_eval = left_eval[left_eval["__value__"] > left_eval["__right_bound__"]]
+                right_eval = right_eval[right_eval["__value__"] < right_eval["__left_bound__"]]
+            else:
+                left_eval = left_eval[left_eval["__value__"] >= left_eval["__right_bound__"]]
+                right_eval = right_eval[right_eval["__value__"] <= right_eval["__left_bound__"]]
+        return left_eval, right_eval
+
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
     ):
@@ -888,8 +943,7 @@ def apply_non_adjacent_where_post_prune(
                             pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
-                            if len(left_pairs) == 0 or len(right_pairs) == 0:
-                                _set_empty_nodes(start_node_idx, end_node_idx)
+                            if _empty_pair(left_pairs, right_pairs, start_node_idx, end_node_idx):
                                 continue
 
                             pair_est_value = len(left_pairs) * len(right_pairs)
@@ -1051,8 +1105,6 @@ def apply_non_adjacent_where_post_prune(
     ]
 
     for clause in remaining_clauses:
-        if id(clause) in processed_clause_ids:
-            continue
         clause_count += 1
         left_alias = clause.left.alias
         right_alias = clause.right.alias
@@ -1126,8 +1178,7 @@ def apply_non_adjacent_where_post_prune(
 
         if left_values_df is None or right_values_df is None:
             continue
-        if len(left_values_df) == 0 or len(right_values_df) == 0:
-            _set_empty_nodes(start_node_idx, end_node_idx)
+        if _empty_pair(left_values_df, right_values_df, start_node_idx, end_node_idx):
             continue
 
         if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
@@ -1210,8 +1261,7 @@ def apply_non_adjacent_where_post_prune(
                 left_values_df = left_values_df[left_mask]
                 right_values_df = right_values_df[right_mask]
 
-                if len(left_values_df) == 0 or len(right_values_df) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
+                if _empty_pair(left_values_df, right_values_df, start_node_idx, end_node_idx):
                     continue
 
                 start_nodes = series_values(left_values_df['__start__'])
@@ -1332,8 +1382,7 @@ def apply_non_adjacent_where_post_prune(
                 end_val_df = end_val_df.merge(end_labels, on="__current__", how="inner")
                 start_val_df = start_val_df[start_val_df["__label__"].notna()]
                 end_val_df = end_val_df[end_val_df["__label__"].notna()]
-                if len(start_val_df) == 0 or len(end_val_df) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
+                if _empty_pair(start_val_df, end_val_df, start_node_idx, end_node_idx):
                     continue
 
             left_edges = pairs_left.merge(
@@ -1354,8 +1403,7 @@ def apply_non_adjacent_where_post_prune(
             right_cols = ["__current__", "__mid__", "__end_val__"] + ineq_label_cols
             right_edges = right_edges[right_cols].drop_duplicates()
 
-            if len(left_edges) == 0 or len(right_edges) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
+            if _empty_pair(left_edges, right_edges, start_node_idx, end_node_idx):
                 continue
 
             group_cols = ["__mid__"] + ineq_label_cols
@@ -1374,8 +1422,7 @@ def apply_non_adjacent_where_post_prune(
                 right_edges = right_edges.merge(
                     allowed_labels, on=["__mid__", "__label__"], how="inner"
                 )
-                if len(left_edges) == 0 or len(right_edges) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
+                if _empty_pair(left_edges, right_edges, start_node_idx, end_node_idx):
                     continue
 
             if clause.op in {"<", "<="}:
@@ -1453,8 +1500,7 @@ def apply_non_adjacent_where_post_prune(
                 else:
                     right_eval = right_eval[right_eval["__end_val__"] <= right_eval["__left_bound__"]]
 
-            if len(left_eval) == 0 or len(right_eval) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
+            if _empty_pair(left_eval, right_eval, start_node_idx, end_node_idx):
                 continue
 
             _update_allowed(start_node_idx, series_values(left_eval["__start__"]))
@@ -1569,8 +1615,7 @@ def apply_non_adjacent_where_post_prune(
                             pairs_left_rows_max = max(pairs_left_rows_max, len(left_pairs))
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
-                            if len(left_pairs) == 0 or len(right_pairs) == 0:
-                                _set_empty_nodes(start_node_idx, end_node_idx)
+                            if _empty_pair(left_pairs, right_pairs, start_node_idx, end_node_idx):
                                 continue
 
                             left_total = len(left_pairs)
@@ -1692,83 +1737,14 @@ def apply_non_adjacent_where_post_prune(
                                     domain_semijoin_pairs_max,
                                     max(len(left_eval), len(right_eval)),
                                 )
-                                if len(left_eval) == 0 or len(right_eval) == 0:
-                                    _set_empty_nodes(start_node_idx, end_node_idx)
+                                if _empty_pair(left_eval, right_eval, start_node_idx, end_node_idx):
                                     continue
                                 start_series = left_eval["__start__"]
                                 end_series = right_eval["__current__"]
                             else:
-                                left_min = (
-                                    left_pairs.groupby("__mid__")["__value__"]
-                                    .min()
-                                    .reset_index()
-                                    .rename(columns={"__value__": "__left_min__"})
+                                left_eval, right_eval = _ineq_eval_pairs(
+                                    left_pairs, right_pairs, clause.op
                                 )
-                                left_max = (
-                                    left_pairs.groupby("__mid__")["__value__"]
-                                    .max()
-                                    .reset_index()
-                                    .rename(columns={"__value__": "__left_max__"})
-                                )
-                                right_min = (
-                                    right_pairs.groupby("__mid__")["__value__"]
-                                    .min()
-                                    .reset_index()
-                                    .rename(columns={"__value__": "__right_min__"})
-                                )
-                                right_max = (
-                                    right_pairs.groupby("__mid__")["__value__"]
-                                    .max()
-                                    .reset_index()
-                                    .rename(columns={"__value__": "__right_max__"})
-                                )
-
-                                if clause.op in {"<", "<="}:
-                                    left_eval = left_pairs.merge(
-                                        right_max, on="__mid__", how="inner"
-                                    )
-                                    if clause.op == "<":
-                                        left_eval = left_eval[
-                                            left_eval["__value__"] < left_eval["__right_max__"]
-                                        ]
-                                    else:
-                                        left_eval = left_eval[
-                                            left_eval["__value__"] <= left_eval["__right_max__"]
-                                        ]
-                                    right_eval = right_pairs.merge(
-                                        left_min, on="__mid__", how="inner"
-                                    )
-                                    if clause.op == "<":
-                                        right_eval = right_eval[
-                                            right_eval["__value__"] > right_eval["__left_min__"]
-                                        ]
-                                    else:
-                                        right_eval = right_eval[
-                                            right_eval["__value__"] >= right_eval["__left_min__"]
-                                        ]
-                                else:
-                                    left_eval = left_pairs.merge(
-                                        right_min, on="__mid__", how="inner"
-                                    )
-                                    if clause.op == ">":
-                                        left_eval = left_eval[
-                                            left_eval["__value__"] > left_eval["__right_min__"]
-                                        ]
-                                    else:
-                                        left_eval = left_eval[
-                                            left_eval["__value__"] >= left_eval["__right_min__"]
-                                        ]
-                                    right_eval = right_pairs.merge(
-                                        left_max, on="__mid__", how="inner"
-                                    )
-                                    if clause.op == ">":
-                                        right_eval = right_eval[
-                                            right_eval["__value__"] < right_eval["__left_max__"]
-                                        ]
-                                    else:
-                                        right_eval = right_eval[
-                                            right_eval["__value__"] <= right_eval["__left_max__"]
-                                        ]
 
                                 mid_intersect_rows_max = max(
                                     mid_intersect_rows_max,
@@ -1778,8 +1754,7 @@ def apply_non_adjacent_where_post_prune(
                                     domain_semijoin_pairs_max,
                                     max(len(left_eval), len(right_eval)),
                                 )
-                                if len(left_eval) == 0 or len(right_eval) == 0:
-                                    _set_empty_nodes(start_node_idx, end_node_idx)
+                                if _empty_pair(left_eval, right_eval, start_node_idx, end_node_idx):
                                     continue
                                 start_series = left_eval["__start__"]
                                 end_series = right_eval["__current__"]
