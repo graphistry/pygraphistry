@@ -10,10 +10,9 @@ from .util import setup_logger
 
 logger = setup_logger(__name__)
 
-# metadata_hash -> { full_hash -> (response, file_id) }
 _CACHE: Dict[int, Dict[int, Tuple[str, dict]]] = {}
 _CACHE_LOCK = threading.RLock()
-_MAX_SAMPLE_COLS = 20  # cap for cheap sampling
+_MAX_SAMPLE_COLS = 20
 
 
 class ArrowFileUploader():
@@ -119,8 +118,6 @@ class ArrowFileUploader():
             logger.error('Failed uploading file: %s', res.text, exc_info=True)
             raise e
 
-    ###
-
     def create_and_post_file(
         self,
         arr: pa.Table,
@@ -153,11 +150,9 @@ class ArrowFileUploader():
                     logger.debug("Memoisation hit (md=%s, full=%s)", md_hash, fh)
                     return cached
 
-        # Fresh upload
         if file_id is None:
             file_id = self.create_file(file_opts)
 
-        # Upload
         resp = self.post_arrow(arr, file_id, upload_url_opts)
 
         if memoize:
@@ -181,7 +176,6 @@ def _hash_metadata(table: pa.Table, max_cols: int = _MAX_SAMPLE_COLS) -> int:
     col_names = tuple(table.column_names)
     num_rows = table.num_rows
 
-    # total bytes – cheap property in >=1.0, fallback otherwise
     if hasattr(table, "nbytes"):
         nbytes = table.nbytes
     else:
@@ -193,7 +187,6 @@ def _hash_metadata(table: pa.Table, max_cols: int = _MAX_SAMPLE_COLS) -> int:
     digest.update(str(num_rows).encode())
     digest.update(str(nbytes).encode())
 
-    # sample first / last row values (bulk, not scalar loop)
     if num_rows:
         ncols = min(len(col_names), max_cols)
         for i in range(ncols):
@@ -215,7 +208,6 @@ def _hash_full_table(table: pa.Table) -> int:
     """
     digest = hashlib.sha256()
 
-    # schema (captures types, nullability, field names, etc.)
     digest.update(str(table.schema).encode())
 
     # stream all buffers

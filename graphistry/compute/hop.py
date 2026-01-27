@@ -148,7 +148,6 @@ def hop(self: Plottable,
     if target_wave_front is not None and nodes is None:
         raise ValueError('target_wave_front requires nodes to target against (for intermediate hops)')
 
-    # Resolve hop bounds with legacy compatibility
     resolved_max_hops = max_hops if max_hops is not None else hops
     resolved_min_hops = min_hops
 
@@ -180,11 +179,9 @@ def hop(self: Plottable,
     if resolved_output_min is not None and resolved_output_max is not None and resolved_output_min > resolved_output_max:
         raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed output_max_hops ({resolved_output_max})')
 
-    # Default output slice: include all traversed hops unless explicitly post-filtered
     if resolved_output_max is None:
         resolved_output_max = resolved_max_hops
 
-    # Keep output slice within traversal range if both known
     if resolved_output_min is not None and resolved_max_hops is not None and resolved_output_min > resolved_max_hops:
         raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed max_hops traversal bound ({resolved_max_hops})')
     if resolved_output_max is not None and resolved_min_hops is not None and resolved_output_max < resolved_min_hops:
@@ -199,7 +196,6 @@ def hop(self: Plottable,
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
     logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
-    # Early validation: ensure bindings are not None
     if g2._node is None:
         raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
     assert g2._node is not None, "Node binding checked above"
@@ -208,15 +204,12 @@ def hop(self: Plottable,
     if g2._source is None or g2._destination is None:
         raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
 
-    # Type narrowing assertions for mypy - these are guaranteed by the checks above
     assert g2._source is not None, "Source binding checked above"
     assert g2._destination is not None, "Destination binding checked above"
 
-    # Check for column name conflicts
     node_src_conflict = g2._node == g2._source
     node_dst_conflict = g2._node == g2._destination
 
-    # Only generate temp names if there's a conflict
     TEMP_SRC_COL = str(g2._source)
     TEMP_DST_COL = str(g2._destination)
 
@@ -236,16 +229,11 @@ def hop(self: Plottable,
         raise ValueError('hop requires a node DataFrame; starting_nodes is None')
 
     if g2._edge is None:
-        # Get the pre-filtered edges
         pre_indexed_edges = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
 
-        # Generate a guaranteed unique internal column name to avoid conflicts with user data
         GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
 
-        # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
         edges_indexed = pre_indexed_edges.reset_index(drop=False)
-        # Find the index column (it will be the first column that wasn't in original columns)
-        # reset_index() always adds the new column at position 0, so we can use next() with a generator for early exit
         pre_indexed_cols = set(pre_indexed_edges.columns)
         index_col_name = next(col for col in edges_indexed.columns if col not in pre_indexed_cols)
         edges_indexed = edges_indexed.rename(columns={index_col_name: GFQL_EDGE_INDEX})
@@ -253,7 +241,6 @@ def hop(self: Plottable,
     else:
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
         EDGE_ID = g2._edge
-        # Defensive check: ensure edge binding column exists
         if EDGE_ID not in edges_indexed.columns:
             raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
 
@@ -269,7 +256,6 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
-    # Track hops when needed for labels, output slices, or min_hops pruning
     needs_min_hop_pruning = resolved_min_hops is not None and resolved_min_hops > 1
     track_hops = bool(
         label_node_hops
@@ -294,7 +280,6 @@ def hop(self: Plottable,
     matches_nodes = None
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
-    #richly-attributed subset for dest matching & return-enriching
     if target_wave_front is None:
         base_target_nodes = g2._nodes
     else:
@@ -372,10 +357,8 @@ def hop(self: Plottable,
         and allowed_source_ids is None
         and allowed_dest_ids is None
     )
-    # Optional fast path: keep default on, but allow disabling via env for perf validation.
     fast_path_override = os.environ.get("GRAPHISTRY_HOP_FAST_PATH", "").strip().lower()
     if fast_path_override in {"0", "false", "off", "no"}:
-        # Allow disabling fast path for benchmarking/compat checks.
         fast_path_enabled = False
 
     first_iter = True
@@ -556,9 +539,6 @@ def hop(self: Plottable,
             logger.debug('new_node_ids:\n%s', new_node_ids)
             logger.debug('hop_edges:\n%s', hop_edges)
 
-        # When !return_as_wave_front, include starting nodes in returned matching node set
-        # (When return_as_wave_front, skip starting nodes, just include newly reached)
-        # Only need to do this in the first loop step
         if matches_nodes is None:  # first iteration
             if return_as_wave_front:
                 matches_nodes = new_node_ids[:0]
@@ -581,7 +561,6 @@ def hop(self: Plottable,
             combined_node_ids = new_node_ids
 
         if len(combined_node_ids) == len(matches_nodes):
-            # fixedpoint, exit early: future will come to same spot
             break
 
         wave_front = new_node_ids
@@ -609,8 +588,6 @@ def hop(self: Plottable,
         if edge_hop_records is not None:
             edge_hop_records = edge_hop_records[:0]
 
-    # Prune dead-end branches that don't reach min_hops
-    # When min_hops > 1, only keep edges/nodes on paths that reach at least min_hops
     if (
         resolved_min_hops is not None
         and resolved_min_hops > 1
@@ -620,63 +597,46 @@ def hop(self: Plottable,
         and edge_hop_col is not None
         and max_reached_hop >= resolved_min_hops
     ):
-        # Yannakakis: use edge endpoints, not node_hop_records (lossy min-hop-per-node)
-        # A node reachable at hop 1 AND hop 2 only records hop 1 in node_hop_records,
-        # but IS a valid goal if reached via a longer path at hop >= min_hops.
         valid_endpoint_edges = edge_hop_records[edge_hop_records[edge_hop_col] >= resolved_min_hops]
         valid_endpoint_edges_with_nodes = valid_endpoint_edges.merge(
             edges_indexed[[EDGE_ID, g2._source, g2._destination]],
             on=EDGE_ID,
             how='inner'
         )
-        # Use Series instead of set() to avoid GPU->CPU transfers for cudf
         if direction == 'forward':
             goal_node_series = valid_endpoint_edges_with_nodes[g2._destination].drop_duplicates()
         elif direction == 'reverse':
             goal_node_series = valid_endpoint_edges_with_nodes[g2._source].drop_duplicates()
         else:
-            # Undirected: either endpoint could be a goal
             goal_node_series = concat([
                 valid_endpoint_edges_with_nodes[g2._source],
                 valid_endpoint_edges_with_nodes[g2._destination]
             ], ignore_index=True, sort=False).drop_duplicates()
 
         if len(goal_node_series) > 0:
-            # Backtrack from goal nodes to find all edges/nodes on valid paths
-            # We need to traverse backwards through the edge records to find which edges lead to goals
             edge_records_with_endpoints = edge_hop_records.merge(
                 edges_indexed[[EDGE_ID, g2._source, g2._destination]],
                 on=EDGE_ID,
                 how='inner'
             )
 
-            # Build Series of valid nodes and edges by backtracking from goal nodes
-            # Using Series + concat avoids GPU->CPU transfers for cudf
             valid_node_series = goal_node_series
-            valid_edge_list = []  # Collect edge Series to concat at end
-
-            # Start with edges that lead TO goal nodes
+            valid_edge_list = []
             current_targets = goal_node_series
 
-            # Backtrack through hops from max edge hop down to 1
-            # Use actual max edge hop, not max_reached_hop which may include extra traversal steps
             max_edge_hop = int(edge_hop_records[edge_hop_col].max()) if len(edge_hop_records) > 0 else max_reached_hop
             for hop_level in range(max_edge_hop, 0, -1):
-                # Find edges at this hop level that reach current targets
                 hop_edges = edge_records_with_endpoints[
                     edge_records_with_endpoints[edge_hop_col] == hop_level
                 ]
 
                 if direction == 'forward':
-                    # Forward: edges go src->dst, so dst should be in targets
                     reaching_edges = hop_edges[hop_edges[g2._destination].isin(current_targets)]
                     new_source_series = reaching_edges[g2._source]
                 elif direction == 'reverse':
-                    # Reverse: edges go dst->src conceptually, so src should be in targets
                     reaching_edges = hop_edges[hop_edges[g2._source].isin(current_targets)]
                     new_source_series = reaching_edges[g2._destination]
                 else:
-                    # Undirected: either endpoint could be in targets
                     reaching_fwd = hop_edges[hop_edges[g2._destination].isin(current_targets)]
                     reaching_rev = hop_edges[hop_edges[g2._source].isin(current_targets)]
                     reaching_edges = concat([reaching_fwd, reaching_rev], ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
@@ -689,18 +649,15 @@ def hop(self: Plottable,
                 valid_node_series = concat([valid_node_series, new_source_series], ignore_index=True, sort=False)
                 current_targets = new_source_series.drop_duplicates()
 
-            # Deduplicate collected nodes and edges
             valid_node_series = valid_node_series.drop_duplicates()
             valid_edge_series = concat(valid_edge_list, ignore_index=True, sort=False).drop_duplicates() if valid_edge_list else goal_node_series[:0]
 
-            # Filter records to only valid paths
             edge_hop_records = edge_hop_records[edge_hop_records[EDGE_ID].isin(valid_edge_series)]
             node_hop_records = node_hop_records[node_hop_records[node_col].isin(valid_node_series)]
             matches_edges = matches_edges[matches_edges[EDGE_ID].isin(valid_edge_series)]
             if matches_nodes is not None:
                 matches_nodes = matches_nodes[matches_nodes[node_col].isin(valid_node_series)]
 
-    #hydrate edges
     if track_edge_hops and edge_hop_col is not None:
         edge_labels_source = edge_hop_records
         if edge_labels_source is None:
@@ -718,7 +675,6 @@ def hop(self: Plottable,
 
         final_edges = edges_indexed.merge(edge_labels_source, on=EDGE_ID, how='inner')
         if label_edge_hops is None and edge_hop_col in final_edges:
-            # Preserve hop labels when output slicing is requested so callers can filter
             if output_min_hops is None and output_max_hops is None:
                 final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
@@ -728,7 +684,6 @@ def hop(self: Plottable,
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
 
-    #hydrate nodes
     if self._nodes is not None:
         logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
         rich_nodes = self._nodes
@@ -826,7 +781,6 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
-    # Ensure all edge endpoints are present in nodes
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         endpoints = concat(
             [
@@ -843,7 +797,6 @@ def hop(self: Plottable,
                 on=g_out._node,
                 how='left'
             )
-        # Align engine types
         if resolve_engine(EngineAbstract.AUTO, endpoints) != resolve_engine(EngineAbstract.AUTO, g_out._nodes):
             endpoints = df_to_engine(endpoints, resolve_engine(EngineAbstract.AUTO, g_out._nodes))
         g_out = g_out.nodes(
@@ -884,7 +837,6 @@ def hop(self: Plottable,
                 if len(edge_map_df) > 0:
                     edge_map = edge_map_df.groupby(g_out._node)[edge_hop_col].min()
                 else:
-                    # Engine-agnostic empty series
                     SeriesCls = s_series(engine_concrete)
                     edge_map = SeriesCls([], dtype='float64')
                 mapped_edge_hops = g_out._nodes[g_out._node].map(edge_map)
@@ -900,10 +852,8 @@ def hop(self: Plottable,
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
                 g_out._nodes.loc[zero_seed_mask, node_hop_col] = s_na(engine_concrete)
             try:
-                # Engine-agnostic numeric conversion
                 to_numeric = s_to_numeric(engine_concrete)
                 g_out._nodes[node_hop_col] = to_numeric(g_out._nodes[node_hop_col], errors='coerce')
-                # Check if numeric and convert to nullable int
                 col = g_out._nodes[node_hop_col]
                 if hasattr(col, 'dtype') and hasattr(col.dtype, 'kind') and col.dtype.kind in ('i', 'f'):
                     g_out._nodes[node_hop_col] = col.astype('Int64')
@@ -925,10 +875,8 @@ def hop(self: Plottable,
         if direction == 'undirected':
             g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
-            # Vectorized: find seed nodes not in seen nodes
             seen_nodes_series = node_hop_records[g_out._node].dropna()
             seed_ids_series = starting_nodes[g_out._node].dropna()
-            # unreached = seeds that are NOT in seen_nodes
             unreached_mask = ~seed_ids_series.isin(seen_nodes_series)
             unreached_seed_ids = seed_ids_series[unreached_mask]
             if len(unreached_seed_ids) > 0:
@@ -937,7 +885,6 @@ def hop(self: Plottable,
 
     if g_out._nodes is not None and (final_output_min is not None or final_output_max is not None):
         try:
-            # Engine-agnostic constant True series - scalar broadcast, no Python list
             SeriesCls = s_series(engine_concrete)
             mask = SeriesCls(True, index=g_out._nodes.index)
             if node_hop_col is not None and node_hop_col in g_out._nodes.columns:

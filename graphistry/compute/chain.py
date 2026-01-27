@@ -49,15 +49,10 @@ def _chain_otel_attrs(
 
 
 def _filter_edges_by_endpoint(edges_df, nodes_df, node_id: str, edge_col: str):
-    """Filter edges to those with edge_col values in nodes_df[node_id]."""
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
-    # Use .isin() with unique values - faster than merge for filtering
     ids = nodes_df[node_id].unique()
     return edges_df[edges_df[edge_col].isin(ids)]
-
-
-###############################################################################
 
 
 class Chain(ASTSerializable):
@@ -71,29 +66,23 @@ class Chain(ASTSerializable):
         self.chain = chain
         self.where = list(where or [])
         if validate:
-            # Fail fast on invalid chains; matches documented automatic validation behavior
             self.validate(collect_all=False)
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
-        """Override to collect all chain validation errors."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
         
         if not collect_all:
-            # Use parent's fail-fast implementation
             return super().validate(collect_all=False)
         
-        # Collect all errors mode
         errors: List[GFQLValidationError] = []
         
-        # Check if chain is a list
         if not isinstance(self.chain, list):
             errors.append(GFQLTypeError(
                 ErrorCode.E101,
                 f"Chain must be a list, but got {type(self.chain).__name__}. Wrap your operations in a list []."
             ))
-            return errors  # Can't continue if not a list
+            return errors
         
-        # Check each operation
         for i, op in enumerate(self.chain):
             if not isinstance(op, ASTObject):
                 errors.append(GFQLTypeError(
@@ -104,7 +93,6 @@ class Chain(ASTSerializable):
                     suggestion="Use n() for nodes, e() for edges, or other GFQL operations"
                 ))
         
-        # Validate child AST nodes
         for child in self._get_child_validators():
             child_errors = child.validate(collect_all=True)
             if child_errors:
@@ -113,7 +101,6 @@ class Chain(ASTSerializable):
         return errors
     
     def _validate_fields(self) -> None:
-        """Validate Chain fields."""
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
         
         if not isinstance(self.chain, list):
@@ -133,7 +120,6 @@ class Chain(ASTSerializable):
                 )
     
     def _get_child_validators(self) -> List[ASTSerializable]:
-        """Return child AST nodes that need validation."""
         return [op for op in self.chain if isinstance(op, ASTObject)]
 
     @classmethod
@@ -200,9 +186,6 @@ class Chain(ASTSerializable):
         return validate_chain_schema(g, self, collect_all)
 
 
-###############################################################################
-
-
 def combine_steps(
     g: Plottable,
     kind: str,
@@ -228,15 +211,12 @@ def combine_steps(
         dst_col = getattr(g, '_destination')
         full_nodes = getattr(g, '_nodes', None)
 
-        # Check if any edge op is multi-hop - if so, fall back to original re-run approach
-        # Multi-hop edges span multiple nodes, so simple endpoint filtering doesn't work
         has_multihop = any(
             isinstance(op, ASTEdge) and not op.is_simple_single_hop()
             for op, _ in steps
         )
 
         if has_multihop:
-            # Multi-hop: re-run forward ops (can't use simple endpoint filtering)
             logger.debug('EDGES << recompute forwards given reduced set (multihop)')
             new_steps = []
             for idx, (op, g_step) in enumerate(steps):
@@ -246,7 +226,6 @@ def combine_steps(
                 new_steps.append((op, op(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
             steps = new_steps
         else:
-            # Optimization: filter by valid endpoints instead of re-running op
             logger.debug('EDGES << filter by valid endpoints (optimized)')
             new_steps = []
             for idx, (op, g_step) in enumerate(steps):
@@ -260,10 +239,8 @@ def combine_steps(
                 direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
-                    # Use .isin() instead of merge - faster for filtering
                     prev_ids = prev_nodes[node_id].unique()
                     next_ids = next_nodes[node_id].unique()
-                    # Either direction: (src in prev, dst in next) OR (dst in prev, src in next)
                     fwd_mask = edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(next_ids)
                     rev_mask = edges_df[dst_col].isin(prev_ids) & edges_df[src_col].isin(next_ids)
                     edges_df = edges_df[fwd_mask | rev_mask]
@@ -277,7 +254,6 @@ def combine_steps(
 
     logger.debug('-----------[ combine %s ---------------]', kind)
 
-    # df[[id]] - with defensive checks for column existence
     if label_steps is None:
         label_steps = steps
 
@@ -294,7 +270,6 @@ def combine_steps(
             label_col = hop_like[0] if hop_like else None
         if not label_col or label_col not in df.columns:
             return df
-        # Keep seeds (hop=0 or NA) and hops in range
         is_seed = (df[label_col] == 0) | df[label_col].isna()
         in_range = df[label_col].notna() & (df[label_col] > 0)
         if out_min is not None:
@@ -324,8 +299,6 @@ def combine_steps(
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
 
-    # Honor user's engine request by converting DataFrames to match requested engine
-    # This ensures API contract: engine parameter guarantees output DataFrame type
     if len(dfs_to_concat) > 0:
         actual_engine = resolve_engine(EngineAbstract.AUTO, dfs_to_concat[0])
         if actual_engine != engine:
@@ -335,7 +308,6 @@ def combine_steps(
     concat = df_concat(engine)
     out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
 
-    # Merge through any additional columns produced by steps (e.g., hop labels)
     label_cols = set()
     for step_df in extra_step_dfs:
         if len(step_df.columns) <= 1:  # only id column
@@ -350,20 +322,17 @@ def combine_steps(
                 out_df[col] = out_df[col_x].fillna(out_df[col_y])
                 out_df = out_df.drop(columns=[col_x, col_y])
 
-    # Final post-filter: apply output slice to the combined result
     for idx, (op, _) in enumerate(steps):
         op_label = label_steps[idx][0] if idx < len(label_steps) else op
         if isinstance(op, ASTEdge):
             out_df = apply_output_slice(op, op_label, out_df)
 
-    # If hop labels requested and seeds should be labeled, add hop 0 for seeds missing labels
     if kind == 'nodes' and label_cols:
         label_seeds_requested = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
         if label_seeds_requested and label_steps:
             seed_df = getattr(label_steps[0][1], df_fld)
             if seed_df is not None and id in seed_df.columns:
                 seed_ids = seed_df[[id]].drop_duplicates()
-                # align engines defensively
                 if resolve_engine(EngineAbstract.AUTO, seed_ids) != resolve_engine(EngineAbstract.AUTO, out_df):
                     seed_ids = df_to_engine(seed_ids, resolve_engine(EngineAbstract.AUTO, out_df))
                 try:
@@ -381,15 +350,12 @@ def combine_steps(
             else:
                 logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
-    # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
     for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
             step_df = getattr(g_step, df_fld)[[id, op._name]]
-            # Use safe_merge to handle engine type coercion automatically
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
-            # Collapse any merge suffixes introduced by repeated tags
             x_name, y_name = f'{op._name}_x', f'{op._name}_y'
             if x_name in out_df.columns and y_name in out_df.columns:
                 out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
@@ -401,7 +367,6 @@ def combine_steps(
                 label_col = label_col.fillna(False).astype('bool')
             out_df[op._name] = label_col
 
-            # Restrict node aliases to endpoints that actually fed the next edge step
             if kind == 'nodes' and idx + 1 < len(steps):
                 next_op, next_step = steps[idx + 1]
                 if isinstance(next_op, ASTEdge):
@@ -425,7 +390,6 @@ def combine_steps(
                     if allowed_ids is not None and id in out_df.columns:
                         out_df[op._name] = out_df[op._name] & out_df[id].isin(allowed_ids)
 
-    # Final output_min/max_hops filter for nodes with hop=NA
     if kind == 'nodes':
         hop_cols = [c for c in out_df.columns if 'hop' in c.lower()]
         edge_ops = [op for op, _ in steps if isinstance(op, ASTEdge)]
@@ -435,10 +399,8 @@ def combine_steps(
             hop_col = hop_cols[0]
             has_na = out_df[hop_col].isna()
             if has_output_min:
-                # output_min_hops: drop hop=NA nodes (re-added via edge endpoint coverage)
                 out_df = out_df[~has_na]
             elif has_na.any():
-                # output_max_hops only: keep hop=NA nodes that have a True tag (seeds)
                 tag_cols = [c for c in out_df.columns if c not in [id, 'id'] + hop_cols]
                 has_tag = pd.Series(False, index=out_df.index)
                 for col in tag_cols:
@@ -450,33 +412,28 @@ def combine_steps(
                         pass
                 out_df = out_df[~has_na | has_tag]
 
-    # Use safe_merge for final merge with automatic engine type coercion
     g_df = getattr(g, df_fld)
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
     logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
 
-    # Handle seed labeling toggles after slicing
     if kind == 'nodes' and label_cols:
         seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
         seed_ids = seeds_df[[id]].drop_duplicates() if seeds_df is not None and id in seeds_df.columns else None
         label_seeds_true = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
         if seed_ids is not None:
             if label_seeds_true:
-                # Ensure seeds are present and labeled 0
                 seeds_with_labels = seed_ids.copy()
                 for col in label_cols:
                     if col in out_df.columns:
                         seeds_with_labels[col] = 0
                 out_df = safe_merge(out_df, seeds_with_labels, on=id, how='outer', engine=engine)
             else:
-                # Clear seed labels when label_seeds=False
                 if id in out_df.columns:
                     mask = out_df[id].isin(seed_ids[id])
                     for col in label_cols:
                         if col in out_df.columns:
                             out_df.loc[mask, col] = pd.NA
-        # Backfill missing hop labels from forward label steps
         hop_cols = [c for c in out_df.columns if 'hop' in c]
         if hop_cols:
             hop_maps = []
@@ -492,11 +449,9 @@ def combine_steps(
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
-                        # combine_first not available in cuDF, use .where() as equivalent
                         mapped_vals = out_df[id].map(hop_map)
                         out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
 
-    # Collapse merge suffixes (_x/_y) into a single column
     cols = list(out_df.columns)
     for c in cols:
         if c.endswith('_x'):
@@ -517,84 +472,19 @@ def combine_steps(
     return out_df
 
 
-###############################################################################
-#
-#  Implementation: The algorithm performs three phases -
-#
-#     1. Forward wavefront (slowed)
-#
-#     Each step is processed, yielding the nodes it matches based on the nodes reached by the previous step
-#
-#     Full node/edge table merges are happening, so any pre-filtering would help
-#
-#     2. Reverse pruning pass  (fastish)
-#
-#     Some paths traversed during Step 1 are deadends that must be pruned
-#
-#     To only pick nodes on full paths, we then run in a reverse pass on a graph subsetted to nodes along full/partial paths.
-#
-#     - Every node encountered on the reverse pass is guaranteed to be on a full path
-#
-#     - Every 'good' node will be encountered
-#
-#     - No 'bad' deadend nodes will be included
-#
-#     3. Forward output pass
-#
-#     This pass is likely fusable into Step 2: collect and label outputs
-#
-###############################################################################
-
-
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
-    """
-    Split operations into boundary calls and middle segment.
-
-    Detects call() operations at chain boundaries (start/end) vs interior positions.
-    This enables convenient patterns like [call(), n(), e(), call()] while still
-    rejecting interior mixing like [n(), call(), e()].
-
-    Args:
-        ops: List of chain operations (ASTCall, ASTNode, or ASTEdge)
-
-    Returns:
-        (prefix_calls, middle_ops, suffix_calls) where:
-        - prefix_calls: call() operations at the start (may be empty)
-        - middle_ops: n()/e() traversals or call()s in the middle (may be empty)
-        - suffix_calls: call() operations at the end (may be empty)
-
-    Examples:
-        >>> _get_boundary_calls([call(), n(), e()])
-        ([call()], [n(), e()], [])
-
-        >>> _get_boundary_calls([n(), e(), call()])
-        ([], [n(), e()], [call()])
-
-        >>> _get_boundary_calls([call(), n(), e(), call()])
-        ([call()], [n(), e()], [call()])
-
-        >>> _get_boundary_calls([call(), call(), n()])
-        ([call(), call()], [n()], [])
-
-        >>> _get_boundary_calls([call(), call()])
-        ([call(), call()], [], [])
-
-    See: https://github.com/graphistry/pygraphistry/issues/792
-    """
+    """Split boundary call()s from traversal ops; reject interior mixing."""
     from graphistry.compute.ast import ASTCall
 
-    # Find first non-call operation
     first_traversal = next((i for i, op in enumerate(ops)
                            if not isinstance(op, ASTCall)), len(ops))
 
-    # Find last non-call operation (search backwards)
     last_traversal = next((i for i, op in reversed(list(enumerate(ops)))
                           if not isinstance(op, ASTCall)), -1)
 
-    # Extract segments
-    prefix = ops[:first_traversal]  # All leading call() operations
-    middle = ops[first_traversal:last_traversal + 1] if last_traversal >= 0 else []  # Middle segment
-    suffix = ops[last_traversal + 1:] if last_traversal >= 0 else []  # All trailing call() operations
+    prefix = ops[:first_traversal]
+    middle = ops[first_traversal:last_traversal + 1] if last_traversal >= 0 else []
+    suffix = ops[last_traversal + 1:] if last_traversal >= 0 else []
 
     return (prefix, middle, suffix)
 
@@ -608,31 +498,16 @@ def _handle_boundary_calls(
     context,
     start_nodes: Optional[DataFrameT]
 ) -> Optional[Plottable]:
-    """
-    Handle boundary call() patterns by splitting and executing sequentially.
-
-    Detects patterns like [call(), n(), e(), call()] and executes as:
-    prefix → middle → suffix via recursive chain() calls.
-
-    Returns:
-        Plottable if boundary pattern detected and executed, None otherwise
-
-    Raises:
-        GFQLValidationError: If interior mixing detected
-    """
     from graphistry.compute.ast import ASTCall
 
     has_call = any(isinstance(op, ASTCall) for op in ops)
     has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
 
-    # Only handle mixed chains (both call and traversal)
     if not (has_call and has_traversal):
         return None
 
-    # Check if it's a boundary pattern or interior mixing
     prefix, middle, suffix = _get_boundary_calls(ops)
 
-    # Validate middle segment doesn't have mixed operations
     if middle:
         has_call_in_middle = any(isinstance(op, ASTCall) for op in middle)
         has_traversal_in_middle = any(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
@@ -649,7 +524,6 @@ def _handle_boundary_calls(
                           "See issues #791, #792"
             )
 
-    # Valid boundary pattern - execute segments sequentially
     logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
                 len(prefix), len(middle), len(suffix))
 
@@ -723,12 +597,10 @@ def chain(
     :returns: Plotter
     :rtype: Plotter
     """
-    # Create context if not provided
     if context is None:
         from .execution_context import ExecutionContext
         context = ExecutionContext()
 
-    # If policy provided, set it in thread-local for ASTCall operations
     if policy:
         from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
@@ -840,23 +712,15 @@ def _chain_impl(
         ops = ops.chain
 
     if validate_schema:
-        # Validate AST structure (including identifier validation) BEFORE schema validation
-        # This ensures we catch reserved identifier errors before schema errors
         if isinstance(ops, Chain):
             ops.validate(collect_all=False)
         else:
-            # Create temporary Chain for validation
             Chain(ops).validate(collect_all=False)
 
-    # Recursive dispatch for schema-changing operations (UMAP, hypergraph, etc.)
-    # These operations create entirely new graph structures, so we split the chain
-    # and execute segments sequentially: before → schema_changer → rest
     from graphistry.compute.ast import ASTCall
 
-    # Extensible list of schema-changing operations
     schema_changers = ['umap', 'hypergraph']
 
-    # Find first schema-changer in ops
     schema_changer_idx = None
     for i, op in enumerate(ops):
         if isinstance(op, ASTCall) and op.function in schema_changers:
@@ -865,14 +729,12 @@ def _chain_impl(
 
     if schema_changer_idx is not None:
         if len(ops) == 1:
-            # Singleton schema-changer - execute directly without going through chain machinery
             from graphistry.compute.gfql.call_executor import execute_call
             from graphistry.compute.exceptions import GFQLTypeError, ErrorCode
 
             engine_concrete = resolve_engine(engine, self)
             schema_changer = ops[0]
 
-            # Type narrowing: we know it's ASTCall from the isinstance check above
             if not isinstance(schema_changer, ASTCall):
                 raise GFQLTypeError(
                     code=ErrorCode.E201,
@@ -882,19 +744,15 @@ def _chain_impl(
                     suggestion="Use call('umap', {...}) or call('hypergraph', {...})"
                 )
 
-            # Validate schema if requested (even though ASTCall doesn't check columns, respect the flag)
             if validate_schema:
                 validate_chain_schema(self, ops, collect_all=False)
 
             return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy, context=context)
         else:
-            # Multiple ops with schema-changer - split and recurse
             before = ops[:schema_changer_idx]
             schema_changer = ops[schema_changer_idx]
             rest = ops[schema_changer_idx + 1:]
 
-            # Execute segments: before → schema_changer → rest
-            # Recursion handles multiple schema-changers automatically
             g_temp = _chain_impl(self, before, engine, validate_schema, policy, context, start_nodes=None) if before else self
             g_temp2 = _chain_impl(g_temp, [schema_changer], engine, validate_schema, policy, context, start_nodes=None)
             return _chain_impl(g_temp2, rest, engine, validate_schema, policy, context, start_nodes=None) if rest else g_temp2
@@ -907,8 +765,6 @@ def _chain_impl(
     engine_concrete = resolve_engine(engine, self)
     logger.debug('chain engine: %s => %s', engine, engine_concrete)
 
-    # Handle boundary call() patterns: [call(), ..., call()]
-    # Allows call() at start/end for convenience, rejects interior mixing
     boundary_result = _handle_boundary_calls(self, ops, engine, validate_schema, policy, context, start_nodes)
     if boundary_result is not None:
         return boundary_result
@@ -926,11 +782,8 @@ def _chain_impl(
 
     logger.debug('final chain >> %s', ops)
 
-    # Store original edge binding from self before any transformations
-    # This will be restored at the end if we add a temporary index column
     original_edge = self._edge
 
-    # Initialize variables for finally block
     g_out = None
     error = None
     success = False
@@ -938,17 +791,13 @@ def _chain_impl(
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
-        # Handle node-only graphs (e.g., for hypergraph transformation)
         if g._edges is None:
             added_edge_index = False
         elif g._edge is None:
-            # Generate a guaranteed unique internal column name to avoid conflicts with user data
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
 
             added_edge_index = True
-            # reset_index() adds the index as a column, creating 'index' if there's no name, or 'level_0', etc. if there is
             indexed_edges_df = g._edges.reset_index(drop=False)
-            # Find the index column (first column not in original) with early exit
             original_cols = set(g._edges.columns)
             index_col_name = next(col for col in indexed_edges_df.columns if col not in original_cols)
             indexed_edges_df = indexed_edges_df.rename(columns={index_col_name: GFQL_EDGE_INDEX})
@@ -956,7 +805,6 @@ def _chain_impl(
         else:
             added_edge_index = False
 
-        # Prechain hook - fires BEFORE chain operations execute
         if policy and 'prechain' in policy:
             stats = extract_graph_stats(g)
             current_path = context.operation_path
@@ -981,28 +829,15 @@ def _chain_impl(
                 raise
 
         logger.debug('======================== FORWARDS ========================')
-
-        # Forwards
-        # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
-        #  g_step._nodes: The nodes reached in this step
-        #  g_step._edges: The edges used to reach those nodes
-        # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
         g_stack : List[Plottable] = []
         for i, op in enumerate(ops):
-            # Determine graph to pass based on operation type
-            # - ASTNode/ASTEdge: Use original graph `g` + wavefront tracking
-            # - ASTCall: Use previous operation's result (for chaining filters/transforms)
             if isinstance(op, ASTCall):
-                # For ASTCall operations (filter_edges_by_dict, etc.), pass previous result
-                # This ensures chained filters apply sequentially: filter1(g) → filter2(result1) → ...
                 current_g = g_stack[-1] if g_stack else g
                 prev_step_nodes = None  # ASTCall doesn't use wavefronts
             else:
-                # For ASTNode/ASTEdge operations, use original graph + wavefront
-                # Wavefronts track which nodes are "active" at each step
                 current_g = g
                 prev_step_nodes = (
-                    start_nodes  # first uses provided wavefront or full graph
+                    start_nodes
                     if len(g_stack) == 0
                     else g_stack[-1]._nodes
                 )
@@ -1024,25 +859,15 @@ def _chain_impl(
                 logger.debug('nodes: %s', g_step._nodes)
                 logger.debug('edges: %s', g_step._edges)
 
-        # Check if all operations are ASTCall (no traversals)
-        # For pure ASTCall chains, skip backward pass and combine - just return the last result
         all_astcall = all(isinstance(op, ASTCall) for op in ops)
 
         if all_astcall:
-            # For chains of only ASTCall operations (filters, transforms),
-            # the forward pass result is final - no path validation needed
             g_out = g_stack[-1]
             if added_edge_index:
-                # Drop the internal edge index column
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
-            # Mark as successful
             success = True
         else:
-
-            # Backwards
-            # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
-            # Each g node/edge represents a valid wavefront entry for that step.
             g_stack_reverse : List[Plottable] = []
             for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
                 prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
@@ -1050,7 +875,6 @@ def _chain_impl(
                     prev_orig_step = None
                 else:
                     prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
-                # Reattach node attributes for reverse wavefronts so downstream matches work
                 prev_wavefront_nodes = prev_loop_step._nodes
                 if g._node is not None and prev_wavefront_nodes is not None and g._nodes is not None:
                     prev_wavefront_nodes = safe_merge(
@@ -1071,8 +895,6 @@ def _chain_impl(
                     )
                 assert prev_loop_step._nodes is not None
 
-                # Fast path: for simple single-hop edges, skip the full hop() call
-                # and use vectorized merge filtering instead. This saves ~50% time on small graphs.
                 use_fast_backward = (
                     isinstance(op, ASTEdge)
                     and op.is_simple_single_hop()
@@ -1089,11 +911,9 @@ def _chain_impl(
                     node_id, src_col, dst_col = g._node, g._source, g._destination
                     assert node_id is not None and src_col is not None and dst_col is not None
                     is_undirected = op.direction == 'undirected'
-                    # Pass Series directly to .isin() - works for both pandas and cuDF
                     prev_ids = prev_wavefront_nodes[node_id] if prev_wavefront_nodes is not None else None
                     target_ids = target_wave_front_nodes[node_id] if target_wave_front_nodes is not None else None
 
-                    # Filter edges by wavefronts
                     if is_undirected:
                         if prev_ids is not None and target_ids is not None:
                             mask = ((edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(target_ids))
@@ -1108,7 +928,6 @@ def _chain_impl(
                         edges_df = _filter_edges_by_endpoint(edges_df, prev_wavefront_nodes, node_id, next_col)
                         edges_df = _filter_edges_by_endpoint(edges_df, target_wave_front_nodes, node_id, prev_col)
 
-                    # Get result nodes
                     if len(edges_df) > 0:
                         if is_undirected:
                             target_node_ids = df_concat(engine_concrete)([
@@ -1124,7 +943,6 @@ def _chain_impl(
 
                     g_step_reverse = g_step.nodes(nodes_df).edges(edges_df)
                 else:
-                    # Fall back to full hop() traversal for complex cases
                     g_step_reverse = op.reverse()(
                         g=g_step,
                         prev_node_wavefront=prev_wavefront_nodes,
@@ -1158,14 +976,11 @@ def _chain_impl(
                 label_steps=list(zip(ops, g_stack))
             )
             if added_edge_index:
-                # Drop the internal edge index column (stored in g._edge after we added it)
                 final_edges_df = final_edges_df.drop(columns=[g._edge])
-                # Fix: Restore original edge binding instead of using modified 'index' binding
                 g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
-            # Ensure node set covers edge endpoints after any output slicing
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)
                 endpoints = concat_fn(
@@ -1182,21 +997,15 @@ def _chain_impl(
                     concat_fn([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node])
                 )
 
-            # Mark as successful
             success = True
 
     except Exception as e:
-        # Capture error for postload hook
         error = e
-        # Don't re-raise yet - let finally block run first
 
     finally:
-        # Postchain hook - fires AFTER chain operations complete (even on error)
         postchain_policy_error = None
         if policy and 'postchain' in policy:
 
-            # Extract stats from result (if success) or input graph (if error)
-            # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
             current_path = context.operation_path
@@ -1216,7 +1025,6 @@ def _chain_impl(
                 '_policy_depth': 0
             }
 
-            # Add error information if execution failed
             if error is not None:
                 postchain_context['error'] = str(error)  # type: ignore
                 postchain_context['error_type'] = type(error).__name__  # type: ignore
@@ -1224,15 +1032,11 @@ def _chain_impl(
             try:
                 policy['postchain'](postchain_context)
             except PolicyException as e:
-                # Capture policy error instead of raising immediately
                 postchain_policy_error = e
 
-        # Postload policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postload' in policy:
 
-            # Extract stats from result (if success) or input graph (if error)
-            # Cast: if success=True, g_out is guaranteed to be a Plottable
             graph_for_stats = cast(Plottable, g_out) if success else self
             stats = extract_graph_stats(graph_for_stats)
 
@@ -1249,34 +1053,26 @@ def _chain_impl(
                 '_policy_depth': getattr(ops, '_policy_depth', 0) if hasattr(ops, '_policy_depth') else 0
             }
 
-            # Add error information if execution failed
             if error is not None:
                 policy_context['error'] = str(error)  # type: ignore
                 policy_context['error_type'] = type(error).__name__  # type: ignore
 
             try:
-                # Policy can only accept (None) or deny (exception)
                 policy['postload'](policy_context)
 
             except PolicyException as e:
-                # Enrich exception with context if not already set
                 if e.query_type is None:
                     e.query_type = 'chain'
                 if e.data_size is None:
                     e.data_size = stats
-                # Capture policy error instead of raising immediately
                 policy_error = e
 
-    # After finally block, decide which error to raise
-    # Priority: postchain PolicyException > postload PolicyException > operation error
     if postchain_policy_error is not None:
-        # postchain policy error takes highest priority
         if error is not None:
             raise postchain_policy_error from error
         else:
             raise postchain_policy_error
     elif policy_error is not None:
-        # postload policy error is second priority
         if error is not None:
             raise policy_error from error
         else:
@@ -1284,5 +1080,4 @@ def _chain_impl(
     elif error is not None:
         raise error
 
-    # Cast: At this point, all error paths have been handled, so g_out is guaranteed to be a Plottable
     return cast(Plottable, g_out)
