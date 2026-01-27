@@ -42,7 +42,7 @@ from graphistry.compute.gfql.same_path.where_filter import (
     filter_edges_by_clauses,
     filter_multihop_by_where,
 )
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, DomainT
 
 AliasKind = Literal["node", "edge"]
 
@@ -532,9 +532,9 @@ class DFSamePathExecutor:
         node_indices = self.meta.node_indices
         edge_indices = self.meta.edge_indices
 
-        allowed_nodes: Dict[int, Any] = {}
-        allowed_edges: Dict[int, Any] = {}
-        pruned_edges: Dict[int, Any] = {}
+        allowed_nodes: Dict[int, DomainT] = {}
+        allowed_edges: Dict[int, DomainT] = {}
+        pruned_edges: Dict[int, DataFrameT] = {}
 
         for idx in node_indices:
             node_alias = self.meta.alias_for_step(idx)
@@ -667,9 +667,9 @@ class DFSamePathExecutor:
             idx for idx in edge_indices if start_node_idx < idx < end_node_idx
         ]
 
-        local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
-        local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
-        pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
+        local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
+        local_allowed_edges: Dict[int, DomainT] = dict(state.allowed_edges)
+        pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
 
         for edge_idx in reversed(relevant_edge_indices):
             edge_pos = edge_indices.index(edge_idx)

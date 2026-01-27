@@ -9,7 +9,7 @@ import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, DomainT
 from graphistry.compute.gfql.same_path_types import PathState, ComparisonOp
 from graphistry.otel import otel_detail_enabled
 from .edge_semantics import EdgeSemantics
@@ -152,9 +152,9 @@ def apply_non_adjacent_where_post_prune(
     if not non_adjacent_clauses:
         return state
 
-    local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
-    local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
-    local_pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
+    local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
+    local_allowed_edges: Dict[int, DomainT] = dict(state.allowed_edges)
+    local_pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
 
     edge_indices = executor.meta.edge_indices
 
@@ -2087,8 +2087,8 @@ def apply_edge_where_post_prune(
     node_indices = executor.meta.node_indices
     edge_indices = executor.meta.edge_indices
 
-    local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
-    pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
+    local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
+    pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
     edge_overrides: Dict[int, DataFrameT] = {}
 
     seed_nodes = local_allowed_nodes.get(node_indices[0])

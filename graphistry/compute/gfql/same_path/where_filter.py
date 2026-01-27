@@ -4,11 +4,11 @@ Contains functions for filtering edges based on WHERE clause comparisons
 between adjacent or multi-hop connected aliases.
 """
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from graphistry.Engine import safe_concat
 from graphistry.compute.ast import ASTEdge, ASTNode
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, DomainT
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
     evaluate_clause,
@@ -31,7 +31,7 @@ def filter_edges_by_clauses(
     edges_df: DataFrameT,
     left_alias: str,
     right_alias: str,
-    allowed_nodes: Dict[int, Any],
+    allowed_nodes: Dict[int, DomainT],
     sem: EdgeSemantics,
 ) -> DataFrameT:
     if len(edges_df) == 0:
@@ -171,7 +171,7 @@ def filter_multihop_by_where(
     edge_op: ASTEdge,
     left_alias: str,
     right_alias: str,
-    allowed_nodes: Dict[int, Any],
+    allowed_nodes: Dict[int, DomainT],
 ) -> DataFrameT:
     relevant = [
         clause

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence
 
-if TYPE_CHECKING:
-    from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, DomainT
 
 from .same_path.df_utils import domain_intersect
 
@@ -112,7 +111,7 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
     return result
 
 
-IdDomain = Any
+IdDomain = DomainT
 
 
 def _mp(d: Dict) -> MappingProxyType:
@@ -130,7 +129,7 @@ class PathState:
 
     allowed_nodes: Mapping[int, IdDomain]
     allowed_edges: Mapping[int, IdDomain]
-    pruned_edges: Mapping[int, Any]  # edge_idx -> filtered DataFrame
+    pruned_edges: Mapping[int, DataFrameT]
 
     @classmethod
     def empty(cls) -> "PathState":
@@ -145,7 +144,7 @@ class PathState:
         cls,
         allowed_nodes: Dict[int, IdDomain],
         allowed_edges: Dict[int, IdDomain],
-        pruned_edges: Optional[Dict[int, Any]] = None,
+        pruned_edges: Optional[Dict[int, DataFrameT]] = None,
     ) -> "PathState":
         return cls(
             allowed_nodes=_mp(dict(allowed_nodes)),
@@ -191,7 +190,7 @@ class PathState:
             pruned_edges=self.pruned_edges,
         )
 
-    def with_pruned_edges(self, edge_idx: int, df: Any) -> "PathState":
+    def with_pruned_edges(self, edge_idx: int, df: DataFrameT) -> "PathState":
         return PathState(
             allowed_nodes=self.allowed_nodes,
             allowed_edges=self.allowed_edges,
