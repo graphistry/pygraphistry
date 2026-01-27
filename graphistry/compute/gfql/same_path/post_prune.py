@@ -324,7 +324,7 @@ def apply_non_adjacent_where_post_prune(
     def _edge_pairs_cached(
         edge_idx: int,
         sem: EdgeSemantics,
-        allowed_edges: Optional[Any],
+        allowed_edges: Optional[DomainT],
     ) -> DataFrameT:
         edges_df = executor.forward_steps[edge_idx]._edges
         if edges_df is None or len(edges_df) == 0:
