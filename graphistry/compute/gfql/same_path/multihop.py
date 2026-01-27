@@ -1,9 +1,9 @@
 """Multi-hop edge traversal utilities for same-path execution."""
 
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from graphistry.compute.ast import ASTEdge
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, DomainT
 from .edge_semantics import EdgeSemantics
 from .bfs import build_edge_pairs, bfs_reachability
 from .df_utils import (
@@ -21,8 +21,8 @@ from .df_utils import (
 def filter_multihop_edges_by_endpoints(
     edges_df: DataFrameT,
     edge_op: ASTEdge,
-    left_allowed: Any,
-    right_allowed: Any,
+    left_allowed: Optional[DomainT],
+    right_allowed: Optional[DomainT],
     sem: EdgeSemantics,
     src_col: str,
     dst_col: str,
@@ -84,11 +84,11 @@ def filter_multihop_edges_by_endpoints(
 def find_multihop_start_nodes(
     edges_df: DataFrameT,
     edge_op: ASTEdge,
-    right_allowed: Any,
+    right_allowed: Optional[DomainT],
     sem: EdgeSemantics,
     src_col: str,
     dst_col: str,
-) -> Any:
+) -> DomainT:
     if not src_col or not dst_col or domain_is_empty(right_allowed):
         return domain_empty(edges_df)
 
