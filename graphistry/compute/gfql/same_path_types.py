@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from graphistry.compute.typing import DataFrameT, DomainT
 
+if TYPE_CHECKING:
+    from graphistry.Plottable import Plottable
 from .same_path.df_utils import domain_intersect
 
 ComparisonOp = Literal[
@@ -199,14 +201,14 @@ class PathState:
 
     def sync_to_mutable(
         self,
-        mutable_nodes: Dict[int, Any],
-        mutable_edges: Dict[int, Any],
+        mutable_nodes: Dict[int, DomainT],
+        mutable_edges: Dict[int, DomainT],
     ) -> None:
         mutable_nodes.clear()
         mutable_nodes.update(dict(self.allowed_nodes))
         mutable_edges.clear()
         mutable_edges.update(dict(self.allowed_edges))
 
-    def sync_pruned_to_forward_steps(self, forward_steps: List[Any]) -> None:
+    def sync_pruned_to_forward_steps(self, forward_steps: List["Plottable"]) -> None:
         for edge_idx, df in self.pruned_edges.items():
             forward_steps[edge_idx]._edges = df
