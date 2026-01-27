@@ -1175,10 +1175,12 @@ def apply_non_adjacent_where_post_prune(
                     singleton_used = True
 
             if prefilter_used:
-                start_nodes = series_values(left_values_df['__start__'])
-                end_nodes = series_values(right_values_df['__current__'])
-                _update_allowed(start_node_idx, start_nodes)
-                _update_allowed(end_node_idx, end_nodes)
+                _apply_allowed_pairs(
+                    start_node_idx,
+                    end_node_idx,
+                    left_values_df['__start__'],
+                    right_values_df['__current__'],
+                )
                 left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
                 right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
 
