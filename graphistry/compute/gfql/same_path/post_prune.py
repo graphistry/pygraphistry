@@ -1941,52 +1941,54 @@ def apply_non_adjacent_where_post_prune(
         local_pruned_edges.update(current_state.pruned_edges)
 
     if span is not None and otel_detail_enabled():
-        span.set_attribute("gfql.non_adjacent.clause_count", clause_count)
-        span.set_attribute("gfql.non_adjacent.state_rows_max", state_rows_max)
-        span.set_attribute("gfql.non_adjacent.state_rows_final", last_state_rows)
-        span.set_attribute("gfql.non_adjacent.pairs_rows_max", pairs_rows_max)
-        span.set_attribute("gfql.non_adjacent.valid_pairs_max", valid_pairs_max)
-        span.set_attribute("gfql.non_adjacent.value_mode_used", value_mode_used)
-        span.set_attribute("gfql.non_adjacent.multi_eq_value_used", multi_eq_value_used)
-        span.set_attribute("gfql.non_adjacent.multi_eq_label_card_max", multi_eq_label_card_max)
-        span.set_attribute("gfql.non_adjacent.vector_used", vector_used)
-        span.set_attribute("gfql.non_adjacent.vector_label_card_max", vector_label_card_max)
-        span.set_attribute("gfql.non_adjacent.vector_candidate_pairs_max", vector_candidate_pairs_max)
-        span.set_attribute("gfql.non_adjacent.vector_path_pairs_max", vector_path_pairs_max)
-        span.set_attribute("gfql.non_adjacent.vector_pair_est_max", vector_pair_est_max)
+        attrs: Dict[str, Any] = {
+            "gfql.non_adjacent.clause_count": clause_count,
+            "gfql.non_adjacent.state_rows_max": state_rows_max,
+            "gfql.non_adjacent.state_rows_final": last_state_rows,
+            "gfql.non_adjacent.pairs_rows_max": pairs_rows_max,
+            "gfql.non_adjacent.valid_pairs_max": valid_pairs_max,
+            "gfql.non_adjacent.value_mode_used": value_mode_used,
+            "gfql.non_adjacent.multi_eq_value_used": multi_eq_value_used,
+            "gfql.non_adjacent.multi_eq_label_card_max": multi_eq_label_card_max,
+            "gfql.non_adjacent.vector_used": vector_used,
+            "gfql.non_adjacent.vector_label_card_max": vector_label_card_max,
+            "gfql.non_adjacent.vector_candidate_pairs_max": vector_candidate_pairs_max,
+            "gfql.non_adjacent.vector_path_pairs_max": vector_path_pairs_max,
+            "gfql.non_adjacent.vector_pair_est_max": vector_pair_est_max,
+            "gfql.non_adjacent.domain_semijoin_used": domain_semijoin_used,
+            "gfql.non_adjacent.domain_semijoin_pairs_max": domain_semijoin_pairs_max,
+            "gfql.non_adjacent.domain_semijoin_enabled": domain_semijoin_enabled,
+            "gfql.non_adjacent.domain_semijoin_auto_used": domain_semijoin_auto_used,
+            "gfql.non_adjacent.domain_semijoin_pair_est_max": domain_semijoin_pair_est_max,
+            "gfql.non_adjacent.domain_semijoin_auto": domain_semijoin_auto,
+            "gfql.non_adjacent.prefilter_used": prefilter_used,
+            "gfql.non_adjacent.singleton_used": singleton_used,
+            "gfql.non_adjacent.bounds_used": bounds_used,
+            "gfql.non_adjacent.order_used": order_used,
+            "gfql.non_adjacent.value_pair_guard_used": value_pair_guard_used,
+            "gfql.non_adjacent.value_pair_guard_pair_est_max": value_pair_guard_pair_est_max,
+            "gfql.non_adjacent.value_pair_guard_edge_est_max": value_pair_guard_edge_est_max,
+            "gfql.non_adjacent.ineq_agg_used": ineq_agg_used,
+            "gfql.non_adjacent.ineq_agg_pair_est_max": ineq_agg_pair_est_max,
+            "gfql.non_adjacent.left_values_max": left_value_count_max,
+            "gfql.non_adjacent.right_values_max": right_value_count_max,
+            "gfql.non_adjacent.mid_intersect_rows_max": mid_intersect_rows_max,
+            "gfql.non_adjacent.mid_label_intersect_rows_max": mid_label_intersect_rows_max,
+            "gfql.non_adjacent.pairs_left_rows_max": pairs_left_rows_max,
+            "gfql.non_adjacent.pairs_right_rows_max": pairs_right_rows_max,
+            "gfql.non_adjacent.value_ops": ",".join(sorted(value_mode_ops)),
+            "gfql.non_adjacent.mode": non_adj_mode,
+            "gfql.non_adjacent.order": non_adj_order or "none",
+            "gfql.non_adjacent.bounds_enabled": bounds_enabled,
+        }
         if vector_pair_max is not None:
-            span.set_attribute("gfql.non_adjacent.vector_pair_max", vector_pair_max)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_used", domain_semijoin_used)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_pairs_max", domain_semijoin_pairs_max)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_enabled", domain_semijoin_enabled)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_auto_used", domain_semijoin_auto_used)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_pair_est_max", domain_semijoin_pair_est_max)
+            attrs["gfql.non_adjacent.vector_pair_max"] = vector_pair_max
         if domain_semijoin_pair_max is not None:
-            span.set_attribute("gfql.non_adjacent.domain_semijoin_pair_max", domain_semijoin_pair_max)
-        span.set_attribute("gfql.non_adjacent.domain_semijoin_auto", domain_semijoin_auto)
-        span.set_attribute("gfql.non_adjacent.prefilter_used", prefilter_used)
-        span.set_attribute("gfql.non_adjacent.singleton_used", singleton_used)
-        span.set_attribute("gfql.non_adjacent.bounds_used", bounds_used)
-        span.set_attribute("gfql.non_adjacent.order_used", order_used)
-        span.set_attribute("gfql.non_adjacent.value_pair_guard_used", value_pair_guard_used)
-        span.set_attribute("gfql.non_adjacent.value_pair_guard_pair_est_max", value_pair_guard_pair_est_max)
-        span.set_attribute("gfql.non_adjacent.value_pair_guard_edge_est_max", value_pair_guard_edge_est_max)
-        span.set_attribute("gfql.non_adjacent.ineq_agg_used", ineq_agg_used)
-        span.set_attribute("gfql.non_adjacent.ineq_agg_pair_est_max", ineq_agg_pair_est_max)
-        span.set_attribute("gfql.non_adjacent.left_values_max", left_value_count_max)
-        span.set_attribute("gfql.non_adjacent.right_values_max", right_value_count_max)
-        span.set_attribute("gfql.non_adjacent.mid_intersect_rows_max", mid_intersect_rows_max)
-        span.set_attribute(
-            "gfql.non_adjacent.mid_label_intersect_rows_max", mid_label_intersect_rows_max
-        )
-        span.set_attribute("gfql.non_adjacent.pairs_left_rows_max", pairs_left_rows_max)
-        span.set_attribute("gfql.non_adjacent.pairs_right_rows_max", pairs_right_rows_max)
+            attrs["gfql.non_adjacent.domain_semijoin_pair_max"] = domain_semijoin_pair_max
         if value_card_max is not None:
-            span.set_attribute("gfql.non_adjacent.value_card_max", value_card_max)
-        span.set_attribute("gfql.non_adjacent.value_ops", ",".join(sorted(value_mode_ops)))
-        span.set_attribute("gfql.non_adjacent.mode", non_adj_mode)
-        span.set_attribute("gfql.non_adjacent.order", non_adj_order or "none")
-        span.set_attribute("gfql.non_adjacent.bounds_enabled", bounds_enabled)
+            attrs["gfql.non_adjacent.value_card_max"] = value_card_max
+        for attr_key, attr_value in attrs.items():
+            span.set_attribute(attr_key, attr_value)
 
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)
 
@@ -2558,26 +2560,20 @@ def apply_edge_where_post_prune(
                         )
                         paths_df = paths_df.merge(node_attr, on=f'n{step_idx}', how='left')
 
+    def _path_col_name(binding, ref) -> str:
+        if binding.kind == "edge":
+            return f'e{binding.step_index}_{ref.column}'
+        if ref.column == node_id_col or ref.column == "id":
+            return f'n{binding.step_index}'
+        return f'n{binding.step_index}_{ref.column}'
+
     mask = make_bool_series(paths_df, True)
     for clause in edge_clauses:
         left_binding = executor.inputs.alias_bindings[clause.left.alias]
         right_binding = executor.inputs.alias_bindings[clause.right.alias]
 
-        if left_binding.kind == "edge":
-            left_col_name = f'e{left_binding.step_index}_{clause.left.column}'
-        else:
-            if clause.left.column == node_id_col or clause.left.column == "id":
-                left_col_name = f'n{left_binding.step_index}'
-            else:
-                left_col_name = f'n{left_binding.step_index}_{clause.left.column}'
-
-        if right_binding.kind == "edge":
-            right_col_name = f'e{right_binding.step_index}_{clause.right.column}'
-        else:
-            if clause.right.column == node_id_col or clause.right.column == "id":
-                right_col_name = f'n{right_binding.step_index}'
-            else:
-                right_col_name = f'n{right_binding.step_index}_{clause.right.column}'
+        left_col_name = _path_col_name(left_binding, clause.left)
+        right_col_name = _path_col_name(right_binding, clause.right)
 
         if left_col_name not in paths_df.columns or right_col_name not in paths_df.columns:
             continue
