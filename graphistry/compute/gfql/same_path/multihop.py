@@ -108,7 +108,6 @@ def find_multihop_start_nodes(
 
     right_domain = domain_from_values(right_allowed, edge_pairs)
     frontier = domain_to_frame(edge_pairs, right_domain, '__node__')
-    all_visited = frontier.copy()
     visited_idx = right_domain
     valid_starts_frames: List[DataFrameT] = []
 
@@ -137,10 +136,6 @@ def find_multihop_start_nodes(
         visited_idx = domain_union(visited_idx, new_node_ids)
 
         frontier = unvisited
-        all_visited_new = concat_frames([all_visited, unvisited])
-        if all_visited_new is None:
-            break
-        all_visited = all_visited_new
 
     if valid_starts_frames:
         valid_starts_df = concat_frames(valid_starts_frames)
