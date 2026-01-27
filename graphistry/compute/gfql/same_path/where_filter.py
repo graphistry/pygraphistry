@@ -26,6 +26,19 @@ if TYPE_CHECKING:
     )
 
 
+def _project_node_attrs(
+    frame: DataFrameT,
+    node_col: str,
+    required_cols: List[str],
+    id_col: str,
+    prefix: str,
+) -> DataFrameT:
+    cols = [col for col in required_cols if col != node_col]
+    return frame[[node_col] + cols].rename(
+        columns={node_col: id_col, **{col: f"{prefix}{col}" for col in cols}}
+    )
+
+
 def filter_edges_by_clauses(
     executor: "DFSamePathExecutor",
     edges_df: DataFrameT,
@@ -64,23 +77,20 @@ def filter_edges_by_clauses(
     if right_allowed is not None:
         rf = rf[rf[node_col].isin(right_allowed)]
 
-    left_cols = [
-        col for col in executor.inputs.column_requirements.get(left_alias, [])
-        if col != node_col
-    ]
-    right_cols = [
-        col for col in executor.inputs.column_requirements.get(right_alias, [])
-        if col != node_col
-    ]
-
-    lf = lf[[node_col] + left_cols].rename(columns={
-        node_col: "__left_id__",
-        **{c: f"__L_{c}" for c in left_cols}
-    })
-    rf = rf[[node_col] + right_cols].rename(columns={
-        node_col: "__right_id__",
-        **{c: f"__R_{c}" for c in right_cols}
-    })
+    lf = _project_node_attrs(
+        lf,
+        node_col,
+        list(executor.inputs.column_requirements.get(left_alias, [])),
+        "__left_id__",
+        "__L_",
+    )
+    rf = _project_node_attrs(
+        rf,
+        node_col,
+        list(executor.inputs.column_requirements.get(right_alias, [])),
+        "__right_id__",
+        "__R_",
+    )
 
     if sem.is_undirected:
         merge_cols = [(src_col, dst_col), (dst_col, src_col)]
@@ -233,23 +243,20 @@ def filter_multihop_by_where(
     lf = left_frame[left_frame[node_col].isin(start_nodes)]
     rf = right_frame[right_frame[node_col].isin(end_nodes)]
 
-    left_cols = [
-        col for col in executor.inputs.column_requirements.get(left_alias, [])
-        if col != node_col
-    ]
-    right_cols = [
-        col for col in executor.inputs.column_requirements.get(right_alias, [])
-        if col != node_col
-    ]
-
-    lf = lf[[node_col] + left_cols].rename(columns={
-        node_col: "__start_id__",
-        **{c: f"__L_{c}" for c in left_cols}
-    })
-    rf = rf[[node_col] + right_cols].rename(columns={
-        node_col: "__end_id__",
-        **{c: f"__R_{c}" for c in right_cols}
-    })
+    lf = _project_node_attrs(
+        lf,
+        node_col,
+        list(executor.inputs.column_requirements.get(left_alias, [])),
+        "__start_id__",
+        "__L_",
+    )
+    rf = _project_node_attrs(
+        rf,
+        node_col,
+        list(executor.inputs.column_requirements.get(right_alias, [])),
+        "__end_id__",
+        "__R_",
+    )
 
     lf = lf.assign(__cross_key__=1)
     rf = rf.assign(__cross_key__=1)

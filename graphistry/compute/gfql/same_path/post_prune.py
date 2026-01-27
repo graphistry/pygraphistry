@@ -303,6 +303,17 @@ def apply_non_adjacent_where_post_prune(
                 local_allowed_nodes[idx], values
             )
 
+    def _backward_update(start_idx: int, end_idx: int) -> None:
+        nonlocal local_allowed_nodes, local_allowed_edges
+        current_state = PathState.from_mutable(
+            local_allowed_nodes, local_allowed_edges, local_pruned_edges
+        )
+        current_state = executor.backward_propagate_constraints(
+            current_state, start_idx, end_idx
+        )
+        local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
+        local_pruned_edges.update(current_state.pruned_edges)
+
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
     ):
@@ -747,14 +758,7 @@ def apply_non_adjacent_where_post_prune(
             clause_count += len(group_entries)
             _mark_group_entries_processed(group_entries)
 
-            current_state = PathState.from_mutable(
-                local_allowed_nodes, local_allowed_edges, local_pruned_edges
-            )
-            current_state = executor.backward_propagate_constraints(
-                current_state, start_node_idx, end_node_idx
-            )
-            local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-            local_pruned_edges.update(current_state.pruned_edges)
+            _backward_update(start_node_idx, end_node_idx)
 
     if composite_value_enabled and multi_eq_groups:
         for key in multi_eq_order:
@@ -921,14 +925,7 @@ def apply_non_adjacent_where_post_prune(
                                 clause_count += len(group_entries)
                                 _mark_group_entries_processed(group_entries)
 
-                                current_state = PathState.from_mutable(
-                                    local_allowed_nodes, local_allowed_edges, local_pruned_edges
-                                )
-                                current_state = executor.backward_propagate_constraints(
-                                    current_state, start_node_idx, end_node_idx
-                                )
-                                local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-                                local_pruned_edges.update(current_state.pruned_edges)
+                                _backward_update(start_node_idx, end_node_idx)
                                 continue
 
             _mark_group_entries_processed(group_entries)
@@ -1027,14 +1024,7 @@ def apply_non_adjacent_where_post_prune(
             multi_eq_value_used = True
             clause_count += len(group_entries)
 
-            current_state = PathState.from_mutable(
-                local_allowed_nodes, local_allowed_edges, local_pruned_edges
-            )
-            current_state = executor.backward_propagate_constraints(
-                current_state, start_node_idx, end_node_idx
-            )
-            local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-            local_pruned_edges.update(current_state.pruned_edges)
+            _backward_update(start_node_idx, end_node_idx)
 
     remaining_clauses = [
         clause for clause in non_adjacent_clauses
@@ -1476,14 +1466,7 @@ def apply_non_adjacent_where_post_prune(
             ineq_agg_used = True
             if eq_clause is not None:
                 processed_clause_ids.add(id(eq_clause))
-            current_state = PathState.from_mutable(
-                local_allowed_nodes, local_allowed_edges, local_pruned_edges
-            )
-            current_state = executor.backward_propagate_constraints(
-                current_state, start_node_idx, end_node_idx
-            )
-            local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-            local_pruned_edges.update(current_state.pruned_edges)
+            _backward_update(start_node_idx, end_node_idx)
             continue
 
         value_cardinality = None
@@ -1811,14 +1794,7 @@ def apply_non_adjacent_where_post_prune(
                             _intersect_allowed(end_node_idx, valid_ends)
 
                             domain_semijoin_used = True
-                            current_state = PathState.from_mutable(
-                                local_allowed_nodes, local_allowed_edges, local_pruned_edges
-                            )
-                            current_state = executor.backward_propagate_constraints(
-                                current_state, start_node_idx, end_node_idx
-                            )
-                            local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-                            local_pruned_edges.update(current_state.pruned_edges)
+                            _backward_update(start_node_idx, end_node_idx)
                             continue
 
         state_label_col = "__start_val__" if value_mode_enabled else "__start__"
@@ -1931,14 +1907,7 @@ def apply_non_adjacent_where_post_prune(
         _intersect_allowed(start_node_idx, valid_starts)
         _intersect_allowed(end_node_idx, valid_ends)
 
-        current_state = PathState.from_mutable(
-            local_allowed_nodes, local_allowed_edges, local_pruned_edges
-        )
-        current_state = executor.backward_propagate_constraints(
-            current_state, start_node_idx, end_node_idx
-        )
-        local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
-        local_pruned_edges.update(current_state.pruned_edges)
+        _backward_update(start_node_idx, end_node_idx)
 
     if span is not None and otel_detail_enabled():
         attrs: Dict[str, Any] = {
