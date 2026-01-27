@@ -303,6 +303,21 @@ def apply_non_adjacent_where_post_prune(
                 local_allowed_nodes[idx], values
             )
 
+    def _update_allowed(idx: int, values: DomainT) -> None:
+        current = local_allowed_nodes.get(idx)
+        local_allowed_nodes[idx] = (
+            domain_intersect(current, values) if current is not None else values
+        )
+
+    def _apply_allowed_pairs(
+        start_idx: int,
+        end_idx: int,
+        start_series: Any,
+        end_series: Any,
+    ) -> None:
+        _intersect_allowed(start_idx, series_values(start_series))
+        _intersect_allowed(end_idx, series_values(end_series))
+
     def _backward_update(start_idx: int, end_idx: int) -> None:
         nonlocal local_allowed_nodes, local_allowed_edges
         current_state = PathState.from_mutable(
@@ -752,10 +767,9 @@ def apply_non_adjacent_where_post_prune(
                 _prune_group(start_node_idx, end_node_idx, group_entries)
                 continue
 
-            valid_starts = series_values(valid_pairs["__start__"])
-            valid_ends = series_values(valid_pairs["__current__"])
-            _intersect_allowed(start_node_idx, valid_starts)
-            _intersect_allowed(end_node_idx, valid_ends)
+            _apply_allowed_pairs(
+                start_node_idx, end_node_idx, valid_pairs["__start__"], valid_pairs["__current__"]
+            )
 
             vector_used = True
             clause_count += len(group_entries)
@@ -918,11 +932,12 @@ def apply_non_adjacent_where_post_prune(
                                     mid_values, on=["__mid__"] + label_cols, how="inner"
                                 )
 
-                                valid_starts = series_values(left_pairs["__start__"])
-                                valid_ends = series_values(right_pairs["__current__"])
-
-                                _intersect_allowed(start_node_idx, valid_starts)
-                                _intersect_allowed(end_node_idx, valid_ends)
+                                _apply_allowed_pairs(
+                                    start_node_idx,
+                                    end_node_idx,
+                                    left_pairs["__start__"],
+                                    right_pairs["__current__"],
+                                )
 
                                 domain_semijoin_used = True
                                 clause_count += len(group_entries)
@@ -1017,11 +1032,12 @@ def apply_non_adjacent_where_post_prune(
                 _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
-            valid_starts = series_values(valid_starts_df["__start__"])
-            valid_ends = series_values(valid_ends_df["__current__"])
-
-            _intersect_allowed(start_node_idx, valid_starts)
-            _intersect_allowed(end_node_idx, valid_ends)
+            _apply_allowed_pairs(
+                start_node_idx,
+                end_node_idx,
+                valid_starts_df["__start__"],
+                valid_ends_df["__current__"],
+            )
 
             value_mode_used = True
             multi_eq_value_used = True
@@ -1161,14 +1177,8 @@ def apply_non_adjacent_where_post_prune(
             if prefilter_used:
                 start_nodes = series_values(left_values_df['__start__'])
                 end_nodes = series_values(right_values_df['__current__'])
-                cur_start_nodes = local_allowed_nodes.get(start_node_idx)
-                cur_end_nodes = local_allowed_nodes.get(end_node_idx)
-                local_allowed_nodes[start_node_idx] = (
-                    domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
-                )
-                local_allowed_nodes[end_node_idx] = (
-                    domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
-                )
+                _update_allowed(start_node_idx, start_nodes)
+                _update_allowed(end_node_idx, end_nodes)
                 left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
                 right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
 
@@ -1204,14 +1214,8 @@ def apply_non_adjacent_where_post_prune(
 
                 start_nodes = series_values(left_values_df['__start__'])
                 end_nodes = series_values(right_values_df['__current__'])
-                cur_start_nodes = local_allowed_nodes.get(start_node_idx)
-                cur_end_nodes = local_allowed_nodes.get(end_node_idx)
-                local_allowed_nodes[start_node_idx] = (
-                    domain_intersect(cur_start_nodes, start_nodes) if cur_start_nodes is not None else start_nodes
-                )
-                local_allowed_nodes[end_node_idx] = (
-                    domain_intersect(cur_end_nodes, end_nodes) if cur_end_nodes is not None else end_nodes
-                )
+                _update_allowed(start_node_idx, start_nodes)
+                _update_allowed(end_node_idx, end_nodes)
                 left_values_domain = series_values(left_values_df['__start_val__']) if len(left_values_df) > 0 else left_values_domain
                 right_values_domain = series_values(right_values_df['__end_val__']) if len(right_values_df) > 0 else right_values_domain
                 bounds_used = True
@@ -1451,20 +1455,8 @@ def apply_non_adjacent_where_post_prune(
                 _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
-            valid_starts = series_values(left_eval["__start__"])
-            valid_ends = series_values(right_eval["__current__"])
-            cur_start_nodes = local_allowed_nodes.get(start_node_idx)
-            cur_end_nodes = local_allowed_nodes.get(end_node_idx)
-            local_allowed_nodes[start_node_idx] = (
-                domain_intersect(cur_start_nodes, valid_starts)
-                if cur_start_nodes is not None
-                else valid_starts
-            )
-            local_allowed_nodes[end_node_idx] = (
-                domain_intersect(cur_end_nodes, valid_ends)
-                if cur_end_nodes is not None
-                else valid_ends
-            )
+            _update_allowed(start_node_idx, series_values(left_eval["__start__"]))
+            _update_allowed(end_node_idx, series_values(right_eval["__current__"]))
 
             ineq_agg_used = True
             if eq_clause is not None:
@@ -1628,9 +1620,8 @@ def apply_non_adjacent_where_post_prune(
                                 right_pairs = right_pairs.merge(
                                     mid_values, on=["__mid__", "__value__"], how="inner"
                                 )
-
-                                valid_starts = series_values(left_pairs["__start__"])
-                                valid_ends = series_values(right_pairs["__current__"])
+                                start_series = left_pairs["__start__"]
+                                end_series = right_pairs["__current__"]
                             elif clause.op == "!=":
                                 left_value_counts = (
                                     left_pairs[["__mid__", "__value__"]]
@@ -1702,9 +1693,8 @@ def apply_non_adjacent_where_post_prune(
                                 if len(left_eval) == 0 or len(right_eval) == 0:
                                     _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
-
-                                valid_starts = series_values(left_eval["__start__"])
-                                valid_ends = series_values(right_eval["__current__"])
+                                start_series = left_eval["__start__"]
+                                end_series = right_eval["__current__"]
                             else:
                                 left_min = (
                                     left_pairs.groupby("__mid__")["__value__"]
@@ -1789,12 +1779,12 @@ def apply_non_adjacent_where_post_prune(
                                 if len(left_eval) == 0 or len(right_eval) == 0:
                                     _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
+                                start_series = left_eval["__start__"]
+                                end_series = right_eval["__current__"]
 
-                                valid_starts = series_values(left_eval["__start__"])
-                                valid_ends = series_values(right_eval["__current__"])
-
-                            _intersect_allowed(start_node_idx, valid_starts)
-                            _intersect_allowed(end_node_idx, valid_ends)
+                            _apply_allowed_pairs(
+                                start_node_idx, end_node_idx, start_series, end_series
+                            )
 
                             domain_semijoin_used = True
                             _backward_update(start_node_idx, end_node_idx)
@@ -1892,10 +1882,10 @@ def apply_non_adjacent_where_post_prune(
             valid_pairs = pairs_df[mask]
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
             valid_start_values = series_values(valid_pairs[state_label_col])
-            valid_starts = series_values(
-                left_values_df[left_values_df['__start_val__'].isin(valid_start_values)]['__start__']
-            )
-            valid_ends = series_values(valid_pairs['__current__'])
+            start_series = left_values_df[
+                left_values_df['__start_val__'].isin(valid_start_values)
+            ]['__start__']
+            end_series = valid_pairs['__current__']
         else:
             pairs_df = state_df.merge(left_values_df, on='__start__', how='inner')
             pairs_df = pairs_df.merge(right_values_df, on='__current__', how='inner')
@@ -1904,11 +1894,10 @@ def apply_non_adjacent_where_post_prune(
             mask = evaluate_clause(pairs_df['__start_val__'], clause.op, pairs_df['__end_val__'], null_safe=True)
             valid_pairs = pairs_df[mask]
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
-            valid_starts = series_values(valid_pairs['__start__'])
-            valid_ends = series_values(valid_pairs['__current__'])
+            start_series = valid_pairs['__start__']
+            end_series = valid_pairs['__current__']
 
-        _intersect_allowed(start_node_idx, valid_starts)
-        _intersect_allowed(end_node_idx, valid_ends)
+        _apply_allowed_pairs(start_node_idx, end_node_idx, start_series, end_series)
 
         _backward_update(start_node_idx, end_node_idx)
 
