@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TYPE_CHECKING, TypeAlias
 
 from graphistry.compute.typing import DataFrameT, DomainT
 
@@ -113,7 +113,7 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
     return result
 
 
-IdDomain = DomainT
+IdDomain: TypeAlias = DomainT
 
 
 def _mp(d: Dict) -> MappingProxyType:

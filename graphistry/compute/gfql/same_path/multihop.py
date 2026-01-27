@@ -35,9 +35,11 @@ def filter_multihop_edges_by_endpoints(
     )
 
     edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
-    fwd_df = bfs_reachability(edge_pairs, left_allowed, max_hops, '__fwd_hop__')
+    left_domain = domain_from_values(left_allowed, edge_pairs)
+    right_domain = domain_from_values(right_allowed, edge_pairs)
+    fwd_df = bfs_reachability(edge_pairs, left_domain, max_hops, '__fwd_hop__')
     rev_edge_pairs = edge_pairs.rename(columns={'__from__': '__to__', '__to__': '__from__'})
-    bwd_df = bfs_reachability(rev_edge_pairs, right_allowed, max_hops, '__bwd_hop__')
+    bwd_df = bfs_reachability(rev_edge_pairs, right_domain, max_hops, '__bwd_hop__')
 
     if len(fwd_df) == 0 or len(bwd_df) == 0:
         return edges_df.iloc[:0]

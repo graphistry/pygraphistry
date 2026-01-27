@@ -285,6 +285,17 @@ def apply_non_adjacent_where_post_prune(
     multi_eq_groups: Dict[tuple, List[tuple]] = {}
     multi_eq_order: List[tuple] = []
     processed_clause_ids: set = set()
+    empty_nodes = domain_empty(nodes_df)
+
+    def _set_empty_nodes(*idxs: int) -> None:
+        for idx in idxs:
+            local_allowed_nodes[idx] = empty_nodes
+
+    def _mark_group_entries_processed(entries: Sequence[tuple]) -> None:
+        processed_clause_ids.update(id(clause) for _, _, clause in entries)
+
+    def _group_entries_processed(entries: Sequence[tuple]) -> bool:
+        return any(id(clause) in processed_clause_ids for _, _, clause in entries)
 
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
@@ -376,7 +387,7 @@ def apply_non_adjacent_where_post_prune(
             group_entries = multi_eq_groups.get(key)
             if not group_entries:
                 continue
-            if any(id(clause) in processed_clause_ids for _, _, clause in group_entries):
+            if _group_entries_processed(group_entries):
                 continue
             start_node_idx, end_node_idx = key
             if nodes_df is None or not node_id_col or node_id_col not in nodes_df.columns:
@@ -428,10 +439,8 @@ def apply_non_adjacent_where_post_prune(
             start_base = nodes_df[nodes_df[node_id_col].isin(start_nodes)]
             end_base = nodes_df[nodes_df[node_id_col].isin(end_nodes)]
             if len(start_base) == 0 or len(end_base) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
+                _set_empty_nodes(start_node_idx, end_node_idx)
+                _mark_group_entries_processed(group_entries)
                 continue
 
             clause_specs: List[tuple] = []
@@ -450,10 +459,8 @@ def apply_non_adjacent_where_post_prune(
                 start_vals = start_vals[start_vals["__value__"].notna()]
                 end_vals = end_vals[end_vals["__value__"].notna()]
                 if len(start_vals) == 0 or len(end_vals) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                    for _, _, clause in group_entries:
-                        processed_clause_ids.add(id(clause))
+                    _set_empty_nodes(start_node_idx, end_node_idx)
+                    _mark_group_entries_processed(group_entries)
                     early_pruned = True
                     break
                 start_vals = start_vals.drop_duplicates()
@@ -467,10 +474,8 @@ def apply_non_adjacent_where_post_prune(
                 label_cardinality = len(pair_counts)
                 vector_label_card_max = max(vector_label_card_max, label_cardinality)
                 if label_cardinality == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                    for _, _, clause in group_entries:
-                        processed_clause_ids.add(id(clause))
+                    _set_empty_nodes(start_node_idx, end_node_idx)
+                    _mark_group_entries_processed(group_entries)
                     early_pruned = True
                     break
                 if vector_label_max is not None and label_cardinality > vector_label_max:
@@ -518,10 +523,8 @@ def apply_non_adjacent_where_post_prune(
             if not vector_applicable:
                 continue
             if candidate_pairs is None or len(candidate_pairs) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
+                _set_empty_nodes(start_node_idx, end_node_idx)
+                _mark_group_entries_processed(group_entries)
                 continue
             vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
 
@@ -716,10 +719,8 @@ def apply_non_adjacent_where_post_prune(
                 vector_applicable = False
                 continue
             if path_pairs is None or len(path_pairs) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
+                _set_empty_nodes(start_node_idx, end_node_idx)
+                _mark_group_entries_processed(group_entries)
                 continue
 
             valid_pairs = path_pairs.merge(
@@ -727,10 +728,8 @@ def apply_non_adjacent_where_post_prune(
             )
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
             if len(valid_pairs) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
-                for _, _, clause in group_entries:
-                    processed_clause_ids.add(id(clause))
+                _set_empty_nodes(start_node_idx, end_node_idx)
+                _mark_group_entries_processed(group_entries)
                 continue
 
             valid_starts = series_values(valid_pairs["__start__"])
@@ -746,8 +745,7 @@ def apply_non_adjacent_where_post_prune(
 
             vector_used = True
             clause_count += len(group_entries)
-            for _, _, clause in group_entries:
-                processed_clause_ids.add(id(clause))
+            _mark_group_entries_processed(group_entries)
 
             current_state = PathState.from_mutable(
                 local_allowed_nodes, local_allowed_edges, local_pruned_edges
@@ -763,7 +761,7 @@ def apply_non_adjacent_where_post_prune(
             group_entries = multi_eq_groups.get(key)
             if not group_entries:
                 continue
-            if any(id(clause) in processed_clause_ids for _, _, clause in group_entries):
+            if _group_entries_processed(group_entries):
                 continue
             start_node_idx, end_node_idx = key
 
@@ -782,8 +780,7 @@ def apply_non_adjacent_where_post_prune(
             start_base = nodes_df[nodes_df[node_id_col].isin(start_nodes)]
             end_base = nodes_df[nodes_df[node_id_col].isin(end_nodes)]
             if len(start_base) == 0 or len(end_base) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             start_df = start_base[[node_id_col]].rename(columns={node_id_col: "__start__"}).copy()
@@ -810,8 +807,7 @@ def apply_non_adjacent_where_post_prune(
             start_df = start_df[start_mask]
             end_df = end_df[end_mask]
             if len(start_df) == 0 or len(end_df) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             start_labels = start_df[label_cols].drop_duplicates()
@@ -872,8 +868,7 @@ def apply_non_adjacent_where_post_prune(
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
                             if len(left_pairs) == 0 or len(right_pairs) == 0:
-                                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                _set_empty_nodes(start_node_idx, end_node_idx)
                                 continue
 
                             pair_est_value = len(left_pairs) * len(right_pairs)
@@ -906,8 +901,7 @@ def apply_non_adjacent_where_post_prune(
                                     domain_semijoin_pairs_max, len(mid_values)
                                 )
                                 if len(mid_values) == 0:
-                                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                    _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
 
                                 left_pairs = left_pairs.merge(
@@ -933,8 +927,7 @@ def apply_non_adjacent_where_post_prune(
 
                                 domain_semijoin_used = True
                                 clause_count += len(group_entries)
-                                for _, _, clause in group_entries:
-                                    processed_clause_ids.add(id(clause))
+                                _mark_group_entries_processed(group_entries)
 
                                 current_state = PathState.from_mutable(
                                     local_allowed_nodes, local_allowed_edges, local_pruned_edges
@@ -946,8 +939,7 @@ def apply_non_adjacent_where_post_prune(
                                 local_pruned_edges.update(current_state.pruned_edges)
                                 continue
 
-            for _, _, clause in group_entries:
-                processed_clause_ids.add(id(clause))
+            _mark_group_entries_processed(group_entries)
 
             state_df = start_df[["__start__"] + label_cols].rename(
                 columns={"__start__": "__current__"}
@@ -1014,8 +1006,7 @@ def apply_non_adjacent_where_post_prune(
             last_state_rows = len(state_df)
 
             if len(state_df) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             matches_df = state_df.merge(
@@ -1023,8 +1014,7 @@ def apply_non_adjacent_where_post_prune(
             )
             pairs_rows_max = max(pairs_rows_max, len(matches_df))
             if len(matches_df) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             valid_labels = matches_df[label_cols].drop_duplicates()
@@ -1032,8 +1022,7 @@ def apply_non_adjacent_where_post_prune(
             valid_starts_df = start_df.merge(valid_labels, on=label_cols, how="inner")
             valid_ends_df = end_df.merge(valid_labels, on=label_cols, how="inner")
             if len(valid_starts_df) == 0 or len(valid_ends_df) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             valid_starts = series_values(valid_starts_df["__start__"])
@@ -1143,16 +1132,14 @@ def apply_non_adjacent_where_post_prune(
         if left_values_df is None or right_values_df is None:
             continue
         if len(left_values_df) == 0 or len(right_values_df) == 0:
-            local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-            local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+            _set_empty_nodes(start_node_idx, end_node_idx)
             continue
 
         if prefilter_enabled and left_values_domain is not None and right_values_domain is not None:
             if clause.op == "==":
                 allowed_values = domain_intersect(left_values_domain, right_values_domain)
                 if domain_is_empty(allowed_values):
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
                 left_values_df = left_values_df[left_values_df['__start_val__'].isin(allowed_values)]
                 right_values_df = right_values_df[right_values_df['__end_val__'].isin(allowed_values)]
@@ -1161,15 +1148,13 @@ def apply_non_adjacent_where_post_prune(
                 left_count = len(left_values_domain)
                 right_count = len(right_values_domain)
                 if left_count == 0 or right_count == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
                 if left_count == 1 and right_count == 1:
                     left_val = left_values_domain[0]
                     right_val = right_values_domain[0]
                     if not _scalar_clause(left_val, clause.op, right_val):
-                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        _set_empty_nodes(start_node_idx, end_node_idx)
                         continue
                     prefilter_used = True
                     singleton_used = True
@@ -1179,8 +1164,7 @@ def apply_non_adjacent_where_post_prune(
                         right_values_df, '__end_val__', clause.op, left_val, const_on_left=True
                     )
                     if len(right_values_df) == 0:
-                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        _set_empty_nodes(start_node_idx, end_node_idx)
                         continue
                     prefilter_used = True
                     singleton_used = True
@@ -1190,8 +1174,7 @@ def apply_non_adjacent_where_post_prune(
                         left_values_df, '__start_val__', clause.op, right_val, const_on_left=False
                     )
                     if len(left_values_df) == 0:
-                        local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                        local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                        _set_empty_nodes(start_node_idx, end_node_idx)
                         continue
                     prefilter_used = True
                     singleton_used = True
@@ -1237,8 +1220,7 @@ def apply_non_adjacent_where_post_prune(
                 right_values_df = right_values_df[right_mask]
 
                 if len(left_values_df) == 0 or len(right_values_df) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
 
                 start_nodes = series_values(left_values_df['__start__'])
@@ -1366,8 +1348,7 @@ def apply_non_adjacent_where_post_prune(
                 start_val_df = start_val_df[start_val_df["__label__"].notna()]
                 end_val_df = end_val_df[end_val_df["__label__"].notna()]
                 if len(start_val_df) == 0 or len(end_val_df) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
 
             left_edges = pairs_left.merge(
@@ -1389,8 +1370,7 @@ def apply_non_adjacent_where_post_prune(
             right_edges = right_edges[right_cols].drop_duplicates()
 
             if len(left_edges) == 0 or len(right_edges) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             group_cols = ["__mid__"] + ineq_label_cols
@@ -1401,8 +1381,7 @@ def apply_non_adjacent_where_post_prune(
                     right_labels, on=["__mid__", "__label__"], how="inner"
                 )
                 if len(allowed_labels) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
                 left_edges = left_edges.merge(
                     allowed_labels, on=["__mid__", "__label__"], how="inner"
@@ -1411,8 +1390,7 @@ def apply_non_adjacent_where_post_prune(
                     allowed_labels, on=["__mid__", "__label__"], how="inner"
                 )
                 if len(left_edges) == 0 or len(right_edges) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
 
             if clause.op in {"<", "<="}:
@@ -1434,8 +1412,7 @@ def apply_non_adjacent_where_post_prune(
                 else:
                     allowed = allowed[allowed["__left_bound__"] <= allowed["__right_bound__"]]
                 if len(allowed) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
 
                 left_eval = left_edges.merge(
@@ -1472,8 +1449,7 @@ def apply_non_adjacent_where_post_prune(
                 else:
                     allowed = allowed[allowed["__left_bound__"] >= allowed["__right_bound__"]]
                 if len(allowed) == 0:
-                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                    _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
 
                 left_eval = left_edges.merge(
@@ -1493,8 +1469,7 @@ def apply_non_adjacent_where_post_prune(
                     right_eval = right_eval[right_eval["__end_val__"] <= right_eval["__left_bound__"]]
 
             if len(left_eval) == 0 or len(right_eval) == 0:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                _set_empty_nodes(start_node_idx, end_node_idx)
                 continue
 
             valid_starts = series_values(left_eval["__start__"])
@@ -1629,8 +1604,7 @@ def apply_non_adjacent_where_post_prune(
                             pairs_right_rows_max = max(pairs_right_rows_max, len(right_pairs))
 
                             if len(left_pairs) == 0 or len(right_pairs) == 0:
-                                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                _set_empty_nodes(start_node_idx, end_node_idx)
                                 continue
 
                             left_total = len(left_pairs)
@@ -1673,8 +1647,7 @@ def apply_non_adjacent_where_post_prune(
                                     domain_semijoin_pairs_max, len(mid_values)
                                 )
                                 if len(mid_values) == 0:
-                                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                    _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
 
                                 left_pairs = left_pairs.merge(
@@ -1755,8 +1728,7 @@ def apply_non_adjacent_where_post_prune(
                                     max(len(left_eval), len(right_eval)),
                                 )
                                 if len(left_eval) == 0 or len(right_eval) == 0:
-                                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                    _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
 
                                 valid_starts = series_values(left_eval["__start__"])
@@ -1843,8 +1815,7 @@ def apply_non_adjacent_where_post_prune(
                                     max(len(left_eval), len(right_eval)),
                                 )
                                 if len(left_eval) == 0 or len(right_eval) == 0:
-                                    local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
-                                    local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                                    _set_empty_nodes(start_node_idx, end_node_idx)
                                     continue
 
                                 valid_starts = series_values(left_eval["__start__"])
@@ -1949,9 +1920,9 @@ def apply_non_adjacent_where_post_prune(
 
         if len(state_df) == 0:
             if start_node_idx in local_allowed_nodes:
-                local_allowed_nodes[start_node_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[start_node_idx] = empty_nodes
             if end_node_idx in local_allowed_nodes:
-                local_allowed_nodes[end_node_idx] = domain_empty(nodes_df)
+                local_allowed_nodes[end_node_idx] = empty_nodes
             continue
 
         if left_values_df is None or right_values_df is None:
@@ -2098,6 +2069,12 @@ def apply_edge_where_post_prune(
     nodes_df_template = executor.inputs.graph._nodes
     if nodes_df_template is None:
         return state
+
+    empty_nodes = domain_empty(nodes_df_template)
+
+    def _set_empty_nodes(*idxs: int) -> None:
+        for idx in idxs:
+            local_allowed_nodes[idx] = empty_nodes
 
     edge_positions = {edge_idx: pos for pos, edge_idx in enumerate(edge_indices)}
     fast_path_possible = (
@@ -2259,8 +2236,7 @@ def apply_edge_where_post_prune(
             right_pairs = right_pairs[right_pairs["__right_val__"].notna()]
 
             if len(left_pairs) == 0 or len(right_pairs) == 0:
-                local_allowed_nodes[left_node_idx] = domain_empty(nodes_df_template)
-                local_allowed_nodes[right_node_idx] = domain_empty(nodes_df_template)
+                _set_empty_nodes(left_node_idx, right_node_idx)
                 continue
 
             left_total = len(left_pairs)
@@ -2303,8 +2279,7 @@ def apply_edge_where_post_prune(
                     how="inner",
                 )
                 if len(mid_values) == 0:
-                    local_allowed_nodes[left_node_idx] = domain_empty(nodes_df_template)
-                    local_allowed_nodes[right_node_idx] = domain_empty(nodes_df_template)
+                    _set_empty_nodes(left_node_idx, right_node_idx)
                     continue
                 left_pairs = left_pairs.merge(
                     mid_values.rename(columns={"__value__": "__left_val__"}),
@@ -2423,8 +2398,7 @@ def apply_edge_where_post_prune(
                 right_pairs = right_eval[["__mid__", "__right__", "__right_val__"]]
 
             if len(left_pairs) == 0 or len(right_pairs) == 0:
-                local_allowed_nodes[left_node_idx] = domain_empty(nodes_df_template)
-                local_allowed_nodes[right_node_idx] = domain_empty(nodes_df_template)
+                _set_empty_nodes(left_node_idx, right_node_idx)
                 continue
 
             if fast_path_possible:
@@ -2512,8 +2486,7 @@ def apply_edge_where_post_prune(
 
     if fast_path_full_cover:
         if any(domain_is_empty(local_allowed_nodes.get(idx)) for idx in node_indices):
-            for idx in node_indices:
-                local_allowed_nodes[idx] = domain_empty(nodes_df_template)
+            _set_empty_nodes(*node_indices)
             return PathState.from_mutable(local_allowed_nodes, {})
         if (
             fast_path_left_pairs is None
@@ -2601,8 +2574,7 @@ def apply_edge_where_post_prune(
         paths_df = paths_df.drop(columns=[src_col, dst_col], errors='ignore')
 
     if len(paths_df) == 0:
-        for idx in node_indices:
-            local_allowed_nodes[idx] = domain_empty(nodes_df_template)
+        _set_empty_nodes(*node_indices)
         return PathState.from_mutable(local_allowed_nodes, {})
 
     nodes_df = executor.inputs.graph._nodes
