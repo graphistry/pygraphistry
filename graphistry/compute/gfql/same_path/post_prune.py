@@ -314,6 +314,15 @@ def apply_non_adjacent_where_post_prune(
         local_allowed_nodes, local_allowed_edges = current_state.to_mutable()
         local_pruned_edges.update(current_state.pruned_edges)
 
+    def _prune_group(
+        start_idx: int,
+        end_idx: int,
+        entries: Optional[Sequence[tuple]] = None,
+    ) -> None:
+        _set_empty_nodes(start_idx, end_idx)
+        if entries:
+            _mark_group_entries_processed(entries)
+
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
     ):
@@ -456,8 +465,7 @@ def apply_non_adjacent_where_post_prune(
             start_base = nodes_df[nodes_df[node_id_col].isin(start_nodes)]
             end_base = nodes_df[nodes_df[node_id_col].isin(end_nodes)]
             if len(start_base) == 0 or len(end_base) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
-                _mark_group_entries_processed(group_entries)
+                _prune_group(start_node_idx, end_node_idx, group_entries)
                 continue
 
             clause_specs: List[tuple] = []
@@ -476,8 +484,7 @@ def apply_non_adjacent_where_post_prune(
                 start_vals = start_vals[start_vals["__value__"].notna()]
                 end_vals = end_vals[end_vals["__value__"].notna()]
                 if len(start_vals) == 0 or len(end_vals) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
-                    _mark_group_entries_processed(group_entries)
+                    _prune_group(start_node_idx, end_node_idx, group_entries)
                     early_pruned = True
                     break
                 start_vals = start_vals.drop_duplicates()
@@ -491,8 +498,7 @@ def apply_non_adjacent_where_post_prune(
                 label_cardinality = len(pair_counts)
                 vector_label_card_max = max(vector_label_card_max, label_cardinality)
                 if label_cardinality == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
-                    _mark_group_entries_processed(group_entries)
+                    _prune_group(start_node_idx, end_node_idx, group_entries)
                     early_pruned = True
                     break
                 if vector_label_max is not None and label_cardinality > vector_label_max:
@@ -540,8 +546,7 @@ def apply_non_adjacent_where_post_prune(
             if not vector_applicable:
                 continue
             if candidate_pairs is None or len(candidate_pairs) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
-                _mark_group_entries_processed(group_entries)
+                _prune_group(start_node_idx, end_node_idx, group_entries)
                 continue
             vector_candidate_pairs_max = max(vector_candidate_pairs_max, len(candidate_pairs))
 
@@ -736,8 +741,7 @@ def apply_non_adjacent_where_post_prune(
                 vector_applicable = False
                 continue
             if path_pairs is None or len(path_pairs) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
-                _mark_group_entries_processed(group_entries)
+                _prune_group(start_node_idx, end_node_idx, group_entries)
                 continue
 
             valid_pairs = path_pairs.merge(
@@ -745,8 +749,7 @@ def apply_non_adjacent_where_post_prune(
             )
             valid_pairs_max = max(valid_pairs_max, len(valid_pairs))
             if len(valid_pairs) == 0:
-                _set_empty_nodes(start_node_idx, end_node_idx)
-                _mark_group_entries_processed(group_entries)
+                _prune_group(start_node_idx, end_node_idx, group_entries)
                 continue
 
             valid_starts = series_values(valid_pairs["__start__"])
