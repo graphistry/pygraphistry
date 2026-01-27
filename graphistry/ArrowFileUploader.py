@@ -210,11 +210,10 @@ def _hash_full_table(table: pa.Table) -> int:
 
     digest.update(str(table.schema).encode())
 
-    # stream all buffers
     for column in table.columns:
         for chunk in column.chunks:
             for buf in chunk.buffers():
                 if buf:
-                    digest.update(buf)  # buffer protocol, zero‑copy
+                    digest.update(buf)
 
     return int.from_bytes(digest.digest()[:8], "big", signed=False)
