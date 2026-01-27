@@ -28,6 +28,8 @@ parts/
 sdist/
 var/
 data/
+!graphistry/tests/data/
+!graphistry/tests/data/**
 *.egg-info/
 .installed.cfg
 *.egg

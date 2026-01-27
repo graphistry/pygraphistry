@@ -3,6 +3,7 @@ from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 from graphistry.Engine import EngineAbstractType
 
@@ -1096,21 +1097,78 @@ class GraphistryClient(AuthManagerProtocol):
 
         return cast(Plotter, self._plotter().nodexl(xls_or_url, source, engine, verbose))
 
-    def gexf(self, source: Any, name: Optional[str] = None, description: Optional[str] = None) -> Plotter:
+    def gexf(
+        self,
+        source: Any,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
+        bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+    ) -> Plotter:
         """
         Load a GEXF file/URL/stream into a Plotter.
 
         :param source: Path, URL, bytes, or file-like object containing GEXF XML
         :param name: Optional Graphistry dataset name override
         :param description: Optional Graphistry dataset description override
-        """
-        return cast(Plotter, self._plotter().from_gexf(source, name=name, description=description))
+        :param bind_node_viz: Optional list of node viz fields to bind (honor). None means bind all available node viz fields.
+            Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
+        :param bind_edge_viz: Optional list of edge viz fields to bind (honor). None means bind all available edge viz fields.
+            Empty list means bind none. Choices: "color", "size", "opacity".
 
-    def from_gexf(self, source: Any, name: Optional[str] = None, description: Optional[str] = None) -> Plotter:
+        **Example: Minimal (honor all GEXF viz)**
+            ::
+
+                g = graphistry.gexf("my_graph.gexf")
+                g.plot()
+
+        **Example: Drop GEXF colors/sizes, keep layout, then encode**
+            ::
+
+                g_layout = graphistry.gexf(
+                    "my_graph.gexf",
+                    bind_node_viz=["position"],
+                    bind_edge_viz=[],
+                )
+                g = (
+                    g_layout
+                    .encode_point_color("class", as_categorical=True)
+                    .encode_point_size("occurences")
+                )
+                g.plot()
+        """
+        return cast(
+            Plotter,
+            self._plotter().from_gexf(
+                source,
+                name=name,
+                description=description,
+                bind_node_viz=bind_node_viz,
+                bind_edge_viz=bind_edge_viz,
+            ),
+        )
+
+    def from_gexf(
+        self,
+        source: Any,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
+        bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+    ) -> Plotter:
         """
         Alias for :meth:`gexf`.
         """
-        return cast(Plotter, self.gexf(source, name=name, description=description))
+        return cast(
+            Plotter,
+            self.gexf(
+                source,
+                name=name,
+                description=description,
+                bind_node_viz=bind_node_viz,
+                bind_edge_viz=bind_edge_viz,
+            ),
+        )
 
     def to_gexf(self, path: Optional[str] = None, **kwargs: Any) -> str:
         """

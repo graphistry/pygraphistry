@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz
 
 
 GEXF_NAMESPACES = {
@@ -399,6 +400,8 @@ def from_gexf(
     source: Any,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
+    bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
 ) -> Plottable:
     """
     Convert a GEXF file/URL/stream into a PyGraphistry graph.
@@ -406,41 +409,69 @@ def from_gexf(
     :param source: Path, URL, bytes, or file-like object containing GEXF XML
     :param name: Optional Graphistry dataset name override
     :param description: Optional Graphistry dataset description override
+    :param bind_node_viz: Optional list of node viz fields to bind (honor). None means bind all available node viz fields.
+        Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
+    :param bind_edge_viz: Optional list of edge viz fields to bind (honor). None means bind all available edge viz fields.
+        Empty list means bind none. Choices: "color", "size", "opacity".
     :return: Graphistry plotter with nodes/edges/bindings populated
     """
     edges_df, nodes_df, meta = gexf_to_dfs(source)
     g = self.edges(edges_df, "source", "target").nodes(nodes_df, "node_id")
     bindings: Dict[str, Any] = {"node": "node_id", "source": "source", "destination": "target"}
 
+    node_viz_allowed = {"color", "size", "opacity", "position", "icon"}
+    edge_viz_allowed = {"color", "size", "opacity"}
+
+    def _normalize_viz_fields(value: Optional[Iterable[str]], allowed: set, label: str) -> set:
+        if value is None:
+            return set(allowed)
+        if isinstance(value, str):
+            fields = {value}
+        else:
+            try:
+                fields = set(value)
+            except TypeError as exc:
+                raise ValueError(f"{label} viz bindings must be an iterable of strings") from exc
+        if not all(isinstance(v, str) for v in fields):
+            raise ValueError(f"{label} viz bindings must be strings")
+        unknown = fields.difference(allowed)
+        if unknown:
+            unknown_list = ", ".join(sorted(unknown))
+            raise ValueError(f"Unsupported {label} viz bindings: {unknown_list}")
+        return fields
+
+    node_viz = _normalize_viz_fields(bind_node_viz, node_viz_allowed, "node")
+    edge_viz = _normalize_viz_fields(bind_edge_viz, edge_viz_allowed, "edge")
+
     if "label" in nodes_df.columns:
         bindings["point_title"] = "label"
-    if "viz_color" in nodes_df.columns:
+    if "color" in node_viz and "viz_color" in nodes_df.columns:
         bindings["point_color"] = "viz_color"
-    if "viz_size" in nodes_df.columns:
+    if "size" in node_viz and "viz_size" in nodes_df.columns:
         bindings["point_size"] = "viz_size"
-    if "viz_opacity" in nodes_df.columns:
+    if "opacity" in node_viz and "viz_opacity" in nodes_df.columns:
         bindings["point_opacity"] = "viz_opacity"
-    if "viz_x" in nodes_df.columns:
+    if "position" in node_viz and "viz_x" in nodes_df.columns:
         bindings["point_x"] = "viz_x"
-    if "viz_y" in nodes_df.columns:
+    if "position" in node_viz and "viz_y" in nodes_df.columns:
         bindings["point_y"] = "viz_y"
-    if "viz_shape_icon" in nodes_df.columns:
+    if "icon" in node_viz and "viz_shape_icon" in nodes_df.columns:
         bindings["point_icon"] = "viz_shape_icon"
 
     if "label" in edges_df.columns:
         bindings["edge_title"] = "label"
-    if "viz_color" in edges_df.columns:
+    if "color" in edge_viz and "viz_color" in edges_df.columns:
         bindings["edge_color"] = "viz_color"
-    if "viz_thickness" in edges_df.columns:
+    if "size" in edge_viz and "viz_thickness" in edges_df.columns:
         bindings["edge_size"] = "viz_thickness"
-    if "viz_opacity" in edges_df.columns:
+    if "opacity" in edge_viz and "viz_opacity" in edges_df.columns:
         bindings["edge_opacity"] = "viz_opacity"
     if "weight" in edges_df.columns:
         bindings["edge_weight"] = "weight"
 
     g = g.bind(**bindings)
 
-    if "viz_x" in nodes_df.columns and "viz_y" in nodes_df.columns:
+    if "position" in node_viz and "viz_x" in nodes_df.columns and "viz_y" in nodes_df.columns:
         g = g.settings(url_params={"play": 0})
 
     if name is not None:
@@ -690,7 +721,7 @@ def to_gexf(
         node_attrib = {"id": node_id}
         if node_label_col is not None:
             label_val = row.get(node_label_col)
-            if label_val is not None and not pd.isna(label_val):
+            if not _is_na(label_val):
                 node_attrib["label"] = str(label_val)
         node_elem = ET.SubElement(nodes_elem, f"{{{gexf_ns}}}node", attrib=node_attrib)
 
@@ -726,7 +757,7 @@ def to_gexf(
                     ET.SubElement(node_elem, f"{{{viz_ns}}}position", attrib=pos_attrib)
 
             shape_val = row.get(point_shape_col) if point_shape_col is not None else None
-            if point_shape_col is not None and shape_val is not None and not pd.isna(shape_val):
+            if point_shape_col is not None and not _is_na(shape_val):
                 ET.SubElement(node_elem, f"{{{viz_ns}}}shape", attrib={"value": str(shape_val)})
 
         if node_attr_defs:
@@ -754,7 +785,7 @@ def to_gexf(
         }
         if edge_label_col is not None:
             label_val = row.get(edge_label_col)
-            if label_val is not None and not pd.isna(label_val):
+            if not _is_na(label_val):
                 edge_attrib["label"] = str(label_val)
         if edge_weight_col is not None:
             weight_val = _coerce_float(row.get(edge_weight_col), "edge weight")
@@ -781,7 +812,7 @@ def to_gexf(
                 ET.SubElement(edge_elem, f"{{{viz_ns}}}thickness", attrib={"value": str(size)})
 
             shape_val = row.get(edge_shape_col) if edge_shape_col is not None else None
-            if edge_shape_col is not None and shape_val is not None and not pd.isna(shape_val):
+            if edge_shape_col is not None and not _is_na(shape_val):
                 ET.SubElement(edge_elem, f"{{{viz_ns}}}shape", attrib={"value": str(shape_val)})
 
         if edge_attr_defs:

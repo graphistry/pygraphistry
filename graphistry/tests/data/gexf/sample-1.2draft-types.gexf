@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft"
+      xmlns:viz="http://www.gexf.net/1.2draft/viz"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd"
+      version="1.2">
+  <meta lastmodifieddate="2026-01-01">
+    <creator>graphistry</creator>
+    <description>Sample 1.2draft types</description>
+  </meta>
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="count" type="integer"/>
+      <attribute id="1" title="active" type="boolean">
+        <default>true</default>
+      </attribute>
+      <attribute id="2" title="ratio" type="float"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="0" title="weight_int" type="integer"/>
+      <attribute id="1" title="flagged" type="boolean"/>
+    </attributes>
+    <nodes>
+      <node id="n0" label="Alpha">
+        <attvalues>
+          <attvalue for="0" value="3"/>
+          <attvalue for="1" value="false"/>
+          <attvalue for="2" value="1.5"/>
+        </attvalues>
+      </node>
+      <node id="n1" label="Beta">
+        <attvalues>
+          <attvalue for="0" value="7"/>
+          <attvalue for="2" value="2.0"/>
+        </attvalues>
+      </node>
+    </nodes>
+    <edges>
+      <edge id="e0" source="n0" target="n1" label="links">
+        <attvalues>
+          <attvalue for="0" value="4"/>
+          <attvalue for="1" value="true"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

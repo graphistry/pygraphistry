@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft"
+      xmlns:viz="http://www.gexf.net/1.2draft/viz"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd"
+      version="1.2">
+  <meta lastmodifieddate="2026-01-01">
+    <creator>graphistry</creator>
+    <description>Sample 1.2draft edge viz only</description>
+  </meta>
+  <graph mode="static" defaultedgetype="directed">
+    <nodes>
+      <node id="n0" label="Alpha"/>
+      <node id="n1" label="Beta"/>
+    </nodes>
+    <edges>
+      <edge id="e0" source="n0" target="n1" label="connects">
+        <viz:color r="0" g="128" b="255" a="0.6"/>
+        <viz:thickness value="2.5"/>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

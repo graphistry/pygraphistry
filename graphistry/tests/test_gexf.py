@@ -1,5 +1,6 @@
 import os
 import tempfile
+from numbers import Integral, Real
 
 import pandas as pd
 import pytest
@@ -9,6 +10,10 @@ from common import NoAuthTestCase
 
 
 DATA_DIR = os.path.join("graphistry", "tests", "data", "gexf")
+
+
+def _sorted_frame(df: pd.DataFrame, cols, sort_cols):
+    return df[cols].sort_values(sort_cols).reset_index(drop=True)
 
 
 class TestGEXF(NoAuthTestCase):
@@ -24,6 +29,13 @@ class TestGEXF(NoAuthTestCase):
         self.assertEqual(g._point_title, "label")
         self.assertEqual(g._edge_title, "label")
         self.assertEqual(g._description, "Sample 1.1draft")
+        self.assertIsNone(g._point_color)
+        self.assertIsNone(g._edge_color)
+        self.assertIsNone(g._point_size)
+        self.assertIsNone(g._edge_size)
+        self.assertIsNone(g._point_x)
+        self.assertIsNone(g._point_y)
+        self.assertIsNone(g._url_params.get("play"))
 
         node_n2 = g._nodes[g._nodes["node_id"] == "n2"].iloc[0]
         assert node_n2["role"] == "member"
@@ -78,6 +90,130 @@ class TestGEXF(NoAuthTestCase):
         edge_e20 = g._edges[g._edges["edge_id"] == "e20"].iloc[0]
         assert edge_e20["viz_color"] == "#112233"
         assert edge_e20["viz_opacity"] == pytest.approx(0.6)
+
+    def test_gexf_node_viz_only(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-node-viz-only.gexf")
+        g = graphistry.gexf(path)
+
+        self.assertEqual(g._point_color, "viz_color")
+        self.assertEqual(g._point_size, "viz_size")
+        self.assertEqual(g._point_x, "viz_x")
+        self.assertEqual(g._point_y, "viz_y")
+        self.assertEqual(g._point_opacity, "viz_opacity")
+        self.assertIsNone(g._edge_color)
+        self.assertIsNone(g._edge_size)
+        self.assertIsNone(g._edge_opacity)
+        self.assertEqual(g._url_params.get("play"), 0)
+
+        node_n0 = g._nodes[g._nodes["node_id"] == "n0"].iloc[0]
+        assert node_n0["viz_color"] == "#FF0000"
+        assert node_n0["viz_opacity"] == pytest.approx(0.7)
+        assert node_n0["viz_size"] == pytest.approx(3.0)
+
+    def test_gexf_edge_viz_only(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-edge-viz-only.gexf")
+        g = graphistry.gexf(path)
+
+        self.assertEqual(g._edge_color, "viz_color")
+        self.assertEqual(g._edge_size, "viz_thickness")
+        self.assertEqual(g._edge_opacity, "viz_opacity")
+        self.assertIsNone(g._point_color)
+        self.assertIsNone(g._point_size)
+        self.assertIsNone(g._point_opacity)
+        self.assertIsNone(g._url_params.get("play"))
+
+        edge_e0 = g._edges[g._edges["edge_id"] == "e0"].iloc[0]
+        assert edge_e0["viz_color"] == "#0080FF"
+        assert edge_e0["viz_opacity"] == pytest.approx(0.6)
+        assert edge_e0["viz_thickness"] == pytest.approx(2.5)
+
+    def test_gexf_viz_binding_options(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
+        g = graphistry.gexf(path, bind_node_viz=["position"], bind_edge_viz=[])
+
+        self.assertIsNone(g._point_color)
+        self.assertIsNone(g._point_size)
+        self.assertIsNone(g._point_opacity)
+        self.assertIsNone(g._point_icon)
+        self.assertEqual(g._point_x, "viz_x")
+        self.assertEqual(g._point_y, "viz_y")
+        self.assertIsNone(g._edge_color)
+        self.assertIsNone(g._edge_size)
+        self.assertIsNone(g._edge_opacity)
+        self.assertEqual(g._url_params.get("play"), 0)
+
+    def test_gexf_type_handling_roundtrip(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-types.gexf")
+        g = graphistry.gexf(path)
+
+        node_n0 = g._nodes[g._nodes["node_id"] == "n0"].iloc[0]
+        node_n1 = g._nodes[g._nodes["node_id"] == "n1"].iloc[0]
+        edge_e0 = g._edges.iloc[0]
+
+        assert isinstance(node_n0["count"], Integral) and not isinstance(node_n0["count"], bool)
+        assert pd.api.types.is_bool_dtype(type(node_n0["active"]))
+        assert isinstance(node_n0["ratio"], Real) and not isinstance(node_n0["ratio"], bool)
+        assert node_n0["count"] == 3
+        assert bool(node_n0["active"]) is False
+        assert node_n0["ratio"] == pytest.approx(1.5)
+
+        assert bool(node_n1["active"]) is True
+        assert node_n1["count"] == 7
+        assert node_n1["ratio"] == pytest.approx(2.0)
+
+        assert edge_e0["weight_int"] == 4
+        assert bool(edge_e0["flagged"]) is True
+
+        xml_str = g.to_gexf(version="1.2draft")
+        g2 = graphistry.gexf(xml_str.encode("utf-8"))
+
+        node_cols = ["node_id", "count", "active", "ratio"]
+        edge_cols = ["source", "target", "weight_int", "flagged"]
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g._nodes, node_cols, "node_id"),
+            _sorted_frame(g2._nodes, node_cols, "node_id"),
+        )
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g._edges, edge_cols, ["source", "target"]),
+            _sorted_frame(g2._edges, edge_cols, ["source", "target"]),
+        )
+
+    def test_gexf_viz_roundtrip_from_file(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
+        g = graphistry.gexf(path)
+
+        xml_str = g.to_gexf(version="1.2draft")
+        g2 = graphistry.gexf(xml_str.encode("utf-8"))
+
+        node_cols = [
+            "node_id",
+            "label",
+            "viz_color",
+            "viz_size",
+            "viz_x",
+            "viz_y",
+            "viz_opacity",
+            "viz_shape",
+        ]
+        edge_cols = [
+            "source",
+            "target",
+            "label",
+            "viz_color",
+            "viz_thickness",
+            "viz_opacity",
+            "weight",
+            "relation",
+        ]
+
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g._nodes, node_cols, "node_id"),
+            _sorted_frame(g2._nodes, node_cols, "node_id"),
+        )
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g._edges, edge_cols, ["source", "target"]),
+            _sorted_frame(g2._edges, edge_cols, ["source", "target"]),
+        )
 
     def test_gexf_missing_node_id(self):
         path = os.path.join(DATA_DIR, "invalid-missing-node-id.gexf")
