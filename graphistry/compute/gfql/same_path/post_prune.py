@@ -72,6 +72,61 @@ def _env_optional_float(name: str) -> Optional[float]:
         return None
 
 
+def _ineq_eval_pairs(
+    left_pairs: DataFrameT,
+    right_pairs: DataFrameT,
+    op: str,
+    *,
+    group_cols: Optional[Sequence[str]] = None,
+    left_value: str = "__value__",
+    right_value: str = "__value__",
+) -> tuple:
+    group_cols = list(group_cols) if group_cols is not None else ["__mid__"]
+    if op in {"<", "<="}:
+        left_bound = (
+            right_pairs.groupby(group_cols)[right_value]
+            .max()
+            .reset_index()
+            .rename(columns={right_value: "__right_bound__"})
+        )
+        right_bound = (
+            left_pairs.groupby(group_cols)[left_value]
+            .min()
+            .reset_index()
+            .rename(columns={left_value: "__left_bound__"})
+        )
+        left_eval = left_pairs.merge(left_bound, on=group_cols, how="inner")
+        right_eval = right_pairs.merge(right_bound, on=group_cols, how="inner")
+        if op == "<":
+            left_eval = left_eval[left_eval[left_value] < left_eval["__right_bound__"]]
+            right_eval = right_eval[right_eval[right_value] > right_eval["__left_bound__"]]
+        else:
+            left_eval = left_eval[left_eval[left_value] <= left_eval["__right_bound__"]]
+            right_eval = right_eval[right_eval[right_value] >= right_eval["__left_bound__"]]
+    else:
+        left_bound = (
+            right_pairs.groupby(group_cols)[right_value]
+            .min()
+            .reset_index()
+            .rename(columns={right_value: "__right_bound__"})
+        )
+        right_bound = (
+            left_pairs.groupby(group_cols)[left_value]
+            .max()
+            .reset_index()
+            .rename(columns={left_value: "__left_bound__"})
+        )
+        left_eval = left_pairs.merge(left_bound, on=group_cols, how="inner")
+        right_eval = right_pairs.merge(right_bound, on=group_cols, how="inner")
+        if op == ">":
+            left_eval = left_eval[left_eval[left_value] > left_eval["__right_bound__"]]
+            right_eval = right_eval[right_eval[right_value] < right_eval["__left_bound__"]]
+        else:
+            left_eval = left_eval[left_eval[left_value] >= left_eval["__right_bound__"]]
+            right_eval = right_eval[right_eval[right_value] <= right_eval["__left_bound__"]]
+    return left_eval, right_eval
+
+
 def apply_non_adjacent_where_post_prune(
     executor: "DFSamePathExecutor",
     state: PathState,
@@ -163,15 +218,18 @@ def apply_non_adjacent_where_post_prune(
     edge_id_col = executor._edge_column
     node_id_col = executor._node_column
     nodes_df = executor.inputs.graph._nodes
+    nodes_df_ready = (
+        nodes_df is not None
+        and node_id_col
+        and node_id_col in nodes_df.columns
+    )
 
     if not src_col or not dst_col:
         return state
 
     if (
         non_adj_order in {"selectivity", "size"}
-        and nodes_df is not None
-        and node_id_col
-        and node_id_col in nodes_df.columns
+        and nodes_df_ready
     ):
         def _clause_order_key(clause: "WhereComparison") -> tuple:
             left_alias = clause.left.alias
@@ -240,6 +298,23 @@ def apply_non_adjacent_where_post_prune(
         mask = _apply_op(values_df[value_col], op, const_value)
         return values_df[mask]
 
+    def _node_attr_frame(
+        node_domain: DomainT,
+        attr_col: str,
+        id_label: str,
+        attr_label: str,
+    ) -> Optional[DataFrameT]:
+        if not nodes_df_ready or attr_col not in nodes_df.columns:
+            return None
+        if attr_col == node_id_col:
+            df = nodes_df[nodes_df[node_id_col].isin(node_domain)][[node_id_col]].drop_duplicates().copy()
+            df.columns = [id_label]
+            df[attr_label] = df[id_label]
+            return df
+        return nodes_df[nodes_df[node_id_col].isin(node_domain)][[node_id_col, attr_col]].drop_duplicates().rename(
+            columns={node_id_col: id_label, attr_col: attr_label}
+        )
+
     def _scalar_clause(left: Any, op: str, right: Any) -> bool:
         return bool(_apply_op(left, op, right))
 
@@ -282,6 +357,9 @@ def apply_non_adjacent_where_post_prune(
         "auto_prefilter",
     }
     vector_enabled = non_adj_strategy == "vector"
+    if not nodes_df_ready:
+        composite_value_enabled = False
+        vector_enabled = False
     multi_eq_groups: Dict[tuple, List[tuple]] = {}
     multi_eq_order: List[tuple] = []
     processed_clause_ids: set = set()
@@ -343,55 +421,6 @@ def apply_non_adjacent_where_post_prune(
             _set_empty_nodes(start_idx, end_idx)
             return True
         return False
-
-    def _ineq_eval_pairs(
-        left_pairs: DataFrameT,
-        right_pairs: DataFrameT,
-        op: str,
-    ) -> tuple:
-        if op in {"<", "<="}:
-            left_bound = (
-                right_pairs.groupby("__mid__")["__value__"]
-                .max()
-                .reset_index()
-                .rename(columns={"__value__": "__right_bound__"})
-            )
-            right_bound = (
-                left_pairs.groupby("__mid__")["__value__"]
-                .min()
-                .reset_index()
-                .rename(columns={"__value__": "__left_bound__"})
-            )
-            left_eval = left_pairs.merge(left_bound, on="__mid__", how="inner")
-            right_eval = right_pairs.merge(right_bound, on="__mid__", how="inner")
-            if op == "<":
-                left_eval = left_eval[left_eval["__value__"] < left_eval["__right_bound__"]]
-                right_eval = right_eval[right_eval["__value__"] > right_eval["__left_bound__"]]
-            else:
-                left_eval = left_eval[left_eval["__value__"] <= left_eval["__right_bound__"]]
-                right_eval = right_eval[right_eval["__value__"] >= right_eval["__left_bound__"]]
-        else:
-            left_bound = (
-                right_pairs.groupby("__mid__")["__value__"]
-                .min()
-                .reset_index()
-                .rename(columns={"__value__": "__right_bound__"})
-            )
-            right_bound = (
-                left_pairs.groupby("__mid__")["__value__"]
-                .max()
-                .reset_index()
-                .rename(columns={"__value__": "__left_bound__"})
-            )
-            left_eval = left_pairs.merge(left_bound, on="__mid__", how="inner")
-            right_eval = right_pairs.merge(right_bound, on="__mid__", how="inner")
-            if op == ">":
-                left_eval = left_eval[left_eval["__value__"] > left_eval["__right_bound__"]]
-                right_eval = right_eval[right_eval["__value__"] < right_eval["__left_bound__"]]
-            else:
-                left_eval = left_eval[left_eval["__value__"] >= left_eval["__right_bound__"]]
-                right_eval = right_eval[right_eval["__value__"] <= right_eval["__left_bound__"]]
-        return left_eval, right_eval
 
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
@@ -486,9 +515,6 @@ def apply_non_adjacent_where_post_prune(
             if _group_entries_processed(group_entries):
                 continue
             start_node_idx, end_node_idx = key
-            if nodes_df is None or not node_id_col or node_id_col not in nodes_df.columns:
-                continue
-
             relevant_edge_indices = [
                 idx for idx in edge_indices
                 if start_node_idx < idx < end_node_idx
@@ -845,9 +871,6 @@ def apply_non_adjacent_where_post_prune(
             end_nodes = local_allowed_nodes.get(end_node_idx)
             if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
                 continue
-            if nodes_df is None or not node_id_col or node_id_col not in nodes_df.columns:
-                continue
-
             relevant_edge_indices = [
                 idx for idx in edge_indices
                 if start_node_idx < idx < end_node_idx
@@ -1131,30 +1154,15 @@ def apply_non_adjacent_where_post_prune(
 
         left_col = clause.left.column
         right_col = clause.right.column
-        if not node_id_col or nodes_df is None or node_id_col not in nodes_df.columns:
+        if not nodes_df_ready:
             continue
 
-        left_values_df = None
-        if left_col in nodes_df.columns:
-            if node_id_col == left_col:
-                left_values_df = nodes_df[nodes_df[node_id_col].isin(start_nodes)][[node_id_col]].drop_duplicates().copy()
-                left_values_df.columns = ['__start__']
-                left_values_df['__start_val__'] = left_values_df['__start__']
-            else:
-                left_values_df = nodes_df[nodes_df[node_id_col].isin(start_nodes)][[node_id_col, left_col]].drop_duplicates().rename(
-                    columns={node_id_col: '__start__', left_col: '__start_val__'}
-                )
-
-        right_values_df = None
-        if right_col in nodes_df.columns:
-            if node_id_col == right_col:
-                right_values_df = nodes_df[nodes_df[node_id_col].isin(end_nodes)][[node_id_col]].drop_duplicates().copy()
-                right_values_df.columns = ['__current__']
-                right_values_df['__end_val__'] = right_values_df['__current__']
-            else:
-                right_values_df = nodes_df[nodes_df[node_id_col].isin(end_nodes)][[node_id_col, right_col]].drop_duplicates().rename(
-                    columns={node_id_col: '__current__', right_col: '__end_val__'}
-                )
+        left_values_df = _node_attr_frame(
+            start_nodes, left_col, "__start__", "__start_val__"
+        )
+        right_values_df = _node_attr_frame(
+            end_nodes, right_col, "__current__", "__end_val__"
+        )
 
         left_values_domain = None
         right_values_domain = None
@@ -1366,18 +1374,14 @@ def apply_non_adjacent_where_post_prune(
             start_val_df = left_values_df.copy()
             end_val_df = right_values_df.copy()
             if ineq_label_cols:
-                start_labels = nodes_df[nodes_df[node_id_col].isin(start_nodes)][
-                    [node_id_col, eq_start_col]
-                ].drop_duplicates()
-                start_labels = start_labels.rename(
-                    columns={node_id_col: "__start__", eq_start_col: "__label__"}
+                start_labels = _node_attr_frame(
+                    start_nodes, eq_start_col, "__start__", "__label__"
                 )
-                end_labels = nodes_df[nodes_df[node_id_col].isin(end_nodes)][
-                    [node_id_col, eq_end_col]
-                ].drop_duplicates()
-                end_labels = end_labels.rename(
-                    columns={node_id_col: "__current__", eq_end_col: "__label__"}
+                end_labels = _node_attr_frame(
+                    end_nodes, eq_end_col, "__current__", "__label__"
                 )
+                if start_labels is None or end_labels is None:
+                    continue
                 start_val_df = start_val_df.merge(start_labels, on="__start__", how="inner")
                 end_val_df = end_val_df.merge(end_labels, on="__current__", how="inner")
                 start_val_df = start_val_df[start_val_df["__label__"].notna()]
@@ -1425,80 +1429,14 @@ def apply_non_adjacent_where_post_prune(
                 if _empty_pair(left_edges, right_edges, start_node_idx, end_node_idx):
                     continue
 
-            if clause.op in {"<", "<="}:
-                left_bound = (
-                    left_edges.groupby(group_cols)["__start_val__"]
-                    .min()
-                    .reset_index()
-                    .rename(columns={"__start_val__": "__left_bound__"})
-                )
-                right_bound = (
-                    right_edges.groupby(group_cols)["__end_val__"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"__end_val__": "__right_bound__"})
-                )
-                allowed = left_bound.merge(right_bound, on=group_cols, how="inner")
-                if clause.op == "<":
-                    allowed = allowed[allowed["__left_bound__"] < allowed["__right_bound__"]]
-                else:
-                    allowed = allowed[allowed["__left_bound__"] <= allowed["__right_bound__"]]
-                if len(allowed) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
-                    continue
-
-                left_eval = left_edges.merge(
-                    allowed[group_cols + ["__right_bound__"]], on=group_cols, how="inner"
-                )
-                if clause.op == "<":
-                    left_eval = left_eval[left_eval["__start_val__"] < left_eval["__right_bound__"]]
-                else:
-                    left_eval = left_eval[left_eval["__start_val__"] <= left_eval["__right_bound__"]]
-
-                right_eval = right_edges.merge(
-                    allowed[group_cols + ["__left_bound__"]], on=group_cols, how="inner"
-                )
-                if clause.op == "<":
-                    right_eval = right_eval[right_eval["__end_val__"] > right_eval["__left_bound__"]]
-                else:
-                    right_eval = right_eval[right_eval["__end_val__"] >= right_eval["__left_bound__"]]
-            else:
-                left_bound = (
-                    left_edges.groupby(group_cols)["__start_val__"]
-                    .max()
-                    .reset_index()
-                    .rename(columns={"__start_val__": "__left_bound__"})
-                )
-                right_bound = (
-                    right_edges.groupby(group_cols)["__end_val__"]
-                    .min()
-                    .reset_index()
-                    .rename(columns={"__end_val__": "__right_bound__"})
-                )
-                allowed = left_bound.merge(right_bound, on=group_cols, how="inner")
-                if clause.op == ">":
-                    allowed = allowed[allowed["__left_bound__"] > allowed["__right_bound__"]]
-                else:
-                    allowed = allowed[allowed["__left_bound__"] >= allowed["__right_bound__"]]
-                if len(allowed) == 0:
-                    _set_empty_nodes(start_node_idx, end_node_idx)
-                    continue
-
-                left_eval = left_edges.merge(
-                    allowed[group_cols + ["__right_bound__"]], on=group_cols, how="inner"
-                )
-                if clause.op == ">":
-                    left_eval = left_eval[left_eval["__start_val__"] > left_eval["__right_bound__"]]
-                else:
-                    left_eval = left_eval[left_eval["__start_val__"] >= left_eval["__right_bound__"]]
-
-                right_eval = right_edges.merge(
-                    allowed[group_cols + ["__left_bound__"]], on=group_cols, how="inner"
-                )
-                if clause.op == ">":
-                    right_eval = right_eval[right_eval["__end_val__"] < right_eval["__left_bound__"]]
-                else:
-                    right_eval = right_eval[right_eval["__end_val__"] <= right_eval["__left_bound__"]]
+            left_eval, right_eval = _ineq_eval_pairs(
+                left_edges,
+                right_edges,
+                clause.op,
+                group_cols=group_cols,
+                left_value="__start_val__",
+                right_value="__end_val__",
+            )
 
             if _empty_pair(left_eval, right_eval, start_node_idx, end_node_idx):
                 continue
@@ -2006,34 +1944,62 @@ def apply_edge_where_post_prune(
     fast_path_sem_left = None
     fast_path_sem_right = None
 
-    def _filter_edges_from_node_pairs(
+    def _merge_edges_with_pairs(
         edges_df: DataFrameT,
         sem: EdgeSemantics,
         pairs_df: DataFrameT,
         left_label: str,
         right_label: str,
+        *,
+        value_label: Optional[str] = None,
+        value_col: Optional[str] = None,
+        dedupe: Optional[Sequence[str]] = None,
     ) -> DataFrameT:
         if sem.is_undirected:
+            if value_label is not None and value_col is not None:
+                on_cols = [src_col, dst_col, value_col]
+                fwd_rename = {
+                    left_label: src_col,
+                    right_label: dst_col,
+                    value_label: value_col,
+                }
+                rev_rename = {
+                    left_label: dst_col,
+                    right_label: src_col,
+                    value_label: value_col,
+                }
+            else:
+                on_cols = [src_col, dst_col]
+                fwd_rename = {left_label: src_col, right_label: dst_col}
+                rev_rename = {left_label: dst_col, right_label: src_col}
             fwd = edges_df.merge(
-                pairs_df.rename(columns={left_label: src_col, right_label: dst_col}),
-                on=[src_col, dst_col],
+                pairs_df.rename(columns=fwd_rename),
+                on=on_cols,
                 how="inner",
             )
             rev = edges_df.merge(
-                pairs_df.rename(columns={left_label: dst_col, right_label: src_col}),
-                on=[src_col, dst_col],
+                pairs_df.rename(columns=rev_rename),
+                on=on_cols,
                 how="inner",
             )
             edges_concat = concat_frames([fwd, rev])
+            if edges_concat is None:
+                return edges_df.iloc[:0]
             return (
-                edges_concat.drop_duplicates(subset=[src_col, dst_col])
-                if edges_concat is not None
-                else edges_df.iloc[:0]
+                edges_concat.drop_duplicates(subset=list(dedupe))
+                if dedupe is not None
+                else edges_concat.drop_duplicates()
             )
-        start_endpoint, end_endpoint = sem.endpoint_cols(src_col, dst_col)
+        start_endpoint, end_endpoint = sem.join_cols(src_col, dst_col)
+        rename_map = {left_label: start_endpoint, right_label: end_endpoint}
+        if value_label is not None and value_col is not None:
+            rename_map[value_label] = value_col
+            on_cols = [start_endpoint, end_endpoint, value_col]
+        else:
+            on_cols = [start_endpoint, end_endpoint]
         return edges_df.merge(
-            pairs_df.rename(columns={left_label: start_endpoint, right_label: end_endpoint}),
-            on=[src_col, dst_col],
+            pairs_df.rename(columns=rename_map),
+            on=on_cols,
             how="inner",
         )
 
@@ -2264,51 +2230,15 @@ def apply_edge_where_post_prune(
                 right_pairs = right_eval[right_mask][["__mid__", "__right__", "__right_val__"]]
             else:
                 try:
-                    left_min = (
-                        left_pairs.groupby("__mid__")["__left_val__"]
-                        .min()
-                        .reset_index(name="__left_min__")
-                    )
-                    left_max = (
-                        left_pairs.groupby("__mid__")["__left_val__"]
-                        .max()
-                        .reset_index(name="__left_max__")
-                    )
-                    right_min = (
-                        right_pairs.groupby("__mid__")["__right_val__"]
-                        .min()
-                        .reset_index(name="__right_min__")
-                    )
-                    right_max = (
-                        right_pairs.groupby("__mid__")["__right_val__"]
-                        .max()
-                        .reset_index(name="__right_max__")
+                    left_eval, right_eval = _ineq_eval_pairs(
+                        left_pairs,
+                        right_pairs,
+                        op,
+                        left_value="__left_val__",
+                        right_value="__right_val__",
                     )
                 except Exception:
                     continue
-
-                if op in {"<", "<="}:
-                    left_eval = left_pairs.merge(right_max, on="__mid__", how="inner")
-                    if op == "<":
-                        left_eval = left_eval[left_eval["__left_val__"] < left_eval["__right_max__"]]
-                    else:
-                        left_eval = left_eval[left_eval["__left_val__"] <= left_eval["__right_max__"]]
-                    right_eval = right_pairs.merge(left_min, on="__mid__", how="inner")
-                    if op == "<":
-                        right_eval = right_eval[right_eval["__right_val__"] > right_eval["__left_min__"]]
-                    else:
-                        right_eval = right_eval[right_eval["__right_val__"] >= right_eval["__left_min__"]]
-                else:
-                    left_eval = left_pairs.merge(right_min, on="__mid__", how="inner")
-                    if op == ">":
-                        left_eval = left_eval[left_eval["__left_val__"] > left_eval["__right_min__"]]
-                    else:
-                        left_eval = left_eval[left_eval["__left_val__"] >= left_eval["__right_min__"]]
-                    right_eval = right_pairs.merge(left_max, on="__mid__", how="inner")
-                    if op == ">":
-                        right_eval = right_eval[right_eval["__right_val__"] < right_eval["__left_max__"]]
-                    else:
-                        right_eval = right_eval[right_eval["__right_val__"] <= right_eval["__left_max__"]]
 
                 left_pairs = left_eval[["__left__", "__mid__", "__left_val__"]]
                 right_pairs = right_eval[["__mid__", "__right__", "__right_val__"]]
@@ -2335,58 +2265,23 @@ def apply_edge_where_post_prune(
             _intersect_allowed(right_node_idx, valid_right_nodes)
             _intersect_allowed(mid_node_idx, valid_mid_nodes)
 
-            def _filter_edges_from_pairs(
-                edges_df: DataFrameT,
-                sem: EdgeSemantics,
-                pairs_df: DataFrameT,
-                left_label: str,
-                right_label: str,
-                value_label: str,
-                value_col: str,
-            ) -> DataFrameT:
-                if sem.is_undirected:
-                    fwd = edges_df.merge(
-                        pairs_df.rename(
-                            columns={
-                                left_label: src_col,
-                                right_label: dst_col,
-                                value_label: value_col,
-                            }
-                        ),
-                        on=[src_col, dst_col, value_col],
-                        how="inner",
-                    )
-                    rev = edges_df.merge(
-                        pairs_df.rename(
-                            columns={
-                                left_label: dst_col,
-                                right_label: src_col,
-                                value_label: value_col,
-                            }
-                        ),
-                        on=[src_col, dst_col, value_col],
-                        how="inner",
-                    )
-                    edges_concat = concat_frames([fwd, rev])
-                    return edges_concat.drop_duplicates() if edges_concat is not None else edges_df.iloc[:0]
-                join_col, result_col = sem.join_cols(src_col, dst_col)
-                return edges_df.merge(
-                    pairs_df.rename(
-                        columns={
-                            left_label: join_col,
-                            right_label: result_col,
-                            value_label: value_col,
-                        }
-                    ),
-                    on=[join_col, result_col, value_col],
-                    how="inner",
-                )
-
-            left_edges_filtered = _filter_edges_from_pairs(
-                left_edges, sem_left, left_pairs, "__left__", "__mid__", "__left_val__", left_value_col
+            left_edges_filtered = _merge_edges_with_pairs(
+                left_edges,
+                sem_left,
+                left_pairs,
+                "__left__",
+                "__mid__",
+                value_label="__left_val__",
+                value_col=left_value_col,
             )
-            right_edges_filtered = _filter_edges_from_pairs(
-                right_edges, sem_right, right_pairs, "__mid__", "__right__", "__right_val__", right_value_col
+            right_edges_filtered = _merge_edges_with_pairs(
+                right_edges,
+                sem_right,
+                right_pairs,
+                "__mid__",
+                "__right__",
+                value_label="__right_val__",
+                value_col=right_value_col,
             )
             edge_overrides[left_edge_idx] = left_edges_filtered
             edge_overrides[right_edge_idx] = right_edges_filtered
@@ -2410,12 +2305,22 @@ def apply_edge_where_post_prune(
             left_edges_df = executor.edges_df_for_step(fast_path_left_edge_idx, state)
             right_edges_df = executor.edges_df_for_step(fast_path_right_edge_idx, state)
             if left_edges_df is not None:
-                pruned_edges[fast_path_left_edge_idx] = _filter_edges_from_node_pairs(
-                    left_edges_df, fast_path_sem_left, left_pairs, "__left__", "__mid__"
+                pruned_edges[fast_path_left_edge_idx] = _merge_edges_with_pairs(
+                    left_edges_df,
+                    fast_path_sem_left,
+                    left_pairs,
+                    "__left__",
+                    "__mid__",
+                    dedupe=[src_col, dst_col],
                 )
             if right_edges_df is not None:
-                pruned_edges[fast_path_right_edge_idx] = _filter_edges_from_node_pairs(
-                    right_edges_df, fast_path_sem_right, right_pairs, "__mid__", "__right__"
+                pruned_edges[fast_path_right_edge_idx] = _merge_edges_with_pairs(
+                    right_edges_df,
+                    fast_path_sem_right,
+                    right_pairs,
+                    "__mid__",
+                    "__right__",
+                    dedupe=[src_col, dst_col],
                 )
             return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
 
@@ -2549,24 +2454,14 @@ def apply_edge_where_post_prune(
                 if not isinstance(edge_op, ASTEdge):
                     continue
                 sem = EdgeSemantics.from_edge(edge_op)
-
-                if sem.is_undirected:
-                    fwd = edges_df.merge(
-                        valid_pairs.rename(columns={left_col: src_col, right_col: dst_col}),
-                        on=[src_col, dst_col], how='inner'
-                    )
-                    rev = edges_df.merge(
-                        valid_pairs.rename(columns={left_col: dst_col, right_col: src_col}),
-                        on=[src_col, dst_col], how='inner'
-                    )
-                    edges_concat = concat_frames([fwd, rev])
-                    edges_df = edges_concat.drop_duplicates(subset=[src_col, dst_col]) if edges_concat is not None else edges_df.iloc[:0]
-                else:
-                    start_endpoint, end_endpoint = sem.endpoint_cols(src_col, dst_col)
-                    edges_df = edges_df.merge(
-                        valid_pairs.rename(columns={left_col: start_endpoint, right_col: end_endpoint}),
-                        on=[src_col, dst_col], how='inner'
-                    )
+                edges_df = _merge_edges_with_pairs(
+                    edges_df,
+                    sem,
+                    valid_pairs,
+                    left_col,
+                    right_col,
+                    dedupe=[src_col, dst_col],
+                )
                 pruned_edges[edge_idx] = edges_df
 
     return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
