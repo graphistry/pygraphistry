@@ -280,7 +280,6 @@ class DFSamePathExecutor:
                         self._apply_minmax_forward_prune(
                             clause, left_alias, right_alias, left_col, right_col
                         )
-                        # Don't set changed for minmax - it's a one-shot prune
             if span is not None and otel_detail_enabled():
                 for key, value in self._alias_frame_stats().items():
                     span.set_attribute(f"{key}_after", value)
@@ -668,11 +667,8 @@ class DFSamePathExecutor:
             idx for idx in edge_indices if start_node_idx < idx < end_node_idx
         ]
 
-        # Build updates in local dicts (converted to immutable at end)
-        # Start with copies of current state
         local_allowed_nodes: Dict[int, Any] = dict(state.allowed_nodes)
         local_allowed_edges: Dict[int, Any] = dict(state.allowed_edges)
-        # Start with existing pruned_edges from state
         pruned_edges: Dict[int, Any] = dict(state.pruned_edges)
 
         for edge_idx in reversed(relevant_edge_indices):
@@ -750,11 +746,9 @@ class DFSamePathExecutor:
             else:
                 local_allowed_nodes[left_node_idx] = new_src_nodes
 
-            # Track pruned edges
             if len(edges_df) < original_len:
                 pruned_edges[edge_idx] = edges_df
 
-        # Return new immutable PathState
         return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, pruned_edges)
 
     def _materialize_filtered(self, state: PathState) -> Plottable:
@@ -778,18 +772,13 @@ class DFSamePathExecutor:
         if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:
             raise ValueError("Graph bindings are incomplete for same-path execution")
 
-        # If any node step has an explicitly empty allowed set, the path is broken
-        # (e.g., WHERE clause filtered out all nodes at some step)
         if state.allowed_nodes:
             for node_set in state.allowed_nodes.values():
                 if domain_is_empty(node_set):
-                    # Empty domain at a step means no valid paths exist
                     return self._materialize_from_oracle(
                         nodes_df.iloc[0:0], edges_df.iloc[0:0]
                     )
 
-        # Build allowed node/edge DataFrames (vectorized - avoid Python sets where possible)
-        # Collect allowed node IDs from state using engine-aware construction
         allowed_node_frames: List[DataFrameT] = []
         if state.allowed_nodes:
             for node_set in state.allowed_nodes.values():
@@ -802,14 +791,12 @@ class DFSamePathExecutor:
                 if not domain_is_empty(edge_set):
                     allowed_edge_frames.append(domain_to_frame(edges_df, edge_set, '__edge__'))
 
-        # For multi-hop edges, include all intermediate nodes from the edge frames
-        # (state.allowed_nodes only tracks start/end of multi-hop traversals)
+        # For multi-hop edges, include intermediate nodes referenced by edges.
         has_multihop = any(
             isinstance(op, ASTEdge) and EdgeSemantics.from_edge(op).is_multihop
             for op in self.inputs.chain
         )
         if has_multihop and src in edges_df.columns and dst in edges_df.columns:
-            # Include all nodes referenced by edges (vectorized)
             allowed_node_frames.append(
                 edges_df[[src]].rename(columns={src: '__node__'})
             )
@@ -817,7 +804,6 @@ class DFSamePathExecutor:
                 edges_df[[dst]].rename(columns={dst: '__node__'})
             )
 
-        # Combine and dedupe allowed nodes
         if allowed_node_frames:
             allowed_nodes_concat = concat_frames(allowed_node_frames)
             allowed_nodes_df = allowed_nodes_concat.drop_duplicates() if allowed_nodes_concat is not None else nodes_df[[node_id]].iloc[:0].rename(columns={node_id: '__node__'})
@@ -825,8 +811,6 @@ class DFSamePathExecutor:
         else:
             filtered_nodes = nodes_df.iloc[0:0]
 
-        # Filter edges by allowed nodes (both src AND dst must be in allowed nodes)
-        # This ensures that edges from filtered-out paths don't appear in the result
         filtered_edges = edges_df
         if allowed_node_frames:
             filtered_edges = filtered_edges[
@@ -836,7 +820,6 @@ class DFSamePathExecutor:
         else:
             filtered_edges = filtered_edges.iloc[0:0]
 
-        # Filter by allowed edge IDs
         if allowed_edge_frames and edge_id and edge_id in filtered_edges.columns:
             allowed_edges_concat = concat_frames(allowed_edge_frames)
             if allowed_edges_concat is not None:
@@ -864,7 +847,6 @@ class DFSamePathExecutor:
         )
         if has_output_slice:
             if len(filtered_edges) > 0:
-                # Build endpoint IDs DataFrame (vectorized - no Python sets)
                 endpoint_ids_concat = concat_frames([
                     filtered_edges[[src]].rename(columns={src: '__node__'}),
                     filtered_edges[[dst]].rename(columns={dst: '__node__'})
