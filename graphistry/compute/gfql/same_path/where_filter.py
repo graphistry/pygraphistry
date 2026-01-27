@@ -64,12 +64,14 @@ def filter_edges_by_clauses(
     if right_allowed is not None:
         rf = rf[rf[node_col].isin(right_allowed)]
 
-    left_cols = list(executor.inputs.column_requirements.get(left_alias, []))
-    right_cols = list(executor.inputs.column_requirements.get(right_alias, []))
-    if node_col in left_cols:
-        left_cols.remove(node_col)
-    if node_col in right_cols:
-        right_cols.remove(node_col)
+    left_cols = [
+        col for col in executor.inputs.column_requirements.get(left_alias, [])
+        if col != node_col
+    ]
+    right_cols = [
+        col for col in executor.inputs.column_requirements.get(right_alias, [])
+        if col != node_col
+    ]
 
     lf = lf[[node_col] + left_cols].rename(columns={
         node_col: "__left_id__",
@@ -81,43 +83,28 @@ def filter_edges_by_clauses(
     })
 
     if sem.is_undirected:
-        fwd_df = _merge_and_filter_edges(
-            executor, edges_df, lf, rf, left_alias, right_alias, relevant,
-            left_merge_col=src_col,
-            right_merge_col=dst_col
-        )
-        rev_df = _merge_and_filter_edges(
-            executor, edges_df, lf, rf, left_alias, right_alias, relevant,
-            left_merge_col=dst_col,
-            right_merge_col=src_col
-        )
-        if len(fwd_df) == 0 and len(rev_df) == 0:
-            return fwd_df  # Empty dataframe with correct schema
-        elif len(fwd_df) == 0:
-            out_df = rev_df
-        elif len(rev_df) == 0:
-            out_df = fwd_df
-        else:
-            out_df = safe_concat([fwd_df, rev_df], ignore_index=True, sort=False)
-            out_df = out_df.drop_duplicates(
-                subset=[src_col, dst_col]
-            )
-        return out_df
-
-    if sem.is_reverse:
-        left_merge_col = dst_col
-        right_merge_col = src_col
+        merge_cols = [(src_col, dst_col), (dst_col, src_col)]
+    elif sem.is_reverse:
+        merge_cols = [(dst_col, src_col)]
     else:
-        left_merge_col = src_col
-        right_merge_col = dst_col
+        merge_cols = [(src_col, dst_col)]
 
-    out_df = _merge_and_filter_edges(
-        executor, edges_df, lf, rf, left_alias, right_alias, relevant,
-        left_merge_col=left_merge_col,
-        right_merge_col=right_merge_col
-    )
+    frames = [
+        _merge_and_filter_edges(
+            executor, edges_df, lf, rf, left_alias, right_alias, relevant,
+            left_merge_col=left_merge_col,
+            right_merge_col=right_merge_col,
+        )
+        for left_merge_col, right_merge_col in merge_cols
+    ]
+    non_empty = [frame for frame in frames if len(frame) > 0]
+    if not non_empty:
+        return frames[0]
+    if len(non_empty) == 1:
+        return non_empty[0]
 
-    return out_df
+    out_df = safe_concat(non_empty, ignore_index=True, sort=False)
+    return out_df.drop_duplicates(subset=[src_col, dst_col])
 
 
 def _merge_and_filter_edges(
@@ -246,12 +233,14 @@ def filter_multihop_by_where(
     lf = left_frame[left_frame[node_col].isin(start_nodes)]
     rf = right_frame[right_frame[node_col].isin(end_nodes)]
 
-    left_cols = list(executor.inputs.column_requirements.get(left_alias, []))
-    right_cols = list(executor.inputs.column_requirements.get(right_alias, []))
-    if node_col in left_cols:
-        left_cols.remove(node_col)
-    if node_col in right_cols:
-        right_cols.remove(node_col)
+    left_cols = [
+        col for col in executor.inputs.column_requirements.get(left_alias, [])
+        if col != node_col
+    ]
+    right_cols = [
+        col for col in executor.inputs.column_requirements.get(right_alias, [])
+        if col != node_col
+    ]
 
     lf = lf[[node_col] + left_cols].rename(columns={
         node_col: "__start_id__",

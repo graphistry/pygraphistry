@@ -42,9 +42,9 @@ def bfs_reachability(
     result = domain_to_frame(edge_pairs, start_domain, '__node__')
     result[hop_col] = 0
     visited_idx = start_domain
+    frontier = result[['__node__']].rename(columns={'__node__': '__from__'})
 
     for hop in range(1, max_hops + 1):
-        frontier = result[result[hop_col] == hop - 1][['__node__']].rename(columns={'__node__': '__from__'})
         if len(frontier) == 0:
             break
         next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].drop_duplicates()
@@ -58,6 +58,7 @@ def bfs_reachability(
         new_nodes = domain_to_frame(edge_pairs, new_node_ids, '__node__')
         new_nodes[hop_col] = hop
         visited_idx = domain_union(visited_idx, new_node_ids)
+        frontier = new_nodes[['__node__']].rename(columns={'__node__': '__from__'})
 
         result_next = concat_frames([result, new_nodes])
         if result_next is None:

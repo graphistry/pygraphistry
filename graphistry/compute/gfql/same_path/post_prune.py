@@ -297,6 +297,12 @@ def apply_non_adjacent_where_post_prune(
     def _group_entries_processed(entries: Sequence[tuple]) -> bool:
         return any(id(clause) in processed_clause_ids for _, _, clause in entries)
 
+    def _intersect_allowed(idx: int, values: DomainT) -> None:
+        if idx in local_allowed_nodes:
+            local_allowed_nodes[idx] = domain_intersect(
+                local_allowed_nodes[idx], values
+            )
+
     def _collect_multi_eq_groups(
         clauses: Sequence["WhereComparison"],
     ):
@@ -734,14 +740,8 @@ def apply_non_adjacent_where_post_prune(
 
             valid_starts = series_values(valid_pairs["__start__"])
             valid_ends = series_values(valid_pairs["__current__"])
-            if start_node_idx in local_allowed_nodes:
-                local_allowed_nodes[start_node_idx] = domain_intersect(
-                    local_allowed_nodes[start_node_idx], valid_starts
-                )
-            if end_node_idx in local_allowed_nodes:
-                local_allowed_nodes[end_node_idx] = domain_intersect(
-                    local_allowed_nodes[end_node_idx], valid_ends
-                )
+            _intersect_allowed(start_node_idx, valid_starts)
+            _intersect_allowed(end_node_idx, valid_ends)
 
             vector_used = True
             clause_count += len(group_entries)
@@ -914,16 +914,8 @@ def apply_non_adjacent_where_post_prune(
                                 valid_starts = series_values(left_pairs["__start__"])
                                 valid_ends = series_values(right_pairs["__current__"])
 
-                                if start_node_idx in local_allowed_nodes:
-                                    local_allowed_nodes[start_node_idx] = domain_intersect(
-                                        local_allowed_nodes[start_node_idx],
-                                        valid_starts,
-                                    )
-                                if end_node_idx in local_allowed_nodes:
-                                    local_allowed_nodes[end_node_idx] = domain_intersect(
-                                        local_allowed_nodes[end_node_idx],
-                                        valid_ends,
-                                    )
+                                _intersect_allowed(start_node_idx, valid_starts)
+                                _intersect_allowed(end_node_idx, valid_ends)
 
                                 domain_semijoin_used = True
                                 clause_count += len(group_entries)
@@ -1028,14 +1020,8 @@ def apply_non_adjacent_where_post_prune(
             valid_starts = series_values(valid_starts_df["__start__"])
             valid_ends = series_values(valid_ends_df["__current__"])
 
-            if start_node_idx in local_allowed_nodes:
-                local_allowed_nodes[start_node_idx] = domain_intersect(
-                    local_allowed_nodes[start_node_idx], valid_starts
-                )
-            if end_node_idx in local_allowed_nodes:
-                local_allowed_nodes[end_node_idx] = domain_intersect(
-                    local_allowed_nodes[end_node_idx], valid_ends
-                )
+            _intersect_allowed(start_node_idx, valid_starts)
+            _intersect_allowed(end_node_idx, valid_ends)
 
             value_mode_used = True
             multi_eq_value_used = True
@@ -1821,16 +1807,8 @@ def apply_non_adjacent_where_post_prune(
                                 valid_starts = series_values(left_eval["__start__"])
                                 valid_ends = series_values(right_eval["__current__"])
 
-                            if start_node_idx in local_allowed_nodes:
-                                local_allowed_nodes[start_node_idx] = domain_intersect(
-                                    local_allowed_nodes[start_node_idx],
-                                    valid_starts,
-                                )
-                            if end_node_idx in local_allowed_nodes:
-                                local_allowed_nodes[end_node_idx] = domain_intersect(
-                                    local_allowed_nodes[end_node_idx],
-                                    valid_ends,
-                                )
+                            _intersect_allowed(start_node_idx, valid_starts)
+                            _intersect_allowed(end_node_idx, valid_ends)
 
                             domain_semijoin_used = True
                             current_state = PathState.from_mutable(
@@ -1950,16 +1928,8 @@ def apply_non_adjacent_where_post_prune(
             valid_starts = series_values(valid_pairs['__start__'])
             valid_ends = series_values(valid_pairs['__current__'])
 
-        if start_node_idx in local_allowed_nodes:
-            local_allowed_nodes[start_node_idx] = domain_intersect(
-                local_allowed_nodes[start_node_idx],
-                valid_starts,
-            )
-        if end_node_idx in local_allowed_nodes:
-            local_allowed_nodes[end_node_idx] = domain_intersect(
-                local_allowed_nodes[end_node_idx],
-                valid_ends,
-            )
+        _intersect_allowed(start_node_idx, valid_starts)
+        _intersect_allowed(end_node_idx, valid_ends)
 
         current_state = PathState.from_mutable(
             local_allowed_nodes, local_allowed_edges, local_pruned_edges
@@ -2075,6 +2045,12 @@ def apply_edge_where_post_prune(
     def _set_empty_nodes(*idxs: int) -> None:
         for idx in idxs:
             local_allowed_nodes[idx] = empty_nodes
+
+    def _intersect_allowed(idx: int, values: DomainT) -> None:
+        if idx in local_allowed_nodes:
+            local_allowed_nodes[idx] = domain_intersect(
+                local_allowed_nodes[idx], values
+            )
 
     edge_positions = {edge_idx: pos for pos, edge_idx in enumerate(edge_indices)}
     fast_path_possible = (
@@ -2415,18 +2391,9 @@ def apply_edge_where_post_prune(
             valid_mid_right = series_values(right_pairs["__mid__"])
             valid_mid_nodes = domain_intersect(valid_mid_left, valid_mid_right)
 
-            if left_node_idx in local_allowed_nodes:
-                local_allowed_nodes[left_node_idx] = domain_intersect(
-                    local_allowed_nodes[left_node_idx], valid_left_nodes
-                )
-            if right_node_idx in local_allowed_nodes:
-                local_allowed_nodes[right_node_idx] = domain_intersect(
-                    local_allowed_nodes[right_node_idx], valid_right_nodes
-                )
-            if mid_node_idx in local_allowed_nodes:
-                local_allowed_nodes[mid_node_idx] = domain_intersect(
-                    local_allowed_nodes[mid_node_idx], valid_mid_nodes
-                )
+            _intersect_allowed(left_node_idx, valid_left_nodes)
+            _intersect_allowed(right_node_idx, valid_right_nodes)
+            _intersect_allowed(mid_node_idx, valid_mid_nodes)
 
             def _filter_edges_from_pairs(
                 edges_df: DataFrameT,
