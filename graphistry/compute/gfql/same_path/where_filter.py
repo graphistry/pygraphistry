@@ -190,20 +190,16 @@ def filter_multihop_by_where(
     if left_frame is None or right_frame is None or node_col is None:
         return edges_df
 
-    # Get hop label column to identify first/last hop edges
     node_label, edge_label = executor._resolve_label_cols(edge_op)
 
     sem = EdgeSemantics.from_edge(edge_op)
 
-    # Check if hop labels are usable (filtered start node gives unambiguous labels)
-    # For unfiltered starts, all edges have hop_label=1, making them useless for identification
     first_node_step = executor.inputs.chain[0] if executor.inputs.chain else None
     has_filtered_start = (
         isinstance(first_node_step, ASTNode) and first_node_step.filter_dict
     )
 
     if edge_label and edge_label in edges_df.columns and has_filtered_start:
-        # Use hop labels to identify start/end nodes (accurate when start is filtered)
         hop_col = edges_df[edge_label]
         min_hop = hop_col.min()
         first_hop_edges = edges_df[hop_col == min_hop]
@@ -223,7 +219,6 @@ def filter_multihop_by_where(
             ])
             end_nodes_df = end_concat.drop_duplicates() if end_concat is not None else valid_endpoint_edges[[src_col]].iloc[:0].rename(columns={src_col: '__node__'})
         else:
-            # For directed edges, use endpoint_cols to get proper src/dst mapping
             start_col, end_col = sem.endpoint_cols(src_col, dst_col)
             start_nodes_df = first_hop_edges[[start_col]].rename(
                 columns={start_col: '__node__'}
@@ -235,12 +230,9 @@ def filter_multihop_by_where(
         start_nodes = series_values(start_nodes_df['__node__'])
         end_nodes = series_values(end_nodes_df['__node__'])
     else:
-        # Fallback: use alias frames directly when hop labels are ambiguous
-        # (unfiltered start makes all edges "hop 1" from some start)
         start_nodes = series_values(left_frame[node_col])
         end_nodes = series_values(right_frame[node_col])
 
-    # Filter to allowed nodes
     left_step_idx = executor.inputs.alias_bindings[left_alias].step_index
     right_step_idx = executor.inputs.alias_bindings[right_alias].step_index
     if left_step_idx in allowed_nodes and not domain_is_empty(allowed_nodes[left_step_idx]):
@@ -251,7 +243,6 @@ def filter_multihop_by_where(
     if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
         return edges_df.iloc[:0]  # Empty dataframe
 
-    # Build (start, end) pairs that satisfy WHERE
     lf = left_frame[left_frame[node_col].isin(start_nodes)]
     rf = right_frame[right_frame[node_col].isin(end_nodes)]
 
@@ -262,7 +253,6 @@ def filter_multihop_by_where(
     if node_col in right_cols:
         right_cols.remove(node_col)
 
-    # Prefix value columns to avoid collision when merging
     lf = lf[[node_col] + left_cols].rename(columns={
         node_col: "__start_id__",
         **{c: f"__L_{c}" for c in left_cols}
@@ -272,12 +262,10 @@ def filter_multihop_by_where(
         **{c: f"__R_{c}" for c in right_cols}
     })
 
-    # Cross join to get all (start, end) combinations
     lf = lf.assign(__cross_key__=1)
     rf = rf.assign(__cross_key__=1)
     pairs_df = lf.merge(rf, on="__cross_key__").drop(columns=["__cross_key__"])
 
-    # Apply WHERE clauses to filter valid (start, end) pairs
     for clause in relevant:
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
         right_col = clause.right.column if clause.right.alias == right_alias else clause.left.column
@@ -290,11 +278,9 @@ def filter_multihop_by_where(
     if len(pairs_df) == 0:
         return edges_df.iloc[:0]
 
-    # Get valid start and end nodes
     valid_starts = series_values(pairs_df["__start_id__"])
     valid_ends = series_values(pairs_df["__end_id__"])
 
-    # Use vectorized bidirectional reachability to filter edges
     return filter_multihop_edges_by_endpoints(
         edges_df, edge_op, valid_starts, valid_ends, sem,
         src_col, dst_col
