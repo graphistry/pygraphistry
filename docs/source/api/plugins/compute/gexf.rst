@@ -1,7 +1,7 @@
 .. _gexf:
 
-GEXF
------
+Gephi (GEXF)
+-------------
 
 GEXF (Graph Exchange XML Format) is commonly used by Gephi and other tools for graph interchange.
 Graphistry supports GEXF 1.1draft, 1.2draft, and 1.3 for import/export with no extra dependencies.
