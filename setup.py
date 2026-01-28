@@ -20,7 +20,7 @@ core_requires = [
 ]
 
 stubs = [
-  'pandas-stubs', 'types-requests', 'ipython', 'types-tqdm'
+  'pandas-stubs', 'types-defusedxml', 'types-requests', 'ipython', 'types-tqdm'
 ]
 
 test_workarounds = []

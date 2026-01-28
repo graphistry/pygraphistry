@@ -6,7 +6,7 @@ from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
 try:
-    from defusedxml import ElementTree as DEFUSED_ET  # type: ignore[import-untyped]
+    from defusedxml import ElementTree as DEFUSED_ET
 except Exception:
     DEFUSED_ET = None
 
