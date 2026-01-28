@@ -6,7 +6,7 @@ from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
 try:
-    from defusedxml import ElementTree as DEFUSED_ET
+    from defusedxml import ElementTree as DEFUSED_ET  # type: ignore[import-untyped]
 except Exception:
     DEFUSED_ET = None
 
@@ -284,7 +284,9 @@ def from_gexf(
         g = g.name(name)
     if description is not None:
         g = g.description(description)
-    elif meta.get("description"):
-        g = g.description(meta["description"])
+    else:
+        meta_description = meta.get("description")
+        if meta_description is not None:
+            g = g.description(meta_description)
 
     return g
