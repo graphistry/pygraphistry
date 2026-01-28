@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **Mypy**: Align PlotterBase/UMAP weighted-edge DataFrame typing for type checking (PR #909).
+- **GFQL / hypergraph**: Avoid DataFrame.style access for `return_as` DataFrame results without Jinja2 (PR #909).
 
 ### Tests
 - **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
