@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.50.6 - 2026-01-27]
+
 ### Fixed
 - **GFQL / hypergraph**: Avoid `DataFrame.style` access when `return_as` yields a DataFrame, preventing Jinja2 import errors in minimal environments without Jinja2 (PR #909).
 
