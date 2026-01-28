@@ -20,7 +20,7 @@ def _is_na(value: Any) -> bool:
     return value is None or (pd.api.types.is_scalar(value) and bool(pd.isna(value)))
 def _infer_attr_type(series: pd.Series) -> str:
     return "boolean" if pd.api.types.is_bool_dtype(series) else "integer" if pd.api.types.is_integer_dtype(series) else "float" if pd.api.types.is_float_dtype(series) else "string"
-def _format_attr_value(value: ScalarValue, attr_type: str) -> Optional[str]:
+def _format_attr_value(value: object, attr_type: str) -> Optional[str]:
     if _is_na(value):
         return None
     if attr_type == "boolean":
