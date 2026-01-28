@@ -29,8 +29,6 @@ logger = setup_logger(__name__)
 DataFrameLike = Union[pd.DataFrame, Any]
 
 if TYPE_CHECKING:
-    from graphistry.Plottable import Plottable
-
     class _UMAPMixinBase(FeatureMixin, Plottable):
         pass
 
