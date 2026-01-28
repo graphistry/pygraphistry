@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
-- **Mypy**: Declare UMAP mixin weighted-edge DataFrame attributes for type checking.
+- **Mypy**: Annotate PlotterBase weighted-edge DataFrame attributes for type checking (PR #909).
 
 ### Tests
 - **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
