@@ -1,89 +1,58 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import IO, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import os
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
+try:
+    from defusedxml import ElementTree as DEFUSED_ET
+except Exception:
+    DEFUSED_ET = None
+
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz
-
-
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 GEXF_NAMESPACES = {
-    "http://www.gephi.org/gexf/1.1draft",
-    "http://www.gexf.net/1.1draft",
-    "http://www.gexf.net/1.2draft",
-    "http://gexf.net/1.3",
+    "http://www.gephi.org/gexf/1.1draft", "http://www.gexf.net/1.1draft",
+    "http://www.gexf.net/1.2draft", "http://gexf.net/1.3",
 }
-
 VIZ_NAMESPACES = {
-    "http://www.gephi.org/gexf/1.1draft/viz",
-    "http://www.gexf.net/1.1draft/viz",
-    "http://www.gexf.net/1.2draft/viz",
-    "http://gexf.net/1.3/viz",
-    "http://www.gexf.net/1.3/viz",
+    "http://www.gephi.org/gexf/1.1draft/viz", "http://www.gexf.net/1.1draft/viz",
+    "http://www.gexf.net/1.2draft/viz", "http://gexf.net/1.3/viz", "http://www.gexf.net/1.3/viz",
 }
-
 GEXF_NODE_SHAPE_ICON_MAP = {
-    "disc": "circle",
-    "square": "square",
-    "triangle": "caret-up",
-    "diamond": "diamond",
-    "image": "picture-o",
+    "disc": "circle", "square": "square", "triangle": "caret-up",
+    "diamond": "diamond", "image": "picture-o",
 }
-
 EXPORT_VERSION_CONFIG = {
-    "1.1draft": {
-        "gexf_ns": "http://www.gexf.net/1.1draft",
-        "viz_ns": "http://www.gexf.net/1.1draft/viz",
-        "schema": "http://www.gexf.net/1.1draft/gexf.xsd",
-        "version": "1.1",
-    },
-    "1.2draft": {
-        "gexf_ns": "http://www.gexf.net/1.2draft",
-        "viz_ns": "http://www.gexf.net/1.2draft/viz",
-        "schema": "http://www.gexf.net/1.2draft/gexf.xsd",
-        "version": "1.2",
-    },
-    "1.3": {
-        "gexf_ns": "http://gexf.net/1.3",
-        "viz_ns": "http://gexf.net/1.3/viz",
-        "schema": "http://gexf.net/1.3/gexf.xsd",
-        "version": "1.3",
-    },
+    "1.1draft": ("http://www.gexf.net/1.1draft", "http://www.gexf.net/1.1draft/viz",
+                 "http://www.gexf.net/1.1draft/gexf.xsd", "1.1"),
+    "1.2draft": ("http://www.gexf.net/1.2draft", "http://www.gexf.net/1.2draft/viz",
+                 "http://www.gexf.net/1.2draft/gexf.xsd", "1.2"),
+    "1.3": ("http://gexf.net/1.3", "http://gexf.net/1.3/viz", "http://gexf.net/1.3/gexf.xsd", "1.3"),
 }
-
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+GEXF_NODE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity", "position", "icon"}
+GEXF_EDGE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity"}
+GexfSource = Union[str, bytes, bytearray, IO[bytes], IO[str]]
 
-
-def _namespace(tag: str) -> str:
+def _split_tag(tag: str) -> Tuple[str, str]:
     if tag.startswith("{") and "}" in tag:
-        return tag[1:].split("}", 1)[0]
-    return ""
-
-
-def _local_name(tag: str) -> str:
-    if "}" in tag:
-        return tag.split("}", 1)[1]
-    return tag
-
+        ns, local = tag[1:].split("}", 1)
+        return ns, local
+    return "", tag
 
 def _find_child(elem: ET.Element, local_name: str) -> Optional[ET.Element]:
-    for child in list(elem):
-        if _local_name(child.tag) == local_name:
-            return child
-    return None
-
+    return next((child for child in elem if _split_tag(child.tag)[1] == local_name), None)
 
 def _iter_children(elem: ET.Element, local_name: str) -> Iterable[ET.Element]:
-    for child in list(elem):
-        if _local_name(child.tag) == local_name:
+    for child in elem:
+        if _split_tag(child.tag)[1] == local_name:
             yield child
 
-
-def _read_source_bytes(source: Any) -> bytes:
+def _read_source_bytes(source: GexfSource) -> bytes:
     if hasattr(source, "read"):
         data = source.read()
         if isinstance(data, (bytes, bytearray)):
@@ -101,8 +70,9 @@ def _read_source_bytes(source: Any) -> bytes:
             return f.read()
     raise ValueError("Unsupported GEXF source type")
 
+ScalarValue = Optional[Union[int, float, bool, str]]
 
-def _coerce_value(raw: Optional[str], attr_type: str) -> Any:
+def _coerce_value(raw: Optional[str], attr_type: str) -> ScalarValue:
     if raw is None:
         return None
     value = raw.strip()
@@ -120,13 +90,11 @@ def _coerce_value(raw: Optional[str], attr_type: str) -> Any:
         return value.lower() in {"true", "1", "yes"}
     return value
 
-
 def _rgb_to_hex(r: str, g: str, b: str) -> Optional[str]:
     try:
         return "#{:02X}{:02X}{:02X}".format(int(float(r)), int(float(g)), int(float(b)))
     except ValueError:
         return None
-
 
 def _infer_attr_type(series: pd.Series) -> str:
     if pd.api.types.is_bool_dtype(series):
@@ -137,7 +105,6 @@ def _infer_attr_type(series: pd.Series) -> str:
         return "float"
     return "string"
 
-
 def _is_na(value: Any) -> bool:
     if value is None:
         return True
@@ -145,14 +112,12 @@ def _is_na(value: Any) -> bool:
         return False
     return bool(pd.isna(value))
 
-
-def _format_attr_value(value: Any, attr_type: str) -> Optional[str]:
+def _format_attr_value(value: ScalarValue, attr_type: str) -> Optional[str]:
     if _is_na(value):
         return None
     if attr_type == "boolean":
         return "true" if bool(value) else "false"
     return str(value)
-
 
 def _parse_hex_color(value: Any, label: str) -> Optional[Tuple[int, int, int, Optional[float]]]:
     if _is_na(value):
@@ -176,7 +141,6 @@ def _parse_hex_color(value: Any, label: str) -> Optional[Tuple[int, int, int, Op
         alpha = int(hex_body[6:8], 16) / 255.0
     return r, g, b, alpha
 
-
 def _coerce_float(value: Any, label: str) -> Optional[float]:
     if _is_na(value):
         return None
@@ -185,9 +149,7 @@ def _coerce_float(value: Any, label: str) -> Optional[float]:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid {label} value {value!r}; expected numeric") from exc
 
-
 AttrDef = Tuple[str, str, Optional[str]]
-
 
 def _collect_attribute_defs(graph_elem: ET.Element, class_name: str) -> Dict[str, AttrDef]:
     defs: Dict[str, AttrDef] = {}
@@ -207,16 +169,10 @@ def _collect_attribute_defs(graph_elem: ET.Element, class_name: str) -> Dict[str
             defs[attr_id] = (title, attr_type, default)
     return defs
 
-
-def _apply_attr_defaults(attr_defs: Dict[str, AttrDef], row: Dict[str, Any]) -> None:
+def _apply_attvalues(parent: ET.Element, attr_defs: Dict[str, AttrDef], row: Dict[str, ScalarValue]) -> None:
     for _, (title, attr_type, default) in attr_defs.items():
-        if default is None:
-            continue
-        if title not in row:
+        if default is not None and title not in row:
             row[title] = _coerce_value(default, attr_type)
-
-
-def _parse_attvalues(parent: ET.Element, attr_defs: Dict[str, AttrDef], row: Dict[str, Any]) -> None:
     attvalues_elem = _find_child(parent, "attvalues")
     if attvalues_elem is None:
         return
@@ -232,13 +188,11 @@ def _parse_attvalues(parent: ET.Element, attr_defs: Dict[str, AttrDef], row: Dic
             title, attr_type, _default = attr_def
             row[title] = _coerce_value(raw_value, attr_type)
 
-
-def _parse_viz(parent: ET.Element, row: Dict[str, Any], element_kind: str) -> None:
+def _parse_viz(parent: ET.Element, row: Dict[str, ScalarValue], element_kind: str) -> None:
     for child in list(parent):
-        ns = _namespace(child.tag)
+        ns, local = _split_tag(child.tag)
         if ns not in VIZ_NAMESPACES:
             continue
-        local = _local_name(child.tag)
         if local == "color":
             hex_val = child.attrib.get("hex")
             alpha_val = child.attrib.get("alpha") or child.attrib.get("a")
@@ -253,23 +207,14 @@ def _parse_viz(parent: ET.Element, row: Dict[str, Any], element_kind: str) -> No
             if alpha_val is not None:
                 row["viz_opacity"] = _coerce_value(alpha_val, "float")
         elif local == "position":
-            x = child.attrib.get("x")
-            y = child.attrib.get("y")
-            z = child.attrib.get("z")
-            if x is not None:
-                row["viz_x"] = _coerce_value(x, "float")
-            if y is not None:
-                row["viz_y"] = _coerce_value(y, "float")
-            if z is not None:
-                row["viz_z"] = _coerce_value(z, "float")
-        elif local == "size":
+            for axis in ("x", "y", "z"):
+                value = child.attrib.get(axis)
+                if value is not None:
+                    row[f"viz_{axis}"] = _coerce_value(value, "float")
+        elif local in {"size", "thickness"}:
             value = child.attrib.get("value")
             if value is not None:
-                row["viz_size"] = _coerce_value(value, "float")
-        elif local == "thickness":
-            value = child.attrib.get("value")
-            if value is not None:
-                row["viz_thickness"] = _coerce_value(value, "float")
+                row["viz_size" if local == "size" else "viz_thickness"] = _coerce_value(value, "float")
         elif local == "shape":
             value = child.attrib.get("value")
             if value is not None:
@@ -284,23 +229,55 @@ def _parse_viz(parent: ET.Element, row: Dict[str, Any], element_kind: str) -> No
                     if icon_value is not None:
                         row["viz_shape_icon"] = icon_value
 
+def _normalize_viz_fields(
+    value: Optional[Iterable[str]],
+    allowed: Set[str],
+    label: str,
+) -> Set[str]:
+    if value is None:
+        return set(allowed)
+    if isinstance(value, str):
+        fields = {value}
+    else:
+        try:
+            fields = set(value)
+        except TypeError as exc:
+            raise ValueError(f"{label} viz bindings must be an iterable of strings") from exc
+    if not all(isinstance(v, str) for v in fields):
+        raise ValueError(f"{label} viz bindings must be strings")
+    unknown = fields.difference(allowed)
+    if unknown:
+        unknown_list = ", ".join(sorted(unknown))
+        raise ValueError(f"Unsupported {label} viz bindings: {unknown_list}")
+    return fields
 
 def gexf_to_dfs(
-    source: Any,
+    source: GexfSource,
     node_col: str = "node_id",
     source_col: str = "source",
     destination_col: str = "target",
     edge_id_col: str = "edge_id",
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    parse_engine: GexfParseEngine = "auto",
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Optional[str]]]:
     data = _read_source_bytes(source)
+    if parse_engine == "stdlib":
+        parser = ET
+    elif parse_engine == "defused":
+        if DEFUSED_ET is None:
+            raise ValueError("defusedxml is not installed; install it or use parse_engine='stdlib'")
+        parser = DEFUSED_ET
+    elif parse_engine == "auto":
+        parser = DEFUSED_ET if DEFUSED_ET is not None else ET
+    else:
+        raise ValueError(f"Unsupported parse_engine: {parse_engine}")
     try:
-        root = ET.fromstring(data)
+        root = parser.fromstring(data)
     except ET.ParseError as exc:
         raise ValueError(f"Invalid GEXF XML: {exc}") from exc
 
-    if _local_name(root.tag) != "gexf":
+    ns, root_name = _split_tag(root.tag)
+    if root_name != "gexf":
         raise ValueError("Invalid GEXF: root tag is not <gexf>")
-    ns = _namespace(root.tag)
     if ns not in GEXF_NAMESPACES:
         raise ValueError(f"Unsupported GEXF namespace: {ns}")
 
@@ -308,19 +285,17 @@ def gexf_to_dfs(
     if graph_elem is None:
         raise ValueError("Invalid GEXF: missing <graph> element")
 
-    meta = {
+    meta: Dict[str, Optional[str]] = {
         "namespace": ns,
         "version": root.attrib.get("version"),
         "defaultedgetype": graph_elem.attrib.get("defaultedgetype"),
     }
     meta_elem = _find_child(root, "meta")
     if meta_elem is not None:
-        creator_elem = _find_child(meta_elem, "creator")
-        description_elem = _find_child(meta_elem, "description")
-        if creator_elem is not None and creator_elem.text is not None:
-            meta["creator"] = creator_elem.text.strip()
-        if description_elem is not None and description_elem.text is not None:
-            meta["description"] = description_elem.text.strip()
+        for key in ("creator", "description"):
+            elem = _find_child(meta_elem, key)
+            if elem is not None and elem.text is not None:
+                meta[key] = elem.text.strip()
 
     node_attr_defs = _collect_attribute_defs(graph_elem, "node")
     edge_attr_defs = _collect_attribute_defs(graph_elem, "edge")
@@ -329,28 +304,26 @@ def gexf_to_dfs(
     if nodes_elem is None:
         raise ValueError("Invalid GEXF: missing <nodes> element")
 
-    node_rows: List[Dict[str, Any]] = []
-    node_ids: List[str] = []
+    node_rows: List[Dict[str, ScalarValue]] = []
+    node_ids: Set[str] = set()
     for node in _iter_children(nodes_elem, "node"):
         node_id = node.attrib.get("id")
         if node_id is None:
             raise ValueError("Invalid GEXF: node missing id attribute")
         node_id = str(node_id)
-        node_ids.append(node_id)
-        row: Dict[str, Any] = {node_col: node_id}
+        if node_id in node_ids:
+            raise ValueError("Invalid GEXF: duplicate node ids")
+        node_ids.add(node_id)
+        row: Dict[str, ScalarValue] = {node_col: node_id}
         label = node.attrib.get("label")
         if label is not None:
             row["label"] = label
-        _apply_attr_defaults(node_attr_defs, row)
-        _parse_attvalues(node, node_attr_defs, row)
+        _apply_attvalues(node, node_attr_defs, row)
         _parse_viz(node, row, "node")
         node_rows.append(row)
 
-    if len(node_ids) != len(set(node_ids)):
-        raise ValueError("Invalid GEXF: duplicate node ids")
-
     edges_elem = _find_child(graph_elem, "edges")
-    edge_rows: List[Dict[str, Any]] = []
+    edge_rows: List[Dict[str, ScalarValue]] = []
     if edges_elem is not None:
         for edge in _iter_children(edges_elem, "edge"):
             edge_id = edge.attrib.get("id")
@@ -370,8 +343,7 @@ def gexf_to_dfs(
             weight = edge.attrib.get("weight")
             if weight is not None:
                 row["weight"] = _coerce_value(weight, "float")
-            _apply_attr_defaults(edge_attr_defs, row)
-            _parse_attvalues(edge, edge_attr_defs, row)
+            _apply_attvalues(edge, edge_attr_defs, row)
             _parse_viz(edge, row, "edge")
             edge_rows.append(row)
 
@@ -384,24 +356,23 @@ def gexf_to_dfs(
     else:
         edges_df = pd.DataFrame(edge_rows)
 
-    node_id_set = set(nodes_df[node_col].astype(str))
     if len(edges_df) > 0:
         missing = set(edges_df[source_col].astype(str)) | set(edges_df[destination_col].astype(str))
-        missing = missing.difference(node_id_set)
+        missing = missing.difference(node_ids)
         if missing:
             missing_list = ", ".join(sorted(list(missing))[:5])
             raise ValueError(f"Invalid GEXF: edges reference missing node ids ({missing_list})")
 
     return edges_df, nodes_df, meta
 
-
 def from_gexf(
     self: Plottable,
-    source: Any,
+    source: GexfSource,
     name: Optional[str] = None,
     description: Optional[str] = None,
     bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
     bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+    parse_engine: GexfParseEngine = "auto",
 ) -> Plottable:
     """
     Convert a GEXF file/URL/stream into a PyGraphistry graph.
@@ -413,59 +384,40 @@ def from_gexf(
         Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
     :param bind_edge_viz: Optional list of edge viz fields to bind (honor). None means bind all available edge viz fields.
         Empty list means bind none. Choices: "color", "size", "opacity".
+    :param parse_engine: XML parser to use: "auto" (prefer defusedxml if installed), "defused", or "stdlib".
     :return: Graphistry plotter with nodes/edges/bindings populated
+
+    If ``defusedxml`` is installed, it is used automatically for safer XML parsing of untrusted inputs.
     """
-    edges_df, nodes_df, meta = gexf_to_dfs(source)
+    edges_df, nodes_df, meta = gexf_to_dfs(source, parse_engine=parse_engine)
     g = self.edges(edges_df, "source", "target").nodes(nodes_df, "node_id")
-    bindings: Dict[str, Any] = {"node": "node_id", "source": "source", "destination": "target"}
+    bindings: Dict[str, str] = {"node": "node_id", "source": "source", "destination": "target"}
 
-    node_viz_allowed = {"color", "size", "opacity", "position", "icon"}
-    edge_viz_allowed = {"color", "size", "opacity"}
+    node_viz = _normalize_viz_fields(bind_node_viz, GEXF_NODE_VIZ_ALLOWED, "node")
+    edge_viz = _normalize_viz_fields(bind_edge_viz, GEXF_EDGE_VIZ_ALLOWED, "edge")
 
-    def _normalize_viz_fields(value: Optional[Iterable[str]], allowed: set, label: str) -> set:
-        if value is None:
-            return set(allowed)
-        if isinstance(value, str):
-            fields = {value}
-        else:
-            try:
-                fields = set(value)
-            except TypeError as exc:
-                raise ValueError(f"{label} viz bindings must be an iterable of strings") from exc
-        if not all(isinstance(v, str) for v in fields):
-            raise ValueError(f"{label} viz bindings must be strings")
-        unknown = fields.difference(allowed)
-        if unknown:
-            unknown_list = ", ".join(sorted(unknown))
-            raise ValueError(f"Unsupported {label} viz bindings: {unknown_list}")
-        return fields
+    node_specs = [
+        (None, "point_title", "label"),
+        ("color", "point_color", "viz_color"),
+        ("size", "point_size", "viz_size"),
+        ("opacity", "point_opacity", "viz_opacity"),
+        ("position", "point_x", "viz_x"),
+        ("position", "point_y", "viz_y"),
+        ("icon", "point_icon", "viz_shape_icon"),
+    ]
+    for viz_key, binding_key, col in node_specs:
+        if col in nodes_df.columns and (viz_key is None or viz_key in node_viz):
+            bindings[binding_key] = col
 
-    node_viz = _normalize_viz_fields(bind_node_viz, node_viz_allowed, "node")
-    edge_viz = _normalize_viz_fields(bind_edge_viz, edge_viz_allowed, "edge")
-
-    if "label" in nodes_df.columns:
-        bindings["point_title"] = "label"
-    if "color" in node_viz and "viz_color" in nodes_df.columns:
-        bindings["point_color"] = "viz_color"
-    if "size" in node_viz and "viz_size" in nodes_df.columns:
-        bindings["point_size"] = "viz_size"
-    if "opacity" in node_viz and "viz_opacity" in nodes_df.columns:
-        bindings["point_opacity"] = "viz_opacity"
-    if "position" in node_viz and "viz_x" in nodes_df.columns:
-        bindings["point_x"] = "viz_x"
-    if "position" in node_viz and "viz_y" in nodes_df.columns:
-        bindings["point_y"] = "viz_y"
-    if "icon" in node_viz and "viz_shape_icon" in nodes_df.columns:
-        bindings["point_icon"] = "viz_shape_icon"
-
-    if "label" in edges_df.columns:
-        bindings["edge_title"] = "label"
-    if "color" in edge_viz and "viz_color" in edges_df.columns:
-        bindings["edge_color"] = "viz_color"
-    if "size" in edge_viz and "viz_thickness" in edges_df.columns:
-        bindings["edge_size"] = "viz_thickness"
-    if "opacity" in edge_viz and "viz_opacity" in edges_df.columns:
-        bindings["edge_opacity"] = "viz_opacity"
+    edge_specs = [
+        (None, "edge_title", "label"),
+        ("color", "edge_color", "viz_color"),
+        ("size", "edge_size", "viz_thickness"),
+        ("opacity", "edge_opacity", "viz_opacity"),
+    ]
+    for viz_key, binding_key, col in edge_specs:
+        if col in edges_df.columns and (viz_key is None or viz_key in edge_viz):
+            bindings[binding_key] = col
     if "weight" in edges_df.columns:
         bindings["edge_weight"] = "weight"
 
@@ -483,7 +435,6 @@ def from_gexf(
 
     return g
 
-
 def _df_to_pandas(df: Any, label: str) -> pd.DataFrame:
     if df is None:
         raise ValueError(f"Missing {label} dataframe")
@@ -492,7 +443,6 @@ def _df_to_pandas(df: Any, label: str) -> pd.DataFrame:
     if hasattr(df, "to_pandas"):
         return df.to_pandas()
     raise ValueError(f"Unsupported {label} dataframe type: {type(df)}")
-
 
 def _resolve_attr_columns(
     df: pd.DataFrame,
@@ -511,7 +461,6 @@ def _resolve_attr_columns(
         raise ValueError(f"Reserved {label} attribute columns: {conflicts}")
     return list(include)
 
-
 def _select_col(
     df: pd.DataFrame,
     bound: Optional[str],
@@ -526,6 +475,98 @@ def _select_col(
         return fallback
     return None
 
+AttrExportDef = Dict[str, Tuple[str, str]]
+
+def _write_attr_defs(
+    graph_elem: ET.Element,
+    gexf_ns: str,
+    class_name: str,
+    df: pd.DataFrame,
+    attr_cols: List[str],
+) -> AttrExportDef:
+    if not attr_cols:
+        return {}
+    attrs_elem = ET.SubElement(graph_elem, f"{{{gexf_ns}}}attributes", attrib={"class": class_name})
+    attr_defs = {col: (str(i), _infer_attr_type(df[col])) for i, col in enumerate(attr_cols)}
+    for col, (attr_id, attr_type) in attr_defs.items():
+        ET.SubElement(
+            attrs_elem,
+            f"{{{gexf_ns}}}attribute",
+            attrib={"id": attr_id, "title": col, "type": attr_type},
+        )
+    return attr_defs
+
+def _write_attvalues(
+    elem: ET.Element,
+    gexf_ns: str,
+    row: pd.Series,
+    attr_defs: AttrExportDef,
+) -> None:
+    if not attr_defs:
+        return
+    attvalues = []
+    for col, (attr_id, attr_type) in attr_defs.items():
+        value = _format_attr_value(row.get(col), attr_type)
+        if value is not None:
+            attvalues.append((attr_id, value))
+    if not attvalues:
+        return
+    attvalues_elem = ET.SubElement(elem, f"{{{gexf_ns}}}attvalues")
+    for attr_id, value in attvalues:
+        ET.SubElement(
+            attvalues_elem,
+            f"{{{gexf_ns}}}attvalue",
+            attrib={"for": attr_id, "value": value},
+        )
+
+def _write_viz(
+    elem: ET.Element,
+    viz_ns: str,
+    row: pd.Series,
+    *,
+    color_col: Optional[str],
+    opacity_col: Optional[str],
+    size_col: Optional[str],
+    size_label: str,
+    size_tag: str,
+    shape_col: Optional[str],
+    position_cols: Optional[Tuple[Optional[str], Optional[str], Optional[str]]],
+    label: str,
+) -> None:
+    color_value = row.get(color_col) if color_col is not None else None
+    opacity_value = row.get(opacity_col) if opacity_col is not None else None
+    if color_value is not None or opacity_value is not None:
+        color_tuple = _parse_hex_color(color_value, label) if color_value is not None else None
+        if color_tuple is not None:
+            opacity = _coerce_float(opacity_value, f"{label} opacity") if opacity_value is not None else None
+            r, g_val, b_val, alpha = color_tuple
+            color_attrib = {"r": str(r), "g": str(g_val), "b": str(b_val)}
+            alpha_val = opacity if opacity is not None else alpha
+            if alpha_val is not None:
+                color_attrib["a"] = str(alpha_val)
+            ET.SubElement(elem, f"{{{viz_ns}}}color", attrib=color_attrib)
+
+    size_value = row.get(size_col) if size_col is not None else None
+    if size_value is not None:
+        size = _coerce_float(size_value, size_label)
+        if size is not None:
+            ET.SubElement(elem, f"{{{viz_ns}}}{size_tag}", attrib={"value": str(size)})
+
+    if position_cols is not None:
+        x_col, y_col, z_col = position_cols
+        if x_col is not None and y_col is not None:
+            x = _coerce_float(row.get(x_col), "node x")
+            y = _coerce_float(row.get(y_col), "node y")
+            z = _coerce_float(row.get(z_col), "node z") if z_col is not None else None
+            if x is not None and y is not None:
+                pos_attrib = {"x": str(x), "y": str(y)}
+                if z is not None:
+                    pos_attrib["z"] = str(z)
+                ET.SubElement(elem, f"{{{viz_ns}}}position", attrib=pos_attrib)
+
+    shape_value = row.get(shape_col) if shape_col is not None else None
+    if shape_col is not None and not _is_na(shape_value):
+        ET.SubElement(elem, f"{{{viz_ns}}}shape", attrib={"value": str(shape_value)})
 
 def to_gexf(
     self: Plottable,
@@ -556,9 +597,10 @@ def to_gexf(
     :param edge_attributes: Optional list of edge attribute columns to include
     :return: GEXF XML string
     """
-    config = EXPORT_VERSION_CONFIG.get(version)
-    if config is None:
-        raise ValueError(f"Unsupported GEXF export version: {version}")
+    try:
+        gexf_ns, viz_ns, schema, gexf_version = EXPORT_VERSION_CONFIG[version]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported GEXF export version: {version}") from exc
 
     g = self.materialize_nodes()
     if g._edges is None:
@@ -601,40 +643,40 @@ def to_gexf(
     elif "weight" in edges_df.columns:
         edge_weight_col = "weight"
 
-    point_color_col = None
-    point_size_col = None
-    point_opacity_col = None
-    point_x_col = None
-    point_y_col = None
-    point_z_col = None
-    point_shape_col = None
-    edge_color_col = None
-    edge_size_col = None
-    edge_opacity_col = None
-    edge_shape_col = None
+    point_color_col = point_size_col = point_opacity_col = point_x_col = point_y_col = None
+    point_z_col = point_shape_col = edge_color_col = edge_size_col = edge_opacity_col = edge_shape_col = None
 
     if include_viz:
-        point_color_col = _select_col(nodes_df, g._point_color, "viz_color", "point_color")
-        point_size_col = _select_col(nodes_df, g._point_size, "viz_size", "point_size")
-        point_opacity_col = _select_col(nodes_df, g._point_opacity, "viz_opacity", "point_opacity")
-        point_x_col = _select_col(nodes_df, g._point_x, "viz_x", "point_x")
-        point_y_col = _select_col(nodes_df, g._point_y, "viz_y", "point_y")
+        point_color_col, point_size_col, point_opacity_col = (
+            _select_col(nodes_df, g._point_color, "viz_color", "point_color"),
+            _select_col(nodes_df, g._point_size, "viz_size", "point_size"),
+            _select_col(nodes_df, g._point_opacity, "viz_opacity", "point_opacity"),
+        )
+        point_x_col, point_y_col = (
+            _select_col(nodes_df, g._point_x, "viz_x", "point_x"),
+            _select_col(nodes_df, g._point_y, "viz_y", "point_y"),
+        )
         point_z_col = "viz_z" if "viz_z" in nodes_df.columns else None
         point_shape_col = "viz_shape" if "viz_shape" in nodes_df.columns else None
-        edge_color_col = _select_col(edges_df, g._edge_color, "viz_color", "edge_color")
-        edge_size_col = _select_col(edges_df, g._edge_size, "viz_thickness", "edge_size")
-        edge_opacity_col = _select_col(edges_df, g._edge_opacity, "viz_opacity", "edge_opacity")
+        edge_color_col, edge_size_col, edge_opacity_col = (
+            _select_col(edges_df, g._edge_color, "viz_color", "edge_color"),
+            _select_col(edges_df, g._edge_size, "viz_thickness", "edge_size"),
+            _select_col(edges_df, g._edge_opacity, "viz_opacity", "edge_opacity"),
+        )
         edge_shape_col = "viz_shape" if "viz_shape" in edges_df.columns else None
 
         if (point_x_col is None) != (point_y_col is None):
             raise ValueError("GEXF export requires both point_x and point_y columns when exporting positions")
 
+    node_viz_cols = [
+        point_color_col, point_size_col, point_opacity_col, point_x_col, point_y_col, point_z_col, point_shape_col,
+    ]
+    edge_viz_cols = [edge_color_col, edge_size_col, edge_opacity_col, edge_shape_col]
+
     node_exclude = {node_col}
     if node_label_col is not None:
         node_exclude.add(node_label_col)
-    for col in [point_color_col, point_size_col, point_opacity_col, point_x_col, point_y_col, point_z_col, point_shape_col]:
-        if col is not None:
-            node_exclude.add(col)
+    node_exclude.update(col for col in node_viz_cols if col is not None)
 
     edge_exclude = {g._source, g._destination}
     if edge_label_col is not None:
@@ -643,22 +685,14 @@ def to_gexf(
         edge_exclude.add(edge_id_col)
     if edge_weight_col is not None:
         edge_exclude.add(edge_weight_col)
-    for col in [edge_color_col, edge_size_col, edge_opacity_col, edge_shape_col]:
-        if col is not None:
-            edge_exclude.add(col)
+    edge_exclude.update(col for col in edge_viz_cols if col is not None)
 
     node_attr_cols = _resolve_attr_columns(nodes_df, node_attributes, node_exclude, "node")
     edge_attr_cols = _resolve_attr_columns(edges_df, edge_attributes, edge_exclude, "edge")
 
-    gexf_ns = config["gexf_ns"]
-    viz_ns = config["viz_ns"]
-    schema = config["schema"]
-    gexf_version = config["version"]
-
     ET.register_namespace("", gexf_ns)
     ET.register_namespace("xsi", XSI_NS)
-    if include_viz and any([point_color_col, point_size_col, point_opacity_col, point_x_col, point_y_col, point_z_col, point_shape_col,
-                            edge_color_col, edge_size_col, edge_opacity_col, edge_shape_col]):
+    if include_viz and any(node_viz_cols + edge_viz_cols):
         ET.register_namespace("viz", viz_ns)
 
     root = ET.Element(
@@ -691,29 +725,8 @@ def to_gexf(
         },
     )
 
-    if node_attr_cols:
-        attrs_elem = ET.SubElement(graph_elem, f"{{{gexf_ns}}}attributes", attrib={"class": "node"})
-        node_attr_defs = {col: (str(i), _infer_attr_type(nodes_df[col])) for i, col in enumerate(node_attr_cols)}
-        for col, (attr_id, attr_type) in node_attr_defs.items():
-            ET.SubElement(
-                attrs_elem,
-                f"{{{gexf_ns}}}attribute",
-                attrib={"id": attr_id, "title": col, "type": attr_type},
-            )
-    else:
-        node_attr_defs = {}
-
-    if edge_attr_cols:
-        attrs_elem = ET.SubElement(graph_elem, f"{{{gexf_ns}}}attributes", attrib={"class": "edge"})
-        edge_attr_defs = {col: (str(i), _infer_attr_type(edges_df[col])) for i, col in enumerate(edge_attr_cols)}
-        for col, (attr_id, attr_type) in edge_attr_defs.items():
-            ET.SubElement(
-                attrs_elem,
-                f"{{{gexf_ns}}}attribute",
-                attrib={"id": attr_id, "title": col, "type": attr_type},
-            )
-    else:
-        edge_attr_defs = {}
+    node_attr_defs = _write_attr_defs(graph_elem, gexf_ns, "node", nodes_df, node_attr_cols)
+    edge_attr_defs = _write_attr_defs(graph_elem, gexf_ns, "edge", edges_df, edge_attr_cols)
 
     nodes_elem = ET.SubElement(graph_elem, f"{{{gexf_ns}}}nodes")
     for _, row in nodes_df.iterrows():
@@ -726,54 +739,21 @@ def to_gexf(
         node_elem = ET.SubElement(nodes_elem, f"{{{gexf_ns}}}node", attrib=node_attrib)
 
         if include_viz:
-            color_value = row.get(point_color_col) if point_color_col is not None else None
-            color_tuple = _parse_hex_color(color_value, "node") if point_color_col is not None else None
-            opacity_value = row.get(point_opacity_col) if point_opacity_col is not None else None
-            opacity = _coerce_float(opacity_value, "node opacity") if point_opacity_col is not None else None
-            if color_tuple is not None:
-                r, g_val, b_val, alpha = color_tuple
-                color_attrib = {"r": str(r), "g": str(g_val), "b": str(b_val)}
-                alpha_val = opacity if opacity is not None else alpha
-                if alpha_val is not None:
-                    color_attrib["a"] = str(alpha_val)
-                ET.SubElement(node_elem, f"{{{viz_ns}}}color", attrib=color_attrib)
+            _write_viz(
+                node_elem,
+                viz_ns,
+                row,
+                color_col=point_color_col,
+                opacity_col=point_opacity_col,
+                size_col=point_size_col,
+                size_label="node size",
+                size_tag="size",
+                shape_col=point_shape_col,
+                position_cols=(point_x_col, point_y_col, point_z_col),
+                label="node",
+            )
 
-            size_value = row.get(point_size_col) if point_size_col is not None else None
-            size = _coerce_float(size_value, "node size") if point_size_col is not None else None
-            if size is not None:
-                ET.SubElement(node_elem, f"{{{viz_ns}}}size", attrib={"value": str(size)})
-
-            x_value = row.get(point_x_col) if point_x_col is not None else None
-            y_value = row.get(point_y_col) if point_y_col is not None else None
-            z_value = row.get(point_z_col) if point_z_col is not None else None
-            if point_x_col is not None and point_y_col is not None:
-                x = _coerce_float(x_value, "node x")
-                y = _coerce_float(y_value, "node y")
-                z = _coerce_float(z_value, "node z") if point_z_col is not None else None
-                if x is not None and y is not None:
-                    pos_attrib = {"x": str(x), "y": str(y)}
-                    if z is not None:
-                        pos_attrib["z"] = str(z)
-                    ET.SubElement(node_elem, f"{{{viz_ns}}}position", attrib=pos_attrib)
-
-            shape_val = row.get(point_shape_col) if point_shape_col is not None else None
-            if point_shape_col is not None and not _is_na(shape_val):
-                ET.SubElement(node_elem, f"{{{viz_ns}}}shape", attrib={"value": str(shape_val)})
-
-        if node_attr_defs:
-            attvalues = []
-            for col, (attr_id, attr_type) in node_attr_defs.items():
-                value = _format_attr_value(row.get(col), attr_type)
-                if value is not None:
-                    attvalues.append((attr_id, value))
-            if attvalues:
-                attvalues_elem = ET.SubElement(node_elem, f"{{{gexf_ns}}}attvalues")
-                for attr_id, value in attvalues:
-                    ET.SubElement(
-                        attvalues_elem,
-                        f"{{{gexf_ns}}}attvalue",
-                        attrib={"for": attr_id, "value": value},
-                    )
+        _write_attvalues(node_elem, gexf_ns, row, node_attr_defs)
 
     edges_elem = ET.SubElement(graph_elem, f"{{{gexf_ns}}}edges")
     for idx, row in edges_df.iterrows():
@@ -794,41 +774,21 @@ def to_gexf(
         edge_elem = ET.SubElement(edges_elem, f"{{{gexf_ns}}}edge", attrib=edge_attrib)
 
         if include_viz:
-            color_value = row.get(edge_color_col) if edge_color_col is not None else None
-            color_tuple = _parse_hex_color(color_value, "edge") if edge_color_col is not None else None
-            opacity_value = row.get(edge_opacity_col) if edge_opacity_col is not None else None
-            opacity = _coerce_float(opacity_value, "edge opacity") if edge_opacity_col is not None else None
-            if color_tuple is not None:
-                r, g_val, b_val, alpha = color_tuple
-                color_attrib = {"r": str(r), "g": str(g_val), "b": str(b_val)}
-                alpha_val = opacity if opacity is not None else alpha
-                if alpha_val is not None:
-                    color_attrib["a"] = str(alpha_val)
-                ET.SubElement(edge_elem, f"{{{viz_ns}}}color", attrib=color_attrib)
+            _write_viz(
+                edge_elem,
+                viz_ns,
+                row,
+                color_col=edge_color_col,
+                opacity_col=edge_opacity_col,
+                size_col=edge_size_col,
+                size_label="edge thickness",
+                size_tag="thickness",
+                shape_col=edge_shape_col,
+                position_cols=None,
+                label="edge",
+            )
 
-            size_value = row.get(edge_size_col) if edge_size_col is not None else None
-            size = _coerce_float(size_value, "edge thickness") if edge_size_col is not None else None
-            if size is not None:
-                ET.SubElement(edge_elem, f"{{{viz_ns}}}thickness", attrib={"value": str(size)})
-
-            shape_val = row.get(edge_shape_col) if edge_shape_col is not None else None
-            if edge_shape_col is not None and not _is_na(shape_val):
-                ET.SubElement(edge_elem, f"{{{viz_ns}}}shape", attrib={"value": str(shape_val)})
-
-        if edge_attr_defs:
-            attvalues = []
-            for col, (attr_id, attr_type) in edge_attr_defs.items():
-                value = _format_attr_value(row.get(col), attr_type)
-                if value is not None:
-                    attvalues.append((attr_id, value))
-            if attvalues:
-                attvalues_elem = ET.SubElement(edge_elem, f"{{{gexf_ns}}}attvalues")
-                for attr_id, value in attvalues:
-                    ET.SubElement(
-                        attvalues_elem,
-                        f"{{{gexf_ns}}}attvalue",
-                        attrib={"for": attr_id, "value": value},
-                    )
+        _write_attvalues(edge_elem, gexf_ns, row, edge_attr_defs)
 
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     xml_str = xml_bytes.decode("utf-8")

@@ -3,7 +3,7 @@ from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
-from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 from graphistry.Engine import EngineAbstractType
 
@@ -1104,6 +1104,7 @@ class GraphistryClient(AuthManagerProtocol):
         description: Optional[str] = None,
         bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
         bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+        parse_engine: GexfParseEngine = "auto",
     ) -> Plotter:
         """
         Load a GEXF file/URL/stream into a Plotter.
@@ -1115,6 +1116,7 @@ class GraphistryClient(AuthManagerProtocol):
             Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
         :param bind_edge_viz: Optional list of edge viz fields to bind (honor). None means bind all available edge viz fields.
             Empty list means bind none. Choices: "color", "size", "opacity".
+        :param parse_engine: XML parser to use: "auto" (prefer defusedxml if installed), "defused", or "stdlib".
 
         **Example: Minimal (honor all GEXF viz)**
             ::
@@ -1136,6 +1138,8 @@ class GraphistryClient(AuthManagerProtocol):
                     .encode_point_size("occurences")
                 )
                 g.plot()
+
+        If ``defusedxml`` is installed, it is used automatically for safer XML parsing of untrusted inputs.
         """
         return cast(
             Plotter,
@@ -1145,6 +1149,7 @@ class GraphistryClient(AuthManagerProtocol):
                 description=description,
                 bind_node_viz=bind_node_viz,
                 bind_edge_viz=bind_edge_viz,
+                parse_engine=parse_engine,
             ),
         )
 
@@ -1155,6 +1160,7 @@ class GraphistryClient(AuthManagerProtocol):
         description: Optional[str] = None,
         bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
         bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+        parse_engine: GexfParseEngine = "auto",
     ) -> Plotter:
         """
         Alias for :meth:`gexf`.
@@ -1167,6 +1173,7 @@ class GraphistryClient(AuthManagerProtocol):
                 description=description,
                 bind_node_viz=bind_node_viz,
                 bind_edge_viz=bind_edge_viz,
+                parse_engine=parse_engine,
             ),
         )
 

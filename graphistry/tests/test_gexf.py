@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import tempfile
 from numbers import Integral, Real
@@ -7,6 +8,11 @@ import pytest
 
 import graphistry
 from common import NoAuthTestCase
+from graphistry.io.metadata import (
+    serialize_edge_bindings,
+    serialize_node_bindings,
+    serialize_plottable_metadata,
+)
 
 
 DATA_DIR = os.path.join("graphistry", "tests", "data", "gexf")
@@ -21,20 +27,24 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
         g = graphistry.gexf(path)
 
-        self.assertEqual(g._node, "node_id")
-        self.assertEqual(g._source, "source")
-        self.assertEqual(g._destination, "target")
+        node_bindings = serialize_node_bindings(g)
+        edge_bindings = serialize_edge_bindings(g)
+        metadata = serialize_plottable_metadata(g)
+
+        self.assertEqual(node_bindings.get("node"), "node_id")
+        self.assertEqual(edge_bindings.get("source"), "source")
+        self.assertEqual(edge_bindings.get("destination"), "target")
         self.assertEqual(len(g._nodes), 3)
         self.assertEqual(len(g._edges), 2)
-        self.assertEqual(g._point_title, "label")
-        self.assertEqual(g._edge_title, "label")
-        self.assertEqual(g._description, "Sample 1.1draft")
-        self.assertIsNone(g._point_color)
-        self.assertIsNone(g._edge_color)
-        self.assertIsNone(g._point_size)
-        self.assertIsNone(g._edge_size)
-        self.assertIsNone(g._point_x)
-        self.assertIsNone(g._point_y)
+        self.assertEqual(node_bindings.get("node_title"), "label")
+        self.assertEqual(edge_bindings.get("edge_title"), "label")
+        self.assertEqual(metadata.get("metadata", {}).get("description"), "Sample 1.1draft")
+        self.assertNotIn("node_color", node_bindings)
+        self.assertNotIn("edge_color", edge_bindings)
+        self.assertNotIn("node_size", node_bindings)
+        self.assertNotIn("edge_size", edge_bindings)
+        self.assertNotIn("node_x", node_bindings)
+        self.assertNotIn("node_y", node_bindings)
         self.assertIsNone(g._url_params.get("play"))
 
         node_n2 = g._nodes[g._nodes["node_id"] == "n2"].iloc[0]
@@ -50,17 +60,20 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
         g = graphistry.gexf(path)
 
-        self.assertEqual(g._point_color, "viz_color")
-        self.assertEqual(g._point_size, "viz_size")
-        self.assertEqual(g._point_x, "viz_x")
-        self.assertEqual(g._point_y, "viz_y")
-        self.assertEqual(g._point_opacity, "viz_opacity")
-        self.assertEqual(g._edge_color, "viz_color")
-        self.assertEqual(g._edge_size, "viz_thickness")
-        self.assertEqual(g._edge_opacity, "viz_opacity")
-        self.assertEqual(g._edge_weight, "weight")
+        node_bindings = serialize_node_bindings(g)
+        edge_bindings = serialize_edge_bindings(g)
+
+        self.assertEqual(node_bindings.get("node_color"), "viz_color")
+        self.assertEqual(node_bindings.get("node_size"), "viz_size")
+        self.assertEqual(node_bindings.get("node_x"), "viz_x")
+        self.assertEqual(node_bindings.get("node_y"), "viz_y")
+        self.assertEqual(node_bindings.get("node_opacity"), "viz_opacity")
+        self.assertEqual(edge_bindings.get("edge_color"), "viz_color")
+        self.assertEqual(edge_bindings.get("edge_size"), "viz_thickness")
+        self.assertEqual(edge_bindings.get("edge_opacity"), "viz_opacity")
+        self.assertEqual(edge_bindings.get("edge_weight"), "weight")
         self.assertEqual(g._url_params.get("play"), 0)
-        self.assertEqual(g._point_icon, "viz_shape_icon")
+        self.assertEqual(node_bindings.get("node_icon"), "viz_shape_icon")
 
         node_n10 = g._nodes[g._nodes["node_id"] == "n10"].iloc[0]
         assert node_n10["viz_color"] == "#EFAD42"
@@ -95,14 +108,17 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "sample-1.2draft-node-viz-only.gexf")
         g = graphistry.gexf(path)
 
-        self.assertEqual(g._point_color, "viz_color")
-        self.assertEqual(g._point_size, "viz_size")
-        self.assertEqual(g._point_x, "viz_x")
-        self.assertEqual(g._point_y, "viz_y")
-        self.assertEqual(g._point_opacity, "viz_opacity")
-        self.assertIsNone(g._edge_color)
-        self.assertIsNone(g._edge_size)
-        self.assertIsNone(g._edge_opacity)
+        node_bindings = serialize_node_bindings(g)
+        edge_bindings = serialize_edge_bindings(g)
+
+        self.assertEqual(node_bindings.get("node_color"), "viz_color")
+        self.assertEqual(node_bindings.get("node_size"), "viz_size")
+        self.assertEqual(node_bindings.get("node_x"), "viz_x")
+        self.assertEqual(node_bindings.get("node_y"), "viz_y")
+        self.assertEqual(node_bindings.get("node_opacity"), "viz_opacity")
+        self.assertNotIn("edge_color", edge_bindings)
+        self.assertNotIn("edge_size", edge_bindings)
+        self.assertNotIn("edge_opacity", edge_bindings)
         self.assertEqual(g._url_params.get("play"), 0)
 
         node_n0 = g._nodes[g._nodes["node_id"] == "n0"].iloc[0]
@@ -114,12 +130,15 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "sample-1.2draft-edge-viz-only.gexf")
         g = graphistry.gexf(path)
 
-        self.assertEqual(g._edge_color, "viz_color")
-        self.assertEqual(g._edge_size, "viz_thickness")
-        self.assertEqual(g._edge_opacity, "viz_opacity")
-        self.assertIsNone(g._point_color)
-        self.assertIsNone(g._point_size)
-        self.assertIsNone(g._point_opacity)
+        node_bindings = serialize_node_bindings(g)
+        edge_bindings = serialize_edge_bindings(g)
+
+        self.assertEqual(edge_bindings.get("edge_color"), "viz_color")
+        self.assertEqual(edge_bindings.get("edge_size"), "viz_thickness")
+        self.assertEqual(edge_bindings.get("edge_opacity"), "viz_opacity")
+        self.assertNotIn("node_color", node_bindings)
+        self.assertNotIn("node_size", node_bindings)
+        self.assertNotIn("node_opacity", node_bindings)
         self.assertIsNone(g._url_params.get("play"))
 
         edge_e0 = g._edges[g._edges["edge_id"] == "e0"].iloc[0]
@@ -131,16 +150,45 @@ class TestGEXF(NoAuthTestCase):
         path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
         g = graphistry.gexf(path, bind_node_viz=["position"], bind_edge_viz=[])
 
-        self.assertIsNone(g._point_color)
-        self.assertIsNone(g._point_size)
-        self.assertIsNone(g._point_opacity)
-        self.assertIsNone(g._point_icon)
-        self.assertEqual(g._point_x, "viz_x")
-        self.assertEqual(g._point_y, "viz_y")
-        self.assertIsNone(g._edge_color)
-        self.assertIsNone(g._edge_size)
-        self.assertIsNone(g._edge_opacity)
+        node_bindings = serialize_node_bindings(g)
+        edge_bindings = serialize_edge_bindings(g)
+
+        self.assertNotIn("node_color", node_bindings)
+        self.assertNotIn("node_size", node_bindings)
+        self.assertNotIn("node_opacity", node_bindings)
+        self.assertNotIn("node_icon", node_bindings)
+        self.assertEqual(node_bindings.get("node_x"), "viz_x")
+        self.assertEqual(node_bindings.get("node_y"), "viz_y")
+        self.assertNotIn("edge_color", edge_bindings)
+        self.assertNotIn("edge_size", edge_bindings)
+        self.assertNotIn("edge_opacity", edge_bindings)
         self.assertEqual(g._url_params.get("play"), 0)
+
+    def test_gexf_viz_binding_invalid(self):
+        path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
+        with pytest.raises(ValueError, match="Unsupported node viz bindings"):
+            graphistry.gexf(path, bind_node_viz=["color", "not-a-viz-field"])
+        with pytest.raises(ValueError, match="Unsupported edge viz bindings"):
+            graphistry.gexf(path, bind_edge_viz=["opacity", "not-a-viz-field"])
+
+    def test_gexf_parse_engine_stdlib(self):
+        path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
+        g = graphistry.gexf(path, parse_engine="stdlib")
+        node_bindings = serialize_node_bindings(g)
+        self.assertEqual(node_bindings.get("node"), "node_id")
+
+    def test_gexf_parse_engine_defused(self):
+        if importlib.util.find_spec("defusedxml") is None:
+            pytest.skip("defusedxml not installed")
+        path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
+        g = graphistry.gexf(path, parse_engine="defused")
+        node_bindings = serialize_node_bindings(g)
+        self.assertEqual(node_bindings.get("node"), "node_id")
+
+    def test_gexf_parse_engine_invalid(self):
+        path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
+        with pytest.raises(ValueError, match="Unsupported parse_engine"):
+            graphistry.gexf(path, parse_engine="bogus")
 
     def test_gexf_type_handling_roundtrip(self):
         path = os.path.join(DATA_DIR, "sample-1.2draft-types.gexf")
@@ -151,7 +199,7 @@ class TestGEXF(NoAuthTestCase):
         edge_e0 = g._edges.iloc[0]
 
         assert isinstance(node_n0["count"], Integral) and not isinstance(node_n0["count"], bool)
-        assert pd.api.types.is_bool_dtype(type(node_n0["active"]))
+        assert pd.api.types.is_bool_dtype(g._nodes["active"])
         assert isinstance(node_n0["ratio"], Real) and not isinstance(node_n0["ratio"], bool)
         assert node_n0["count"] == 3
         assert bool(node_n0["active"]) is False

@@ -4,8 +4,15 @@ GEXF
 -----
 
 GEXF (Graph Exchange XML Format) is commonly used by Gephi and other tools for graph interchange.
+Graphistry supports GEXF 1.1draft, 1.2draft, and 1.3 for import/export with no extra dependencies.
 
 Use :func:`graphistry.gexf` (or :meth:`graphistry.PlotterBase.PlotterBase.from_gexf`) to load a GEXF file, URL, or stream into a PyGraphistry plotter.
+By default, any available GEXF viz fields are bound; if the file has no viz data, Graphistry defaults apply.
+
+**When to use**
+
+- You have a Gephi (or other tool) export and want to preserve its layout/viz.
+- You need a lightweight interchange format for graph attributes or layouts.
 
 **Example**
 
@@ -13,6 +20,7 @@ Use :func:`graphistry.gexf` (or :meth:`graphistry.PlotterBase.PlotterBase.from_g
 
     import graphistry
 
+    # Preserve GEXF's layout, size, colors, shape icons
     g = graphistry.gexf("my_graph.gexf")
     g.plot()
 
@@ -23,6 +31,8 @@ Use :func:`graphistry.gexf` (or :meth:`graphistry.PlotterBase.PlotterBase.from_g
         bind_edge_viz=[],
     )
     g_layout_only.plot()
+
+For notebook walkthroughs (small + large GEXF), see :ref:`nb-compute`.
 
 **Export**
 
@@ -54,7 +64,7 @@ Use ``bind_node_viz`` / ``bind_edge_viz`` to restrict which GEXF viz fields are 
 - node fields: ``color``, ``size``, ``opacity``, ``position``, ``icon``
 - edge fields: ``color``, ``size``, ``opacity``
 
-Passing an empty list disables all viz bindings for that element type.
+``None`` (default) binds all supported fields present in the file. Passing an empty list disables all viz bindings for that element type.
 
 After loading, you can apply Graphistry's declarative encodings (for example,
 ``encode_point_color`` or ``encode_point_size``) to override GEXF defaults.
@@ -62,5 +72,9 @@ After loading, you can apply Graphistry's declarative encodings (for example,
 **Validation**
 
 The loader raises ``ValueError`` for common errors such as missing nodes, missing node IDs, or edges that reference unknown nodes.
+These checks run inside the GEXF loader (XML well-formedness + basic structural checks), not PyGraphistry's broader
+graph validation or full GEXF schema validation.
+For untrusted inputs, install ``defusedxml``; it will be used automatically for safer XML parsing.
+Use ``parse_engine="stdlib"`` or ``parse_engine="defused"`` to override the parser (useful in tests).
 
 .. automodule:: graphistry.plugins.gexf
