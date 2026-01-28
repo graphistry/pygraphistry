@@ -29,10 +29,10 @@ logger = setup_logger(__name__)
 DataFrameLike = Union[pd.DataFrame, Any]
 
 if TYPE_CHECKING:
-    class _UMAPMixinBase(FeatureMixin):
-        _weighted_edges_df: Optional[pd.DataFrame]
-        _weighted_edges_df_from_nodes: Optional[pd.DataFrame]
-        _weighted_edges_df_from_edges: Optional[pd.DataFrame]
+    from graphistry.Plottable import Plottable
+
+    class _UMAPMixinBase(FeatureMixin, Plottable):
+        pass
 
     MIXIN_BASE = _UMAPMixinBase
 else:
