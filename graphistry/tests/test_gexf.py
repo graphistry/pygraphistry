@@ -56,6 +56,17 @@ class TestGEXF(NoAuthTestCase):
         edge_e1 = g._edges[g._edges["edge_id"] == "e1"].iloc[0]
         assert edge_e1["weight_attr"] == pytest.approx(0.75)
 
+    def test_gexf_namespace_alias(self):
+        path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
+        with open(path, "rb") as f:
+            data = f.read()
+        data = data.replace(
+            b"http://www.gephi.org/gexf/1.1draft",
+            b"http://gexf.net/1.1draft",
+        )
+        g = graphistry.gexf(data)
+        self.assertEqual(len(g._nodes), 3)
+
     def test_gexf_12draft_viz(self):
         path = os.path.join(DATA_DIR, "sample-1.2draft-viz.gexf")
         g = graphistry.gexf(path)

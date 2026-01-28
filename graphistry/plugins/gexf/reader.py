@@ -19,7 +19,14 @@ except Exception:
 else:
     DEFUSED_ET = _DEFUSED_ET
 
-GEXF_NAMESPACES = {"http://www.gephi.org/gexf/1.1draft", "http://www.gexf.net/1.1draft", "http://www.gexf.net/1.2draft", "http://gexf.net/1.3"}
+GEXF_NAMESPACES = {
+    "http://www.gephi.org/gexf/1.1draft",
+    "http://www.gexf.net/1.1draft",
+    "http://gexf.net/1.1draft",
+    "http://www.gexf.net/1.2draft",
+    "http://gexf.net/1.2draft",
+    "http://gexf.net/1.3",
+}
 VIZ_NAMESPACES = {"http://www.gephi.org/gexf/1.1draft/viz", "http://www.gexf.net/1.1draft/viz", "http://www.gexf.net/1.2draft/viz", "http://gexf.net/1.3/viz", "http://www.gexf.net/1.3/viz"}
 GEXF_NODE_SHAPE_ICON_MAP = {"disc": "circle", "square": "square", "triangle": "caret-up", "diamond": "diamond", "image": "picture-o"}
 GEXF_NODE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity", "position", "icon"}
