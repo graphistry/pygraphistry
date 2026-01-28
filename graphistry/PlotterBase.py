@@ -207,8 +207,8 @@ class PlotterBase(Plottable):
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
         self._weighted_edges_df: Optional[pd.DataFrame] = None
-        self._weighted_edges_df_from_nodes = None
-        self._weighted_edges_df_from_edges = None
+        self._weighted_edges_df_from_nodes: Optional[pd.DataFrame] = None
+        self._weighted_edges_df_from_edges: Optional[pd.DataFrame] = None
         self._xy = None
 
         # the fit umap instance
