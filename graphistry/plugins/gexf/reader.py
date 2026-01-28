@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from typing import IO, Dict, Iterable, List, Optional, Set, Tuple, Union
+import types
 import os
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
+DEFUSED_ET: Optional[types.ModuleType]
 try:
-    from defusedxml import ElementTree as DEFUSED_ET
+    from defusedxml import ElementTree as _DEFUSED_ET
 except Exception:
     DEFUSED_ET = None
+else:
+    DEFUSED_ET = _DEFUSED_ET
 
 import pandas as pd
 
@@ -24,6 +28,7 @@ GEXF_EDGE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity"}
 GexfSource = Union[str, bytes, bytearray, IO[bytes], IO[str]]
 ScalarValue = Optional[Union[int, float, bool, str]]
 AttrDef = Tuple[str, str, Optional[str]]
+
 def _read_source_bytes(source: GexfSource) -> bytes:
     if hasattr(source, "read"):
         data = source.read()
@@ -158,6 +163,7 @@ def gexf_to_dfs(
     parse_engine: GexfParseEngine = "auto",
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Optional[str]]]:
     data = _read_source_bytes(source)
+    parser: types.ModuleType
     if parse_engine == "stdlib":
         parser = ET
     elif parse_engine == "defused":
