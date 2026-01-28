@@ -6,6 +6,11 @@ import os
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
+import pandas as pd
+
+from graphistry.Plottable import Plottable
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
+
 DEFUSED_ET: Optional[types.ModuleType]
 try:
     from defusedxml import ElementTree as _DEFUSED_ET
@@ -13,11 +18,6 @@ except Exception:
     DEFUSED_ET = None
 else:
     DEFUSED_ET = _DEFUSED_ET
-
-import pandas as pd
-
-from graphistry.Plottable import Plottable
-from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 
 GEXF_NAMESPACES = {"http://www.gephi.org/gexf/1.1draft", "http://www.gexf.net/1.1draft", "http://www.gexf.net/1.2draft", "http://gexf.net/1.3"}
 VIZ_NAMESPACES = {"http://www.gephi.org/gexf/1.1draft/viz", "http://www.gexf.net/1.1draft/viz", "http://www.gexf.net/1.2draft/viz", "http://gexf.net/1.3/viz", "http://www.gexf.net/1.3/viz"}
