@@ -30,9 +30,9 @@ DataFrameLike = Union[pd.DataFrame, Any]
 
 if TYPE_CHECKING:
     class _UMAPMixinBase(FeatureMixin):
-        _weighted_edges_df: Optional[DataFrameLike]
-        _weighted_edges_df_from_nodes: Optional[DataFrameLike]
-        _weighted_edges_df_from_edges: Optional[DataFrameLike]
+        _weighted_edges_df: Optional[pd.DataFrame]
+        _weighted_edges_df_from_nodes: Optional[pd.DataFrame]
+        _weighted_edges_df_from_edges: Optional[pd.DataFrame]
 
     MIXIN_BASE = _UMAPMixinBase
 else:
