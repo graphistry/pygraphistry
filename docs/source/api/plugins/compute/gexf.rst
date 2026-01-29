@@ -59,12 +59,14 @@ The loader maps standard GEXF viz attributes into Graphistry bindings:
 
 **Viz binding controls**
 
-Use ``bind_node_viz`` / ``bind_edge_viz`` to restrict which GEXF viz fields are bound:
+Use ``bind_node_viz`` / ``bind_edge_viz`` as allowlists to restrict which GEXF viz
+fields are bound to Graphistry encodings (unlisted fields still load as columns):
 
 - node fields: ``color``, ``size``, ``opacity``, ``position``, ``icon``
 - edge fields: ``color``, ``size``, ``opacity``
 
 ``None`` (default) binds all supported fields present in the file. Passing an empty list disables all viz bindings for that element type.
+``position`` binds ``point_x``/``point_y`` and sets ``play=0`` to respect precomputed layouts.
 
 After loading, you can apply Graphistry's declarative encodings (for example,
 ``encode_point_color`` or ``encode_point_size``) to override GEXF defaults.

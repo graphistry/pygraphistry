@@ -1112,10 +1112,11 @@ class GraphistryClient(AuthManagerProtocol):
         :param source: Path, URL, bytes, or file-like object containing GEXF XML
         :param name: Optional Graphistry dataset name override
         :param description: Optional Graphistry dataset description override
-        :param bind_node_viz: Optional list of node viz fields to bind (honor). None means bind all available node viz fields.
-            Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
-        :param bind_edge_viz: Optional list of edge viz fields to bind (honor). None means bind all available edge viz fields.
-            Empty list means bind none. Choices: "color", "size", "opacity".
+        :param bind_node_viz: Optional allowlist of node viz fields to bind (honor). None means bind all available node
+            viz fields. Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
+            Fields not bound are still parsed into columns for later use (e.g., you can re-bind after loading).
+        :param bind_edge_viz: Optional allowlist of edge viz fields to bind (honor). None means bind all available edge
+            viz fields. Empty list means bind none. Choices: "color", "size", "opacity".
         :param parse_engine: XML parser to use: "auto" (prefer defusedxml if installed), "defused", or "stdlib".
 
         **Example: Minimal (honor all GEXF viz)**
