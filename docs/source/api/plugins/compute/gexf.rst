@@ -32,7 +32,7 @@ By default, any available GEXF viz fields are bound; if the file has no viz data
     )
     g_layout_only.plot()
 
-For notebook walkthroughs (small + large GEXF), see :ref:`nb-compute`.
+For notebook walkthroughs (small + medium GEXF) and dataset samples, see :ref:`nb-compute`.
 
 **Export**
 
