@@ -68,6 +68,19 @@ fields are bound to Graphistry encodings (unlisted fields still load as columns)
 ``None`` (default) binds all supported fields present in the file. Passing an empty list disables all viz bindings for that element type.
 ``position`` binds ``point_x``/``point_y`` and sets ``play=0`` to respect precomputed layouts.
 
+**Examples**
+
+::
+
+    # Bind all available GEXF viz fields (default)
+    g = graphistry.gexf("my_graph.gexf")
+
+    # Bind no GEXF viz fields (use Graphistry defaults)
+    g = graphistry.gexf("my_graph.gexf", bind_node_viz=[], bind_edge_viz=[])
+
+    # Bind only layout positions for nodes, drop edge viz
+    g = graphistry.gexf("my_graph.gexf", bind_node_viz=["position"], bind_edge_viz=[])
+
 After loading, you can apply Graphistry's declarative encodings (for example,
 ``encode_point_color`` or ``encode_point_size``) to override GEXF defaults.
 
