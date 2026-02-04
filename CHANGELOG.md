@@ -11,6 +11,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - **Telemetry**: Added optional OpenTelemetry helper and propagated trace headers through plot/upload/remote GFQL paths.
 
+### Performance
+- **Compute / hop**: Added fast-path traversal and domain-based visited/frontier tracking; unified direction handling.
+
 ## [0.50.6 - 2026-01-27]
 
 ### Fixed
