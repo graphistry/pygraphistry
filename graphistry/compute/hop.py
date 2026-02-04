@@ -96,6 +96,7 @@ def hop(self: Plottable,
     destination_node_query: dataframe query to match nodes after hopping (including intermediate)
     edge_query: dataframe query to match edges before hopping (including intermediate)
     return_as_wave_front: Exclude starting node(s) in return, returning only encountered nodes
+    Note: chain() reverse passes set return_as_wave_front=True and use target_wave_front to constrain reachability.
     target_wave_front: Only consider these nodes + self._nodes for reachability
     engine: 'auto', 'pandas', 'cudf' (GPU)
     """

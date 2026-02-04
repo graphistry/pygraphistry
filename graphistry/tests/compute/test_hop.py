@@ -9,6 +9,7 @@ from graphistry.tests.test_compute import CGFull
 
 @pytest.fixture(scope='module')
 def g_long_forwards_chain() -> CGFull:
+    """a->b->c->d->e"""
     return (CGFull()
         .edges(pd.DataFrame({
             's': ['a', 'b', 'c', 'd'],
@@ -36,6 +37,7 @@ def n_d(g_long_forwards_chain: CGFull) -> pd.DataFrame:
 
 
 class TestMultiHopForward():
+    """Multi-hop as used by chain() traversal."""
 
     def test_hop_short_forward(self, g_long_forwards_chain: CGFull, n_a):
         g2 = g_long_forwards_chain.hop(
@@ -546,6 +548,7 @@ def test_hop_pred_cudf():
 
 
 def test_hop_none_edge_binding_internal_index():
+    """Ensure internal edge index does not leak when g._edge is None."""
     # Create a graph with NO edge binding (g._edge = None)
     edges_df = pd.DataFrame({
         's': ['a', 'b', 'c'],
@@ -578,6 +581,7 @@ def test_hop_none_edge_binding_internal_index():
 
 
 def test_hop_custom_edge_binding_preserved():
+    """Ensure hop() preserves custom edge binding."""
     # Create a graph WITH an edge binding
     edges_df = pd.DataFrame({
         's': ['a', 'b', 'c'],
@@ -643,6 +647,29 @@ def test_hop_fast_path_matches_full_undirected(g_long_forwards_chain: CGFull, n_
         to_fixed_point=False,
         direction='undirected',
         return_as_wave_front=True,
+        target_wave_front=full_target,
+    )
+    assert set(g_fast._nodes['v']) == set(g_full._nodes['v'])
+    assert g_fast._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == (
+        g_full._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records')
+    )
+
+
+def test_hop_fast_path_matches_full_reverse(g_long_forwards_chain: CGFull, n_d):
+    full_target = g_long_forwards_chain._nodes[[g_long_forwards_chain._node]].drop_duplicates()
+    g_fast = g_long_forwards_chain.hop(
+        nodes=n_d,
+        hops=2,
+        to_fixed_point=False,
+        direction='reverse',
+        return_as_wave_front=False,
+    )
+    g_full = g_long_forwards_chain.hop(
+        nodes=n_d,
+        hops=2,
+        to_fixed_point=False,
+        direction='reverse',
+        return_as_wave_front=False,
         target_wave_front=full_target,
     )
     assert set(g_fast._nodes['v']) == set(g_full._nodes['v'])
