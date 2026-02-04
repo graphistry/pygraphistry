@@ -3,7 +3,8 @@ import pytest
 
 from graphistry.compute import e_forward, e_reverse, e_undirected, n
 from graphistry.compute.ast import ASTEdge, ASTNode
-from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
+from graphistry.compute.chain import Chain
+from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain, col, compare
 from graphistry.tests.test_compute import CGFull
 
 
@@ -89,6 +90,54 @@ def _run_parity_case(nodes, edges, ops, check_hop_labels=False):
                     assert oracle_edge_hops[eid] == hop, f"Edge {eid}: oracle hop {oracle_edge_hops[eid]} != gfql hop {hop}"
 
     return oracle  # Return for additional assertions in specific tests
+
+
+def test_enumerator_parity_regular_and_where():
+    nodes = [
+        {"id": "acct_good", "type": "account", "owner_id": "user1"},
+        {"id": "acct_bad", "type": "account", "owner_id": "user2"},
+        {"id": "user1", "type": "user"},
+        {"id": "user2", "type": "user"},
+    ]
+    edges = [
+        {"edge_id": "e_good", "src": "acct_good", "dst": "user1", "type": "owns"},
+        {"edge_id": "e_bad_match", "src": "acct_bad", "dst": "user2", "type": "owns"},
+        {"edge_id": "e_bad_wrong", "src": "acct_bad", "dst": "user1", "type": "owns"},
+    ]
+    g = (
+        CGFull()
+        .nodes(pd.DataFrame(nodes), "id")
+        .edges(pd.DataFrame(edges), "src", "dst", edge="edge_id")
+    )
+    chain_ops = [
+        n({"type": "account"}, name="a"),
+        e_forward({"type": "owns"}, name="r"),
+        n({"type": "user"}, name="c"),
+    ]
+
+    def _assert_parity(result, oracle):
+        gfql_nodes = _to_pandas(result._nodes)
+        gfql_edges = _to_pandas(result._edges)
+        assert gfql_nodes is not None
+        assert set(gfql_nodes[g._node]) == set(oracle.nodes[g._node])
+        if g._edge is not None and gfql_edges is not None and not gfql_edges.empty:
+            assert set(gfql_edges[g._edge]) == set(oracle.edges[g._edge])
+        else:
+            assert oracle.edges.empty
+
+    regular = g.gfql(chain_ops)
+    regular_oracle = enumerate_chain(
+        g, chain_ops, caps=OracleCaps(max_nodes=20, max_edges=20)
+    )
+    _assert_parity(regular, regular_oracle)
+
+    where = [compare(col("a", "owner_id"), "==", col("c", "id"))]
+    where_chain = Chain(chain_ops, where=where)
+    where_result = g.gfql(where_chain)
+    where_oracle = enumerate_chain(
+        g, chain_ops, where=where, caps=OracleCaps(max_nodes=20, max_edges=20)
+    )
+    _assert_parity(where_result, where_oracle)
 
 
 CASES = [
@@ -279,23 +328,12 @@ def test_enumerator_min_max_three_branch_unlabeled():
     _run_parity_case(nodes, edges, ops)
 
 
-# ============================================================================
 # TRICKY PARITY TESTS - Exercise edge cases for hop bounds/labels
-# ============================================================================
 
 
 class TestTrickyHopBounds:
-    """Test cases designed to catch subtle bugs in hop bounds and label logic."""
 
     def test_dead_end_branch_pruning(self):
-        """min_hops should prune branches that don't reach the minimum.
-
-        Graph:
-          a -> b -> c -> d (3 edges, reaches hop 3)
-          a -> x           (1 edge, dead end at hop 1)
-
-        With min_hops=2, the a->x branch should be pruned.
-        """
         nodes = [
             {"id": "a"},
             {"id": "b"},
@@ -320,16 +358,6 @@ class TestTrickyHopBounds:
         assert "dead" not in set(oracle.edges["edge_id"])
 
     def test_output_slice_vs_traversal_bounds(self):
-        """output_min/max should filter output without affecting traversal.
-
-        Graph: a -> b -> c -> d -> e (linear, 4 edges)
-
-        With min_hops=1, max_hops=4, output_min_hops=2, output_max_hops=3:
-        - Traversal reaches all nodes
-        - Output includes edges at hop 2-3 (e2, e3)
-        - Output includes nodes that are endpoints of those edges (b, c, d)
-        - Node hop labels only set for nodes within slice (c=2, d=3), others NA
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "e"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -373,7 +401,6 @@ class TestTrickyHopBounds:
         assert "b" not in oracle.node_hop_labels  # hop 1, outside slice
 
     def test_label_seeds_true(self):
-        """label_seeds=True should label seed nodes with hop=0."""
         nodes = [{"id": x} for x in ["seed", "b", "c"]]
         edges = [
             {"edge_id": "e1", "src": "seed", "dst": "b"},
@@ -397,7 +424,6 @@ class TestTrickyHopBounds:
         assert oracle.node_hop_labels.get("c") == 2
 
     def test_label_seeds_false(self):
-        """label_seeds=False should not label seed nodes (hop=NA)."""
         nodes = [{"id": x} for x in ["seed", "b", "c"]]
         edges = [
             {"edge_id": "e1", "src": "seed", "dst": "b"},
@@ -419,15 +445,6 @@ class TestTrickyHopBounds:
         assert "seed" not in oracle.node_hop_labels or oracle.node_hop_labels.get("seed") != 0
 
     def test_cycle_with_bounds(self):
-        """Cycles should handle hop bounds correctly.
-
-        Graph: a -> b -> c -> a (triangle cycle)
-
-        With min_hops=2, max_hops=3, starting at a:
-        - Can reach b at hop 1
-        - Can reach c at hop 2
-        - Can reach a again at hop 3
-        """
         nodes = [{"id": x} for x in ["a", "b", "c"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -444,20 +461,6 @@ class TestTrickyHopBounds:
         assert set(oracle.nodes["id"]) == {"a", "b", "c"}
 
     def test_branching_path_lengths(self):
-        """Test behavior with branching paths of different lengths.
-
-        Graph:
-          a -> b -> c -> d (3 hops to d via long path)
-          a -> x -> d      (2 hops to d via short path)
-
-        With min_hops=3, max_hops=3, d is reachable at hop 3 (via the long path).
-        Both paths are explored during traversal, since:
-        - a->b->c->d: 3 hops - meets min_hops=3 requirement
-        - a->x->d: 2 hops - but x and d are still reachable in the graph
-
-        Note: GFQL semantics include all reachable nodes/edges where at least
-        one path satisfies the hop bounds. This is a parity test against GFQL.
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -475,17 +478,6 @@ class TestTrickyHopBounds:
         _run_parity_case(nodes, edges, ops, check_hop_labels=True)
 
     def test_reverse_with_bounds(self):
-        """Reverse traversal with bounds should work correctly.
-
-        Graph: a -> b -> c -> d
-
-        Starting at d, e_reverse, min_hops=2, max_hops=2:
-        - Reverse traversal: d <- c <- b <- a
-        - hop 1: c, hop 2: b, hop 3: a
-        - Valid destination: b (at hop 2)
-        - All paths to b are included: d->c->b, so c is included as intermediate
-        - a is NOT included because it's hop 3 (beyond max_hops=2)
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -507,18 +499,6 @@ class TestTrickyHopBounds:
         assert "a" not in output_nodes
 
     def test_undirected_with_output_slice(self):
-        """Undirected traversal with output slicing.
-
-        Graph: a -- b -- c -- d (undirected)
-
-        Starting at b, e_undirected, max_hops=2, output_min_hops=2:
-        - Reaches a,c at hop 1
-        - Reaches d at hop 2 (from c)
-        - Edge e3 (c->d) is at hop 2, so it's kept
-        - Output edges: e3
-        - Output nodes: endpoints of e3 (c, d)
-        - Node d has hop=2 (valid), c has hop=NA (outside slice)
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -543,12 +523,6 @@ class TestTrickyHopBounds:
         assert "a" not in output_nodes  # not endpoint of e3
 
     def test_empty_result_unreachable_bounds(self):
-        """When bounds can't be satisfied, result should be empty.
-
-        Graph: a -> b (1 edge)
-
-        With min_hops=5, max_hops=10: nothing is reachable.
-        """
         nodes = [{"id": x} for x in ["a", "b"]]
         edges = [{"edge_id": "e1", "src": "a", "dst": "b"}]
         ops = [
@@ -561,22 +535,6 @@ class TestTrickyHopBounds:
         assert oracle.edges.empty or len(oracle.edges) == 0
 
     def test_hop_label_uses_shortest_path_not_valid_path(self):
-        """Hop labels should use minimum distance across ALL paths, not just valid paths.
-
-        This is a regression test for a bug where hop labeling only considered
-        paths that satisfied min_hops, causing incorrect minimum distances.
-
-        Graph:
-          a -> b -> c -> d (3 hops to d via long path)
-          a -> x -> d      (2 hops to d via short path)
-
-        With min_hops=3, max_hops=3:
-        - Only the 3-hop path a->b->c->d satisfies min_hops
-        - But node d's minimum hop distance is 2 (via the short path a->x->d)
-        - The hop label for d should be 2, NOT 3
-
-        The bug was: only saving paths >= min_hops caused d to get hop=3.
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -631,18 +589,6 @@ class TestTrickyHopBounds:
         )
 
     def test_edge_hop_label_uses_shortest_path(self):
-        """Edge hop labels should also use minimum distance across ALL paths.
-
-        Same pattern as node hop labels - edges on shorter invalid paths
-        should still contribute to minimum distance calculation.
-
-        Graph:
-          a -> b -> c -> d (3 edges to reach d)
-          a -> x -> d      (2 edges to reach d)
-
-        With min_hops=3: edge "short2" (x->d) is at hop 2, even though
-        that path doesn't satisfy min_hops.
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -683,16 +629,6 @@ class TestTrickyHopBounds:
         )
 
     def test_reverse_hop_label_shortest_path(self):
-        """Reverse traversal should also use shortest path for hop labels.
-
-        Graph: a -> b -> c -> d
-               a -> x -> d
-
-        Starting from d with e_reverse, min_hops=3:
-        - Valid path: d <- c <- b <- a (3 reverse hops)
-        - Invalid path: d <- x <- a (2 reverse hops)
-        - Node a's hop label should be 2 (shortest), not 3
-        """
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
