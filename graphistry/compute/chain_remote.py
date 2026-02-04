@@ -17,6 +17,7 @@ from graphistry.compute.chain import Chain
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
+from graphistry.otel import inject_trace_headers
 
 
 def chain_remote_generic(
@@ -107,6 +108,7 @@ def chain_remote_generic(
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
+    headers = inject_trace_headers(headers)
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 

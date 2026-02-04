@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 import io, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
+from graphistry.otel import inject_trace_headers
 
 from .client_session import ClientSession
 from .ArrowFileUploader import ArrowFileUploader
@@ -242,7 +243,7 @@ class ArrowUploader:
             response = requests.post(
                 switch_url,
                 data={'slug': org_name},
-                headers={'Authorization': f'Bearer {token}'},
+                headers=inject_trace_headers({'Authorization': f'Bearer {token}'}),
                 verify=self.certificate_validation,
             )
             log_requests_error(response)
@@ -264,6 +265,7 @@ class ArrowUploader:
         out = requests.post(
             f'{self.server_base_path}/api-token-auth/',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json=json_data)
         log_requests_error(out)
 
@@ -282,7 +284,7 @@ class ArrowUploader:
         out = requests.get(
             url,
             verify=self.certificate_validation,
-            json=json_data, headers=headers)
+            json=json_data, headers=inject_trace_headers(headers))
         log_requests_error(out)
         return self._finalize_login(out, org_name)
 
@@ -364,7 +366,8 @@ class ArrowUploader:
         # print("url : {}".format(url))
         out = requests.post(
             url, data={'client-type': 'pygraphistry'},
-            verify=self.certificate_validation
+            verify=self.certificate_validation,
+            headers=inject_trace_headers({})
         )
         log_requests_error(out)
 
@@ -404,7 +407,8 @@ class ArrowUploader:
         base_path = self.server_base_path
         out = requests.get(
             f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/',
-            verify=self.certificate_validation
+            verify=self.certificate_validation,
+            headers=inject_trace_headers({})
         )
         log_requests_error(out)
         json_response = None
@@ -449,6 +453,7 @@ class ArrowUploader:
         out = requests.post(
             f'{base_path}/api/v2/auth/token/refresh',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json={'token': token})
         log_requests_error(out)
         json_response = None
@@ -475,6 +480,7 @@ class ArrowUploader:
         out = requests.post(
             f'{base_path}/api-token-verify/',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json={'token': token})
         log_requests_error(out)
         return 200 <= out.status_code < 300
@@ -517,7 +523,7 @@ class ArrowUploader:
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             json=json)
         log_requests_error(res)
         try: 
@@ -685,7 +691,7 @@ class ArrowUploader:
         res = requests.post(
             path,
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             json={
                 'obj_pk': obj_pk,
                 'obj_type': obj_type,
@@ -768,7 +774,7 @@ class ArrowUploader:
         resp = requests.post(
             url,
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             data=buf)
         log_requests_error(resp)
 
@@ -833,7 +839,7 @@ class ArrowUploader:
             out = requests.post(
                 f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/{file_type}',
                 verify=self.certificate_validation,
-                headers={'Authorization': f'Bearer {tok}'},
+                headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
                 data=file.read()).json()
             log_requests_error(out)
             if not out['success']:

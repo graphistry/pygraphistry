@@ -11,6 +11,7 @@ import requests
 from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
+from graphistry.otel import inject_trace_headers
 
 
 def validate_python_str(code: str) -> bool:
@@ -151,6 +152,7 @@ def python_remote_generic(
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
+    headers = inject_trace_headers(headers)
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
