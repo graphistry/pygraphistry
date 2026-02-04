@@ -5,9 +5,13 @@ from typing import Any, TYPE_CHECKING, TypeVar, Union
 if TYPE_CHECKING:
     DataFrameT = pd.DataFrame
     SeriesT = pd.Series
+    IndexT = pd.Index
+    DomainT = pd.Index
 else:
     DataFrameT = Any
     SeriesT = Any
+    IndexT = Any
+    DomainT = Any
 
 # Type variable for return type preservation in predicates
 T = TypeVar('T')
