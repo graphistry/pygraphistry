@@ -32,6 +32,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Fixed vector-strategy guard to initialize start/end domains before pair-est gating (prevents UnboundLocalError).
 
 ### Infra
+- **Benchmarks**: Added GFQL benchmark scripts and a CI job that runs a small subset on GFQL/benchmark changes and uploads `gfql-bench.md`.
 - **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, and WHERE filtering.
 - **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
 
