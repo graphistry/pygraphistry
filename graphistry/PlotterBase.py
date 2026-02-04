@@ -31,6 +31,7 @@ from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
 )
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -46,6 +47,50 @@ from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+
+def _upload_otel_attrs(
+    self: Plottable,
+    memoize: bool = True,
+    erase_files_on_fail: bool = True,
+    validate: ValidationParam = "autofix",
+    warn: bool = True,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {"graphistry.memoize": memoize}
+    if otel_detail_enabled():
+        attrs["graphistry.validate"] = str(validate)
+        attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
+        attrs["graphistry.warn"] = warn
+    return attrs
+
+
+def _plot_otel_attrs(
+    self: Plottable,
+    graph: Optional[Any] = None,
+    nodes: Optional[Any] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    render: Optional[Union[bool, RenderModes]] = "auto",
+    skip_upload: bool = False,
+    as_files: bool = False,
+    memoize: bool = True,
+    erase_files_on_fail: bool = True,
+    extra_html: str = "",
+    override_html_style: Optional[str] = None,
+    validate: ValidationParam = "autofix",
+    warn: bool = True,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {
+        "graphistry.render": str(render),
+        "graphistry.skip_upload": skip_upload,
+        "graphistry.as_files": as_files,
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.validate"] = str(validate)
+        attrs["graphistry.memoize"] = memoize
+        attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
+        attrs["graphistry.warn"] = warn
+    return attrs
 
 
 # #####################################
@@ -2014,6 +2059,7 @@ class PlotterBase(Plottable):
         """
         return self._url
 
+    @otel_traced("graphistry.upload", attrs_fn=_upload_otel_attrs)
     def upload(
         self,
         memoize: bool = True,
@@ -2060,6 +2106,7 @@ class PlotterBase(Plottable):
             warn=warn
         )
 
+    @otel_traced("graphistry.plot", attrs_fn=_plot_otel_attrs)
     def plot(
         self,
         graph: Optional[Any] = None,

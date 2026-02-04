@@ -7,6 +7,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     register,
     sso_get_token,
     privacy,
+    otel,
     login,
     refresh,
     api_token,
