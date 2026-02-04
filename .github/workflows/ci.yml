@@ -25,6 +25,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
+      benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
@@ -60,6 +61,10 @@ jobs:
             - 'graphistry/models/gfql/**'
             - 'graphistry/Plottable.py'
             - 'tests/gfql/**'
+
+          # Benchmark-specific changes
+          benchmarks:
+            - 'benchmarks/**'
             
           # Documentation changes
           docs:
@@ -129,7 +134,7 @@ jobs:
 
   gfql-benchmarks:
     needs: changes
-    if: ${{ (needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.benchmarks == 'true' || github.event_name == 'workflow_dispatch') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
