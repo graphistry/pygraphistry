@@ -10,15 +10,34 @@ from graphistry.compute.predicates.str import (
     fullmatch,
     IsUpper, isupper
 )
-from graphistry.embed_utils import check_cudf
+# Helper to check if cuDF is available and functional (requires GPU)
+def has_cudf():
+    try:
+        import cudf
+        # Test actual GPU operation - import alone doesn't guarantee GPU works
+        _ = cudf.Series([1, 2, 3])
+        return True
+    except (ImportError, Exception):
+        # ImportError if cudf not installed
+        # Other exceptions (CUDARuntimeError) if GPU not available
+        return False
 
 
-has_cudf, _ = check_cudf()
+# Cache result to avoid repeated GPU checks
+_cudf_available = None
 
-# Skip tests that require cuDF when it's not available
+
+def cudf_available():
+    global _cudf_available
+    if _cudf_available is None:
+        _cudf_available = has_cudf()
+    return _cudf_available
+
+
+# Skip tests that require cuDF when it's not available or GPU not working
 requires_cudf = pytest.mark.skipif(
-    not has_cudf,
-    reason="cudf not installed"
+    not cudf_available(),
+    reason="cudf not installed or GPU not available"
 )
 
 
@@ -34,10 +53,8 @@ def test_is_upper():
     assert isinstance(d2, IsUpper)
 
 
-# ============= Contains Tests =============
 
 def test_contains_pandas_basic():
-    """Test basic contains functionality with pandas"""
     s = pd.Series(['Mouse', 'dog', 'house and parrot', '23'])
     predicate = contains('og')
     result = predicate(s)
@@ -46,7 +63,6 @@ def test_contains_pandas_basic():
 
 
 def test_contains_pandas_regex():
-    """Test regex patterns with pandas"""
     s = pd.Series(['Mouse', 'dog', 'house and parrot', '23'])
     predicate = contains('house|dog', regex=True)
     result = predicate(s)
@@ -55,7 +71,6 @@ def test_contains_pandas_regex():
 
 
 def test_contains_pandas_case_insensitive():
-    """Test case-insensitive matching with pandas"""
     s = pd.Series(['Mouse', 'dog', 'HOUSE', 'house'])
     predicate = contains('house', case=False)
     result = predicate(s)
@@ -64,7 +79,6 @@ def test_contains_pandas_case_insensitive():
 
 
 def test_contains_pandas_na_default():
-    """Test default NA handling with pandas"""
     s = pd.Series(['Mouse', 'dog', None, 'house'])
     predicate = contains('og')
     result = predicate(s)
@@ -75,7 +89,6 @@ def test_contains_pandas_na_default():
 
 
 def test_contains_pandas_na_false():
-    """Test NA=False handling with pandas"""
     s = pd.Series(['Mouse', 'dog', None, 'house'])
     predicate = contains('og', na=False)
     result = predicate(s)
@@ -84,7 +97,6 @@ def test_contains_pandas_na_false():
 
 
 def test_contains_pandas_na_true():
-    """Test NA=True handling with pandas"""
     s = pd.Series(['Mouse', 'dog', None, 'house'])
     predicate = contains('og', na=True)
     result = predicate(s)
@@ -94,7 +106,6 @@ def test_contains_pandas_na_true():
 
 @requires_cudf
 def test_contains_cudf_basic():
-    """Test basic contains functionality with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'dog', 'house and parrot', '23'])
     predicate = contains('og')
@@ -105,7 +116,6 @@ def test_contains_cudf_basic():
 
 @requires_cudf
 def test_contains_cudf_case_insensitive():
-    """Test case-insensitive matching with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'dog', 'HOUSE', 'house'])
     predicate = contains('house', case=False)
@@ -116,7 +126,6 @@ def test_contains_cudf_case_insensitive():
 
 @requires_cudf
 def test_contains_cudf_na_handling():
-    """Test NA handling with cuDF"""
     import cudf
 
     # Test default NA behavior
@@ -143,7 +152,6 @@ def test_contains_cudf_na_handling():
 
 @requires_cudf
 def test_contains_pandas_cudf_parity():
-    """Verify identical behavior between pandas and cuDF"""
     import cudf
 
     # Create identical data
@@ -170,10 +178,8 @@ def test_contains_pandas_cudf_parity():
     pd.testing.assert_series_equal(result_pandas, result_cudf)
 
 
-# ============= Startswith Tests =============
 
 def test_startswith_pandas_basic():
-    """Test basic startswith functionality with pandas"""
     s = pd.Series(['Mouse', 'dog', 'house', 'Home'])
     predicate = startswith('ho')
     result = predicate(s)
@@ -182,7 +188,6 @@ def test_startswith_pandas_basic():
 
 
 def test_startswith_pandas_na_handling():
-    """Test NA handling with pandas"""
     s = pd.Series(['Mouse', None, 'house'])
     predicate = startswith('ho')
     result = predicate(s)
@@ -204,7 +209,6 @@ def test_startswith_pandas_na_handling():
 
 
 def test_startswith_pandas_case_insensitive():
-    """Test case-insensitive matching with pandas"""
     s = pd.Series(['John', 'john', 'JOHN', 'Jane'])
     predicate = startswith('john', case=False)
     result = predicate(s)
@@ -214,7 +218,6 @@ def test_startswith_pandas_case_insensitive():
 
 @requires_cudf
 def test_startswith_cudf_basic():
-    """Test basic startswith functionality with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'dog', 'house', 'Home'])
     predicate = startswith('ho')
@@ -225,7 +228,6 @@ def test_startswith_cudf_basic():
 
 @requires_cudf
 def test_startswith_cudf_na_handling():
-    """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', None, 'house'])
 
@@ -251,7 +253,6 @@ def test_startswith_cudf_na_handling():
 
 @requires_cudf
 def test_startswith_cudf_case_insensitive():
-    """Test case-insensitive matching with cuDF"""
     import cudf
     s = cudf.Series(['John', 'john', 'JOHN', 'Jane'])
     predicate = startswith('john', case=False)
@@ -260,10 +261,8 @@ def test_startswith_cudf_case_insensitive():
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
-# ============= Endswith Tests =============
 
 def test_endswith_pandas_basic():
-    """Test basic endswith functionality with pandas"""
     s = pd.Series(['Mouse', 'dog', 'house', 'Home'])
     predicate = endswith('se')
     result = predicate(s)
@@ -272,7 +271,6 @@ def test_endswith_pandas_basic():
 
 
 def test_endswith_pandas_na_handling():
-    """Test NA handling with pandas"""
     s = pd.Series(['Mouse', None, 'house'])
     predicate = endswith('se')
     result = predicate(s)
@@ -294,7 +292,6 @@ def test_endswith_pandas_na_handling():
 
 
 def test_endswith_pandas_case_insensitive():
-    """Test case-insensitive matching with pandas"""
     s = pd.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
     predicate = endswith('.com', case=False)
     result = predicate(s)
@@ -304,7 +301,6 @@ def test_endswith_pandas_case_insensitive():
 
 @requires_cudf
 def test_endswith_cudf_basic():
-    """Test basic endswith functionality with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'dog', 'house', 'Home'])
     predicate = endswith('se')
@@ -315,7 +311,6 @@ def test_endswith_cudf_basic():
 
 @requires_cudf
 def test_endswith_cudf_na_handling():
-    """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', None, 'house'])
 
@@ -341,7 +336,6 @@ def test_endswith_cudf_na_handling():
 
 @requires_cudf
 def test_endswith_cudf_case_insensitive():
-    """Test case-insensitive matching with cuDF"""
     import cudf
     s = cudf.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
     predicate = endswith('.com', case=False)
@@ -350,10 +344,8 @@ def test_endswith_cudf_case_insensitive():
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
-# ============= Match Tests =============
 
 def test_match_pandas_basic():
-    """Test basic match functionality with pandas"""
     s = pd.Series(['Mouse', 'dog', 'house', '123'])
     predicate = match(r'\d+')
     result = predicate(s)
@@ -362,7 +354,6 @@ def test_match_pandas_basic():
 
 
 def test_match_pandas_case_insensitive():
-    """Test case-insensitive matching with pandas"""
     s = pd.Series(['Mouse', 'mouse', 'MOUSE', 'dog'])
     predicate = match(r'mouse', case=False)
     result = predicate(s)
@@ -371,7 +362,6 @@ def test_match_pandas_case_insensitive():
 
 
 def test_match_pandas_case_insensitive_with_flags():
-    """Test case-insensitive matching with explicit flags in pandas"""
     s = pd.Series(['Mouse', 'mouse', 'MOUSE', 'dog', None])
     predicate = match(r'mouse', case=False, flags=re.IGNORECASE)
     result = predicate(s)
@@ -380,7 +370,6 @@ def test_match_pandas_case_insensitive_with_flags():
 
 
 def test_match_pandas_na_handling():
-    """Test NA handling with pandas"""
     s = pd.Series(['123', None, 'abc'])
     predicate = match(r'\d+')
     result = predicate(s)
@@ -403,7 +392,6 @@ def test_match_pandas_na_handling():
 
 @requires_cudf
 def test_match_cudf_basic():
-    """Test basic match functionality with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'dog', 'house', '123'])
     predicate = match(r'\d+')
@@ -414,7 +402,6 @@ def test_match_cudf_basic():
 
 @requires_cudf
 def test_match_cudf_case_insensitive():
-    """Test case-insensitive matching with cuDF"""
     import cudf
     s = cudf.Series(['Mouse', 'mouse', 'MOUSE', 'dog'])
     predicate = match(r'mouse', case=False)
@@ -425,7 +412,6 @@ def test_match_cudf_case_insensitive():
 
 @requires_cudf
 def test_match_cudf_na_handling():
-    """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['123', None, 'abc'])
 
@@ -451,7 +437,6 @@ def test_match_cudf_na_handling():
 
 @requires_cudf
 def test_match_pandas_cudf_parity():
-    """Verify identical behavior between pandas and cuDF for match"""
     import cudf
 
     # Create identical data
@@ -478,10 +463,8 @@ def test_match_pandas_cudf_parity():
     pd.testing.assert_series_equal(result_pandas, result_cudf)
 
 
-# ============= Fullmatch Tests =============
 
 def test_fullmatch_pandas_basic():
-    """Test fullmatch functionality - matches entire string"""
     s = pd.Series(['123', '123abc', 'abc123', 'abc'])
     predicate = fullmatch(r'\d+')
     result = predicate(s)
@@ -491,7 +474,6 @@ def test_fullmatch_pandas_basic():
 
 
 def test_fullmatch_pandas_case_insensitive():
-    """Test case-insensitive matching with pandas"""
     s = pd.Series(['ABC', 'abc', 'AbC', 'abcd'])
     predicate = fullmatch(r'abc', case=False)
     result = predicate(s)
@@ -501,7 +483,6 @@ def test_fullmatch_pandas_case_insensitive():
 
 
 def test_fullmatch_pandas_vs_match():
-    """Test difference between fullmatch and match"""
     s = pd.Series(['123', '123abc', 'abc123'])
 
     # match() matches from start
@@ -516,7 +497,6 @@ def test_fullmatch_pandas_vs_match():
 
 
 def test_fullmatch_pandas_na_handling():
-    """Test NA handling with pandas"""
     s = pd.Series(['123', None, 'abc'])
     predicate = fullmatch(r'\d+')
     result = predicate(s)
@@ -539,7 +519,6 @@ def test_fullmatch_pandas_na_handling():
 
 @requires_cudf
 def test_fullmatch_cudf_basic():
-    """Test fullmatch with cuDF - uses match with anchors workaround"""
     import cudf
     s = cudf.Series(['123', '123abc', 'abc123', 'abc'])
     predicate = fullmatch(r'\d+')
@@ -550,7 +529,6 @@ def test_fullmatch_cudf_basic():
 
 @requires_cudf
 def test_fullmatch_cudf_case_insensitive():
-    """Test case-insensitive matching with cuDF"""
     import cudf
     s = cudf.Series(['ABC', 'abc', 'AbC', 'abcd'])
     predicate = fullmatch(r'abc', case=False)
@@ -561,7 +539,6 @@ def test_fullmatch_cudf_case_insensitive():
 
 @requires_cudf
 def test_fullmatch_cudf_na_handling():
-    """Test NA handling with cuDF"""
     import cudf
     s = cudf.Series(['123', None, 'abc'])
 
@@ -587,7 +564,6 @@ def test_fullmatch_cudf_na_handling():
 
 @requires_cudf
 def test_fullmatch_pandas_cudf_parity():
-    """Verify identical behavior between pandas and cuDF for fullmatch"""
     import cudf
 
     # Create identical data
@@ -614,10 +590,8 @@ def test_fullmatch_pandas_cudf_parity():
     pd.testing.assert_series_equal(result_pandas, result_cudf)
 
 
-# ============= Edge Case Tests =============
 
 def test_edge_cases_pandas():
-    """Test edge cases with pandas"""
     # Empty strings
     s = pd.Series(['', 'test', ''])
     predicate = contains('')
@@ -643,7 +617,6 @@ def test_edge_cases_pandas():
 
 @requires_cudf
 def test_edge_cases_cudf():
-    """Test edge cases with cuDF"""
     import cudf
 
     # Empty strings
@@ -663,7 +636,6 @@ def test_edge_cases_cudf():
 
 @requires_cudf
 def test_all_predicates_pandas_cudf_parity():
-    """Comprehensive test ensuring all predicates have identical behavior"""
     import cudf
 
     # Test data with various edge cases
@@ -702,10 +674,8 @@ def test_all_predicates_pandas_cudf_parity():
             )
 
 
-# ============= Tuple Pattern Tests (startswith/endswith) =============
 
 def test_startswith_pandas_tuple_basic():
-    """Test tuple pattern matching with pandas"""
     s = pd.Series(['apple', 'banana', 'apricot', 'orange', None])
     predicate = startswith(('app', 'ban'))
     result = predicate(s)
@@ -714,7 +684,6 @@ def test_startswith_pandas_tuple_basic():
 
 
 def test_startswith_pandas_tuple_case_insensitive():
-    """Test tuple pattern with case-insensitive matching in pandas"""
     s = pd.Series(['Apple', 'BANANA', 'apricot', 'Orange', None])
     predicate = startswith(('app', 'ban'), case=False)
     result = predicate(s)
@@ -723,7 +692,6 @@ def test_startswith_pandas_tuple_case_insensitive():
 
 
 def test_startswith_pandas_tuple_na_handling():
-    """Test tuple pattern with NA handling in pandas"""
     s = pd.Series(['apple', None, 'banana', 'orange'])
 
     # Default NA handling
@@ -748,7 +716,6 @@ def test_startswith_pandas_tuple_na_handling():
 
 
 def test_startswith_pandas_tuple_case_na_combined():
-    """Test tuple pattern case=False + na=False (critical edge case)"""
     s = pd.Series(['APPLE', None, 'Banana', 'orange'])
     predicate = startswith(('app', 'ban'), case=False, na=False)
     result = predicate(s)
@@ -757,7 +724,6 @@ def test_startswith_pandas_tuple_case_na_combined():
 
 
 def test_startswith_pandas_single_element_tuple():
-    """Test single-element tuple edge case in pandas"""
     s = pd.Series(['apple', 'apricot', 'banana'])
     predicate = startswith(('app',))
     result = predicate(s)
@@ -766,7 +732,6 @@ def test_startswith_pandas_single_element_tuple():
 
 
 def test_startswith_pandas_empty_tuple():
-    """Test empty tuple edge case in pandas"""
     s = pd.Series(['apple', 'banana', 'orange'])
     predicate = startswith(())
     result = predicate(s)
@@ -775,7 +740,6 @@ def test_startswith_pandas_empty_tuple():
 
 
 def test_startswith_pandas_empty_tuple_na():
-    """Test empty tuple with NA values in pandas"""
     s = pd.Series(['apple', None, 'orange'])
     predicate = startswith(())
     result = predicate(s)
@@ -785,7 +749,6 @@ def test_startswith_pandas_empty_tuple_na():
 
 
 def test_endswith_pandas_tuple_basic():
-    """Test tuple pattern matching with pandas"""
     s = pd.Series(['test.txt', 'data.csv', 'config.txt', 'image.png', None])
     predicate = endswith(('.txt', '.csv'))
     result = predicate(s)
@@ -794,7 +757,6 @@ def test_endswith_pandas_tuple_basic():
 
 
 def test_endswith_pandas_tuple_case_insensitive():
-    """Test tuple pattern with case-insensitive matching in pandas"""
     s = pd.Series(['test.TXT', 'data.CSV', 'config.txt', 'image.PNG', None])
     predicate = endswith(('.txt', '.csv'), case=False)
     result = predicate(s)
@@ -803,7 +765,6 @@ def test_endswith_pandas_tuple_case_insensitive():
 
 
 def test_endswith_pandas_tuple_na_handling():
-    """Test tuple pattern with NA handling in pandas"""
     s = pd.Series(['test.txt', None, 'data.csv', 'image.png'])
 
     # Default NA handling
@@ -828,7 +789,6 @@ def test_endswith_pandas_tuple_na_handling():
 
 
 def test_endswith_pandas_tuple_case_na_combined():
-    """Test tuple pattern case=False + na=False (critical edge case)"""
     s = pd.Series(['test.TXT', None, 'data.CSV', 'image.png'])
     predicate = endswith(('.txt', '.csv'), case=False, na=False)
     result = predicate(s)
@@ -837,7 +797,6 @@ def test_endswith_pandas_tuple_case_na_combined():
 
 
 def test_endswith_pandas_single_element_tuple():
-    """Test single-element tuple edge case in pandas"""
     s = pd.Series(['test.txt', 'data.csv', 'config.txt'])
     predicate = endswith(('.txt',))
     result = predicate(s)
@@ -846,7 +805,6 @@ def test_endswith_pandas_single_element_tuple():
 
 
 def test_endswith_pandas_empty_tuple():
-    """Test empty tuple edge case in pandas"""
     s = pd.Series(['test.txt', 'data.csv', 'image.png'])
     predicate = endswith(())
     result = predicate(s)
@@ -855,7 +813,6 @@ def test_endswith_pandas_empty_tuple():
 
 
 def test_endswith_pandas_empty_tuple_na():
-    """Test empty tuple with NA values in pandas"""
     s = pd.Series(['test.txt', None, 'image.png'])
     predicate = endswith(())
     result = predicate(s)
@@ -866,7 +823,6 @@ def test_endswith_pandas_empty_tuple_na():
 
 @requires_cudf
 def test_startswith_cudf_tuple_basic():
-    """Test tuple pattern matching with cuDF"""
     import cudf
     s = cudf.Series(['apple', 'banana', 'apricot', 'orange', None])
     predicate = startswith(('app', 'ban'))
@@ -877,7 +833,6 @@ def test_startswith_cudf_tuple_basic():
 
 @requires_cudf
 def test_startswith_cudf_tuple_case_insensitive():
-    """Test tuple pattern with case-insensitive matching in cuDF"""
     import cudf
     s = cudf.Series(['Apple', 'BANANA', 'apricot', 'Orange', None])
     predicate = startswith(('app', 'ban'), case=False)
@@ -888,7 +843,6 @@ def test_startswith_cudf_tuple_case_insensitive():
 
 @requires_cudf
 def test_startswith_cudf_tuple_na_handling():
-    """Test tuple pattern with NA handling in cuDF"""
     import cudf
     s = cudf.Series(['apple', None, 'banana', 'orange'])
 
@@ -915,7 +869,6 @@ def test_startswith_cudf_tuple_na_handling():
 
 @requires_cudf
 def test_startswith_cudf_tuple_case_na_combined():
-    """Test tuple pattern case=False + na=False in cuDF (critical edge case)"""
     import cudf
     s = cudf.Series(['APPLE', None, 'Banana', 'orange'])
     predicate = startswith(('app', 'ban'), case=False, na=False)
@@ -926,7 +879,6 @@ def test_startswith_cudf_tuple_case_na_combined():
 
 @requires_cudf
 def test_startswith_cudf_single_element_tuple():
-    """Test single-element tuple edge case in cuDF"""
     import cudf
     s = cudf.Series(['apple', 'apricot', 'banana'])
     predicate = startswith(('app',))
@@ -937,7 +889,6 @@ def test_startswith_cudf_single_element_tuple():
 
 @requires_cudf
 def test_startswith_cudf_empty_tuple():
-    """Test empty tuple edge case in cuDF"""
     import cudf
     s = cudf.Series(['apple', 'banana', 'orange'])
     predicate = startswith(())
@@ -948,7 +899,6 @@ def test_startswith_cudf_empty_tuple():
 
 @requires_cudf
 def test_startswith_cudf_empty_tuple_na():
-    """Test empty tuple with NA values in cuDF"""
     import cudf
     s = cudf.Series(['apple', None, 'orange'])
     predicate = startswith(())
@@ -960,7 +910,6 @@ def test_startswith_cudf_empty_tuple_na():
 
 @requires_cudf
 def test_endswith_cudf_tuple_basic():
-    """Test tuple pattern matching with cuDF"""
     import cudf
     s = cudf.Series(['test.txt', 'data.csv', 'config.txt', 'image.png', None])
     predicate = endswith(('.txt', '.csv'))
@@ -971,7 +920,6 @@ def test_endswith_cudf_tuple_basic():
 
 @requires_cudf
 def test_endswith_cudf_tuple_case_insensitive():
-    """Test tuple pattern with case-insensitive matching in cuDF"""
     import cudf
     s = cudf.Series(['test.TXT', 'data.CSV', 'config.txt', 'image.PNG', None])
     predicate = endswith(('.txt', '.csv'), case=False)
@@ -982,7 +930,6 @@ def test_endswith_cudf_tuple_case_insensitive():
 
 @requires_cudf
 def test_endswith_cudf_tuple_na_handling():
-    """Test tuple pattern with NA handling in cuDF"""
     import cudf
     s = cudf.Series(['test.txt', None, 'data.csv', 'image.png'])
 
@@ -1009,7 +956,6 @@ def test_endswith_cudf_tuple_na_handling():
 
 @requires_cudf
 def test_endswith_cudf_tuple_case_na_combined():
-    """Test tuple pattern case=False + na=False in cuDF (critical edge case)"""
     import cudf
     s = cudf.Series(['test.TXT', None, 'data.CSV', 'image.png'])
     predicate = endswith(('.txt', '.csv'), case=False, na=False)
@@ -1020,7 +966,6 @@ def test_endswith_cudf_tuple_case_na_combined():
 
 @requires_cudf
 def test_endswith_cudf_single_element_tuple():
-    """Test single-element tuple edge case in cuDF"""
     import cudf
     s = cudf.Series(['test.txt', 'data.csv', 'config.txt'])
     predicate = endswith(('.txt',))
@@ -1031,7 +976,6 @@ def test_endswith_cudf_single_element_tuple():
 
 @requires_cudf
 def test_endswith_cudf_empty_tuple():
-    """Test empty tuple edge case in cuDF"""
     import cudf
     s = cudf.Series(['test.txt', 'data.csv', 'image.png'])
     predicate = endswith(())
@@ -1042,7 +986,6 @@ def test_endswith_cudf_empty_tuple():
 
 @requires_cudf
 def test_endswith_cudf_empty_tuple_na():
-    """Test empty tuple with NA values in cuDF"""
     import cudf
     s = cudf.Series(['test.txt', None, 'image.png'])
     predicate = endswith(())
@@ -1054,7 +997,6 @@ def test_endswith_cudf_empty_tuple_na():
 
 @requires_cudf
 def test_startswith_parity_tuple_all_combinations():
-    """Verify pandas/cuDF parity for tuple patterns with all params"""
     import cudf
 
     # Test data - using patterns that match for better testing
@@ -1086,7 +1028,6 @@ def test_startswith_parity_tuple_all_combinations():
 
 @requires_cudf
 def test_endswith_parity_tuple_all_combinations():
-    """Verify pandas/cuDF parity for tuple patterns with all params"""
     import cudf
 
     # Test data with various edge cases
