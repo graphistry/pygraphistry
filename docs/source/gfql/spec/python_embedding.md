@@ -53,6 +53,23 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+### Same-Path Constraints (WHERE)
+
+```python
+from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.same_path_types import col, compare
+
+chain = Chain(
+    [
+        n({"type": "account"}, name="a"),
+        e_forward(),
+        n({"type": "user"}, name="c"),
+    ],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+)
+result = g.gfql(chain)
+```
+
 ## Engine Selection
 
 GFQL supports multiple execution engines:

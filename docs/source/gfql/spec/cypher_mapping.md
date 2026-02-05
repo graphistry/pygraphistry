@@ -21,6 +21,7 @@ When translating from Cypher, you'll encounter three scenarios:
 - Property filters: WHERE clauses embed into operations
 - Path traversals: Variable-length paths use `hops` parameter
 - Pattern composition: Multiple patterns become sequential operations
+- Same-path constraints: `WHERE` across steps → `Chain(..., where=[...])`
 
 ## When You Need DataFrames
 - Aggregations: COUNT, SUM, AVG → pandas operations

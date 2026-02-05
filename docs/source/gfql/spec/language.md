@@ -53,6 +53,37 @@ Path pattern expressions for matching graph structures:
 - Define paths through the graph: start nodes → edges → end nodes
 - Each operation refines the pattern match based on previous results
 
+#### WHERE (Same-Path Constraints)
+
+WHERE ties attributes across named steps in a chain. Use it when you need to
+enforce relationships between nodes/edges on the same path (for example,
+start.owner_id equals end.owner_id).
+
+**Python example:**
+
+```python
+from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.same_path_types import col, compare
+
+Chain(
+    [n({"type": "account"}, name="a"), e_forward(), n({"type": "user"}, name="c")],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+)
+```
+
+**Wire format (JSON):**
+
+```json
+{
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "user"}, "name": "c"}
+  ],
+  "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+
 #### Operations
 
 Act on graph entities (nodes and edges):
@@ -84,7 +115,7 @@ Type system matching modern data formats:
 query ::= chain
 
 (* Chain - path pattern expression *)
-chain ::= "[" operation ("," operation)* "]"
+chain ::= "[" operation ("," operation)* "]" where_clause?
 
 (* Operations *)
 operation ::= node_matcher | edge_matcher
@@ -100,6 +131,15 @@ edge_matcher ::= edge_forward | edge_reverse | edge_undirected
 edge_forward ::= "e_forward(" edge_params? ")"
 edge_reverse ::= "e_reverse(" edge_params? ")"  
 edge_undirected ::= ("e" | "e_undirected") "(" edge_params? ")"
+
+(* WHERE (same-path constraints) *)
+where_clause ::= ", where=" where_list
+where_list ::= "[" where_expr ("," where_expr)* "]"
+where_expr ::= where_op "(" column_ref "," column_ref ")"
+where_op ::= "eq" | "neq" | "gt" | "lt" | "ge" | "le"
+column_ref ::= alias "." column
+alias ::= identifier
+column ::= identifier
 
 (* Parameters *)
 edge_params ::= edge_match_params ("," hop_params)? ("," node_filter_params)? ("," name_param)?
@@ -155,6 +195,7 @@ integer ::= ["-"]? [0-9]+
 float ::= ["-"]? [0-9]+ "." [0-9]+
 boolean ::= "True" | "False"
 null ::= "None"
+identifier ::= [A-Za-z_][A-Za-z0-9_]*
 datetime_args ::= integer ("," integer)*
 date_args ::= integer "," integer "," integer
 time_args ::= integer "," integer ("," integer)?

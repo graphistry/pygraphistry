@@ -50,6 +50,7 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 - **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
 - **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
+- **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
 
