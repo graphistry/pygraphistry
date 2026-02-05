@@ -371,9 +371,9 @@ def hop(self: Plottable,
     max_reached_hop = 0
     skip_full_loop = False
     if fast_path_enabled:
-        frontier_ids = _domain_unique(starting_nodes[node_col])
-        visited_node_ids = None
-        visited_edge_ids = None
+        frontier_ids: Optional[DomainT] = _domain_unique(starting_nodes[node_col])
+        visited_node_ids: Optional[DomainT] = None
+        visited_edge_ids: Optional[DomainT] = None
         while True:
             if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
                 break

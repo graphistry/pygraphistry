@@ -286,7 +286,8 @@ class DFSamePathExecutor:
             frame = self.forward_steps[idx]._nodes
             if frame is None or node_col is None:
                 continue
-            allowed = allowed_tags.get(self.meta.alias_for_step(idx))
+            alias = self.meta.alias_for_step(idx)
+            allowed = allowed_tags.get(alias) if alias is not None else None
             allowed_nodes[idx] = allowed if allowed is not None else series_values(frame[node_col])
 
         for edge_idx, left_node_idx, right_node_idx in zip(reversed(edge_indices), reversed(node_indices[:-1]), reversed(node_indices[1:])):
@@ -411,7 +412,7 @@ class DFSamePathExecutor:
 
         if any(domain_is_empty(node_set) for node_set in state.allowed_nodes.values()):
             return self._materialize_from_oracle(nodes_df.iloc[0:0], edges_df.iloc[0:0])
-        allowed_nodes_domain = domain_union_all(state.allowed_nodes.values()) if state.allowed_nodes else None
+        allowed_nodes_domain = domain_union_all(list(state.allowed_nodes.values())) if state.allowed_nodes else None
         if any(isinstance(op, ASTEdge) and EdgeSemantics.from_edge(op).is_multihop for op in self.inputs.chain) and src in edges_df.columns and dst in edges_df.columns:
             endpoints = domain_union(series_values(edges_df[src]), series_values(edges_df[dst]))
             allowed_nodes_domain = endpoints if allowed_nodes_domain is None else domain_union(allowed_nodes_domain, endpoints)
@@ -424,7 +425,7 @@ class DFSamePathExecutor:
             filtered_edges = edges_df[edges_df[src].isin(allowed_nodes_domain) & edges_df[dst].isin(allowed_nodes_domain)]
 
         if edge_id and edge_id in filtered_edges.columns:
-            allowed_edges_domain = domain_union_all(state.allowed_edges.values())
+            allowed_edges_domain = domain_union_all(list(state.allowed_edges.values()))
             if allowed_edges_domain is not None:
                 filtered_edges = filtered_edges[filtered_edges[edge_id].isin(allowed_edges_domain)]
         filtered_nodes = self._merge_label_frames(filtered_nodes, self._collect_label_frames("node"), node_id)

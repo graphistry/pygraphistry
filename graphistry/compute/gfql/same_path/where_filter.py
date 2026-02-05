@@ -180,7 +180,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             if left_pos is None or right_pos is None or abs(left_pos - right_pos) != 1:
                 continue
 
-            op = clause.op
+            op: str = clause.op
             if left_pos > right_pos:
                 left_edge_idx, right_edge_idx = right_edge_idx, left_edge_idx
                 left_pos, right_pos = right_pos, left_pos
@@ -209,12 +209,15 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
 
             left_pairs, right_pairs = _build_value_pairs(left_edges, sem_left, left_value_col, "__left__", "__mid__", "__left_val__"), _build_value_pairs(right_edges, sem_right, right_value_col, "__mid__", "__right__", "__right_val__")
 
-            if not domain_is_empty(left_nodes := local_allowed_nodes.get(left_node_idx)):
+            left_nodes = local_allowed_nodes.get(left_node_idx)
+            if left_nodes is not None and not domain_is_empty(left_nodes):
                 left_pairs = left_pairs[left_pairs["__left__"].isin(left_nodes)]
-            if not domain_is_empty(mid_nodes := local_allowed_nodes.get(mid_node_idx)):
+            mid_nodes = local_allowed_nodes.get(mid_node_idx)
+            if mid_nodes is not None and not domain_is_empty(mid_nodes):
                 left_pairs = left_pairs[left_pairs["__mid__"].isin(mid_nodes)]
                 right_pairs = right_pairs[right_pairs["__mid__"].isin(mid_nodes)]
-            if not domain_is_empty(right_nodes := local_allowed_nodes.get(right_node_idx)):
+            right_nodes = local_allowed_nodes.get(right_node_idx)
+            if right_nodes is not None and not domain_is_empty(right_nodes):
                 right_pairs = right_pairs[right_pairs["__right__"].isin(right_nodes)]
 
             if len(left_pairs) == 0 or len(right_pairs) == 0:
@@ -248,7 +251,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             _intersect_allowed(right_node_idx, series_values(right_pairs["__right__"]))
             _intersect_allowed(mid_node_idx, domain_intersect(series_values(left_pairs["__mid__"]), series_values(right_pairs["__mid__"])))
 
-            for edge_idx, edges_df, sem, pairs, labels, value_col in (
+            for edge_idx, edges_df_step, sem, pairs, labels, value_col in (
                 (
                     left_edge_idx,
                     left_edges,
@@ -267,7 +270,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 ),
             ):
                 pruned_edges[edge_idx] = _merge_edges_with_pairs(
-                    edges_df,
+                    edges_df_step,
                     sem,
                     pairs,
                     labels[0],
@@ -286,8 +289,8 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
     paths_df = domain_to_frame(nodes_df_template, seed_nodes, f"n{node_indices[0]}")
     for edge_idx, left_node_idx, right_node_idx in zip(edge_indices, node_indices, node_indices[1:]):
-        edges_df = _edges_for_step(edge_idx)
-        if edges_df is None or len(edges_df) == 0:
+        edges_df_step = _edges_for_step(edge_idx)
+        if edges_df_step is None or len(edges_df_step) == 0:
             paths_df = paths_df.iloc[0:0]
             break
         edge_op = executor.inputs.chain[edge_idx]
@@ -295,8 +298,8 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             continue
         sem = EdgeSemantics.from_edge(edge_op)
         edge_cols_needed = edge_cols_by_step.get(edge_idx, set())
-        cols = [src_col, dst_col] + [col for col in edge_cols_needed if col in edges_df.columns and col not in {src_col, dst_col}]
-        edges_subset = edges_df[cols].rename(columns={col: f"e{edge_idx}_{col}" for col in cols[2:]})
+        cols = [src_col, dst_col] + [col for col in edge_cols_needed if col in edges_df_step.columns and col not in {src_col, dst_col}]
+        edges_subset = edges_df_step[cols].rename(columns={col: f"e{edge_idx}_{col}" for col in cols[2:]})
         left_col = f"n{left_node_idx}"
         edges_oriented = sem.orient_edges(edges_subset, src_col, dst_col)
         paths_df = paths_df.merge(edges_oriented, left_on=left_col, right_on="__from__", how="inner")
@@ -334,13 +337,13 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
         right_col = f"n{right_node_idx}"
         if left_col in valid_paths.columns and right_col in valid_paths.columns:
             valid_pairs = valid_paths[[left_col, right_col]].drop_duplicates()
-            edges_df = executor.edges_df_for_step(edge_idx, state)
-            if edges_df is not None:
+            edges_df_step = executor.edges_df_for_step(edge_idx, state)
+            if edges_df_step is not None:
                 edge_op = executor.inputs.chain[edge_idx]
                 if not isinstance(edge_op, ASTEdge):
                     continue
                 sem = EdgeSemantics.from_edge(edge_op)
-                edges_df = _merge_edges_with_pairs(edges_df, sem, valid_pairs, left_col, right_col)
-                pruned_edges[edge_idx] = edges_df
+                edges_df_step = _merge_edges_with_pairs(edges_df_step, sem, valid_pairs, left_col, right_col)
+                pruned_edges[edge_idx] = edges_df_step
 
     return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
