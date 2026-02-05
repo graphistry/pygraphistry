@@ -739,7 +739,6 @@ class UMAPMixin(MIXIN_BASE):
         return featurize_kwargs
 
     @overload
-    @otel_traced("graphistry.umap", attrs_fn=_umap_otel_attrs)
     def umap(
         self,
         X: XSymbolic = None,
@@ -771,6 +770,7 @@ class UMAPMixin(MIXIN_BASE):
         ...
 
     @overload
+    @otel_traced("graphistry.umap", attrs_fn=_umap_otel_attrs)
     def umap(
         self,
         X: XSymbolic = None,
