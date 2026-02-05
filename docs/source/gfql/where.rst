@@ -29,6 +29,9 @@ Basic Usage
 
     g_filtered = g.gfql(chain)
 
+Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
+without WHERE.
+
 Aliases come from `name=`. Column references use `alias.column`.
 
 JSON Form
@@ -50,4 +53,11 @@ JSON Form
 Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 JSON uses `eq`, `neq`, `lt`, `le`, `gt`, `ge`.
 
+WHERE can compare columns from node or edge steps when the types align.
+Null handling follows predicate semantics; use `isna()`/`notna()` in per-step
+filters when needed.
+
 Use per-step filters in `n(...)`/`e_forward(...)`; WHERE ties steps together.
+
+WHERE works with pandas and cuDF; select an engine via
+`g.gfql(..., engine='cudf')`.
