@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from graphistry.compute import n, e_forward
 from graphistry.compute.chain import Chain
@@ -61,3 +62,14 @@ def test_gfql_list_with_where_executes():
         where=[compare(col('a', 'owner_id'), '==', col('c', 'owner_id'))],
     )
     assert res._nodes is not None
+
+
+def test_gfql_list_empty_with_where_raises():
+    nodes_df = pd.DataFrame([
+        {'id': 'acct1', 'type': 'account', 'owner_id': 'user1'},
+        {'id': 'user1', 'type': 'user'},
+    ])
+    edges_df = pd.DataFrame([{'src': 'acct1', 'dst': 'user1'}])
+    g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+    with pytest.raises(ValueError, match="empty chains have no aliases"):
+        g.gfql([], where=[compare(col('a', 'owner_id'), '==', col('c', 'owner_id'))])

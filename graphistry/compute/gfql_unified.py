@@ -285,6 +285,8 @@ def gfql(self: Plottable,
                 else:
                     raise TypeError(f"Unsupported chain entry type: {type(item)}")
             dict_where = parse_where_json(query.get("where"))
+            if not chain_items and dict_where:
+                raise ValueError("where requires at least one named node/edge step; empty chains have no aliases")
             query = Chain(chain_items, where=dict_where)
         elif isinstance(query, dict):
             wrapped_dict = {}
@@ -323,6 +325,9 @@ def gfql(self: Plottable,
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
+
+                if not query and where_param:
+                    raise ValueError("where requires at least one named node/edge step; empty chains have no aliases")
 
                 converted_query: List[ASTObject] = []
                 for item in query:
