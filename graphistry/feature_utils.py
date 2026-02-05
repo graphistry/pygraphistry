@@ -58,6 +58,7 @@ def _featurize_otel_attrs(*args: Any, **kwargs: Any) -> Dict[str, Any]:
         attrs["graphistry.featurize.dbscan"] = kwargs.get("dbscan", False)
     return attrs
 
+
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
     try:
