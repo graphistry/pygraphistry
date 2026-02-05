@@ -832,8 +832,8 @@ def hop(self: Plottable,
                 pass
             seeds_mask = None
             if seeds_provided and not label_seeds and starting_nodes is not None and node_col_out_str in starting_nodes.columns:
-                seed_ids = starting_nodes[[node_col_out_str]].drop_duplicates()
-                seeds_mask = g_out._nodes[node_col_out_str].isin(seed_ids[node_col_out_str])
+                seed_ids_df = starting_nodes[[node_col_out_str]].drop_duplicates()
+                seeds_mask = g_out._nodes[node_col_out_str].isin(seed_ids_df[node_col_out_str])
             missing_mask = g_out._nodes[node_hop_col].isna()
             if seeds_mask is not None:
                 missing_mask = missing_mask & ~seeds_mask
@@ -924,8 +924,8 @@ def hop(self: Plottable,
                 ).drop_duplicates(subset=[node_col_out_edges_str])
                 mask = mask | g_out._nodes[node_col_out_edges_str].isin(endpoint_ids[node_col_out_edges_str])
             if label_seeds and seeds_provided and starting_nodes is not None and node_col_out_edges is not None and node_col_out_edges in starting_nodes.columns:
-                seed_ids = starting_nodes[[node_col_out_edges_str]].drop_duplicates()
-                mask = mask | g_out._nodes[node_col_out_edges_str].isin(seed_ids[node_col_out_edges_str])
+                seed_ids_df = starting_nodes[[node_col_out_edges_str]].drop_duplicates()
+                mask = mask | g_out._nodes[node_col_out_edges_str].isin(seed_ids_df[node_col_out_edges_str])
             if node_col_out_edges is not None:
                 g_out = g_out.nodes(g_out._nodes[mask].drop_duplicates(subset=[node_col_out_edges_str]))
         except Exception:
@@ -951,10 +951,10 @@ def hop(self: Plottable,
         and node_col_out_seeds in starting_nodes.columns
     ):
         node_col_out_seeds_str = node_col_out_seeds
-        seed_ids = starting_nodes[[node_col_out_seeds_str]].drop_duplicates()
-        seeds_not_reached = seed_ids
+        seed_ids_df = starting_nodes[[node_col_out_seeds_str]].drop_duplicates()
+        seeds_not_reached = seed_ids_df
         if matches_nodes is not None and node_col_out_seeds_str in matches_nodes.columns:
-            seeds_not_reached = seed_ids[~seed_ids[node_col_out_seeds_str].isin(matches_nodes[node_col_out_seeds_str])]
+            seeds_not_reached = seed_ids_df[~seed_ids_df[node_col_out_seeds_str].isin(matches_nodes[node_col_out_seeds_str])]
         filtered_nodes = g_out._nodes[~g_out._nodes[node_col_out_seeds_str].isin(seeds_not_reached[node_col_out_seeds_str])]
         g_out = g_out.nodes(filtered_nodes)
 
