@@ -72,7 +72,50 @@ g.gfql([
 | `(n)` | `n()` | `{"type": "Node"}` |
 | `(n:Label)` | `n({"type": "Label"})` | `{"type": "Node", "filter_dict": {"type": "Label"}}` |
 | `(n {prop: val})` | `n({"prop": val})` | `{"type": "Node", "filter_dict": {"prop": val}}` |
+| `(n) WHERE n.a > 10` | `n({"a": gt(10)})` | `{"type": "Node", "filter_dict": {"a": {"type": "GT", "val": 10}}}` |
 | `(n:Person) WHERE n.age > 30` | `n({"type": "Person", "age": gt(30)})` | `{"type": "Node", "filter_dict": {"type": "Person", "age": {"type": "GT", "val": 30}}}` |
+
+### Same-Path WHERE Predicates
+
+Use `Chain(..., where=[...])` when the predicate compares multiple steps.
+
+**Cypher:**
+```cypher
+MATCH (n1)-[e1]->(n2)-[e2]->(n3)
+WHERE n1.a > n2.b AND e1.x = e2.y
+```
+
+**Python:**
+```python
+from graphistry import n, e_forward, col, compare
+from graphistry.compute.chain import Chain
+
+Chain(
+    [n(name="n1"), e_forward(name="e1"), n(name="n2"), e_forward(name="e2"), n(name="n3")],
+    where=[
+        compare(col("n1", "a"), ">", col("n2", "b")),
+        compare(col("e1", "x"), "==", col("e2", "y")),
+    ],
+)
+```
+
+**Wire Protocol:**
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "name": "n1"},
+    {"type": "Edge", "direction": "forward", "name": "e1"},
+    {"type": "Node", "name": "n2"},
+    {"type": "Edge", "direction": "forward", "name": "e2"},
+    {"type": "Node", "name": "n3"}
+  ],
+  "where": [
+    {"gt": {"left": "n1.a", "right": "n2.b"}},
+    {"eq": {"left": "e1.x", "right": "e2.y"}}
+  ]
+}
+```
 
 ### Edge Patterns
 
