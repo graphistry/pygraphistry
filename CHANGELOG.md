@@ -9,9 +9,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-- **GEXF**: Added GEXF import/export with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
-- **GEXF**: Map node viz shapes to FA4 point icons on import.
-- **Telemetry**: Added optional OpenTelemetry helper and propagated trace headers through plot/upload/remote GFQL paths.
 - **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `df_executor.py`, and `same_path/` submodules implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
 - **GFQL / WHERE**: `gfql([...], where=[...])` list form now supports same-path WHERE constraints (no need to wrap in `Chain(...)`).
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
@@ -19,7 +16,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG` for aggregated inequality pruning on 2-hop non-adj clauses (experimental).
 
 ### Performance
-- **Compute / hop**: Added fast-path traversal and domain-based visited/frontier tracking; unified direction handling.
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
 - **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
 - **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
