@@ -28,6 +28,7 @@ Basic Usage
     )
 
     g_filtered = g.gfql(chain)
+    g_filtered.plot()
 
 Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
 without WHERE. WHERE only applies to aliases in the chain (same-path scope),
@@ -47,7 +48,8 @@ JSON Form
             n({"type": "user"}, name="c").to_json(),
         ],
         "where": [
-            {"eq": {"left": "a.owner_id", "right": "c.owner_id"}}
+            {"eq": {"left": "a.owner_id", "right": "c.owner_id"}},
+            {"neq": {"left": "a.status", "right": "c.status"}}
         ],
     })
 
@@ -56,9 +58,11 @@ JSON uses `eq`, `neq`, `lt`, `le`, `gt`, `ge`.
 
 WHERE can compare columns from node or edge steps when the types align.
 Null handling follows predicate semantics; use `isna()`/`notna()` in per-step
-filters when needed.
+filters when needed (for example, `n({"owner_id": notna()})`).
 
-Use per-step filters in `n(...)`/`e_forward(...)`; WHERE ties steps together.
+Use selective per-step filters in `n(...)`/`e_forward(...)` first; WHERE ties
+steps together and can be more expensive on dense graphs.
 
 WHERE works with pandas and cuDF; select an engine via
-`g.gfql(..., engine='cudf')`.
+`g.gfql(..., engine='cudf')`. For full JSON schema details, see
+:doc:`/gfql/spec/wire_protocol`.
