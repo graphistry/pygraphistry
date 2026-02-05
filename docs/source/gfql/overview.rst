@@ -79,6 +79,23 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
     g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
     g_2_hops.plot()
 
+**Same-Path Constraints (WHERE)**
+
+Example: Match an account and its owner when both steps share an attribute.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g_filtered = g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
+
 Example visualization (static):
 
 .. raw:: html
