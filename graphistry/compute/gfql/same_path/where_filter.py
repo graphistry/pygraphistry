@@ -251,7 +251,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             _intersect_allowed(right_node_idx, series_values(right_pairs["__right__"]))
             _intersect_allowed(mid_node_idx, domain_intersect(series_values(left_pairs["__mid__"]), series_values(right_pairs["__mid__"])))
 
-            for edge_idx, edges_df_step, sem, pairs, labels, value_col in (
+            for edge_idx, edges_df_pair, sem, pairs, labels, value_col in (
                 (
                     left_edge_idx,
                     left_edges,
@@ -270,7 +270,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 ),
             ):
                 pruned_edges[edge_idx] = _merge_edges_with_pairs(
-                    edges_df_step,
+                    edges_df_pair,
                     sem,
                     pairs,
                     labels[0],
