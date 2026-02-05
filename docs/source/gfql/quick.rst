@@ -169,9 +169,8 @@ Use `where` to relate attributes across named steps in a chain.
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare
-    from graphistry.compute.chain import Chain
 
-    chain = Chain(
+    g.gfql(
         [
             n({"type": "account"}, name="a"),
             e_forward(name="e"),
@@ -182,10 +181,10 @@ Use `where` to relate attributes across named steps in a chain.
             compare(col("e", "org_id"), "==", col("a", "org_id")),
         ],
     )
-    g.gfql(chain)
 
 `compare()` can relate node and edge columns when the column types align.
-WHERE requires `Chain(...)`; list form is for traversals without WHERE.
+WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
+equivalent explicit form.
 Multiple WHERE comparisons are ANDed.
 
 Combined Examples

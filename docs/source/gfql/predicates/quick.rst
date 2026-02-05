@@ -227,9 +227,8 @@ Usage Examples
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare
-    from graphistry.compute.chain import Chain
 
-    chain = Chain(
+    g_filtered = g.gfql(
         [
             n({"type": "account"}, name="a"),
             e_forward(),
@@ -237,7 +236,6 @@ Usage Examples
         ],
         where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
     )
-    g_filtered = g.gfql(chain)
 
 Additional Notes
 ----------------

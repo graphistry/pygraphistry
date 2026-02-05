@@ -13,9 +13,8 @@ Basic Usage
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare
-    from graphistry.compute.chain import Chain
 
-    chain = Chain(
+    g_filtered = g.gfql(
         [
             n({"type": "account"}, name="a"),
             e_forward(name="e"),
@@ -26,13 +25,11 @@ Basic Usage
             compare(col("e", "org_id"), "==", col("a", "org_id")),
         ],
     )
-
-    g_filtered = g.gfql(chain)
     g_filtered.plot()
 
-Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
-without WHERE. WHERE only applies to aliases in the chain (same-path scope),
-not to unrelated nodes elsewhere in the graph.
+Use `g.gfql([...], where=[...])` for WHERE. `Chain(..., where=[...])` is the
+equivalent explicit form. WHERE only applies to aliases in the chain
+(same-path scope), not to unrelated nodes elsewhere in the graph.
 All WHERE comparisons are ANDed (all must match).
 
 Aliases come from `name=`. Column references use `alias.column`.
@@ -46,13 +43,12 @@ one step. WHERE compares fields across steps.
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare, gt
-    from graphistry.compute.chain import Chain
 
     # Single-step predicate (preferred when you only filter one entity)
-    Chain([n({"a": gt(10)}, name="n1"), e_forward(), n(name="n2")])
+    g.gfql([n({"a": gt(10)}, name="n1"), e_forward(), n(name="n2")])
 
     # Cross-step comparison (needs WHERE)
-    Chain(
+    g.gfql(
         [n(name="n1"), e_forward(name="e1"), n(name="n2"), e_forward(name="e2"), n()],
         where=[
             compare(col("n1", "a"), ">", col("n2", "b")),

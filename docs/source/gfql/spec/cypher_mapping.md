@@ -21,7 +21,7 @@ When translating from Cypher, you'll encounter three scenarios:
 - Property filters: WHERE clauses embed into operations
 - Path traversals: Variable-length paths use `hops` parameter
 - Pattern composition: Multiple patterns become sequential operations
-- Same-path constraints: `WHERE` across steps → `Chain(..., where=[...])`
+- Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
 ## When You Need DataFrames
 - Aggregations: COUNT, SUM, AVG → pandas operations
@@ -77,7 +77,7 @@ g.gfql([
 
 ### Same-Path WHERE Predicates
 
-Use `Chain(..., where=[...])` when the predicate compares multiple steps.
+Use `g.gfql([...], where=[...])` when the predicate compares multiple steps.
 
 **Cypher:**
 ```cypher
@@ -88,9 +88,8 @@ WHERE n1.a > n2.b AND e1.x = e2.y
 **Python:**
 ```python
 from graphistry import n, e_forward, col, compare
-from graphistry.compute.chain import Chain
 
-Chain(
+g.gfql(
     [n(name="n1"), e_forward(name="e1"), n(name="n2"), e_forward(name="e2"), n(name="n3")],
     where=[
         compare(col("n1", "a"), ">", col("n2", "b")),
@@ -190,12 +189,11 @@ WHERE a.owner_id = c.owner_id
 **Python:**
 ```python
 from graphistry import n, e_forward, col, compare
-from graphistry.compute.chain import Chain
 
-g.gfql(Chain(
+g.gfql(
     [n({"type": "Account"}, name="a"), e_forward(), n({"type": "User"}, name="c")],
     where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
-))
+)
 ```
 
 **Wire Protocol:**
