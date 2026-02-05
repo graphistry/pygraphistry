@@ -130,6 +130,7 @@ Exploring Relationships Between Nodes
 **Explanation**:
 
 - **GFQL**: Starts from nodes of type ``"person"``, traverses forward edges, and reaches nodes of type ``"company"``. The resulting edges are stored in ``edges_df``. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
+- **Same-path constraints**: Use `where` to relate attributes across steps (see :doc:`/gfql/where`).
 
 .. graphviz::
 

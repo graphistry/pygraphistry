@@ -220,6 +220,24 @@ Usage Examples
         })
     ])
 
+**Example 5: Same-Path Constraint with WHERE**
+
+.. code-block:: python
+
+    from graphistry import n, e_forward
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.gfql.same_path_types import col, compare
+
+    chain = Chain(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
+    g_filtered = g.gfql(chain)
+
 Additional Notes
 ----------------
 

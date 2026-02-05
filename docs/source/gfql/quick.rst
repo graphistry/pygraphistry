@@ -161,6 +161,26 @@ See :doc:`predicates/quick` for more information.
 
       n({"category": is_in(["A", "B", "C"])})
 
+Where (Same-Path Constraints)
+-----------------------------
+
+Use `where` to relate attributes across named steps in a chain.
+
+.. code-block:: python
+
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.gfql.same_path_types import col, compare
+
+    chain = Chain(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
+    g.gfql(chain)
+
 Combined Examples
 -----------------
 

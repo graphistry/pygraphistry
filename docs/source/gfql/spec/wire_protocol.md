@@ -148,6 +148,22 @@ chain([
 }
 ```
 
+Optional fields:
+- `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
+
+**Chain with WHERE (wire format):**
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "user"}, "name": "c"}
+  ],
+  "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+
 ### Let Operation
 
 **Python**:
