@@ -30,9 +30,9 @@ The following table lists the available operators, their descriptions, and examp
    * - ``le(value)``
      - Less than or equal to ``value``.
      - ``n({ "score": le(70) })``
-  * - ``eq(value)``
-    - Equal to ``value``.
-    - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
+   * - ``eq(value)``
+     - Equal to ``value``.
+     - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
    * - ``ne(value)``
      - Not equal to ``value``.
      - ``n({ "status": ne("inactive") })``
