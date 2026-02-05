@@ -90,6 +90,8 @@ from graphistry.compute import (
     isna, IsNA,
     notna, NotNA,
 
+    col, compare,
+
     contains, Contains,
     startswith, Startswith,
     endswith, Endswith,
