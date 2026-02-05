@@ -24,7 +24,7 @@ from .df_utils import (
 from .multihop import filter_multihop_edges_by_endpoints
 
 if TYPE_CHECKING:
-    from graphistry.compute.gfql.df_executor import DFSamePathExecutor, WhereComparison
+    from graphistry.compute.gfql.df_executor import AliasBinding, DFSamePathExecutor, WhereComparison
 
 def _apply_clause_filters(frame: DataFrameT, relevant: Sequence["WhereComparison"], *, left_alias: str, right_alias: str, left_prefix: str, right_prefix: str, node_col: Optional[str] = None, left_id_col: Optional[str] = None, right_id_col: Optional[str] = None) -> DataFrameT:
     for clause in relevant:
@@ -109,12 +109,23 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
     ) in {"auto", "auto_prefilter"}
     edge_semijoin_auto = env_flag("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO", default=auto_mode)
     edge_semijoin_pair_max = normalize_limit(env_optional_int("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX"), 200000)
-    edge_clauses: List[Tuple["WhereComparison", Any, Any]] = [(clause, left_binding, right_binding) for clause in executor.inputs.where if (left_binding := executor.inputs.alias_bindings.get(clause.left.alias)) and (right_binding := executor.inputs.alias_bindings.get(clause.right.alias)) and (left_binding.kind == "edge" or right_binding.kind == "edge")]
+    edge_clauses: List[Tuple["WhereComparison", "AliasBinding", "AliasBinding"]] = []
+    for clause in executor.inputs.where:
+        left_binding = executor.inputs.alias_bindings.get(clause.left.alias)
+        right_binding = executor.inputs.alias_bindings.get(clause.right.alias)
+        if left_binding is None or right_binding is None:
+            continue
+        if left_binding.kind == "edge" or right_binding.kind == "edge":
+            edge_clauses.append((clause, left_binding, right_binding))
     if not edge_clauses:
         return state
-    src_col, dst_col, node_id_col = executor._source_column, executor._destination_column, executor._node_column
-    if not (src_col and dst_col and node_id_col):
+    src_col = executor._source_column
+    dst_col = executor._destination_column
+    node_id_col = executor._node_column
+    if src_col is None or dst_col is None or node_id_col is None:
         return state
+    src = src_col
+    dst = dst_col
     node_indices, edge_indices = executor.meta.node_indices, executor.meta.edge_indices
     local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
     pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
@@ -149,7 +160,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             edge_id_col += "_x"
         edges_with_id = edges_df.reset_index(drop=True)
         edges_with_id[edge_id_col] = edges_with_id.index
-        oriented = sem.orient_edges(edges_with_id, src_col, dst_col, dedupe=sem.is_undirected)
+        oriented = sem.orient_edges(edges_with_id, src, dst, dedupe=sem.is_undirected)
         rename_map = {left_label: "__from__", right_label: "__to__"}
         if value_label is not None and value_col is not None:
             rename_map[value_label] = value_col
@@ -166,7 +177,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
 
     def _build_value_pairs(edges_df: DataFrameT, sem: EdgeSemantics, value_col: str, left_label: str, right_label: str, value_label: str) -> DataFrameT:
         pairs = sem.orient_edges(
-            edges_df[[src_col, dst_col, value_col]], src_col, dst_col, dedupe=sem.is_undirected
+            edges_df[[src, dst, value_col]], src, dst, dedupe=sem.is_undirected
         ).rename(columns={"__from__": left_label, "__to__": right_label, value_col: value_label}).drop_duplicates()
         return pairs[pairs[value_label].notna()]
 
