@@ -146,8 +146,8 @@ WHERE a.owner_id = c.owner_id
 
 **Python:**
 ```python
+from graphistry import n, e_forward, col, compare
 from graphistry.compute.chain import Chain
-from graphistry.compute.gfql.same_path_types import col, compare
 
 g.gfql(Chain(
     [n({"type": "Account"}, name="a"), e_forward(), n({"type": "User"}, name="c")],

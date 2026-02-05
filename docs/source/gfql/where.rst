@@ -12,9 +12,8 @@ Basic Usage
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    from graphistry import n, e_forward, col, compare
     from graphistry.compute.chain import Chain
-    from graphistry.compute.gfql.same_path_types import col, compare
 
     chain = Chain(
         [

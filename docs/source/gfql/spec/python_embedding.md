@@ -56,8 +56,8 @@ edges_df = result._edges  # Filtered edges DataFrame
 ### Same-Path Constraints (WHERE)
 
 ```python
+from graphistry import n, e_forward, col, compare
 from graphistry.compute.chain import Chain
-from graphistry.compute.gfql.same_path_types import col, compare
 
 chain = Chain(
     [
