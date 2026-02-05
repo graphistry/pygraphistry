@@ -417,7 +417,7 @@ class DFSamePathExecutor:
             endpoints = domain_union(series_values(edges_df[src]), series_values(edges_df[dst]))
             allowed_nodes_domain = endpoints if allowed_nodes_domain is None else domain_union(allowed_nodes_domain, endpoints)
 
-        if domain_is_empty(allowed_nodes_domain):
+        if allowed_nodes_domain is None or len(allowed_nodes_domain) == 0:
             filtered_nodes = nodes_df.iloc[0:0]
             filtered_edges = edges_df.iloc[0:0]
         else:

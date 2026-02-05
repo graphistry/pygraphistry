@@ -379,6 +379,8 @@ def hop(self: Plottable,
                 break
             if _domain_is_empty(frontier_ids):
                 break
+            if frontier_ids is None:
+                break
 
             current_hop += 1
 
