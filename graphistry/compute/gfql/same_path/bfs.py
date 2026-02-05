@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING, Union
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT, DomainT
 from .edge_semantics import EdgeSemantics
@@ -19,7 +19,7 @@ def build_edge_pairs(edges_df: DataFrameT, src_col: str, dst_col: str, sem: Edge
     return sem.orient_edges(edges_df[[src_col, dst_col]], src_col, dst_col, dedupe=sem.is_undirected)
 
 
-def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hops: int, hop_col: str) -> DataFrameT:
+def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Union[Sequence[Any], DomainT], max_hops: int, hop_col: str) -> DataFrameT:
     start_domain = domain_from_values(start_nodes, edge_pairs)
     result = domain_to_frame(edge_pairs, start_domain, '__node__')
     result[hop_col] = 0
@@ -43,9 +43,10 @@ def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hop
         visited_idx = domain_union(visited_idx, new_node_ids)
         frontier = new_nodes[['__node__']].rename(columns={'__node__': '__from__'})
 
-        result = concat_frames([result, new_nodes])
-        if result is None:
+        merged = concat_frames([result, new_nodes])
+        if merged is None:
             break
+        result = merged
     return result
 
 
@@ -88,11 +89,11 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
             if not reachable:
                 state_df = state_df.iloc[:0]
                 continue
-            state_df = concat_frames(reachable)
-            if state_df is not None:
-                state_df = state_df.drop_duplicates()
-            else:
+            merged = concat_frames(reachable)
+            if merged is None:
                 state_df = state_df.iloc[:0]
+            else:
+                state_df = merged.drop_duplicates()
             continue
 
         join_col, result_col = sem.join_cols(src_col, dst_col)
@@ -107,11 +108,11 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
                 [[src_col] + label_list]
                 .rename(columns={src_col: "__current__"})
             )
-            state_df = concat_frames([next1, next2])
-            if state_df is not None:
-                state_df = state_df.drop_duplicates()
-            else:
+            merged = concat_frames([next1, next2])
+            if merged is None:
                 state_df = state_df.iloc[:0]
+            else:
+                state_df = merged.drop_duplicates()
             continue
 
         state_df = (

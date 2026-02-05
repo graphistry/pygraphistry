@@ -105,7 +105,9 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
     if not (src_col and dst_col and node_id_col and nodes_df is not None and node_id_col in nodes_df.columns):
         return state
 
-    def _attr_frame(node_domain: DomainT, cols: Sequence[str], id_label: str, attr_labels: Sequence[str]) -> Optional[DataFrameT]:
+    def _attr_frame(node_domain: Optional[DomainT], cols: Sequence[str], id_label: str, attr_labels: Sequence[str]) -> Optional[DataFrameT]:
+        if domain_is_empty(node_domain):
+            return None
         if any(col not in nodes_df.columns for col in cols):
             return None
         return project_node_attrs(nodes_df, node_id_col, cols, id_label=id_label, labels=attr_labels, node_domain=node_domain, dedupe=True, drop_nulls=True)
@@ -173,16 +175,16 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
         ]
         return left_pairs, right_pairs
 
-    def _over_pair_limit(pair_est: int, edge_pair_est: Optional[int], limit: Optional[int]) -> bool:
+    def _over_pair_limit(pair_est: float, edge_pair_est: Optional[float], limit: Optional[float]) -> bool:
         return limit is not None and (
             pair_est > limit or (edge_pair_est is not None and edge_pair_est > limit)
         )
 
     if composite_value_enabled:
-        for key, entries in endpoint_eq_clauses.items():
-            if len(entries) < 2:
+        for key, eq_entries in endpoint_eq_clauses.items():
+            if len(eq_entries) < 2:
                 continue
-            group_clause_ids = {id(clause) for clause, _, _ in entries}
+            group_clause_ids = {id(clause) for clause, _, _ in eq_entries}
             if processed_clause_ids.intersection(group_clause_ids):
                 continue
             start_node_idx, end_node_idx = key
@@ -190,9 +192,11 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             end_nodes = local_allowed_nodes.get(end_node_idx)
             if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
                 continue
+            if start_nodes is None or end_nodes is None:
+                continue
             relevant_edge_indices = edge_idxs_by_span.get((start_node_idx, end_node_idx), [])
-            start_cols = [start_col for _, start_col, _ in entries]
-            end_cols = [end_col for _, end_col, _ in entries]
+            start_cols = [start_col for _, start_col, _ in eq_entries]
+            end_cols = [end_col for _, end_col, _ in eq_entries]
             label_cols = [f"__label{idx}__" for idx in range(len(start_cols))]
             start_df = _attr_frame(start_nodes, start_cols, "__start__", label_cols)
             end_df = _attr_frame(end_nodes, end_cols, "__current__", label_cols)
@@ -217,15 +221,17 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                 if _empty_pair(valid_starts_df, valid_ends_df, start_node_idx, end_node_idx):
                     continue
                 _apply_pairs_and_backprop(start_node_idx, end_node_idx, valid_starts_df["__start__"], valid_ends_df["__current__"])
-    for entries in endpoint_clauses.values():
-        endpoint_clause_count = len(entries)
-        for clause, start_idx, end_idx, _, _ in entries:
+    for clause_entries in endpoint_clauses.values():
+        endpoint_clause_count = len(clause_entries)
+        for clause, start_idx, end_idx, _, _ in clause_entries:
             if id(clause) in processed_clause_ids:
                 continue
             edge_idxs = edge_idxs_by_span.get((start_idx, end_idx), [])
             start_nodes = local_allowed_nodes.get(start_idx)
             end_nodes = local_allowed_nodes.get(end_idx)
             if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+                continue
+            if start_nodes is None or end_nodes is None:
                 continue
             left_vals = _attr_frame(start_nodes, [clause.left.column], "__start__", ["__start_val__"])
             right_vals = _attr_frame(end_nodes, [clause.right.column], "__current__", ["__end_val__"])
@@ -323,11 +329,11 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             sem_right,
                             local_allowed_edges.get(edge_idx_right),
                         )
-                        if not domain_is_empty(start_nodes):
+                        if start_nodes is not None and not domain_is_empty(start_nodes):
                             pairs_left = pairs_left[
                                 pairs_left["__from__"].isin(start_nodes)
                             ]
-                        if not domain_is_empty(end_nodes):
+                        if end_nodes is not None and not domain_is_empty(end_nodes):
                             pairs_right = pairs_right[
                                 pairs_right["__to__"].isin(end_nodes)
                             ]
@@ -351,6 +357,8 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             state_label_col = "__start_val__" if value_mode_enabled else "__start__"
             state_df = left_vals[["__start__", state_label_col]].rename(columns={"__start__": "__current__"}).drop_duplicates() if value_mode_enabled else left_vals[["__start__"]].assign(__current__=left_vals["__start__"])
             state_df = walk_edge_state(executor, edge_idxs, state_df, [state_label_col], local_allowed_edges, edge_id_col, src_col, dst_col)
+            if end_nodes is None:
+                continue
             state_df = state_df[state_df["__current__"].isin(end_nodes)]
             if len(state_df) == 0:
                 _set_empty_nodes(start_idx, end_idx)
