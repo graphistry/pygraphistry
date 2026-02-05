@@ -136,6 +136,34 @@ g.gfql([
 ]}
 ```
 
+### Same-Path Constraint
+
+**Cypher:**
+```cypher
+MATCH (a:Account)-[:TRANSFER]->(c:User)
+WHERE a.owner_id = c.owner_id
+```
+
+**Python:**
+```python
+from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.same_path_types import col, compare
+
+g.gfql(Chain(
+    [n({"type": "Account"}, name="a"), e_forward(), n({"type": "User"}, name="c")],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+))
+```
+
+**Wire Protocol:**
+```json
+{"type": "Chain", "chain": [
+  {"type": "Node", "filter_dict": {"type": "Account"}, "name": "a"},
+  {"type": "Edge", "direction": "forward"},
+  {"type": "Node", "filter_dict": {"type": "User"}, "name": "c"}
+], "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]}
+```
+
 ### Fraud Detection
 
 **Cypher:**
