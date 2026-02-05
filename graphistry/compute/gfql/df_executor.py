@@ -68,8 +68,10 @@ class DFSamePathExecutor:
             "gfql.include_paths": self.inputs.include_paths,
         }
         nodes, edges = self.inputs.graph._nodes, self.inputs.graph._edges
-        if nodes is not None: attrs["graphistry.nodes"] = len(nodes)
-        if edges is not None: attrs["graphistry.edges"] = len(edges)
+        if nodes is not None:
+            attrs["graphistry.nodes"] = len(nodes)
+        if edges is not None:
+            attrs["graphistry.edges"] = len(edges)
         return attrs
 
     def edges_df_for_step(self, edge_idx: int, state: Optional[PathState] = None) -> Optional[DataFrameT]:
@@ -80,7 +82,8 @@ class DFSamePathExecutor:
         with otel_span("gfql.df_executor.run", attrs=attrs):
             self._forward()
             mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
-            if mode == "oracle": return self._unsafe_run_test_only_oracle()
+            if mode == "oracle":
+                return self._unsafe_run_test_only_oracle()
             if mode == "strict" and self.inputs.engine == Engine.CUDF:
                 try:  # check cudf presence
                     import cudf  # type: ignore  # noqa: F401
@@ -110,24 +113,32 @@ class DFSamePathExecutor:
 
     def _capture_alias_frame(self, op: ASTObject, step_result: Plottable, step_index: int) -> None:
         alias = getattr(op, "_name", None)
-        if not alias or alias not in self.inputs.alias_bindings: return
+        if not alias or alias not in self.inputs.alias_bindings:
+            return
         binding = self.inputs.alias_bindings[alias]
         frame = step_result._nodes if binding.kind == "node" else step_result._edges
-        if frame is None: raise ValueError(f"Alias '{alias}' did not produce a {'node' if binding.kind == 'node' else 'edge'} frame")
+        if frame is None:
+            raise ValueError(
+                f"Alias '{alias}' did not produce a {'node' if binding.kind == 'node' else 'edge'} frame"
+            )
         required_cols = list(self.inputs.column_requirements.get(alias, ()))
         id_col = self._node_column if binding.kind == "node" else self._edge_column
-        if id_col and id_col not in required_cols: required_cols.append(id_col)
+        if id_col and id_col not in required_cols:
+            required_cols.append(id_col)
         missing = [col for col in required_cols if col not in frame.columns]
-        if missing: raise ValueError(f"Alias '{alias}' missing required columns: {', '.join(missing)}")
+        if missing:
+            raise ValueError(f"Alias '{alias}' missing required columns: {', '.join(missing)}")
         alias_frame = frame[required_cols].copy()
         self.alias_frames[alias] = alias_frame
 
     def _apply_forward_where_pruning(self) -> None:
-        if not self.inputs.where: return
+        if not self.inputs.where:
+            return
         with otel_span("gfql.df_executor.forward_where_prune", attrs={"gfql.where_len": len(self.inputs.where)}):
             def _apply_mask(alias: str, frame: DataFrameT, mask: Any) -> bool:
                 new_frame = frame[mask]
-                if len(new_frame) >= len(frame): return False
+                if len(new_frame) >= len(frame):
+                    return False
                 self.alias_frames[alias] = new_frame
                 return True
             changed = True
@@ -136,7 +147,13 @@ class DFSamePathExecutor:
                 for clause in self.inputs.where:
                     left_alias, right_alias, left_col, right_col = clause.left.alias, clause.right.alias, clause.left.column, clause.right.column
                     left_frame, right_frame = self.alias_frames.get(left_alias), self.alias_frames.get(right_alias)
-                    if left_frame is None or right_frame is None or left_col not in left_frame.columns or right_col not in right_frame.columns: continue
+                    if (
+                        left_frame is None
+                        or right_frame is None
+                        or left_col not in left_frame.columns
+                        or right_col not in right_frame.columns
+                    ):
+                        continue
 
                     if clause.op == "==":
                         left_values = series_values(left_frame[left_col])
@@ -170,7 +187,8 @@ class DFSamePathExecutor:
                         changed |= _apply_mask(right_alias, right_frame, right_mask)
 
     def _filter_edges_by_allowed_nodes(self, edges_df: DataFrameT, sem: EdgeSemantics, src_col: Optional[str], dst_col: Optional[str], left_allowed: Optional[DomainT] = None, right_allowed: Optional[DomainT] = None) -> DataFrameT:
-        if not src_col or not dst_col: return edges_df
+        if not src_col or not dst_col:
+            return edges_df
         if sem.is_undirected:
             if left_allowed is not None and right_allowed is not None:
                 mask = (edges_df[src_col].isin(left_allowed) & edges_df[dst_col].isin(right_allowed)) | (edges_df[dst_col].isin(left_allowed) & edges_df[src_col].isin(right_allowed))
@@ -210,11 +228,13 @@ class DFSamePathExecutor:
 
     def _update_alias_frames_from_oracle(self, tags: Dict[str, Any]) -> None:
         for alias, binding in self.inputs.alias_bindings.items():
-            if alias not in tags or binding.step_index >= len(self.forward_steps): continue
+            if alias not in tags or binding.step_index >= len(self.forward_steps):
+                continue
             step_result = self.forward_steps[binding.step_index]
             id_col = self._node_column if binding.kind == "node" else self._edge_column
             frame = step_result._nodes if binding.kind == "node" else step_result._edges
-            if frame is None or id_col is None: continue
+            if frame is None or id_col is None:
+                continue
             ids = domain_from_values(tags.get(alias), frame)
             if domain_is_empty(ids):
                 self.alias_frames[alias] = frame.iloc[0:0].copy()
@@ -225,21 +245,28 @@ class DFSamePathExecutor:
     def _materialize_from_oracle(self, nodes_df: DataFrameT, edges_df: DataFrameT) -> Plottable:
         g = self.inputs.graph
         edge_id, src, dst, node_id = g._edge, g._source, g._destination, g._node
-        if node_id and node_id not in nodes_df.columns: raise ValueError(f"Oracle nodes missing id column '{node_id}'")
-        if dst and dst not in edges_df.columns: raise ValueError(f"Oracle edges missing destination column '{dst}'")
-        if src and src not in edges_df.columns: raise ValueError(f"Oracle edges missing source column '{src}'")
+        if node_id and node_id not in nodes_df.columns:
+            raise ValueError(f"Oracle nodes missing id column '{node_id}'")
+        if dst and dst not in edges_df.columns:
+            raise ValueError(f"Oracle edges missing destination column '{dst}'")
+        if src and src not in edges_df.columns:
+            raise ValueError(f"Oracle edges missing source column '{src}'")
         if edge_id and edge_id not in edges_df.columns:
-            if "__enumerator_edge_id__" in edges_df.columns: edges_df = edges_df.rename(columns={"__enumerator_edge_id__": edge_id})
-            else: raise ValueError(f"Oracle edges missing id column '{edge_id}'")
+            if "__enumerator_edge_id__" in edges_df.columns:
+                edges_df = edges_df.rename(columns={"__enumerator_edge_id__": edge_id})
+            else:
+                raise ValueError(f"Oracle edges missing id column '{edge_id}'")
         return g.nodes(nodes_df, node=node_id).edges(edges_df, source=src, destination=dst, edge=edge_id)
 
     def _compute_allowed_tags(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for alias, binding in self.inputs.alias_bindings.items():
             frame = self.alias_frames.get(alias)
-            if frame is None: continue
+            if frame is None:
+                continue
             id_col = self._node_column if binding.kind == "node" else self._edge_column
-            if id_col is None or id_col not in frame.columns: continue
+            if id_col is None or id_col not in frame.columns:
+                continue
             out[alias] = series_values(frame[id_col])
         return out
 
@@ -256,21 +283,32 @@ class DFSamePathExecutor:
         node_col = self._node_column
         for idx in node_indices:
             frame = self.forward_steps[idx]._nodes
-            if frame is None or node_col is None: continue
+            if frame is None or node_col is None:
+                continue
             allowed = allowed_tags.get(self.meta.alias_for_step(idx))
             allowed_nodes[idx] = allowed if allowed is not None else series_values(frame[node_col])
 
         for edge_idx, left_node_idx, right_node_idx in zip(reversed(edge_indices), reversed(node_indices[:-1]), reversed(node_indices[1:])):
             edge_alias = self.meta.alias_for_step(edge_idx)
             edges_df = self.forward_steps[edge_idx]._edges
-            if edges_df is None: continue
+            if edges_df is None:
+                continue
 
             filtered = edges_df
-            if not isinstance(edge_op := self.inputs.chain[edge_idx], ASTEdge): continue
+            edge_op = self.inputs.chain[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                continue
             sem = EdgeSemantics.from_edge(edge_op)
             if not sem.is_multihop:
                 allowed_dst = allowed_nodes.get(right_node_idx)
-                if allowed_dst is not None: filtered = self._filter_edges_by_allowed_nodes(filtered, sem, self._source_column, self._destination_column, right_allowed=allowed_dst)
+                if allowed_dst is not None:
+                    filtered = self._filter_edges_by_allowed_nodes(
+                        filtered,
+                        sem,
+                        self._source_column,
+                        self._destination_column,
+                        right_allowed=allowed_dst,
+                    )
 
             left_alias = self.meta.alias_for_step(left_node_idx)
             right_alias = self.meta.alias_for_step(right_node_idx)
@@ -308,7 +346,8 @@ class DFSamePathExecutor:
         src_col, dst_col, edge_id_col = self._source_column, self._destination_column, self._edge_column
         node_indices = self.meta.node_indices
         edge_indices = self.meta.edge_indices
-        if not src_col or not dst_col: return state
+        if not src_col or not dst_col:
+            return state
         relevant_edge_indices = [idx for idx in edge_indices if start_node_idx < idx < end_node_idx]
         local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
         local_allowed_edges: Dict[int, DomainT] = dict(state.allowed_edges)
@@ -327,7 +366,9 @@ class DFSamePathExecutor:
             if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
                 edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
 
-            if not isinstance(edge_op := self.inputs.chain[edge_idx], ASTEdge): continue
+            edge_op = self.inputs.chain[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                continue
             sem = EdgeSemantics.from_edge(edge_op)
             left_allowed = local_allowed_nodes.get(left_node_idx)
             right_allowed = local_allowed_nodes.get(right_node_idx)
@@ -404,7 +445,8 @@ class DFSamePathExecutor:
         for alias, binding in self.inputs.alias_bindings.items():
             frame = filtered_nodes if binding.kind == "node" else filtered_edges
             id_col = self._node_column if binding.kind == "node" else self._edge_column
-            if id_col is None or id_col not in frame.columns: continue
+            if id_col is None or id_col not in frame.columns:
+                continue
             required_cols = list(self.inputs.column_requirements.get(alias, ()))
             if id_col not in required_cols:
                 required_cols.append(id_col)
@@ -433,13 +475,16 @@ class DFSamePathExecutor:
         if id_col is None:
             return frames
         for idx, op in enumerate(self.inputs.chain):
-            if not isinstance(op, ASTEdge): continue
+            if not isinstance(op, ASTEdge):
+                continue
             step = self.forward_steps[idx]
             df = step._nodes if kind == "node" else step._edges
-            if df is None or id_col not in df.columns: continue
+            if df is None or id_col not in df.columns:
+                continue
             node_label, edge_label = self._resolve_label_cols(op)
             label_col = node_label if kind == "node" else edge_label
-            if label_col is None or label_col not in df.columns: continue
+            if label_col is None or label_col not in df.columns:
+                continue
             frames.append(df[[id_col, label_col]])
         return frames
 
@@ -464,7 +509,8 @@ class DFSamePathExecutor:
     def _apply_output_slices(self, df: DataFrameT, kind: AliasKind) -> DataFrameT:
         out_df = df
         for op in self.inputs.chain:
-            if not isinstance(op, ASTEdge): continue
+            if not isinstance(op, ASTEdge):
+                continue
             if op.output_min_hops is None and op.output_max_hops is None:
                 continue
             node_label, edge_label = self._resolve_label_cols(op)
@@ -518,7 +564,9 @@ def execute_same_path_chain(g: Plottable, chain: Sequence[ASTObject], where: Seq
 def _collect_alias_bindings(chain: Sequence[ASTObject]) -> Dict[str, AliasBinding]:
     bindings: Dict[str, AliasBinding] = {}
     for idx, step in enumerate(chain):
-        if not (alias := getattr(step, "_name", None)) or not isinstance(alias, str): continue
+        alias = getattr(step, "_name", None)
+        if not alias or not isinstance(alias, str):
+            continue
         if isinstance(step, ASTNode):
             kind: AliasKind = "node"
         elif isinstance(step, ASTEdge):
@@ -541,7 +589,9 @@ def _collect_required_columns(where: Sequence[WhereComparison]) -> Dict[str, Seq
 
 
 def _validate_where_aliases(bindings: Dict[str, AliasBinding], where: Sequence[WhereComparison]) -> None:
-    if not where: return
+    if not where:
+        return
     referenced = {clause.left.alias for clause in where} | {clause.right.alias for clause in where}
     missing = sorted(alias for alias in referenced if alias not in bindings)
-    if missing: raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")
+    if missing:
+        raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")

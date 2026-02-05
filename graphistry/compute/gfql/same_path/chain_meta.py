@@ -26,5 +26,7 @@ class ChainMeta:
         return abs(step1 - step2) == 2
 
     def validate(self) -> None:
-        if not self.node_indices: raise ValueError("Same-path executor requires at least one node step")
-        if len(self.node_indices) != len(self.edge_indices) + 1: raise ValueError("Chain must alternate node/edge steps for same-path execution")
+        if not self.node_indices:
+            raise ValueError("Same-path executor requires at least one node step")
+        if len(self.node_indices) != len(self.edge_indices) + 1:
+            raise ValueError("Chain must alternate node/edge steps for same-path execution")

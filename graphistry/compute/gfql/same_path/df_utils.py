@@ -145,11 +145,15 @@ def project_node_attrs(frame: DataFrameT, node_col: str, cols: Sequence[str], *,
     df = frame[frame[node_col].isin(node_domain)] if node_domain is not None else frame
     data_cols = [node_col] + [col for col in cols if col != node_col]
     rename_map = {node_col: id_label}
-    if labels is not None: rename_map.update({col: label for col, label in zip(cols, labels) if col != node_col})
-    else: rename_map.update({col: f"{prefix}{col}" for col in cols if col != node_col})
+    if labels is not None:
+        rename_map.update({col: label for col, label in zip(cols, labels) if col != node_col})
+    else:
+        rename_map.update({col: f"{prefix}{col}" for col in cols if col != node_col})
     df = df[data_cols].rename(columns=rename_map)
-    if labels is not None and node_col in cols: df[labels[cols.index(node_col)]] = df[id_label]
-    if drop_nulls and labels is not None: df = df[df[list(labels)].notna().all(axis=1)]
+    if labels is not None and node_col in cols:
+        df[labels[cols.index(node_col)]] = df[id_label]
+    if drop_nulls and labels is not None:
+        df = df[df[list(labels)].notna().all(axis=1)]
     return df.drop_duplicates() if dedupe else df
 
 
