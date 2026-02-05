@@ -64,9 +64,8 @@ Multiple WHERE comparisons are conjunctive (AND).
 
 ```python
 from graphistry import n, e_forward, col, compare
-from graphistry.compute.chain import Chain
 
-Chain(
+g.gfql(
     [n({"type": "account"}, name="a"), e_forward(), n({"type": "user"}, name="c")],
     where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
 )

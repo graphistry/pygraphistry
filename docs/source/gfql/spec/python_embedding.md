@@ -57,9 +57,8 @@ edges_df = result._edges  # Filtered edges DataFrame
 
 ```python
 from graphistry import n, e_forward, col, compare
-from graphistry.compute.chain import Chain
 
-chain = Chain(
+result = g.gfql(
     [
         n({"type": "account"}, name="a"),
         e_forward(),
@@ -67,7 +66,6 @@ chain = Chain(
     ],
     where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
 )
-result = g.gfql(chain)
 ```
 Multiple WHERE comparisons are ANDed.
 

@@ -3,7 +3,8 @@
 GFQL Attribute Matchers
 ==========================
 
-For cross-step comparisons, use `Chain(..., where=[...])`; see :doc:`/gfql/where`.
+For cross-step comparisons, use `g.gfql([...], where=[...])` (or the explicit
+`Chain(..., where=[...])` form); see :doc:`/gfql/where`.
 
 .. automodule:: graphistry.compute.predicates
    :members:
