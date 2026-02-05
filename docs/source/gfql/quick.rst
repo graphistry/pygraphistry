@@ -174,12 +174,17 @@ Use `where` to relate attributes across named steps in a chain.
     chain = Chain(
         [
             n({"type": "account"}, name="a"),
-            e_forward(),
+            e_forward(name="e"),
             n({"type": "user"}, name="c"),
         ],
-        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+        where=[
+            compare(col("a", "owner_id"), "==", col("c", "owner_id")),
+            compare(col("e", "org_id"), "==", col("a", "org_id")),
+        ],
     )
     g.gfql(chain)
+
+`compare()` can relate node and edge columns when the column types align.
 
 Combined Examples
 -----------------

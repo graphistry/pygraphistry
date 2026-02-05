@@ -41,7 +41,9 @@ The following table lists the available operators, their descriptions, and examp
      - ``n({ "age": between(18, 65) })``
 
 .. note::
-   All numeric comparison operators (``gt``, ``lt``, ``ge``, ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
+   For null-safe comparisons, use ``isna()``/``notna()`` in per-step
+   predicates. All numeric comparison operators (``gt``, ``lt``, ``ge``,
+   ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
    
    - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
    - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
