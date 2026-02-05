@@ -62,8 +62,8 @@ start.owner_id equals end.owner_id).
 **Python example:**
 
 ```python
+from graphistry import n, e_forward, col, compare
 from graphistry.compute.chain import Chain
-from graphistry.compute.gfql.same_path_types import col, compare
 
 Chain(
     [n({"type": "account"}, name="a"), e_forward(), n({"type": "user"}, name="c")],
