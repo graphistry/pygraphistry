@@ -37,25 +37,9 @@ Multiple comparisons in `where=[...]` are combined with AND (all must match).
 
 Aliases come from `name=`. Column references use `alias.column`.
 
-JSON Form
----------
-
-.. code-block:: python
-
-    g_filtered = g.gfql({
-        "chain": [
-            n({"type": "account"}, name="a").to_json(),
-            e_forward().to_json(),
-            n({"type": "user"}, name="c").to_json(),
-        ],
-        "where": [
-            {"eq": {"left": "a.owner_id", "right": "c.owner_id"}},
-            {"neq": {"left": "a.status", "right": "c.status"}}
-        ],
-    })
-
-Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
-JSON uses `eq`, `neq`, `lt`, `le`, `gt`, `ge`.
+JSON wire format details live in :doc:`/gfql/spec/wire_protocol`.
+Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON uses `eq`, `neq`,
+`lt`, `le`, `gt`, `ge`).
 
 WHERE can compare columns from node or edge steps when the types align.
 Null handling follows predicate semantics; use `isna()`/`notna()` in per-step
