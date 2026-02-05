@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from contextlib import contextmanager
 from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple
 
 from graphistry.Engine import Engine, safe_merge
@@ -21,7 +22,15 @@ from graphistry.compute.gfql.same_path.df_utils import (
     domain_union_all,
     series_values,
 )
-from graphistry.otel import otel_span, otel_enabled
+try:
+    from graphistry.otel import otel_span, otel_enabled
+except Exception:  # pragma: no cover - optional dependency
+    @contextmanager
+    def otel_span(*_args: Any, **_kwargs: Any):
+        yield
+
+    def otel_enabled() -> bool:
+        return False
 from graphistry.compute.gfql.same_path.multihop import apply_non_adjacent_where_post_prune
 from graphistry.compute.gfql.same_path.where_filter import apply_edge_where_post_prune, filter_edges_by_where
 from graphistry.compute.typing import DataFrameT, DomainT

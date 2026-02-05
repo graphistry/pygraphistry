@@ -19,7 +19,17 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from .gfql.policy import PolicyContext, PolicyException
 from .gfql.policy.stats import extract_graph_stats
-from graphistry.otel import otel_traced, otel_detail_enabled
+try:
+    from graphistry.otel import otel_traced, otel_detail_enabled
+except Exception:  # pragma: no cover - optional dependency
+    def otel_traced(*_args: Any, **_kwargs: Any):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    def otel_detail_enabled() -> bool:
+        return False
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
