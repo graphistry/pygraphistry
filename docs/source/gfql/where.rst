@@ -3,8 +3,8 @@
 GFQL WHERE (Same-Path Constraints)
 ==================================
 
-WHERE adds constraints between named steps in a chain. Use it when you need
-to relate attributes across the same path (for example, start.owner_id equals
+WHERE adds constraints between named steps in a chain. Use it to relate
+attributes across the same path (for example, start.owner_id equals
 end.owner_id).
 
 Basic Usage
@@ -29,8 +29,7 @@ Basic Usage
 
     g_filtered = g.gfql(chain)
 
-Aliases come from the `name=` parameter on node/edge matchers. Column
-references use the `alias.column` form.
+Aliases come from `name=`. Column references use `alias.column`.
 
 JSON Form
 ---------
@@ -48,8 +47,7 @@ JSON Form
         ],
     })
 
-Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON: `eq`, `neq`,
-`lt`, `le`, `gt`, `ge`).
+Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
+JSON uses `eq`, `neq`, `lt`, `le`, `gt`, `ge`.
 
-For per-step filters, keep using `n(...)`/`e_forward(...)` filter dicts or
-queries. WHERE is for constraints that tie multiple steps together.
+Use per-step filters in `n(...)`/`e_forward(...)`; WHERE ties steps together.
