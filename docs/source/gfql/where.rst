@@ -18,18 +18,20 @@ Basic Usage
     chain = Chain(
         [
             n({"type": "account"}, name="a"),
-            e_forward(),
+            e_forward(name="e"),
             n({"type": "user"}, name="c"),
         ],
         where=[
             compare(col("a", "owner_id"), "==", col("c", "owner_id")),
+            compare(col("e", "org_id"), "==", col("a", "org_id")),
         ],
     )
 
     g_filtered = g.gfql(chain)
 
 Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
-without WHERE.
+without WHERE. WHERE only applies to aliases in the chain (same-path scope),
+not to unrelated nodes elsewhere in the graph.
 
 Aliases come from `name=`. Column references use `alias.column`.
 
