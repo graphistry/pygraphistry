@@ -57,6 +57,7 @@ from .predicates.str import (
     isnull, IsNull,
     notnull, NotNull,
 )
+from .gfql.same_path_types import col, compare
 from .typing import DataFrameT
 
 __all__ = [
@@ -94,6 +95,8 @@ __all__ = [
     'isalnum', 'IsAlnum', 'isdecimal', 'IsDecimal',
     'istitle', 'IsTitle', 'isnull', 'IsNull',
     'notnull', 'NotNull',
+    # WHERE helpers
+    'col', 'compare',
     # Types
     'DataFrameT'
 ]
