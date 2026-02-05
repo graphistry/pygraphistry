@@ -25,14 +25,16 @@ from .df_utils import (
 if TYPE_CHECKING:
     from graphistry.compute.gfql.df_executor import DFSamePathExecutor, WhereComparison
 def filter_multihop_edges_by_endpoints(edges_df: DataFrameT, left_allowed: Optional[DomainT], right_allowed: Optional[DomainT], sem: EdgeSemantics, src_col: str, dst_col: str) -> DataFrameT:
-    if not src_col or not dst_col or domain_is_empty(left_allowed) or domain_is_empty(right_allowed): return edges_df
+    if not src_col or not dst_col or domain_is_empty(left_allowed) or domain_is_empty(right_allowed):
+        return edges_df
     edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
     left_domain = domain_from_values(left_allowed, edge_pairs)
     right_domain = domain_from_values(right_allowed, edge_pairs)
     fwd_df = bfs_reachability(edge_pairs, left_domain, sem.max_hops, "__fwd_hop__")
     rev_edge_pairs = edge_pairs.rename(columns={"__from__": "__to__", "__to__": "__from__"})
     bwd_df = bfs_reachability(rev_edge_pairs, right_domain, sem.max_hops, "__bwd_hop__")
-    if len(fwd_df) == 0 or len(bwd_df) == 0: return edges_df.iloc[:0]
+    if len(fwd_df) == 0 or len(bwd_df) == 0:
+        return edges_df.iloc[:0]
     fwd_col, bwd_col = sem.join_cols(src_col, dst_col)
     base_df = (
         sem.orient_edges(edges_df, src_col, dst_col, from_col=src_col, to_col=dst_col)
@@ -48,7 +50,8 @@ def filter_multihop_edges_by_endpoints(edges_df: DataFrameT, left_allowed: Optio
 
 
 def find_multihop_start_nodes(edges_df: DataFrameT, right_allowed: Optional[DomainT], sem: EdgeSemantics, src_col: str, dst_col: str) -> DomainT:
-    if not src_col or not dst_col or domain_is_empty(right_allowed): return domain_empty(edges_df)
+    if not src_col or not dst_col or domain_is_empty(right_allowed):
+        return domain_empty(edges_df)
     inverted_sem = EdgeSemantics(
         is_reverse=not sem.is_reverse,
         is_undirected=sem.is_undirected,
@@ -64,12 +67,14 @@ def find_multihop_start_nodes(edges_df: DataFrameT, right_allowed: Optional[Doma
 
 
 def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: PathState) -> PathState:
-    if not executor.inputs.where: return state
+    if not executor.inputs.where:
+        return state
     non_adj_mode = env_lower("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto") or "auto"
     auto_mode = non_adj_mode in {"auto", "auto_prefilter"}
     bounds_enabled = env_flag("GRAPHISTRY_NON_ADJ_WHERE_BOUNDS")
     value_card_max = env_optional_int("GRAPHISTRY_NON_ADJ_WHERE_VALUE_CARD_MAX")
-    if value_card_max is None and auto_mode: value_card_max = 300
+    if value_card_max is None and auto_mode:
+        value_card_max = 300
     domain_semijoin_enabled = env_flag("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN")
     domain_semijoin_auto = env_flag("GRAPHISTRY_NON_ADJ_WHERE_DOMAIN_SEMIJOIN_AUTO", default=auto_mode)
     domain_semijoin_pair_max = normalize_limit(
@@ -89,16 +94,19 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
         endpoint_clauses[key].append((clause, start_idx, end_idx, start_col, end_col))
         if clause.op == "==":
             endpoint_eq_clauses[key].append((clause, start_col, end_col))
-    if not endpoint_clauses: return state
+    if not endpoint_clauses:
+        return state
     local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
     local_allowed_edges: Dict[int, DomainT] = dict(state.allowed_edges)
     local_pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
     edge_indices = executor.meta.edge_indices
     src_col, dst_col, edge_id_col, node_id_col = executor._source_column, executor._destination_column, executor._edge_column, executor._node_column
     nodes_df = executor.inputs.graph._nodes
-    if not (src_col and dst_col and node_id_col and nodes_df is not None and node_id_col in nodes_df.columns): return state
+    if not (src_col and dst_col and node_id_col and nodes_df is not None and node_id_col in nodes_df.columns):
+        return state
     def _attr_frame(node_domain: DomainT, cols: Sequence[str], id_label: str, attr_labels: Sequence[str]) -> Optional[DataFrameT]:
-        if any(col not in nodes_df.columns for col in cols): return None
+        if any(col not in nodes_df.columns for col in cols):
+            return None
         return project_node_attrs(nodes_df, node_id_col, cols, id_label=id_label, labels=attr_labels, node_domain=node_domain, dedupe=True, drop_nulls=True)
 
     composite_value_enabled = non_adj_mode in {"value", "value_prefilter"} or auto_mode
@@ -174,46 +182,56 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             if len(entries) < 2:
                 continue
             group_clause_ids = {id(clause) for clause, _, _ in entries}
-            if processed_clause_ids.intersection(group_clause_ids): continue
+            if processed_clause_ids.intersection(group_clause_ids):
+                continue
             start_node_idx, end_node_idx = key
             start_nodes = local_allowed_nodes.get(start_node_idx)
             end_nodes = local_allowed_nodes.get(end_node_idx)
-            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes): continue
+            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+                continue
             relevant_edge_indices = edge_idxs_by_span.get((start_node_idx, end_node_idx), [])
             start_cols = [start_col for _, start_col, _ in entries]
             end_cols = [end_col for _, end_col, _ in entries]
             label_cols = [f"__label{idx}__" for idx in range(len(start_cols))]
             start_df = _attr_frame(start_nodes, start_cols, "__start__", label_cols)
             end_df = _attr_frame(end_nodes, end_cols, "__current__", label_cols)
-            if start_df is None or end_df is None: continue
-            if _empty_pair(start_df, end_df, start_node_idx, end_node_idx): continue
+            if start_df is None or end_df is None:
+                continue
+            if _empty_pair(start_df, end_df, start_node_idx, end_node_idx):
+                continue
             label_cardinality = max(len(start_df[label_cols].drop_duplicates()), len(end_df[label_cols].drop_duplicates()))
             if value_card_max is None or label_cardinality <= value_card_max:
                 processed_clause_ids.update(group_clause_ids)
                 state_df = start_df[["__start__"] + label_cols].rename(columns={"__start__": "__current__"}).drop_duplicates()
                 state_df = walk_edge_state(executor, relevant_edge_indices, state_df, label_cols, local_allowed_edges, edge_id_col, src_col, dst_col)
                 state_df = state_df[state_df["__current__"].isin(end_nodes)]
-                if _empty_pair(state_df, state_df, start_node_idx, end_node_idx): continue
+                if _empty_pair(state_df, state_df, start_node_idx, end_node_idx):
+                    continue
                 valid_labels = state_df.merge(end_df, on=["__current__"] + label_cols, how="inner")[label_cols].drop_duplicates()
                 if len(valid_labels) == 0:
                     _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
                 valid_starts_df = start_df.merge(valid_labels, on=label_cols, how="inner")
                 valid_ends_df = end_df.merge(valid_labels, on=label_cols, how="inner")
-                if _empty_pair(valid_starts_df, valid_ends_df, start_node_idx, end_node_idx): continue
+                if _empty_pair(valid_starts_df, valid_ends_df, start_node_idx, end_node_idx):
+                    continue
                 _apply_pairs_and_backprop(start_node_idx, end_node_idx, valid_starts_df["__start__"], valid_ends_df["__current__"])
     for entries in endpoint_clauses.values():
         endpoint_clause_count = len(entries)
         for clause, start_idx, end_idx, _, _ in entries:
-            if id(clause) in processed_clause_ids: continue
+            if id(clause) in processed_clause_ids:
+                continue
             edge_idxs = edge_idxs_by_span.get((start_idx, end_idx), [])
             start_nodes = local_allowed_nodes.get(start_idx)
             end_nodes = local_allowed_nodes.get(end_idx)
-            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes): continue
+            if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+                continue
             left_vals = _attr_frame(start_nodes, [clause.left.column], "__start__", ["__start_val__"])
             right_vals = _attr_frame(end_nodes, [clause.right.column], "__current__", ["__end_val__"])
-            if left_vals is None or right_vals is None: continue
-            if _empty_pair(left_vals, right_vals, start_idx, end_idx): continue
+            if left_vals is None or right_vals is None:
+                continue
+            if _empty_pair(left_vals, right_vals, start_idx, end_idx):
+                continue
             left_domain = series_values(left_vals["__start_val__"])
             right_domain = series_values(right_vals["__end_val__"])
             value_mode_requested = composite_value_enabled and clause.op in value_mode_ops
@@ -253,13 +271,14 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             if bounds_enabled and clause.op in {"<", "<=", ">", ">="}:
                 left_values, right_values = left_vals["__start_val__"], right_vals["__end_val__"]
                 if len(left_values) > 0 and len(right_values) > 0:
-                    left_min, left_max = left_values.min(), left_values.max()
-                    right_min, right_max = right_values.min(), right_values.max()
+                    left_min = left_values.min()
+                    right_max = right_values.max()
                     left_mask = evaluate_clause(left_values, clause.op, right_max)
                     right_mask = evaluate_clause(right_values, OP_FLIP.get(clause.op, clause.op), left_min)
                     left_vals = left_vals[left_mask]
                     right_vals = right_vals[right_mask]
-                    if _empty_pair(left_vals, right_vals, start_idx, end_idx): continue
+                    if _empty_pair(left_vals, right_vals, start_idx, end_idx):
+                        continue
                     start_nodes = series_values(left_vals["__start__"])
                     end_nodes = series_values(right_vals["__current__"])
                     _update_allowed(start_idx, start_nodes)
@@ -316,7 +335,8 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             start_val_df = left_vals.rename(columns={"__start_val__": "__value__"})
                             end_val_df = right_vals.rename(columns={"__end_val__": "__value__"})
                             left_pairs, right_pairs = _pairs_from_endpoints(pairs_left, pairs_right, start_val_df, end_val_df, ["__value__"], ["__value__"])
-                            if _empty_pair(left_pairs, right_pairs, start_idx, end_idx): continue
+                            if _empty_pair(left_pairs, right_pairs, start_idx, end_idx):
+                                continue
                             left_eval, right_eval, mid_values = semijoin_eval_pairs(left_pairs, right_pairs, clause.op, left_value="__value__", right_value="__value__", left_unique_col="__left_unique__", right_unique_col="__right_unique__", left_only_col="__left_only__", right_only_col="__right_only__", left_keep=["__start__"], right_keep=["__current__"])
                             if mid_values is not None:
                                 if left_eval is None or right_eval is None:

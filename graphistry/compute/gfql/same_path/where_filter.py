@@ -25,6 +25,7 @@ from .multihop import filter_multihop_edges_by_endpoints
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.df_executor import DFSamePathExecutor, WhereComparison
+
 def _apply_clause_filters(frame: DataFrameT, relevant: Sequence["WhereComparison"], *, left_alias: str, right_alias: str, left_prefix: str, right_prefix: str, node_col: Optional[str] = None, left_id_col: Optional[str] = None, right_id_col: Optional[str] = None) -> DataFrameT:
     for clause in relevant:
         left_col = clause.left.column if clause.left.alias == left_alias else clause.right.column
@@ -38,13 +39,16 @@ def _apply_clause_filters(frame: DataFrameT, relevant: Sequence["WhereComparison
 
 
 def filter_edges_by_where(executor: "DFSamePathExecutor", edges_df: DataFrameT, edge_op: ASTEdge, left_alias: str, right_alias: str, allowed_nodes: Dict[int, DomainT], sem: EdgeSemantics) -> DataFrameT:
-    if len(edges_df) == 0: return edges_df
+    if len(edges_df) == 0:
+        return edges_df
     relevant = [clause for clause in executor.inputs.where if {clause.left.alias, clause.right.alias} == {left_alias, right_alias}]
     src_col, dst_col, node_col = executor._source_column, executor._destination_column, executor._node_column
-    if not relevant or not src_col or not dst_col or not node_col: return edges_df
+    if not relevant or not src_col or not dst_col or not node_col:
+        return edges_df
     left_frame = executor.alias_frames.get(left_alias)
     right_frame = executor.alias_frames.get(right_alias)
-    if left_frame is None or right_frame is None: return edges_df
+    if left_frame is None or right_frame is None:
+        return edges_df
     left_allowed = allowed_nodes.get(executor.inputs.alias_bindings[left_alias].step_index)
     right_allowed = allowed_nodes.get(executor.inputs.alias_bindings[right_alias].step_index)
     if sem.is_multihop:
@@ -69,12 +73,14 @@ def filter_edges_by_where(executor: "DFSamePathExecutor", edges_df: DataFrameT, 
             start_nodes = domain_intersect(start_nodes, left_allowed)
         if right_allowed is not None and not domain_is_empty(right_allowed):
             end_nodes = domain_intersect(end_nodes, right_allowed)
-        if domain_is_empty(start_nodes) or domain_is_empty(end_nodes): return edges_df.iloc[:0]
+        if domain_is_empty(start_nodes) or domain_is_empty(end_nodes):
+            return edges_df.iloc[:0]
         lf = project_node_attrs(left_frame, node_col, list(executor.inputs.column_requirements.get(left_alias, [])), id_label="__start_id__", prefix="__L_", node_domain=start_nodes)
         rf = project_node_attrs(right_frame, node_col, list(executor.inputs.column_requirements.get(right_alias, [])), id_label="__end_id__", prefix="__R_", node_domain=end_nodes)
         pairs_df = lf.assign(__cross_key__=1).merge(rf.assign(__cross_key__=1), on="__cross_key__").drop(columns=["__cross_key__"])
         pairs_df = _apply_clause_filters(pairs_df, relevant, left_alias=left_alias, right_alias=right_alias, left_prefix="__L_", right_prefix="__R_")
-        if len(pairs_df) == 0: return edges_df.iloc[:0]
+        if len(pairs_df) == 0:
+            return edges_df.iloc[:0]
         return filter_multihop_edges_by_endpoints(
             edges_df,
             series_values(pairs_df["__start_id__"]),
@@ -95,7 +101,8 @@ def filter_edges_by_where(executor: "DFSamePathExecutor", edges_df: DataFrameT, 
 
 
 def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState) -> PathState:
-    if not executor.inputs.where: return state
+    if not executor.inputs.where:
+        return state
     edge_semijoin_enabled = env_flag("GRAPHISTRY_EDGE_WHERE_SEMIJOIN")
     auto_mode = (
         env_lower("GRAPHISTRY_NON_ADJ_WHERE_MODE", "auto") or "auto"
@@ -103,16 +110,20 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
     edge_semijoin_auto = env_flag("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_AUTO", default=auto_mode)
     edge_semijoin_pair_max = normalize_limit(env_optional_int("GRAPHISTRY_EDGE_WHERE_SEMIJOIN_PAIR_MAX"), 200000)
     edge_clauses: List[Tuple["WhereComparison", Any, Any]] = [(clause, left_binding, right_binding) for clause in executor.inputs.where if (left_binding := executor.inputs.alias_bindings.get(clause.left.alias)) and (right_binding := executor.inputs.alias_bindings.get(clause.right.alias)) and (left_binding.kind == "edge" or right_binding.kind == "edge")]
-    if not edge_clauses: return state
+    if not edge_clauses:
+        return state
     src_col, dst_col, node_id_col = executor._source_column, executor._destination_column, executor._node_column
-    if not (src_col and dst_col and node_id_col): return state
+    if not (src_col and dst_col and node_id_col):
+        return state
     node_indices, edge_indices = executor.meta.node_indices, executor.meta.edge_indices
     local_allowed_nodes: Dict[int, DomainT] = dict(state.allowed_nodes)
     pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
     seed_nodes = local_allowed_nodes.get(node_indices[0])
-    if domain_is_empty(seed_nodes): return state
+    if domain_is_empty(seed_nodes):
+        return state
     nodes_df_template = executor.inputs.graph._nodes
-    if nodes_df_template is None: return state
+    if nodes_df_template is None:
+        return state
     empty_nodes = domain_empty(nodes_df_template)
 
     def _set_empty_nodes(*idxs: int) -> None:
@@ -126,9 +137,12 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
     node_attrs: set = set()
     for clause, left_binding, right_binding in edge_clauses:
         for ref, binding in ((clause.left, left_binding), (clause.right, right_binding)):
-            if binding.kind == "edge": edge_cols_by_step.setdefault(binding.step_index, set()).add(ref.column)
-            elif ref.column != node_id_col: node_attrs.add((binding.step_index, ref.column))
+            if binding.kind == "edge":
+                edge_cols_by_step.setdefault(binding.step_index, set()).add(ref.column)
+            elif ref.column != node_id_col:
+                node_attrs.add((binding.step_index, ref.column))
     edge_positions = {edge_idx: pos for pos, edge_idx in enumerate(edge_indices)}
+
     def _merge_edges_with_pairs(edges_df: DataFrameT, sem: EdgeSemantics, pairs_df: DataFrameT, left_label: str, right_label: str, *, value_label: Optional[str] = None, value_col: Optional[str] = None) -> DataFrameT:
         edge_id_col = "__edge_row__"
         while edge_id_col in edges_df.columns:
@@ -149,6 +163,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
 
     def _edges_for_step(edge_idx: int) -> Optional[DataFrameT]:
         return pruned_edges.get(edge_idx, executor.edges_df_for_step(edge_idx, state))
+
     def _build_value_pairs(edges_df: DataFrameT, sem: EdgeSemantics, value_col: str, left_label: str, right_label: str, value_label: str) -> DataFrameT:
         pairs = sem.orient_edges(
             edges_df[[src_col, dst_col, value_col]], src_col, dst_col, dedupe=sem.is_undirected
@@ -157,11 +172,13 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
 
     if edge_semijoin_enabled or edge_semijoin_auto:
         for clause, left_binding, right_binding in edge_clauses:
-            if left_binding.kind != "edge" or right_binding.kind != "edge": continue
+            if left_binding.kind != "edge" or right_binding.kind != "edge":
+                continue
 
             left_edge_idx, right_edge_idx = left_binding.step_index, right_binding.step_index
             left_pos, right_pos = edge_positions.get(left_edge_idx), edge_positions.get(right_edge_idx)
-            if left_pos is None or right_pos is None or abs(left_pos - right_pos) != 1: continue
+            if left_pos is None or right_pos is None or abs(left_pos - right_pos) != 1:
+                continue
 
             op = clause.op
             if left_pos > right_pos:
@@ -169,17 +186,26 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 left_pos, right_pos = right_pos, left_pos
                 op = OP_FLIP.get(op, op)
 
-            if op not in {"==", "!=", "<", "<=", ">", ">="}: continue
+            if op not in {"==", "!=", "<", "<=", ">", ">="}:
+                continue
 
             left_node_idx, mid_node_idx, right_node_idx = node_indices[left_pos], node_indices[left_pos + 1], node_indices[left_pos + 2]
             left_value_col, right_value_col = clause.left.column, clause.right.column
 
-            if (left_edges := _edges_for_step(left_edge_idx)) is None or (right_edges := _edges_for_step(right_edge_idx)) is None or len(left_edges) == 0 or len(right_edges) == 0: continue
-            if left_value_col not in left_edges.columns or right_value_col not in right_edges.columns: continue
+            left_edges = _edges_for_step(left_edge_idx)
+            right_edges = _edges_for_step(right_edge_idx)
+            if left_edges is None or right_edges is None or len(left_edges) == 0 or len(right_edges) == 0:
+                continue
+            if left_value_col not in left_edges.columns or right_value_col not in right_edges.columns:
+                continue
 
-            if not (isinstance(left_edge_op := executor.inputs.chain[left_edge_idx], ASTEdge) and isinstance(right_edge_op := executor.inputs.chain[right_edge_idx], ASTEdge)): continue
+            left_edge_op = executor.inputs.chain[left_edge_idx]
+            right_edge_op = executor.inputs.chain[right_edge_idx]
+            if not (isinstance(left_edge_op, ASTEdge) and isinstance(right_edge_op, ASTEdge)):
+                continue
             sem_left, sem_right = EdgeSemantics.from_edge(left_edge_op), EdgeSemantics.from_edge(right_edge_op)
-            if sem_left.is_multihop or sem_right.is_multihop: continue
+            if sem_left.is_multihop or sem_right.is_multihop:
+                continue
 
             left_pairs, right_pairs = _build_value_pairs(left_edges, sem_left, left_value_col, "__left__", "__mid__", "__left_val__"), _build_value_pairs(right_edges, sem_right, right_value_col, "__mid__", "__right__", "__right_val__")
 
@@ -203,7 +229,8 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 equal_pairs = (equal_counts["__left_count__"] * equal_counts["__right_count__"]).sum()
                 pair_est_value = equal_pairs if op == "==" else pair_est_value - equal_pairs
 
-            if not (edge_semijoin_enabled or (edge_semijoin_auto and (edge_semijoin_pair_max is None or pair_est_value > edge_semijoin_pair_max))): continue
+            if not (edge_semijoin_enabled or (edge_semijoin_auto and (edge_semijoin_pair_max is None or pair_est_value > edge_semijoin_pair_max))):
+                continue
 
             left_eval, right_eval, mid_values = semijoin_eval_pairs(left_pairs, right_pairs, op, left_value="__left_val__", right_value="__right_val__", left_unique_col="__left_unique__", right_unique_col="__right_unique__", left_only_col="__left_only__", right_only_col="__right_only__", left_keep=["__left__", "__mid__", "__left_val__"], right_keep=["__mid__", "__right__", "__right_val__"])
             if left_eval is None or right_eval is None:
@@ -259,10 +286,13 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 return PathState.from_mutable(local_allowed_nodes, {}, pruned_edges)
     paths_df = domain_to_frame(nodes_df_template, seed_nodes, f"n{node_indices[0]}")
     for edge_idx, left_node_idx, right_node_idx in zip(edge_indices, node_indices, node_indices[1:]):
-        if (edges_df := _edges_for_step(edge_idx)) is None or len(edges_df) == 0:
+        edges_df = _edges_for_step(edge_idx)
+        if edges_df is None or len(edges_df) == 0:
             paths_df = paths_df.iloc[0:0]
             break
-        if not isinstance(edge_op := executor.inputs.chain[edge_idx], ASTEdge): continue
+        edge_op = executor.inputs.chain[edge_idx]
+        if not isinstance(edge_op, ASTEdge):
+            continue
         sem = EdgeSemantics.from_edge(edge_op)
         edge_cols_needed = edge_cols_by_step.get(edge_idx, set())
         cols = [src_col, dst_col] + [col for col in edge_cols_needed if col in edges_df.columns and col not in {src_col, dst_col}]
@@ -273,7 +303,8 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
         paths_df[f"n{right_node_idx}"] = paths_df["__to__"]
         paths_df = paths_df.drop(columns=["__from__", "__to__", src_col, dst_col], errors="ignore")
         right_allowed = local_allowed_nodes.get(right_node_idx)
-        if right_allowed is not None and not domain_is_empty(right_allowed): paths_df = paths_df[paths_df[f"n{right_node_idx}"].isin(right_allowed)]
+        if right_allowed is not None and not domain_is_empty(right_allowed):
+            paths_df = paths_df[paths_df[f"n{right_node_idx}"].isin(right_allowed)]
 
     if len(paths_df) == 0:
         _set_empty_nodes(*node_indices)
@@ -282,23 +313,32 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
     if nodes_df is not None:
         for step_idx, col in node_attrs:
             col_name = f"n{step_idx}_{col}"
-            if col_name in paths_df.columns or col not in nodes_df.columns: continue
+            if col_name in paths_df.columns or col not in nodes_df.columns:
+                continue
             node_attr = nodes_df[[node_id_col, col]].rename(columns={node_id_col: f"n{step_idx}", col: col_name})
             paths_df = paths_df.merge(node_attr, on=f"n{step_idx}", how="left")
     mask = paths_df.iloc[:, 0].notna() | True
     for clause, left_binding, right_binding in edge_clauses:
         left_col_name = f"e{left_binding.step_index}_{clause.left.column}" if left_binding.kind == "edge" else f"n{left_binding.step_index}" + ("" if clause.left.column in {node_id_col, "id"} else f"_{clause.left.column}")
         right_col_name = f"e{right_binding.step_index}_{clause.right.column}" if right_binding.kind == "edge" else f"n{right_binding.step_index}" + ("" if clause.right.column in {node_id_col, "id"} else f"_{clause.right.column}")
-        if left_col_name not in paths_df.columns or right_col_name not in paths_df.columns: continue
+        if left_col_name not in paths_df.columns or right_col_name not in paths_df.columns:
+            continue
         mask &= evaluate_clause(paths_df[left_col_name], clause.op, paths_df[right_col_name], null_safe=True).fillna(False)
     valid_paths = paths_df[mask]
     for node_idx in node_indices:
-        if (col_name := f"n{node_idx}") in valid_paths.columns: _intersect_allowed(node_idx, series_values(valid_paths[col_name]))
+        col_name = f"n{node_idx}"
+        if col_name in valid_paths.columns:
+            _intersect_allowed(node_idx, series_values(valid_paths[col_name]))
     for edge_idx, left_node_idx, right_node_idx in zip(edge_indices, node_indices, node_indices[1:]):
-        if (left_col := f"n{left_node_idx}") in valid_paths.columns and (right_col := f"n{right_node_idx}") in valid_paths.columns:
+        left_col = f"n{left_node_idx}"
+        right_col = f"n{right_node_idx}"
+        if left_col in valid_paths.columns and right_col in valid_paths.columns:
             valid_pairs = valid_paths[[left_col, right_col]].drop_duplicates()
-            if (edges_df := executor.edges_df_for_step(edge_idx, state)) is not None:
-                if not isinstance(edge_op := executor.inputs.chain[edge_idx], ASTEdge): continue
+            edges_df = executor.edges_df_for_step(edge_idx, state)
+            if edges_df is not None:
+                edge_op = executor.inputs.chain[edge_idx]
+                if not isinstance(edge_op, ASTEdge):
+                    continue
                 sem = EdgeSemantics.from_edge(edge_op)
                 edges_df = _merge_edges_with_pairs(edges_df, sem, valid_pairs, left_col, right_col)
                 pruned_edges[edge_idx] = edges_df

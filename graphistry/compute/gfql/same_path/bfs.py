@@ -27,18 +27,25 @@ def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Sequence[Any], max_hop
     frontier = result[['__node__']].rename(columns={'__node__': '__from__'})
 
     for hop in range(1, max_hops + 1):
-        if len(frontier) == 0: break
-        next_df = edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']].rename(columns={'__to__': '__node__'}).drop_duplicates()
+        if len(frontier) == 0:
+            break
+        next_df = (
+            edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']]
+            .rename(columns={'__to__': '__node__'})
+            .drop_duplicates()
+        )
         candidate_nodes = series_values(next_df['__node__'])
         new_node_ids = domain_diff(candidate_nodes, visited_idx)
-        if domain_is_empty(new_node_ids): break
+        if domain_is_empty(new_node_ids):
+            break
         new_nodes = domain_to_frame(edge_pairs, new_node_ids, '__node__')
         new_nodes[hop_col] = hop
         visited_idx = domain_union(visited_idx, new_node_ids)
         frontier = new_nodes[['__node__']].rename(columns={'__node__': '__from__'})
 
         result = concat_frames([result, new_nodes])
-        if result is None: break
+        if result is None:
+            break
     return result
 
 
@@ -53,32 +60,64 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
         if allowed_edges is not None and edge_id_col and edge_id_col in edges_df.columns:
             edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
 
-        if not isinstance(edge_op := executor.inputs.chain[edge_idx], ASTEdge): continue
+        edge_op = executor.inputs.chain[edge_idx]
+        if not isinstance(edge_op, ASTEdge):
+            continue
         sem = EdgeSemantics.from_edge(edge_op)
         if sem.is_multihop:
             edge_pairs = build_edge_pairs(edges_df, src_col, dst_col, sem)
             current_state = state_df.copy()
             reachable: list = []
             for hop in range(1, sem.max_hops + 1):
-                next_state = edge_pairs.merge(current_state, left_on="__from__", right_on="__current__", how="inner")[["__to__"] + label_list].rename(columns={"__to__": "__current__"}).drop_duplicates()
-                if len(next_state) == 0: break
-                if hop >= sem.min_hops: reachable.append(next_state)
+                next_state = (
+                    edge_pairs.merge(
+                        current_state,
+                        left_on="__from__",
+                        right_on="__current__",
+                        how="inner",
+                    )[["__to__"] + label_list]
+                    .rename(columns={"__to__": "__current__"})
+                    .drop_duplicates()
+                )
+                if len(next_state) == 0:
+                    break
+                if hop >= sem.min_hops:
+                    reachable.append(next_state)
                 current_state = next_state
 
             if not reachable:
                 state_df = state_df.iloc[:0]
                 continue
             state_df = concat_frames(reachable)
-            state_df = state_df.drop_duplicates() if state_df is not None else state_df.iloc[:0]
+            if state_df is not None:
+                state_df = state_df.drop_duplicates()
+            else:
+                state_df = state_df.iloc[:0]
             continue
 
         join_col, result_col = sem.join_cols(src_col, dst_col)
         if sem.is_undirected:
-            next1 = edges_df.merge(state_df, left_on=src_col, right_on="__current__", how="inner")[[dst_col] + label_list].rename(columns={dst_col: "__current__"})
-            next2 = edges_df.merge(state_df, left_on=dst_col, right_on="__current__", how="inner")[[src_col] + label_list].rename(columns={src_col: "__current__"})
+            next1 = (
+                edges_df.merge(state_df, left_on=src_col, right_on="__current__", how="inner")
+                [[dst_col] + label_list]
+                .rename(columns={dst_col: "__current__"})
+            )
+            next2 = (
+                edges_df.merge(state_df, left_on=dst_col, right_on="__current__", how="inner")
+                [[src_col] + label_list]
+                .rename(columns={src_col: "__current__"})
+            )
             state_df = concat_frames([next1, next2])
-            state_df = state_df.drop_duplicates() if state_df is not None else state_df.iloc[:0]
+            if state_df is not None:
+                state_df = state_df.drop_duplicates()
+            else:
+                state_df = state_df.iloc[:0]
             continue
 
-        state_df = edges_df.merge(state_df, left_on=join_col, right_on="__current__", how="inner")[[result_col] + label_list].rename(columns={result_col: "__current__"}).drop_duplicates()
+        state_df = (
+            edges_df.merge(state_df, left_on=join_col, right_on="__current__", how="inner")
+            [[result_col] + label_list]
+            .rename(columns={result_col: "__current__"})
+            .drop_duplicates()
+        )
     return state_df
