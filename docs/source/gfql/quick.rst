@@ -186,6 +186,7 @@ Use `where` to relate attributes across named steps in a chain.
 
 `compare()` can relate node and edge columns when the column types align.
 WHERE requires `Chain(...)`; list form is for traversals without WHERE.
+Multiple WHERE comparisons are ANDed.
 
 Combined Examples
 -----------------

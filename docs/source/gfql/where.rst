@@ -33,6 +33,7 @@ Basic Usage
 Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
 without WHERE. WHERE only applies to aliases in the chain (same-path scope),
 not to unrelated nodes elsewhere in the graph.
+Multiple comparisons in `where=[...]` are combined with AND (all must match).
 
 Aliases come from `name=`. Column references use `alias.column`.
 
