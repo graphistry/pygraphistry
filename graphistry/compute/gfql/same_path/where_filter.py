@@ -226,8 +226,18 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
 
             pair_est_value = len(left_pairs) * len(right_pairs)
             if op in {"==", "!="}:
-                left_counts = left_pairs.groupby("__left_val__").size().reset_index(name="__left_count__").rename(columns={"__left_val__": "__value__"})
-                right_counts = right_pairs.groupby("__right_val__").size().reset_index(name="__right_count__").rename(columns={"__right_val__": "__value__"})
+                left_counts = (
+                    left_pairs.groupby("__left_val__")
+                    .size()
+                    .reset_index()
+                    .rename(columns={0: "__left_count__", "size": "__left_count__", "__left_val__": "__value__"})
+                )
+                right_counts = (
+                    right_pairs.groupby("__right_val__")
+                    .size()
+                    .reset_index()
+                    .rename(columns={0: "__right_count__", "size": "__right_count__", "__right_val__": "__value__"})
+                )
                 equal_counts = left_counts.merge(right_counts, on="__value__", how="inner")
                 equal_pairs = (equal_counts["__left_count__"] * equal_counts["__right_count__"]).sum()
                 pair_est_value = equal_pairs if op == "==" else pair_est_value - equal_pairs
