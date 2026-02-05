@@ -257,6 +257,7 @@ def hop(self: Plottable,
             candidate = f"{requested}_{counter}"
         return candidate
 
+    # Track hop labels when requested or required for output slicing/min_hops pruning.
     needs_min_hop_pruning = resolved_min_hops is not None and resolved_min_hops > 1
     track_hops = bool(
         label_node_hops
@@ -284,6 +285,7 @@ def hop(self: Plottable,
     if target_wave_front is None:
         base_target_nodes = g2._nodes
     else:
+        # Allow intermediate hops to traverse graph nodes while constraining final targets.
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
 
     def _build_allowed_ids(
@@ -352,6 +354,7 @@ def hop(self: Plottable,
         logger.debug('edges_indexed:\n%s', edges_indexed)
         logger.debug('=====================')
 
+    # Fast path: no hop tracking, no predicates, no target_wave_front.
     fast_path_enabled = (
         not track_hops
         and target_wave_front is None
@@ -589,6 +592,8 @@ def hop(self: Plottable,
         if edge_hop_records is not None:
             edge_hop_records = edge_hop_records[:0]
 
+    # Prune dead-end branches that do not reach min_hops.
+    # Use edge endpoints rather than node hop records to avoid lossy per-node min hop labels.
     if (
         resolved_min_hops is not None
         and resolved_min_hops > 1
@@ -676,6 +681,7 @@ def hop(self: Plottable,
 
         final_edges = edges_indexed.merge(edge_labels_source, on=EDGE_ID, how='inner')
         if label_edge_hops is None and edge_hop_col in final_edges:
+            # Preserve hop labels when output slicing is requested so callers can filter.
             if output_min_hops is None and output_max_hops is None:
                 final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
@@ -782,6 +788,7 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
+    # Ensure all edge endpoints are present in nodes.
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         endpoints = concat(
             [

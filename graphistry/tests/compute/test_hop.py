@@ -548,7 +548,7 @@ def test_hop_pred_cudf():
 
 
 def test_hop_none_edge_binding_internal_index():
-    """Ensure internal edge index does not leak when g._edge is None."""
+    """Ensure g._edge=None uses an internal index without leaking it."""
     # Create a graph with NO edge binding (g._edge = None)
     edges_df = pd.DataFrame({
         's': ['a', 'b', 'c'],
