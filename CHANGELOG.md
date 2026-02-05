@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - **Telemetry**: Added optional OpenTelemetry helper and propagated trace headers through plot/upload/remote GFQL paths.
 - **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `df_executor.py`, and `same_path/` submodules implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
+- **GFQL / WHERE**: `gfql([...], where=[...])` list form now supports same-path WHERE constraints (no need to wrap in `Chain(...)`).
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN` for multi-equality semijoin pruning (2-hop, experimental).
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG` for aggregated inequality pruning on 2-hop non-adj clauses (experimental).

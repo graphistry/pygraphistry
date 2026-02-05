@@ -1,7 +1,7 @@
 """GFQL unified entrypoint for chains and DAGs"""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, Sequence
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.util import setup_logger
@@ -18,7 +18,7 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
-from graphistry.compute.gfql.same_path_types import parse_where_json
+from graphistry.compute.gfql.same_path_types import WhereComparison, parse_where_json
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
@@ -33,6 +33,7 @@ def _gfql_otel_attrs(
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
     output: Optional[str] = None,
     policy: Optional[Dict[str, PolicyFunction]] = None,
+    where: Optional[Sequence[WhereComparison]] = None,
 ) -> Dict[str, Any]:
     if isinstance(query, dict):
         query_type = "chain" if "chain" in query else "dag"
@@ -44,6 +45,8 @@ def _gfql_otel_attrs(
         attrs["gfql.has_where"] = bool(query.where)
     elif isinstance(query, list):
         attrs["gfql.chain_len"] = len(query)
+        if where:
+            attrs["gfql.has_where"] = True
     elif isinstance(query, ASTLet):
         attrs["gfql.binding_count"] = len(query.bindings)
     elif isinstance(query, dict):
@@ -71,7 +74,8 @@ def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
-         policy: Optional[Dict[str, PolicyFunction]] = None) -> Plottable:
+         policy: Optional[Dict[str, PolicyFunction]] = None,
+         where: Optional[Sequence[WhereComparison]] = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -82,6 +86,7 @@ def gfql(self: Plottable,
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
     :param policy: Optional policy hooks for external control (preload, postload, precall, postcall phases)
+    :param where: Optional same-path constraints for list/Chain queries
     :returns: Resulting Plottable
     :rtype: Plottable
 
@@ -165,6 +170,13 @@ def gfql(self: Plottable,
         from graphistry.compute.chain import Chain
         result = g.gfql(Chain([n({'type': 'person'}), e(), n()]))
 
+        # As list with WHERE
+        from graphistry.compute.gfql.same_path_types import col, compare
+        result = g.gfql(
+            [n(name="a"), e(), n(name="b")],
+            where=[compare(col("a", "x"), "==", col("b", "y"))],
+        )
+
     **Example: DAG query**
 
     ::
@@ -226,6 +238,16 @@ def gfql(self: Plottable,
         expanded_policy = expand_policy(policy)
 
     try:
+        where_param: Optional[List[WhereComparison]] = None
+        if where is not None:
+            if isinstance(where, (list, tuple)):
+                if any(isinstance(entry, dict) for entry in where):
+                    where_param = parse_where_json(where)
+                else:
+                    where_param = list(where)
+            else:
+                raise ValueError(f"where must be a list of comparisons, got {type(where).__name__}")
+
         current_depth = context.execution_depth
         current_path = context.operation_path
 
@@ -249,6 +271,9 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
+        if where_param and isinstance(query, (dict, ASTLet)):
+            raise ValueError("where must be provided inside dict chain under the 'where' key")
+
         if isinstance(query, dict) and "chain" in query:
             chain_items: List[ASTObject] = []
             for item in query["chain"]:
@@ -259,8 +284,8 @@ def gfql(self: Plottable,
                     chain_items.append(item)
                 else:
                     raise TypeError(f"Unsupported chain entry type: {type(item)}")
-            where_meta = parse_where_json(query.get("where"))
-            query = Chain(chain_items, where=where_meta)
+            dict_where = parse_where_json(query.get("where"))
+            query = Chain(chain_items, where=dict_where)
         elif isinstance(query, dict):
             wrapped_dict = {}
             for key, value in query.items():
@@ -284,12 +309,16 @@ def gfql(self: Plottable,
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
+                if where_param:
+                    if query.where:
+                        raise ValueError("where provided for Chain that already includes where")
+                    query = Chain(query.chain, where=where_param)
                 return _chain_dispatch(self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return _chain_dispatch(self, Chain([query]), engine, expanded_policy, context)
+                return _chain_dispatch(self, Chain([query], where=where_param), engine, expanded_policy, context)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -303,7 +332,13 @@ def gfql(self: Plottable,
                     else:
                         converted_query.append(item)
 
-                return _chain_dispatch(self, Chain(converted_query), engine, expanded_policy, context)
+                return _chain_dispatch(
+                    self,
+                    Chain(converted_query, where=where_param),
+                    engine,
+                    expanded_policy,
+                    context,
+                )
             else:
                 raise TypeError(
                     f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
