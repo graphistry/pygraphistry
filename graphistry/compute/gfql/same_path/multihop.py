@@ -100,17 +100,23 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
     local_allowed_edges: Dict[int, DomainT] = dict(state.allowed_edges)
     local_pruned_edges: Dict[int, DataFrameT] = dict(state.pruned_edges)
     edge_indices = executor.meta.edge_indices
-    src_col, dst_col, edge_id_col, node_id_col = executor._source_column, executor._destination_column, executor._edge_column, executor._node_column
+    src_col = executor._source_column
+    dst_col = executor._destination_column
+    edge_id_col = executor._edge_column
+    node_id_col = executor._node_column
     nodes_df = executor.inputs.graph._nodes
-    if not (src_col and dst_col and node_id_col and nodes_df is not None and node_id_col in nodes_df.columns):
+    if src_col is None or dst_col is None or node_id_col is None or nodes_df is None or node_id_col not in nodes_df.columns:
         return state
+    src = src_col
+    dst = dst_col
+    node_id = node_id_col
 
     def _attr_frame(node_domain: Optional[DomainT], cols: Sequence[str], id_label: str, attr_labels: Sequence[str]) -> Optional[DataFrameT]:
         if domain_is_empty(node_domain):
             return None
         if any(col not in nodes_df.columns for col in cols):
             return None
-        return project_node_attrs(nodes_df, node_id_col, cols, id_label=id_label, labels=attr_labels, node_domain=node_domain, dedupe=True, drop_nulls=True)
+        return project_node_attrs(nodes_df, node_id, cols, id_label=id_label, labels=attr_labels, node_domain=node_domain, dedupe=True, drop_nulls=True)
 
     composite_value_enabled = non_adj_mode in {"value", "value_prefilter"} or auto_mode
     # NOTE: Prior multi-eq semijoin / ineq aggregation opt-ins regressed mixed clauses.
@@ -157,12 +163,12 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
         if allowed_edges is None:
             cached = edge_pairs_cache.get(edge_idx)
             if cached is None:
-                cached = build_edge_pairs(edges_df, src_col, dst_col, sem)
+                cached = build_edge_pairs(edges_df, src, dst, sem)
                 edge_pairs_cache[edge_idx] = cached
             return cached
         if edge_id_col and edge_id_col in edges_df.columns:
             edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
-        return build_edge_pairs(edges_df, src_col, dst_col, sem)
+        return build_edge_pairs(edges_df, src, dst, sem)
 
     def _pairs_from_endpoints(pairs_left: DataFrameT, pairs_right: DataFrameT, start_df: DataFrameT, end_df: DataFrameT, left_cols: Sequence[str], right_cols: Sequence[str], *, left_id: str = "__start__", right_id: str = "__current__") -> Tuple[DataFrameT, DataFrameT]:
         start_vals = start_df[[left_id] + list(left_cols)].rename(columns={left_id: "__from__"}).drop_duplicates()
@@ -239,8 +245,10 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                 continue
             if _empty_pair(left_vals, right_vals, start_idx, end_idx):
                 continue
-            left_domain = series_values(left_vals["__start_val__"])
-            right_domain = series_values(right_vals["__end_val__"])
+            left_vals_df = left_vals
+            right_vals_df = right_vals
+            left_domain = series_values(left_vals_df["__start_val__"])
+            right_domain = series_values(right_vals_df["__end_val__"])
             value_mode_requested = composite_value_enabled and clause.op in value_mode_ops
             if non_adj_mode in {"prefilter", "value_prefilter", "auto_prefilter"}:
                 if clause.op == "==":
@@ -248,8 +256,8 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                     if domain_is_empty(allowed_values):
                         _set_empty_nodes(start_idx, end_idx)
                         continue
-                    left_vals = left_vals[left_vals["__start_val__"].isin(allowed_values)]
-                    right_vals = right_vals[right_vals["__end_val__"].isin(allowed_values)]
+                    left_vals_df = left_vals_df[left_vals_df["__start_val__"].isin(allowed_values)]
+                    right_vals_df = right_vals_df[right_vals_df["__end_val__"].isin(allowed_values)]
                 else:
                     left_count = len(left_domain)
                     right_count = len(right_domain)
@@ -262,36 +270,36 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             continue
                     elif left_count == 1:
                         left_val = left_domain[0]
-                        right_vals = right_vals[evaluate_clause(right_vals["__end_val__"], OP_FLIP.get(clause.op, clause.op), left_val)]
-                        if len(right_vals) == 0:
+                        right_vals_df = right_vals_df[evaluate_clause(right_vals_df["__end_val__"], OP_FLIP.get(clause.op, clause.op), left_val)]
+                        if len(right_vals_df) == 0:
                             _set_empty_nodes(start_idx, end_idx)
                             continue
                     elif right_count == 1:
                         right_val = right_domain[0]
-                        left_vals = left_vals[evaluate_clause(left_vals["__start_val__"], clause.op, right_val)]
-                        if len(left_vals) == 0:
+                        left_vals_df = left_vals_df[evaluate_clause(left_vals_df["__start_val__"], clause.op, right_val)]
+                        if len(left_vals_df) == 0:
                             _set_empty_nodes(start_idx, end_idx)
                             continue
-                _apply_pairs_and_backprop(start_idx, end_idx, left_vals["__start__"], right_vals["__current__"], backprop=False)
-                left_domain = series_values(left_vals["__start_val__"])
-                right_domain = series_values(right_vals["__end_val__"])
+                _apply_pairs_and_backprop(start_idx, end_idx, left_vals_df["__start__"], right_vals_df["__current__"], backprop=False)
+                left_domain = series_values(left_vals_df["__start_val__"])
+                right_domain = series_values(right_vals_df["__end_val__"])
             if bounds_enabled and clause.op in {"<", "<=", ">", ">="}:
-                left_values, right_values = left_vals["__start_val__"], right_vals["__end_val__"]
+                left_values, right_values = left_vals_df["__start_val__"], right_vals_df["__end_val__"]
                 if len(left_values) > 0 and len(right_values) > 0:
                     left_min = left_values.min()
                     right_max = right_values.max()
                     left_mask = evaluate_clause(left_values, clause.op, right_max)
                     right_mask = evaluate_clause(right_values, OP_FLIP.get(clause.op, clause.op), left_min)
-                    left_vals = left_vals[left_mask]
-                    right_vals = right_vals[right_mask]
-                    if _empty_pair(left_vals, right_vals, start_idx, end_idx):
+                    left_vals_df = left_vals_df[left_mask]
+                    right_vals_df = right_vals_df[right_mask]
+                    if _empty_pair(left_vals_df, right_vals_df, start_idx, end_idx):
                         continue
-                    start_nodes = series_values(left_vals["__start__"])
-                    end_nodes = series_values(right_vals["__current__"])
+                    start_nodes = series_values(left_vals_df["__start__"])
+                    end_nodes = series_values(right_vals_df["__current__"])
                     _update_allowed(start_idx, start_nodes)
                     _update_allowed(end_idx, end_nodes)
-                    left_domain = series_values(left_vals["__start_val__"])
-                    right_domain = series_values(right_vals["__end_val__"])
+                    left_domain = series_values(left_vals_df["__start_val__"])
+                    right_domain = series_values(right_vals_df["__end_val__"])
             start_count = 0 if start_nodes is None else len(start_nodes)
             end_count = 0 if end_nodes is None else len(end_nodes)
             pair_est = start_count * end_count
