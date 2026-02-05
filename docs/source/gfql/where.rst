@@ -33,9 +33,17 @@ Basic Usage
 Use `Chain(..., where=[...])` when you need WHERE; list form is for chains
 without WHERE. WHERE only applies to aliases in the chain (same-path scope),
 not to unrelated nodes elsewhere in the graph.
-Multiple comparisons in `where=[...]` are combined with AND (all must match).
+All WHERE comparisons are ANDed (all must match).
 
 Aliases come from `name=`. Column references use `alias.column`.
+
+When to use predicates vs WHERE
+-------------------------------
+
+- Prefer per-step predicates in `n(...)`/`e_forward(...)` for single-entity
+  filters (faster and simpler).
+- Use WHERE when you must compare fields across two steps (node-node,
+  node-edge, or edge-edge).
 
 JSON wire format details live in :doc:`/gfql/spec/wire_protocol`.
 Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON uses `eq`, `neq`,
