@@ -104,6 +104,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
     nodes_df = executor.inputs.graph._nodes
     if not (src_col and dst_col and node_id_col and nodes_df is not None and node_id_col in nodes_df.columns):
         return state
+
     def _attr_frame(node_domain: DomainT, cols: Sequence[str], id_label: str, attr_labels: Sequence[str]) -> Optional[DataFrameT]:
         if any(col not in nodes_df.columns for col in cols):
             return None

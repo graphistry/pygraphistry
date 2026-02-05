@@ -215,7 +215,14 @@ def semijoin_eval_pairs(left_pairs: DataFrameT, right_pairs: DataFrameT, op: str
         left_eval = left_pairs.merge(mid_values.rename(columns={"__value__": left_value}), on=["__mid__", left_value], how="inner")
         right_eval = right_pairs.merge(mid_values.rename(columns={"__value__": right_value}), on=["__mid__", right_value], how="inner")
     elif op == "!=":
-        def _uniq(df: DataFrameT, col: str, name: str) -> DataFrameT: return df[["__mid__", col]].drop_duplicates().groupby("__mid__").size().reset_index(name=name)
+        def _uniq(df: DataFrameT, col: str, name: str) -> DataFrameT:
+            return (
+                df[["__mid__", col]]
+                .drop_duplicates()
+                .groupby("__mid__")
+                .size()
+                .reset_index(name=name)
+            )
 
         left_unique = _uniq(left_pairs, left_value, left_unique_col)
         right_unique = _uniq(right_pairs, right_value, right_unique_col)
