@@ -40,10 +40,25 @@ Aliases come from `name=`. Column references use `alias.column`.
 When to use predicates vs WHERE
 -------------------------------
 
-- Prefer per-step predicates in `n(...)`/`e_forward(...)` for single-entity
-  filters (faster and simpler).
-- Use WHERE when you must compare fields across two steps (node-node,
-  node-edge, or edge-edge).
+Predicates live inside `n(...)`/`e_forward(...)` filter dicts and apply to
+one step. WHERE compares fields across steps.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare, gt
+    from graphistry.compute.chain import Chain
+
+    # Single-step predicate (preferred when you only filter one entity)
+    Chain([n({"a": gt(10)}, name="n1"), e_forward(), n(name="n2")])
+
+    # Cross-step comparison (needs WHERE)
+    Chain(
+        [n(name="n1"), e_forward(name="e1"), n(name="n2"), e_forward(name="e2"), n()],
+        where=[
+            compare(col("n1", "a"), ">", col("n2", "b")),
+            compare(col("e1", "x"), "==", col("e2", "y")),
+        ],
+    )
 
 JSON wire format details live in :doc:`/gfql/spec/wire_protocol`.
 Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON uses `eq`, `neq`,
