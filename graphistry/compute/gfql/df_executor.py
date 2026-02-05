@@ -276,6 +276,7 @@ class DFSamePathExecutor:
         allowed_nodes: Dict[int, DomainT] = {}
         allowed_edges: Dict[int, DomainT] = {}
         pruned_edges: Dict[int, DataFrameT] = {}
+
         def _update_allowed(idx: int, values: DomainT) -> None:
             current = allowed_nodes.get(idx)
             allowed_nodes[idx] = domain_intersect(current, values) if current is not None else values
