@@ -150,7 +150,7 @@ chain([
 
 Optional fields:
 - `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
-  with `left`/`right` as `alias.column` strings.
+  with `left`/`right` as `alias.column` strings. Multiple entries are ANDed.
 
 **Chain with WHERE (wire format):**
 ```json

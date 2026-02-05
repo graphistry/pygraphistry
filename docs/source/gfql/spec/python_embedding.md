@@ -69,6 +69,7 @@ chain = Chain(
 )
 result = g.gfql(chain)
 ```
+Multiple WHERE comparisons are ANDed.
 
 ## Engine Selection
 

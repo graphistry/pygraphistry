@@ -58,6 +58,7 @@ Path pattern expressions for matching graph structures:
 WHERE ties attributes across named steps in a chain. Use it when you need to
 enforce relationships between nodes/edges on the same path (for example,
 start.owner_id equals end.owner_id).
+Multiple WHERE comparisons are conjunctive (AND).
 
 **Python example:**
 
