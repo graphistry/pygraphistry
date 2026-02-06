@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime, time
 from dateutil import parser as date_parser  # type: ignore[import]
 import pandas as pd
-import pytz  # type: ignore[import]
 
 from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
 from graphistry.utils.json import JSONVal
@@ -51,16 +50,15 @@ class DateTimeValue(TemporalValue):
         dt = date_parser.isoparse(value)
         
         # Handle timezone
+        ts = pd.Timestamp(dt)
         if dt.tzinfo is None:
             # Naive datetime - localize to specified timezone
-            tz = pytz.timezone(timezone)
-            dt = tz.localize(dt)
+            ts = ts.tz_localize(timezone)
         else:
             # Already has timezone - convert to specified timezone
-            tz = pytz.timezone(timezone)
-            dt = dt.astimezone(tz)
-        
-        return pd.Timestamp(dt)
+            ts = ts.tz_convert(timezone)
+
+        return ts
     
     def to_json(self) -> DateTimeWire:
         """Return dict for tagged temporal value"""

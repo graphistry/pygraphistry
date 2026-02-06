@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt, graphistry, os, numpy as np, pandas as pd, pyarrow as pa, pytest
+from pandas.api.types import (
+    is_bool_dtype,
+    is_datetime64_any_dtype,
+    is_float_dtype,
+    is_integer_dtype,
+    is_object_dtype,
+    is_string_dtype,
+    is_timedelta64_dtype,
+)
 
 try:
     import neo4j
@@ -24,14 +33,12 @@ def test_neo_df_to_pd_df_basics():
     rec = {"x": 1, "b": True, "s": "abc", "a": [1, 2, 3], "d": {"r": "v"}, "mt": None}
     df = pd.DataFrame([rec])
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "x": "int",
-        "b": "bool",
-        "s": "object",
-        "a": "object",
-        "d": "object",
-        "mt": "object",
-    }
+    dtypes = df2.dtypes.to_dict()
+    assert is_integer_dtype(dtypes["x"])
+    assert is_bool_dtype(dtypes["b"])
+    assert is_string_dtype(dtypes["s"])
+    for col in ("a", "d", "mt"):
+        assert is_object_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == rec
     pa.Table.from_pandas(df2)
@@ -49,14 +56,12 @@ def test_neo_df_to_pd_df_basics_na():
     }
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "x": "float64",
-        "b": "object",
-        "s": "object",
-        "a": "object",
-        "d": "object",
-        "mt": "object",
-    }
+    dtypes = df2.dtypes.to_dict()
+    assert is_float_dtype(dtypes["x"])
+    assert is_object_dtype(dtypes["b"])
+    assert is_string_dtype(dtypes["s"])
+    for col in ("a", "d", "mt"):
+        assert is_object_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == {k: recs[k][0] for k in recs.keys()}
     pa.Table.from_pandas(df2)
@@ -72,12 +77,11 @@ def test_dates_homogeneous():
     }
     df = pd.DataFrame([rec])
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "d": "datetime64[ns]",
-        "dt": "datetime64[ns]",
-        "t": "timedelta64[ns]",
-        "dur": "object",
-    }
+    dtypes = df2.dtypes.to_dict()
+    assert is_datetime64_any_dtype(dtypes["d"])
+    assert is_datetime64_any_dtype(dtypes["dt"])
+    assert is_timedelta64_dtype(dtypes["t"])
+    assert is_string_dtype(dtypes["dur"])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "d": dt.datetime(2020, 10, 20),
@@ -98,12 +102,11 @@ def test_dates_homogeneous_na():
     }
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "d": "datetime64[ns]",
-        "dt": "datetime64[ns]",
-        "t": "timedelta64[ns]",
-        "dur": "object",
-    }
+    dtypes = df2.dtypes.to_dict()
+    assert is_datetime64_any_dtype(dtypes["d"])
+    assert is_datetime64_any_dtype(dtypes["dt"])
+    assert is_timedelta64_dtype(dtypes["t"])
+    assert is_string_dtype(dtypes["dur"])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "d": dt.datetime(2020, 10, 20),
@@ -111,12 +114,9 @@ def test_dates_homogeneous_na():
         "t": pd.to_timedelta("10:20:30"),
         "dur": "P1Y3M14D",
     }
-    assert df2.to_dict(orient="records")[1] == {
-        "d": pd.NaT,
-        "dt": pd.NaT,
-        "t": pd.NaT,
-        "dur": None,
-    }
+    d2 = df2.to_dict(orient="records")[1]
+    for col in ("d", "dt", "t", "dur"):
+        assert pd.isna(d2[col])
     pa.Table.from_pandas(df2)
 
 
@@ -130,18 +130,12 @@ def test_dates_heterogeneous():
     }
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
-    assert df.dtypes.to_dict() == {
-        "d": "object",
-        "dt": "object",
-        "t": "object",
-        "dur": "object",
-    }
-    assert df2.dtypes.to_dict() == {
-        "d": "object",
-        "dt": "object",
-        "t": "object",
-        "dur": "object",
-    }
+    dtypes = df.dtypes.to_dict()
+    for col in ("d", "dt", "t", "dur"):
+        assert is_object_dtype(dtypes[col])
+    dtypes = df2.dtypes.to_dict()
+    for col in ("d", "dt", "t", "dur"):
+        assert is_object_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "d": dt.datetime(2020, 10, 20),
@@ -164,26 +158,24 @@ def test_spatial_homogenous():
     }
     df = pd.DataFrame([rec])
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "p": np.dtype("object"),
-        "c": np.dtype("object"),
-        "c_x": np.dtype("float64"),
-        "c_y": np.dtype("float64"),
-        "c_srid": np.dtype("int64"),
-        "c2": np.dtype("object"),
-        "c2_x": np.dtype("float64"),
-        "c2_y": np.dtype("float64"),
-        "c2_z": np.dtype("float64"),
-        "c2_srid": np.dtype("int64"),
-        "w": np.dtype("object"),
-        "w_x": np.dtype("float64"),
-        "w_y": np.dtype("float64"),
-        "w_z": np.dtype("float64"),
-        #"w_longitude": np.dtype("float64"),
-        "w_latitude": np.dtype("float64"),
-        "w_height": np.dtype("float64"),
-        "w_srid": np.dtype("int64"),
-    }
+    dtypes = df2.dtypes.to_dict()
+    for col in ("p", "c", "c2", "w"):
+        assert is_string_dtype(dtypes[col])
+    for col in (
+        "c_x",
+        "c_y",
+        "c2_x",
+        "c2_y",
+        "c2_z",
+        "w_x",
+        "w_y",
+        "w_z",
+        "w_latitude",
+        "w_height",
+    ):
+        assert is_float_dtype(dtypes[col])
+    for col in ("c_srid", "c2_srid", "w_srid"):
+        assert is_integer_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "p": "POINT(1.0 2.0 3.0)",
@@ -218,25 +210,23 @@ def test_spatial_homogenous_na():
     }
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "p": np.dtype("object"),
-        #"p_srid": np.dtype("object"),
-        "c": np.dtype("object"),
-        "c_x": np.dtype("float64"),
-        "c_y": np.dtype("float64"),
-        "c_srid": np.dtype("float64"),
-        "c2": np.dtype("object"),
-        "c2_x": np.dtype("float64"),
-        "c2_y": np.dtype("float64"),
-        "c2_z": np.dtype("float64"),
-        "c2_srid": np.dtype("float64"),
-        "w": np.dtype("object"),
-        "w_x": np.dtype("float64"),
-        "w_y": np.dtype("float64"),
-        #"w_longitude": np.dtype("float64"),
-        "w_latitude": np.dtype("float64"),
-        "w_srid": np.dtype("float64")
-    }
+    dtypes = df2.dtypes.to_dict()
+    for col in ("p", "c", "c2", "w"):
+        assert is_string_dtype(dtypes[col])
+    for col in (
+        "c_x",
+        "c_y",
+        "c_srid",
+        "c2_x",
+        "c2_y",
+        "c2_z",
+        "c2_srid",
+        "w_x",
+        "w_y",
+        "w_latitude",
+        "w_srid",
+    ):
+        assert is_float_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "p": "POINT(1.0 2.0 3.0 4.0)",
@@ -275,12 +265,9 @@ def test_spatial_heterogeneous():
     }
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
-    assert df2.dtypes.to_dict() == {
-        "p": "object",
-        "c": "object",
-        "c2": "object",
-        "w": "object",
-    }
+    dtypes = df2.dtypes.to_dict()
+    for col in ("p", "c", "c2", "w"):
+        assert is_object_dtype(dtypes[col])
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "p": "POINT(1.0 2.0 3.0 4.0)",

@@ -137,7 +137,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
 
         # Ensure result matches requested engine (defensive coercion)
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
-        if isinstance(result, Plottable):
+        if not hypergraph_returns_dataframe and isinstance(result, Plottable):
             result = ensure_engine_match(result, engine)
 
         # Mark as successful
@@ -164,7 +164,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             # Extract stats from result (if success) or input graph (if error)
             # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
             # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
-            if success and isinstance(result, Plottable):
+            if success and not hypergraph_returns_dataframe and isinstance(result, Plottable):
                 graph_for_stats = result
                 result_stats = extract_graph_stats(graph_for_stats)
             elif success:

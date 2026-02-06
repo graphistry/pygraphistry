@@ -1,4 +1,5 @@
 from typing import Any, Optional, Union
+import re
 
 import pandas as pd
 
@@ -6,10 +7,72 @@ from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
-def _cudf_mask_none(result: Any, mask: Any) -> Any:
-    result_pd = result.to_pandas().astype('object')
-    result_pd.iloc[mask] = None
-    return result_pd
+def _cudf_mask_value(result: Any, mask: Any, value: Any) -> Any:
+    try:
+        return result.mask(mask, value)
+    except Exception:
+        try:
+            result[mask] = value
+            return result
+        except Exception:
+            try:
+                mask_arr = mask.to_pandas().to_numpy()
+            except Exception:
+                mask_arr = mask
+            import cudf
+            result_pd = result.to_pandas()
+            if value is None:
+                result_pd = result_pd.astype('object')
+            result_pd.iloc[mask_arr] = value
+            return cudf.from_pandas(result_pd)
+
+
+def _cudf_handle_na(
+    result: Any,
+    source: Any,
+    na: Optional[bool]
+) -> Any:
+    mask = None
+    try:
+        mask = source.isna()
+        has_mask = bool(mask.any())
+    except Exception:
+        has_mask = False
+
+    if na is None:
+        if not has_mask:
+            return result
+        return _cudf_mask_value(result, mask, None)
+
+    if isinstance(na, bool):
+        if has_mask:
+            return _cudf_mask_value(result, mask, na)
+        try:
+            return result.fillna(na)
+        except Exception:
+            return result
+
+    return result
+
+
+def _pandas_handle_na(
+    result: pd.Series,
+    source: pd.Series,
+    na: Optional[bool]
+) -> pd.Series:
+    mask = source.isna()
+    if na is None:
+        if mask.any():
+            result = result.astype('object')
+            result[mask] = None
+        return result
+
+    if mask.any():
+        result = result.copy()
+        result[mask] = na
+        if result.dtype == object:
+            result = result.infer_objects()
+    return result
 
 
 class Contains(ASTPredicate):
@@ -53,18 +116,15 @@ class Contains(ASTPredicate):
                     flags=self.flags
                 )
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
-
-            return result
+            return _cudf_handle_na(result, s, self.na)
         else:
-            return s.str.contains(
+            result = s.str.contains(
                 self.pat,
-                self.case,
-                self.flags,
-                self.na,
-                self.regex
+                case=self.case,
+                flags=self.flags,
+                regex=self.regex
             )
+            return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -136,9 +196,7 @@ class Startswith(ASTPredicate):
         self.case = case
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.startswith/
@@ -152,79 +210,48 @@ class Startswith(ASTPredicate):
             # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
-                result = s.str.startswith(self.pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
-            elif not is_cudf and not self.case:
+                return s.str.startswith(self.pat)
+            if not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
-                    result = pd.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default)
-                    if self.na is None:
-                        result = result.astype(object)
-                        result[s.isna()] = None
-                else:
-                    s_lower = s.str.lower()
-                    patterns_lower = tuple(p.lower() for p in self.pat)
-                    # Use pandas native tuple support on lowercased data
-                    result = s_lower.str.startswith(patterns_lower)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                    return pd.Series(False, index=s.index)
+                s_lower = s.str.lower()
+                patterns_lower = tuple(p.lower() for p in self.pat)
+                # Use pandas native tuple support on lowercased data
+                return s_lower.str.startswith(patterns_lower)
+
+            # cuDF - need manual OR logic (workaround for bug #20237)
+            if len(self.pat) == 0:
+                import cudf
+                # Create False for all values - scalar broadcast, not Python list
+                return cudf.Series(False, index=s.index)
+            if not self.case:
+                s_modified = s.str.lower()
+                patterns = [p.lower() for p in self.pat]
             else:
-                # cuDF - need manual OR logic (workaround for bug #20237)
-                if len(self.pat) == 0:
-                    import cudf
-                    # Create False for all values - scalar broadcast, not Python list
-                    result = cudf.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default) - match pandas behavior
-                    if self.na is None:
-                        # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na: bool = bool(s.isna().any())
-                        if has_na:
-                            # Convert to object dtype and apply mask to preserve None values
-                            na_mask_arr = s.to_pandas().isna().to_numpy()
-                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
-                else:
-                    if not self.case:
-                        s_modified = s.str.lower()
-                        patterns = [p.lower() for p in self.pat]
-                    else:
-                        s_modified = s
-                        patterns = list(self.pat)
-                    # Start with first pattern
-                    result = s_modified.str.startswith(patterns[0])
-                    # OR with remaining patterns
-                    for pat in patterns[1:]:
-                        result = result | s_modified.str.startswith(pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
-        elif not self.case:
+                s_modified = s
+                patterns = list(self.pat)
+            # Start with first pattern
+            result = s_modified.str.startswith(patterns[0])
+            # OR with remaining patterns
+            for pat in patterns[1:]:
+                result = result | s_modified.str.startswith(pat)
+            return result
+
+        if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
             pat_modified = self.pat.lower()
-            result = s_modified.str.startswith(pat_modified)
-        else:
-            result = s.str.startswith(self.pat)
+            return s_modified.str.startswith(pat_modified)
 
-        # Handle na parameter for non-tuple cases
+        return s.str.startswith(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
-            # cuDF doesn't support na parameter, use fillna
-            if self.na is not None:
-                return result.fillna(self.na)
-            else:
-                return result
-        else:
-            # pandas supports na parameter for case-sensitive str patterns
-            if not self.case:
-                if self.na is not None:
-                    return result.fillna(self.na)
-                else:
-                    return result
-            else:
-                return s.str.startswith(self.pat, self.na)
+            return _cudf_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -302,9 +329,7 @@ class Endswith(ASTPredicate):
         self.case = case
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.endswith/
@@ -318,80 +343,49 @@ class Endswith(ASTPredicate):
             # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
-                result = s.str.endswith(self.pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
-            elif not is_cudf and not self.case:
+                return s.str.endswith(self.pat)
+            if not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
                     # Create False for all values - scalar broadcast, not Python list
-                    result = pd.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default)
-                    if self.na is None:
-                        result = result.astype(object)
-                        result[s.isna()] = None
-                else:
-                    s_lower = s.str.lower()
-                    patterns_lower = tuple(p.lower() for p in self.pat)
-                    # Use pandas native tuple support on lowercased data
-                    result = s_lower.str.endswith(patterns_lower)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
+                    return pd.Series(False, index=s.index)
+                s_lower = s.str.lower()
+                patterns_lower = tuple(p.lower() for p in self.pat)
+                # Use pandas native tuple support on lowercased data
+                return s_lower.str.endswith(patterns_lower)
+
+            # cuDF - need manual OR logic (workaround for bug #20237)
+            if len(self.pat) == 0:
+                import cudf
+                # Create False for all values - scalar broadcast, not Python list
+                return cudf.Series(False, index=s.index)
+            if not self.case:
+                s_modified = s.str.lower()
+                patterns = [p.lower() for p in self.pat]
             else:
-                # cuDF - need manual OR logic (workaround for bug #20237)
-                if len(self.pat) == 0:
-                    import cudf
-                    # Create False for all values - scalar broadcast, not Python list
-                    result = cudf.Series(False, index=s.index)
-                    # Preserve NA values when na=None (default) - match pandas behavior
-                    if self.na is None:
-                        # cuDF bool dtype can't hold None, so check if we need object dtype
-                        has_na: bool = bool(s.isna().any())
-                        if has_na:
-                            # Convert to object dtype and apply mask to preserve None values
-                            na_mask_arr = s.to_pandas().isna().to_numpy()
-                            result = cudf.from_pandas(_cudf_mask_none(result, na_mask_arr))
-                else:
-                    if not self.case:
-                        s_modified = s.str.lower()
-                        patterns = [p.lower() for p in self.pat]
-                    else:
-                        s_modified = s
-                        patterns = list(self.pat)
-                    # Start with first pattern
-                    result = s_modified.str.endswith(patterns[0])
-                    # OR with remaining patterns
-                    for pat in patterns[1:]:
-                        result = result | s_modified.str.endswith(pat)
-                if self.na is not None:
-                    return result.fillna(self.na)
-                return result
-        elif not self.case:
+                s_modified = s
+                patterns = list(self.pat)
+            # Start with first pattern
+            result = s_modified.str.endswith(patterns[0])
+            # OR with remaining patterns
+            for pat in patterns[1:]:
+                result = result | s_modified.str.endswith(pat)
+            return result
+
+        if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
             pat_modified = self.pat.lower()
-            result = s_modified.str.endswith(pat_modified)
-        else:
-            result = s.str.endswith(self.pat)
+            return s_modified.str.endswith(pat_modified)
 
-        # Handle na parameter for non-tuple cases
+        return s.str.endswith(self.pat)
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
         if is_cudf:
-            # cuDF doesn't support na parameter, use fillna
-            if self.na is not None:
-                return result.fillna(self.na)
-            else:
-                return result
-        else:
-            # pandas supports na parameter for case-sensitive str patterns
-            if not self.case:
-                if self.na is not None:
-                    return result.fillna(self.na)
-                else:
-                    return result
-            else:
-                return s.str.endswith(self.pat, self.na)
+            return _cudf_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -470,12 +464,10 @@ class Match(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround cuDF not supporting 'case' and 'na' parameters
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.match/
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
         if is_cudf:
             if not self.case:
                 s_modified = s.str.lower()
@@ -484,16 +476,22 @@ class Match(ASTPredicate):
                     if isinstance(self.pat, str)
                     else self.pat
                 )
-                result = s_modified.str.match(pat_modified, flags=self.flags)
-            else:
-                result = s.str.match(self.pat, flags=self.flags)
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(self.pat, flags=self.flags)
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.match(self.pat, flags=effective_flags)
+        return s.str.match(self.pat)
 
-            return result
-        else:
-            return s.str.match(self.pat, self.case, self.flags, self.na)
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
+        if is_cudf:
+            return _cudf_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -557,9 +555,7 @@ class Fullmatch(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
             # cuDF doesn't have fullmatch, use match() with anchors as
             # workaround. fullmatch('abc') is equivalent to match('^abc$')
@@ -572,17 +568,23 @@ class Fullmatch(ASTPredicate):
                     if isinstance(anchored_pat, str)
                     else anchored_pat
                 )
-                result = s_modified.str.match(pat_modified, flags=self.flags)
-            else:
-                result = s.str.match(anchored_pat, flags=self.flags)
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(anchored_pat, flags=self.flags)
 
-            if self.na is not None and isinstance(self.na, bool):
-                result = result.fillna(self.na)
+        # pandas has native fullmatch support
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.fullmatch(self.pat, flags=effective_flags)
+        return s.str.fullmatch(self.pat)
 
-            return result
-        else:
-            # pandas has native fullmatch support
-            return s.str.fullmatch(self.pat, self.case, self.flags, self.na)
+    def __call__(self, s: SeriesT) -> SeriesT:
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        result = self._compute_result(s, is_cudf)
+        if is_cudf:
+            return _cudf_handle_na(result, s, self.na)
+        return _pandas_handle_na(result, s, self.na)
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""

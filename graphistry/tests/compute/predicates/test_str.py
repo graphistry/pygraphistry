@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+import re
 
 from graphistry.compute.predicates.str import (
     contains,
@@ -9,20 +10,14 @@ from graphistry.compute.predicates.str import (
     fullmatch,
     IsUpper, isupper
 )
+from graphistry.embed_utils import check_cudf
 
 
-# Helper to check if cuDF is available
-def has_cudf():
-    try:
-        import cudf  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
+has_cudf, _ = check_cudf()
 
 # Skip tests that require cuDF when it's not available
 requires_cudf = pytest.mark.skipif(
-    not has_cudf(),
+    not has_cudf,
     reason="cudf not installed"
 )
 
@@ -201,6 +196,12 @@ def test_startswith_pandas_na_handling():
     expected = pd.Series([False, False, True])
     pd.testing.assert_series_equal(result, expected)
 
+    # Test with na=True
+    predicate = startswith('ho', na=True)
+    result = predicate(s)
+    expected = pd.Series([False, True, True])
+    pd.testing.assert_series_equal(result, expected)
+
 
 def test_startswith_pandas_case_insensitive():
     """Test case-insensitive matching with pandas"""
@@ -241,6 +242,12 @@ def test_startswith_cudf_na_handling():
     expected = cudf.Series([False, False, True])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
+    # NA=True
+    predicate = startswith('ho', na=True)
+    result = predicate(s)
+    expected = cudf.Series([False, True, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
 
 @requires_cudf
 def test_startswith_cudf_case_insensitive():
@@ -277,6 +284,12 @@ def test_endswith_pandas_na_handling():
     predicate = endswith('se', na=False)
     result = predicate(s)
     expected = pd.Series([True, False, True])
+    pd.testing.assert_series_equal(result, expected)
+
+    # Test with na=True
+    predicate = endswith('se', na=True)
+    result = predicate(s)
+    expected = pd.Series([True, True, True])
     pd.testing.assert_series_equal(result, expected)
 
 
@@ -319,6 +332,12 @@ def test_endswith_cudf_na_handling():
     expected = cudf.Series([True, False, True])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
+    # NA=True
+    predicate = endswith('se', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, True])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
 
 @requires_cudf
 def test_endswith_cudf_case_insensitive():
@@ -351,6 +370,15 @@ def test_match_pandas_case_insensitive():
     pd.testing.assert_series_equal(result, expected)
 
 
+def test_match_pandas_case_insensitive_with_flags():
+    """Test case-insensitive matching with explicit flags in pandas"""
+    s = pd.Series(['Mouse', 'mouse', 'MOUSE', 'dog', None])
+    predicate = match(r'mouse', case=False, flags=re.IGNORECASE)
+    result = predicate(s)
+    expected = pd.Series([True, True, True, False, None], dtype=object)
+    pd.testing.assert_series_equal(result, expected)
+
+
 def test_match_pandas_na_handling():
     """Test NA handling with pandas"""
     s = pd.Series(['123', None, 'abc'])
@@ -364,6 +392,12 @@ def test_match_pandas_na_handling():
     predicate = match(r'\d+', na=False)
     result = predicate(s)
     expected = pd.Series([True, False, False])
+    pd.testing.assert_series_equal(result, expected)
+
+    # Test with na=True
+    predicate = match(r'\d+', na=True)
+    result = predicate(s)
+    expected = pd.Series([True, True, False])
     pd.testing.assert_series_equal(result, expected)
 
 
@@ -406,6 +440,12 @@ def test_match_cudf_na_handling():
     predicate = match(r'\d+', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+    # NA=True
+    predicate = match(r'\d+', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
@@ -490,6 +530,12 @@ def test_fullmatch_pandas_na_handling():
     expected = pd.Series([True, False, False])
     pd.testing.assert_series_equal(result, expected)
 
+    # Test with na=True
+    predicate = fullmatch(r'\d+', na=True)
+    result = predicate(s)
+    expected = pd.Series([True, True, False])
+    pd.testing.assert_series_equal(result, expected)
+
 
 @requires_cudf
 def test_fullmatch_cudf_basic():
@@ -530,6 +576,12 @@ def test_fullmatch_cudf_na_handling():
     predicate = fullmatch(r'\d+', na=False)
     result = predicate(s)
     expected = cudf.Series([True, False, False])
+    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+    # NA=True
+    predicate = fullmatch(r'\d+', na=True)
+    result = predicate(s)
+    expected = cudf.Series([True, True, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
 
 
@@ -722,6 +774,16 @@ def test_startswith_pandas_empty_tuple():
     pd.testing.assert_series_equal(result, expected)
 
 
+def test_startswith_pandas_empty_tuple_na():
+    """Test empty tuple with NA values in pandas"""
+    s = pd.Series(['apple', None, 'orange'])
+    predicate = startswith(())
+    result = predicate(s)
+    assert result[0] is False
+    assert pd.isna(result[1])
+    assert result[2] is False
+
+
 def test_endswith_pandas_tuple_basic():
     """Test tuple pattern matching with pandas"""
     s = pd.Series(['test.txt', 'data.csv', 'config.txt', 'image.png', None])
@@ -790,6 +852,16 @@ def test_endswith_pandas_empty_tuple():
     result = predicate(s)
     expected = pd.Series([False, False, False])
     pd.testing.assert_series_equal(result, expected)
+
+
+def test_endswith_pandas_empty_tuple_na():
+    """Test empty tuple with NA values in pandas"""
+    s = pd.Series(['test.txt', None, 'image.png'])
+    predicate = endswith(())
+    result = predicate(s)
+    assert result[0] is False
+    assert pd.isna(result[1])
+    assert result[2] is False
 
 
 @requires_cudf
@@ -875,6 +947,18 @@ def test_startswith_cudf_empty_tuple():
 
 
 @requires_cudf
+def test_startswith_cudf_empty_tuple_na():
+    """Test empty tuple with NA values in cuDF"""
+    import cudf
+    s = cudf.Series(['apple', None, 'orange'])
+    predicate = startswith(())
+    result = predicate(s).to_pandas()
+    assert result[0] is False
+    assert pd.isna(result[1])
+    assert result[2] is False
+
+
+@requires_cudf
 def test_endswith_cudf_tuple_basic():
     """Test tuple pattern matching with cuDF"""
     import cudf
@@ -954,6 +1038,18 @@ def test_endswith_cudf_empty_tuple():
     result = predicate(s)
     expected = cudf.Series([False, False, False])
     pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+
+
+@requires_cudf
+def test_endswith_cudf_empty_tuple_na():
+    """Test empty tuple with NA values in cuDF"""
+    import cudf
+    s = cudf.Series(['test.txt', None, 'image.png'])
+    predicate = endswith(())
+    result = predicate(s).to_pandas()
+    assert result[0] is False
+    assert pd.isna(result[1])
+    assert result[2] is False
 
 
 @requires_cudf

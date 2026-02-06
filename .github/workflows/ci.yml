@@ -211,6 +211,57 @@ jobs:
         ./bin/test-minimal.sh
 
 
+  test-pandas-compat:
+    needs: [changes]
+    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    strategy:
+      matrix:
+        include:
+          - python-version: '3.11'
+            pandas-version: '2.2.3'
+          - python-version: '3.11'
+            pandas-version: '3.0.0'
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test,bolt,nodexl]
+        python -m pip install "pandas==${{ matrix.pandas-version }}"
+
+    - name: Pandas compatibility minimal suite
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-minimal.sh
+
+    - name: Pandas compatibility extra coverage
+      run: |
+        source pygraphistry/bin/activate
+        python -m pytest -vv \
+          graphistry/tests/test_bolt_util.py \
+          graphistry/tests/test_nodexl.py
+
+
   test-core-python:
     needs: [ test-minimal-python ]
     # Inherit condition from test-minimal-python

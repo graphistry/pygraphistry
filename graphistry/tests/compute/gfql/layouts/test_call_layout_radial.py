@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -50,6 +51,24 @@ class TestGFQLRingLayoutsCPU:
                 '2024-01-01T00:01:00',
                 '2024-01-01T00:02:00'
             ])
+        })
+        return CGFull()\
+            .edges(edges)\
+            .nodes(nodes)\
+            .bind(source='source', destination='target', node='node')
+
+    def _graph_with_time_unit(self, unit: str):
+        edges = pd.DataFrame({
+            'source': [0, 1, 2],
+            'target': [1, 2, 0]
+        })
+        nodes = pd.DataFrame({
+            'node': [0, 1, 2],
+            'ts': pd.to_datetime([
+                '2024-01-01T00:00:00',
+                '2024-01-01T00:01:00',
+                '2024-01-01T00:02:00'
+            ]).astype(f'datetime64[{unit}]')
         })
         return CGFull()\
             .edges(edges)\
@@ -131,6 +150,39 @@ class TestGFQLRingLayoutsCPU:
         )
 
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+
+    @pytest.mark.parametrize('unit', ['us', 'ms'])
+    def test_time_mode_unit_parity(self, unit):
+        g_ns = self._graph_with_time_unit('ns')
+        g_unit = self._graph_with_time_unit(unit)
+
+        result_ns = execute_call(
+            g_ns,
+            'time_ring_layout',
+            {
+                'time_col': 'ts',
+                'time_start': '2024-01-01T00:00:00',
+                'time_end': '2024-01-01T00:02:00',
+                'num_rings': 3
+            },
+            Engine.PANDAS
+        )
+        result_unit = execute_call(
+            g_unit,
+            'time_ring_layout',
+            {
+                'time_col': 'ts',
+                'time_start': '2024-01-01T00:00:00',
+                'time_end': '2024-01-01T00:02:00',
+                'num_rings': 3
+            },
+            Engine.PANDAS
+        )
+
+        np.testing.assert_allclose(
+            result_ns._nodes['r'].to_numpy(),
+            result_unit._nodes['r'].to_numpy()
+        )
 
     def test_time_mode_invalid_strings_raise(self):
         """Time mode should raise when time bounds are invalid strings."""

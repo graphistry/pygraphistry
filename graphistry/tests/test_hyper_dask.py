@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt, logging, numpy as np, os, pandas as pd, pyarrow as pa, pytest
+from pandas.api.types import is_datetime64_any_dtype
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.Engine import Engine, DataframeLike
@@ -61,11 +62,6 @@ def honeypot_pdf() -> pd.DataFrame:
         "time(max)": "float64",
         "time(min)": "float64",
     }
-    base_dtypes = {
-        **base_csv_dtypes,
-        "time(max)": "datetime64[ns]",
-        "time(min)": "datetime64[ns]",
-    }
     df = pd.read_csv(
         "graphistry/tests/data/honeypot.5.csv",
         #'graphistry/tests/data/honeypot.csv',
@@ -73,7 +69,11 @@ def honeypot_pdf() -> pd.DataFrame:
         parse_dates=["time(max)", "time(min)"],
         date_parser=lambda v: pd.to_datetime(int(float(v))),
     )
-    assert df.dtypes.to_dict() == base_dtypes
+    dtypes = df.dtypes.to_dict()
+    for col, dtype in base_csv_dtypes.items():
+        assert dtypes[col] == dtype
+    for col in ("time(max)", "time(min)"):
+        assert is_datetime64_any_dtype(dtypes[col])
     assert len(df) == HONEYPOT_ROWS
     return df
 
@@ -534,6 +534,23 @@ class TestHypergraphPandas(NoAuthTestCase):
             "nodeID": "object",
             "nodeTitle": "object",
         }
+        nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
+        assert len(nodes_arr) == HONEYPOT_NODES
+
+    @pytest.mark.parametrize("unit", ["ms", "us"])
+    def test_hyper_to_pa_mixed2_unit_variants(self, unit):
+        df = honeypot_pdf().copy()
+        for col in ("time(max)", "time(min)"):
+            df[col] = df[col].astype(f"datetime64[{unit}]")
+
+        hg = hypergraph(**honeypot_hyperparams(df))
+
+        for col in ("time(max)", "time(min)"):
+            assert is_datetime64_any_dtype(hg.graph._edges.dtypes[col])
+            assert is_datetime64_any_dtype(hg.graph._nodes.dtypes[col])
+
+        edges_arr = pa.Table.from_pandas(hg.graph._edges)
+        assert len(edges_arr) == HONEYPOT_EDGES
         nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
         assert len(nodes_arr) == HONEYPOT_NODES
 

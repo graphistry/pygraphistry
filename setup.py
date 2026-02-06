@@ -52,7 +52,7 @@ base_extras_light = {
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
-    'nodexl': ['openpyxl==3.1.0', 'xlrd'],
+    'nodexl': ['openpyxl>=3.1.5', 'xlrd'],
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
     'kusto': ['azure-kusto-data', 'azure-identity']

@@ -19,6 +19,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Tests
 - **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
 
+## [0.50.6 - 2026-01-27]
+
+### Fixed
+- **GFQL / hypergraph**: Avoid `DataFrame.style` access when `return_as` yields a DataFrame, preventing Jinja2 import errors in minimal environments without Jinja2 (PR #909).
+
+### Tests
+- **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
+
+## [0.50.5 - 2026-01-25]
+
+### Fixed
+- **Predicates / str**: Centralized pandas/cuDF string predicate evaluation and NA handling; case-insensitive match/fullmatch now uses flags to align pandas 3 semantics.
+- **Temporal**: Use pandas timezone localization/conversion for GFQL temporal parsing; drop `pytz` runtime dependency.
+- **NodeXL**: Require `openpyxl>=3.1.5` in the `nodexl` extra for pandas 3 compatibility.
+
+### Tests
+- **Predicates / str**: Added NA=True and empty-tuple NA coverage for pandas and cuDF startswith/endswith/match/fullmatch.
+- **Temporal**: Added timezone comparison/parity tests (pandas and cuDF) and ring layout microsecond vs nanosecond equivalence coverage.
+- **Bolt util**: Relaxed dtype assertions to accept pandas 2/3 string and datetime unit differences.
+
+### Docs
+- **Docs / GFQL**: Updated datetime filtering and wire protocol examples to use pandas tz strings (no `pytz`).
+- **Demos**: Removed `pytz` from demo notebooks/HTML.
+
+### Infra
+- **CI**: Added pandas 2.2.3/3.0.0 compatibility jobs and minimal suite coverage.
+
 ## [0.50.4 - 2026-01-15]
 
 ### Fixed
