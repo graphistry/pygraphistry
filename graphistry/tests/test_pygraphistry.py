@@ -7,7 +7,7 @@ except ImportError:  # pragma: no cover - stdlib fallback
     from unittest.mock import patch
 import graphistry
 
-from graphistry.pygraphistry import PyGraphistry
+from graphistry.pygraphistry import PyGraphistry, GraphistryClient
 from graphistry.messages import (
     MSG_REGISTER_MISSING_PASSWORD,
     MSG_REGISTER_MISSING_USERNAME,
@@ -24,7 +24,8 @@ from graphistry.messages import (
 
 class TestPyGraphistry_Auth(unittest.TestCase):
     def test_defaults(self):
-        assert PyGraphistry.store_token_creds_in_memory() is True
+        fresh_client = GraphistryClient()
+        assert fresh_client.store_token_creds_in_memory() is True
 
     def test_overrides(self):
         PyGraphistry.register(store_token_creds_in_memory=None)
