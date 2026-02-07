@@ -23,7 +23,7 @@ from graphistry.compute.gfql.same_path.df_utils import (
     series_values,
 )
 try:
-    from graphistry.otel import otel_span, otel_enabled
+    from graphistry.otel import otel_span, otel_enabled  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - optional dependency
     @contextmanager
     def otel_span(*_args: Any, **_kwargs: Any):

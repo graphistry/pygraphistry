@@ -10,7 +10,7 @@ from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 try:
-    from graphistry.otel import otel_traced, otel_detail_enabled
+    from graphistry.otel import otel_traced, otel_detail_enabled  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - optional dependency
     def otel_traced(*_args: Any, **_kwargs: Any):
         def decorator(func):

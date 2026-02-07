@@ -14,7 +14,7 @@ from graphistry.Engine import (
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 try:
-    from graphistry.otel import otel_traced, otel_detail_enabled
+    from graphistry.otel import otel_traced, otel_detail_enabled  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - optional dependency
     def otel_traced(*_args: Any, **_kwargs: Any):
         def decorator(func):

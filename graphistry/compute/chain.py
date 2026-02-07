@@ -20,7 +20,7 @@ from graphistry.compute.gfql.same_path_types import (
 from .gfql.policy import PolicyContext, PolicyException
 from .gfql.policy.stats import extract_graph_stats
 try:
-    from graphistry.otel import otel_traced, otel_detail_enabled
+    from graphistry.otel import otel_traced, otel_detail_enabled  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - optional dependency
     def otel_traced(*_args: Any, **_kwargs: Any):
         def decorator(func):
