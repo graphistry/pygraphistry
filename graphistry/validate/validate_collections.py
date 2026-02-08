@@ -314,7 +314,7 @@ def normalize_collections(
             )
             if validate_mode == 'autofix':
                 # Auto-generate ID so collection still works
-                normalized_entry['id'] = f'{collection_type}_{idx}'
+                normalized_entry['id'] = f'{collection_type}-{idx}'
             else:
                 continue
 
