@@ -78,11 +78,12 @@ def test_collection_helpers_build_sets_and_intersections():
 def test_collections_accepts_chain_and_preserves_dataset_id():
     node = graphistry.n({"type": "user"})
     chain = graphistry.Chain([node])
-    g2 = graphistry.bind(dataset_id="dataset_123").collections(collections={"type": "set", "expr": chain})
+    g2 = graphistry.bind(dataset_id="dataset_123").collections(collections={"type": "set", "id": "my_set", "expr": chain})
     decoded = decode_collections(g2._url_params["collections"])
     assert decoded == [
         {
             "type": "set",
+            "id": "my_set",
             "expr": {
                 "type": "gfql_chain",
                 "gfql": [node.to_json()],
@@ -93,11 +94,18 @@ def test_collections_accepts_chain_and_preserves_dataset_id():
 
 
 def test_collections_string_input_is_encoded():
-    raw = '[{"type":"intersection","expr":{"type":"intersection","sets":["a"]}}]'
+    # Include a set so the intersection has valid references
+    raw = '[{"type":"set","id":"a","expr":{"type":"gfql_chain","gfql":[{"type":"Node"}]}},{"type":"intersection","expr":{"type":"intersection","sets":["a"]}}]'
     url_params = collections_url_params(raw)
     assert url_params["collections"].startswith("%5B")
     decoded = decode_collections(url_params["collections"])
+    # Node normalizes to include filter_dict: {}
     assert decoded == [
+        {
+            "type": "set",
+            "id": "a",
+            "expr": {"type": "gfql_chain", "gfql": [{"type": "Node", "filter_dict": {}}]},
+        },
         {
             "type": "intersection",
             "expr": {"type": "intersection", "sets": ["a"]},
@@ -118,11 +126,12 @@ def test_collections_accepts_wire_protocol_chain():
         ]
     }
     decoded = decode_collections(
-        collections_url_params({"type": "set", "expr": chain_json})["collections"]
+        collections_url_params({"type": "set", "id": "users", "expr": chain_json})["collections"]
     )
     assert decoded == [
         {
             "type": "set",
+            "id": "users",
             "expr": {
                 "type": "gfql_chain",
                 "gfql": chain_json["chain"],
@@ -134,7 +143,7 @@ def test_collections_accepts_wire_protocol_chain():
 def test_collections_accepts_let_expr():
     dag = graphistry.let({"seed": graphistry.n({"type": "user"})})
     decoded = decode_collections(
-        collections_url_params({"type": "set", "expr": dag})["collections"]
+        collections_url_params({"type": "set", "id": "users", "expr": dag})["collections"]
     )
     assert decoded[0]["expr"]["type"] == "gfql_chain"
     assert decoded[0]["expr"]["gfql"][0]["type"] == "Let"
@@ -144,6 +153,7 @@ def test_collections_drop_unexpected_fields_autofix():
     collections = [
         {
             "type": "set",
+            "id": "vip_set",
             "expr": [graphistry.n({"vip": True})],
             "unexpected": "drop-me",
         }
@@ -165,7 +175,8 @@ def test_collections_show_collections_strict_raises():
 
 
 def test_collections_validation_strict_raises():
-    bad_collections = [{"type": "set", "expr": [{"filter_dict": {"a": 1}}]}]
+    # Missing 'type' field in GFQL op causes validation error
+    bad_collections = [{"type": "set", "id": "bad_set", "expr": [{"filter_dict": {"a": 1}}]}]
     with pytest.raises(ValueError):
         graphistry.bind().collections(collections=bad_collections, validate="strict")
 
@@ -174,6 +185,7 @@ def test_collections_autofix_drops_invalid_colors():
     collections = [
         {
             "type": "set",
+            "id": "vip_set",
             "expr": [graphistry.n({"vip": True})],
             "node_color": 123,
             "edge_color": {"bad": True},
@@ -187,16 +199,18 @@ def test_collections_autofix_drops_invalid_colors():
 
 
 def test_collections_autofix_drops_invalid_gfql_ops():
+    # Collection with invalid GFQL op (missing 'type' field) gets dropped in autofix
     collections = [
         {
             "type": "set",
+            "id": "bad_set",
             "expr": [graphistry.n({"vip": True}), {"filter_dict": {"a": 1}}],
         }
     ]
     with pytest.warns(RuntimeWarning):
         url_params = collections_url_params(collections, validate="autofix", warn=True)
-    decoded = decode_collections(url_params["collections"])
-    assert decoded == []
+    # Collection dropped due to invalid GFQL, so no collections key or empty
+    assert "collections" not in url_params or decode_collections(url_params["collections"]) == []
 
 
 def test_plot_url_param_validation_autofix_warns():
