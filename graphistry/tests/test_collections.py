@@ -222,13 +222,13 @@ def test_plot_url_param_validation_autofix_warns():
 
 
 def test_collections_autofix_generates_missing_ids():
-    # Collections without IDs get auto-generated IDs in autofix mode
+    # Collections without IDs get auto-generated IDs in autofix mode (kebab-case)
     collections = [
         {"type": "set", "expr": [graphistry.n({"a": 1})]},
-        {"type": "intersection", "expr": {"type": "intersection", "sets": ["set_0"]}},
+        {"type": "intersection", "expr": {"type": "intersection", "sets": ["set-0"]}},
     ]
     with pytest.warns(RuntimeWarning):
         url_params = collections_url_params(collections, validate="autofix", warn=True)
     decoded = decode_collections(url_params["collections"])
-    assert decoded[0]["id"] == "set_0"
-    assert decoded[1]["id"] == "intersection_1"
+    assert decoded[0]["id"] == "set-0"
+    assert decoded[1]["id"] == "intersection-1"
