@@ -15,6 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 - **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
 - **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+- **Collections**: Set collections now require an `id` field (server requires it for subgraph storage); missing IDs are warned and dropped in autofix mode rather than auto-generated.
+- **Collections**: Intersection collections now cross-validate that referenced set IDs exist; dangling references are warned and dropped in autofix mode.
+- **Collections**: GFQL parsing consolidated to use `_wrap_gfql_expr` from `collections.py` as the canonical implementation with precise exception handling.
 
 ### Tests
 - **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
