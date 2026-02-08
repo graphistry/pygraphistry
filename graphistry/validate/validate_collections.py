@@ -4,7 +4,7 @@ from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
 from graphistry.compute.exceptions import GFQLValidationError
-from graphistry.models.collections import CollectionsInput
+from graphistry.models.collections import Collection, CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 _ALLOWED_COLLECTION_FIELDS_ORDER = (
@@ -55,7 +55,7 @@ def _parse_collections_input(
     collections: CollectionsInput,
     validate_mode: ValidationMode,
     warn: bool
-) -> List[Dict[str, Any]]:
+) -> Union[List[Dict[str, Any]], List[Collection]]:
     """Parse collections input to a list of dicts, handling list/dict/JSON string inputs."""
     if isinstance(collections, list):
         return collections
@@ -258,7 +258,10 @@ def normalize_collections(
                 continue
             return []
 
-        unexpected_fields = [key for key in entry.keys() if key not in _ALLOWED_COLLECTION_FIELDS_SET]
+        # Convert to plain dict for uniform handling (TypedDicts become regular dicts)
+        entry_dict: Dict[str, Any] = dict(entry)
+
+        unexpected_fields = [key for key in entry_dict.keys() if key not in _ALLOWED_COLLECTION_FIELDS_SET]
         if unexpected_fields:
             _issue(
                 'Unexpected fields in collection',
@@ -267,7 +270,7 @@ def normalize_collections(
                 warn
             )
 
-        normalized_entry = {key: entry[key] for key in _ALLOWED_COLLECTION_FIELDS_ORDER if key in entry}
+        normalized_entry = {key: entry_dict[key] for key in _ALLOWED_COLLECTION_FIELDS_ORDER if key in entry_dict}
         collection_type = normalized_entry.get('type', 'set')
         if not isinstance(collection_type, str):
             _issue(
