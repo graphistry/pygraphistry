@@ -51,28 +51,16 @@ def _issue(
         emit_warn(f"Collections validation warning: {message} ({data})")
 
 
-def _coerce_collection_list(
-    parsed: Any,
-    validate_mode: ValidationMode,
-    warn: bool
-) -> List[Dict[str, Any]]:
-    if isinstance(parsed, list):
-        return parsed
-    if isinstance(parsed, dict):
-        return [parsed]
-    _issue('Collections JSON must be a list or dict', {'type': type(parsed).__name__}, validate_mode, warn)
-    return []
-
-
 def _parse_collections_input(
     collections: CollectionsInput,
     validate_mode: ValidationMode,
     warn: bool
 ) -> List[Dict[str, Any]]:
+    """Parse collections input to a list of dicts, handling list/dict/JSON string inputs."""
     if isinstance(collections, list):
-        return _coerce_collection_list(collections, validate_mode, warn)
+        return collections
     if isinstance(collections, dict):
-        return _coerce_collection_list(collections, validate_mode, warn)
+        return [collections]
     if isinstance(collections, str):
         try:
             parsed = json.loads(collections)
@@ -82,7 +70,13 @@ def _parse_collections_input(
             except json.JSONDecodeError as exc:
                 _issue('Collections string must be JSON or URL-encoded JSON', {'error': str(exc)}, validate_mode, warn)
                 return []
-        return _coerce_collection_list(parsed, validate_mode, warn)
+        # Coerce parsed JSON to list
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            return [parsed]
+        _issue('Collections JSON must be a list or dict', {'type': type(parsed).__name__}, validate_mode, warn)
+        return []
     _issue('Collections must be a list, dict, or JSON string', {'type': type(collections).__name__}, validate_mode, warn)
     return []
 
