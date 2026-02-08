@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
@@ -138,6 +139,16 @@ def _normalize_sets_list(
         )
         if validate_mode == 'autofix':
             out.append(str(set_id))
+
+    if len(out) == 0:
+        _issue(
+            'Intersection sets list cannot be empty',
+            {'index': entry_index},
+            validate_mode,
+            warn
+        )
+        return None
+
     return out
 
 
@@ -147,12 +158,17 @@ def _normalize_gfql_ops(
     warn: bool,
     entry_index: int
 ) -> Optional[List[Dict[str, Any]]]:
-    from graphistry.compute.ast import ASTObject, from_json as ast_from_json
-    from graphistry.compute.chain import Chain
+    """
+    Normalize GFQL operations to a list of JSON-serializable dicts.
 
+    Uses _wrap_gfql_expr from collections.py as the canonical implementation,
+    wrapping with error handling for validation modes.
+    """
     if gfql_ops is None:
         _issue('GFQL chain is missing', {'index': entry_index}, validate_mode, warn)
         return None
+
+    # Handle JSON string input
     if isinstance(gfql_ops, str):
         try:
             gfql_ops = json.loads(gfql_ops)
@@ -160,83 +176,28 @@ def _normalize_gfql_ops(
             _issue('GFQL chain string must be JSON', {'index': entry_index, 'error': str(exc)}, validate_mode, warn)
             return None
 
-    def _normalize_op(op: object) -> Optional[Dict[str, Any]]:
-        if isinstance(op, ASTObject):
-            return op.to_json()
-        if isinstance(op, dict):
-            try:
-                parsed = ast_from_json(op, validate=True)
-            except Exception as exc:
-                _issue(
-                    'Invalid GFQL operation in collection',
-                    {'index': entry_index, 'op': op, 'error': str(exc)},
-                    validate_mode,
-                    warn
-                )
-                return None
-            return parsed.to_json()
+    # Use canonical implementation from collections.py
+    try:
+        from graphistry.collections import _wrap_gfql_expr
+        result = _wrap_gfql_expr(gfql_ops)
+        ops_raw = result.get('gfql', [])
+        if not isinstance(ops_raw, list):
+            _issue('GFQL chain must be a list', {'index': entry_index}, validate_mode, warn)
+            return None
+        ops: List[Dict[str, Any]] = ops_raw
+        if len(ops) == 0:
+            _issue('GFQL chain is empty', {'index': entry_index}, validate_mode, warn)
+            return None
+        return ops
+    except (TypeError, ValueError, GFQLValidationError) as exc:
+        # Precise exception handling for GFQL parsing errors
         _issue(
-            'GFQL operations must be AST objects or dicts',
-            {'index': entry_index, 'value': op, 'type': type(op).__name__},
+            'Invalid GFQL operation in collection',
+            {'index': entry_index, 'error': str(exc)},
             validate_mode,
             warn
         )
         return None
-
-    def _normalize_ops_list(raw: object) -> Optional[List[Dict[str, Any]]]:
-        if isinstance(raw, list):
-            normalized_ops: List[Dict[str, Any]] = []
-            for op in raw:
-                normalized_op = _normalize_op(op)
-                if normalized_op is None:
-                    return None
-                normalized_ops.append(normalized_op)
-            if len(normalized_ops) == 0:
-                _issue('GFQL chain is empty', {'index': entry_index}, validate_mode, warn)
-                return None
-            return normalized_ops
-        if isinstance(raw, (ASTObject, dict)):
-            normalized_op = _normalize_op(raw)
-            if normalized_op is None:
-                return None
-            return [normalized_op]
-        _issue(
-            'GFQL operations must be a list, AST object, or dict',
-            {'index': entry_index, 'value': raw, 'type': type(raw).__name__},
-            validate_mode,
-            warn
-        )
-        return None
-
-    def _extract_ops_value(raw: object) -> object:
-        if isinstance(raw, Chain):
-            return raw.chain
-        if isinstance(raw, ASTObject):
-            return raw
-        if isinstance(raw, dict):
-            if raw.get('type') == 'gfql_chain' and 'gfql' in raw:
-                return raw.get('gfql')
-            if raw.get('type') == 'Chain' and 'chain' in raw:
-                return raw.get('chain')
-            if 'gfql' in raw:
-                return raw.get('gfql')
-            if 'chain' in raw:
-                return raw.get('chain')
-            return raw
-        if isinstance(raw, list):
-            return raw
-        return raw
-
-    return _normalize_ops_list(_extract_ops_value(gfql_ops))
-
-    _issue(
-        'GFQL operations must be a Chain, AST object, list, or dict',
-        {'index': entry_index, 'type': type(gfql_ops).__name__},
-        validate_mode,
-        warn
-    )
-    return None
-
 
 
 def _normalize_gfql_expr(
@@ -321,12 +282,12 @@ def normalize_collections(
                 validate_mode,
                 warn
             )
+            # str() coercion is pointless - it won't produce 'set' or 'intersection'
+            # so we skip this entry in autofix mode, or fail in strict mode
             if validate_mode == 'autofix':
-                collection_type = str(collection_type)
-            else:
                 continue
+            return []
         collection_type = collection_type.lower()
-        normalized_entry['type'] = collection_type
 
         if collection_type not in ('set', 'intersection'):
             _issue(
@@ -339,10 +300,29 @@ def normalize_collections(
                 continue
             return []
 
+        normalized_entry['type'] = collection_type
+
         for field in ('id', 'name', 'description'):
             _normalize_str_field(normalized_entry, field, validate_mode, warn, idx, autofix_drop=False)
         for field in ('node_color', 'edge_color'):
             _normalize_str_field(normalized_entry, field, validate_mode, warn, idx, autofix_drop=True)
+
+        # Validate id field - required for sets (server requires it, and intersections reference by ID)
+        # Note: We warn but don't auto-generate IDs - user must provide meaningful IDs
+        if collection_type == 'set':
+            if 'id' not in normalized_entry or normalized_entry.get('id') is None:
+                _issue(
+                    'Set collection requires an id field (server requires it for subgraph storage)',
+                    {'index': idx},
+                    validate_mode,
+                    warn
+                )
+                # In autofix mode, skip this collection rather than generate arbitrary IDs
+                # User should provide meaningful IDs they control
+                if validate_mode == 'autofix':
+                    continue
+                else:
+                    continue
 
         expr = normalized_entry.get('expr')
         if collection_type == 'intersection':
@@ -361,7 +341,50 @@ def normalize_collections(
         }
         normalized.append(normalized_entry)
 
+    # Cross-validate intersection set references
+    normalized = _validate_intersection_references(normalized, validate_mode, warn)
+
     return normalized
+
+
+def _validate_intersection_references(
+    collections: List[Dict[str, Any]],
+    validate_mode: ValidationMode,
+    warn: bool
+) -> List[Dict[str, Any]]:
+    """
+    Validate that intersection set IDs reference actual collection IDs.
+
+    Dangling references (e.g., sets: ["nonexistent"]) cause backend errors.
+    In strict mode, raise on first issue. In autofix mode, drop invalid intersections.
+    """
+    # Collect all set IDs (only from 'set' type collections, not intersections)
+    set_ids = {
+        c.get('id')
+        for c in collections
+        if c.get('type') == 'set' and c.get('id')
+    }
+
+    valid_collections: List[Dict[str, Any]] = []
+    for idx, collection in enumerate(collections):
+        if collection.get('type') == 'intersection':
+            expr = collection.get('expr', {})
+            referenced_sets = expr.get('sets', [])
+            missing = [sid for sid in referenced_sets if sid not in set_ids]
+            if missing:
+                _issue(
+                    'Intersection references non-existent set IDs',
+                    {'index': idx, 'missing_sets': missing, 'available_sets': list(set_ids)},
+                    validate_mode,
+                    warn
+                )
+                if validate_mode == 'autofix':
+                    continue  # Drop invalid intersection
+                # In strict mode, we already raised in _issue
+                return []
+        valid_collections.append(collection)
+
+    return valid_collections
 
 
 def normalize_collections_url_params(
