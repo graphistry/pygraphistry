@@ -67,7 +67,7 @@ def test_collection_set_wraps_ast_expr(expr):
 def test_collection_helpers_build_sets_and_intersections():
     collections = [
         collection_set(expr=[graphistry.n({"vip": True})], id="vip", name="VIP", node_color="#FFAA00"),
-        collection_intersection(sets=["vip"], name="VIP Intersection", node_color="#00BFFF"),
+        collection_intersection(sets=["vip"], id="vip_intersection", name="VIP Intersection", node_color="#00BFFF"),
     ]
     decoded = decode_collections(collections_url_params(collections)["collections"])
     assert decoded[0]["type"] == "set"
@@ -95,7 +95,7 @@ def test_collections_accepts_chain_and_preserves_dataset_id():
 
 def test_collections_string_input_is_encoded():
     # Include a set so the intersection has valid references
-    raw = '[{"type":"set","id":"a","expr":{"type":"gfql_chain","gfql":[{"type":"Node"}]}},{"type":"intersection","expr":{"type":"intersection","sets":["a"]}}]'
+    raw = '[{"type":"set","id":"a","expr":{"type":"gfql_chain","gfql":[{"type":"Node"}]}},{"type":"intersection","id":"b","expr":{"type":"intersection","sets":["a"]}}]'
     url_params = collections_url_params(raw)
     assert url_params["collections"].startswith("%5B")
     decoded = decode_collections(url_params["collections"])
@@ -108,6 +108,7 @@ def test_collections_string_input_is_encoded():
         },
         {
             "type": "intersection",
+            "id": "b",
             "expr": {"type": "intersection", "sets": ["a"]},
         }
     ]
@@ -218,3 +219,16 @@ def test_plot_url_param_validation_autofix_warns():
     with pytest.warns(RuntimeWarning):
         normalized = normalize_collections_url_params({"collections": bad}, validate="autofix", warn=True)
     assert "collections" not in normalized or normalized["collections"].startswith("%5B")
+
+
+def test_collections_autofix_generates_missing_ids():
+    # Collections without IDs get auto-generated IDs in autofix mode
+    collections = [
+        {"type": "set", "expr": [graphistry.n({"a": 1})]},
+        {"type": "intersection", "expr": {"type": "intersection", "sets": ["set_0"]}},
+    ]
+    with pytest.warns(RuntimeWarning):
+        url_params = collections_url_params(collections, validate="autofix", warn=True)
+    decoded = decode_collections(url_params["collections"])
+    assert decoded[0]["id"] == "set_0"
+    assert decoded[1]["id"] == "intersection_1"

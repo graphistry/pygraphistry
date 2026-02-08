@@ -304,22 +304,19 @@ def normalize_collections(
         for field in ('node_color', 'edge_color'):
             _normalize_str_field(normalized_entry, field, validate_mode, warn, idx, autofix_drop=True)
 
-        # Validate id field - required for sets (server requires it, and intersections reference by ID)
-        # Note: We warn but don't auto-generate IDs - user must provide meaningful IDs
-        if collection_type == 'set':
-            if 'id' not in normalized_entry or normalized_entry.get('id') is None:
-                _issue(
-                    'Set collection requires an id field (server requires it for subgraph storage)',
-                    {'index': idx},
-                    validate_mode,
-                    warn
-                )
-                # In autofix mode, skip this collection rather than generate arbitrary IDs
-                # User should provide meaningful IDs they control
-                if validate_mode == 'autofix':
-                    continue
-                else:
-                    continue
+        # Validate id field - required by server for all collection types (used as storage key)
+        if 'id' not in normalized_entry or normalized_entry.get('id') is None:
+            _issue(
+                f'{collection_type.capitalize()} collection missing id field (server requires it for storage)',
+                {'index': idx},
+                validate_mode,
+                warn
+            )
+            if validate_mode == 'autofix':
+                # Auto-generate ID so collection still works
+                normalized_entry['id'] = f'{collection_type}_{idx}'
+            else:
+                continue
 
         expr = normalized_entry.get('expr')
         if collection_type == 'intersection':
