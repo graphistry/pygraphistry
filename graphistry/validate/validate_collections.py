@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
 from graphistry.models.collections import Collection, CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
@@ -155,7 +155,7 @@ def _normalize_gfql_ops(
     """
     Normalize GFQL operations to a list of JSON-serializable dicts.
 
-    Uses _wrap_gfql_expr from collections.py as the canonical implementation,
+    Uses normalize_gfql_to_wire from compute/ast.py as the canonical implementation,
     wrapping with error handling for validation modes.
     """
     if gfql_ops is None:
@@ -170,20 +170,11 @@ def _normalize_gfql_ops(
             _issue('GFQL chain string must be JSON', {'index': entry_index, 'error': str(exc)}, validate_mode, warn)
             return None
 
-    # Use canonical implementation from collections.py
+    # Use canonical implementation from compute/ast.py
     try:
-        from graphistry.collections import _wrap_gfql_expr
-        result = _wrap_gfql_expr(gfql_ops)
-        ops_raw = result.get('gfql', [])
-        if not isinstance(ops_raw, list):
-            _issue('GFQL chain must be a list', {'index': entry_index}, validate_mode, warn)
-            return None
-        ops: List[Dict[str, Any]] = ops_raw
-        if len(ops) == 0:
-            _issue('GFQL chain is empty', {'index': entry_index}, validate_mode, warn)
-            return None
-        return ops
-    except (TypeError, ValueError, GFQLValidationError) as exc:
+        from graphistry.compute.ast import normalize_gfql_to_wire
+        return normalize_gfql_to_wire(gfql_ops)
+    except (TypeError, ValueError, GFQLValidationError, GFQLSyntaxError) as exc:
         # Precise exception handling for GFQL parsing errors
         _issue(
             'Invalid GFQL operation in collection',
