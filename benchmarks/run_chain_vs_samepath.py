@@ -12,10 +12,10 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import signal
 import statistics
 import time
 import warnings
-import signal
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
