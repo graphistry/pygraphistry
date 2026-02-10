@@ -338,35 +338,95 @@ def _validate_intersection_references(
     warn: bool
 ) -> List[Dict[str, Any]]:
     """
-    Validate that intersection set IDs reference actual collection IDs.
+    Validate intersection references form a valid DAG.
 
-    Dangling references (e.g., sets: ["nonexistent"]) cause backend errors.
+    Checks:
+    1. All referenced IDs exist as 'set' or 'intersection' collections
+    2. No self-references (intersection referencing itself)
+    3. No cycles (A->B->A)
+
+    Dangling/cyclic references cause backend errors ("Infinite loop detected").
     In strict mode, raise on first issue. In autofix mode, drop invalid intersections.
     """
-    # Collect all set IDs (only from 'set' type collections, not intersections)
-    set_ids = {
-        c.get('id')
-        for c in collections
-        if c.get('type') == 'set' and c.get('id')
-    }
+    # Build ID -> collection type mapping for valid reference targets
+    collection_ids: Dict[str, str] = {}
+    for c in collections:
+        cid = c.get('id')
+        ctype = c.get('type')
+        if cid and ctype in ('set', 'intersection'):
+            collection_ids[cid] = ctype
+
+    # Build dependency graph for cycle detection
+    # intersection_id -> set of IDs it references
+    dependencies: Dict[str, List[str]] = {}
+    for c in collections:
+        if c.get('type') == 'intersection' and c.get('id'):
+            expr = c.get('expr', {})
+            dependencies[c['id']] = expr.get('sets', [])
+
+    def has_cycle(start_id: str, visited: set, path: set) -> bool:
+        """DFS cycle detection."""
+        if start_id in path:
+            return True
+        if start_id not in dependencies:
+            return False  # It's a set, not an intersection - no further deps
+        if start_id in visited:
+            return False
+
+        visited.add(start_id)
+        path.add(start_id)
+
+        for dep_id in dependencies.get(start_id, []):
+            if has_cycle(dep_id, visited, path):
+                return True
+
+        path.remove(start_id)
+        return False
 
     valid_collections: List[Dict[str, Any]] = []
     for idx, collection in enumerate(collections):
         if collection.get('type') == 'intersection':
+            coll_id = collection.get('id')
             expr = collection.get('expr', {})
-            referenced_sets = expr.get('sets', [])
-            missing = [sid for sid in referenced_sets if sid not in set_ids]
-            if missing:
+            referenced_ids = expr.get('sets', [])
+
+            # Check for self-reference
+            if coll_id and coll_id in referenced_ids:
                 _issue(
-                    'Intersection references non-existent set IDs',
-                    {'index': idx, 'missing_sets': missing, 'available_sets': list(set_ids)},
+                    'Intersection references itself',
+                    {'index': idx, 'id': coll_id},
                     validate_mode,
                     warn
                 )
                 if validate_mode == 'autofix':
-                    continue  # Drop invalid intersection
-                # In strict mode, we already raised in _issue
+                    continue
                 return []
+
+            # Check all referenced IDs exist and are valid types
+            missing = [sid for sid in referenced_ids if sid not in collection_ids]
+            if missing:
+                _issue(
+                    'Intersection references non-existent collection IDs',
+                    {'index': idx, 'missing': missing, 'available': list(collection_ids.keys())},
+                    validate_mode,
+                    warn
+                )
+                if validate_mode == 'autofix':
+                    continue
+                return []
+
+            # Check for cycles
+            if coll_id and has_cycle(coll_id, set(), set()):
+                _issue(
+                    'Intersection creates a dependency cycle',
+                    {'index': idx, 'id': coll_id},
+                    validate_mode,
+                    warn
+                )
+                if validate_mode == 'autofix':
+                    continue
+                return []
+
         valid_collections.append(collection)
 
     return valid_collections

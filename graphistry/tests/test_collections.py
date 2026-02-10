@@ -232,3 +232,54 @@ def test_collections_autofix_generates_missing_ids():
     decoded = decode_collections(url_params["collections"])
     assert decoded[0]["id"] == "set-0"
     assert decoded[1]["id"] == "intersection-1"
+
+
+def test_collections_intersection_of_intersections():
+    # Backend supports intersections-of-intersections (DAG structure)
+    collections = [
+        {"type": "set", "id": "set_a", "expr": [graphistry.n({"a": 1})]},
+        {"type": "set", "id": "set_b", "expr": [graphistry.n({"b": 1})]},
+        {"type": "intersection", "id": "inter_ab", "expr": {"type": "intersection", "sets": ["set_a", "set_b"]}},
+        {"type": "intersection", "id": "inter_of_inter", "expr": {"type": "intersection", "sets": ["set_a", "inter_ab"]}},
+    ]
+    url_params = collections_url_params(collections)
+    decoded = decode_collections(url_params["collections"])
+    assert len(decoded) == 4
+    assert decoded[3]["id"] == "inter_of_inter"
+    assert decoded[3]["expr"]["sets"] == ["set_a", "inter_ab"]
+
+
+def test_collections_intersection_self_reference_rejected():
+    # Intersection cannot reference itself
+    collections = [
+        {"type": "set", "id": "set_a", "expr": [graphistry.n({"a": 1})]},
+        {"type": "intersection", "id": "bad_inter", "expr": {"type": "intersection", "sets": ["set_a", "bad_inter"]}},
+    ]
+    with pytest.raises(ValueError):
+        collections_url_params(collections, validate="strict")
+
+
+def test_collections_intersection_cycle_rejected():
+    # Cycles in intersection DAG are rejected
+    collections = [
+        {"type": "set", "id": "set_a", "expr": [graphistry.n({"a": 1})]},
+        {"type": "intersection", "id": "inter_a", "expr": {"type": "intersection", "sets": ["set_a", "inter_b"]}},
+        {"type": "intersection", "id": "inter_b", "expr": {"type": "intersection", "sets": ["set_a", "inter_a"]}},
+    ]
+    with pytest.raises(ValueError):
+        collections_url_params(collections, validate="strict")
+
+
+def test_collections_intersection_cycle_autofix_drops():
+    # In autofix mode, cyclic intersections are dropped
+    collections = [
+        {"type": "set", "id": "set_a", "expr": [graphistry.n({"a": 1})]},
+        {"type": "intersection", "id": "inter_a", "expr": {"type": "intersection", "sets": ["set_a", "inter_b"]}},
+        {"type": "intersection", "id": "inter_b", "expr": {"type": "intersection", "sets": ["set_a", "inter_a"]}},
+    ]
+    with pytest.warns(RuntimeWarning):
+        url_params = collections_url_params(collections, validate="autofix", warn=True)
+    decoded = decode_collections(url_params["collections"])
+    # Both cyclic intersections dropped, only set remains
+    assert len(decoded) == 1
+    assert decoded[0]["id"] == "set_a"
