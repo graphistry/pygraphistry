@@ -283,3 +283,24 @@ def test_collections_intersection_cycle_autofix_drops():
     # Both cyclic intersections dropped, only set remains
     assert len(decoded) == 1
     assert decoded[0]["id"] == "set_a"
+
+
+def test_collections_malformed_ast_autofix_drops():
+    # AST from_json uses bare asserts - these should be caught, not crash
+    # {"type": "Let"} missing required 'bindings' field
+    from graphistry.validate.validate_collections import normalize_collections
+    collections = [
+        {"type": "set", "id": "good", "expr": [{"type": "Node"}]},
+        {"type": "set", "id": "bad-let", "expr": [{"type": "Let"}]},  # missing bindings
+    ]
+    result = normalize_collections(collections, validate="autofix", warn=False)
+    ids = [c.get("id") for c in result]
+    assert "good" in ids
+    assert "bad-let" not in ids
+
+
+def test_collections_malformed_ast_strict_raises():
+    from graphistry.validate.validate_collections import normalize_collections
+    collections = [{"type": "set", "id": "bad", "expr": [{"type": "Let"}]}]
+    with pytest.raises(ValueError):
+        normalize_collections(collections, validate="strict")

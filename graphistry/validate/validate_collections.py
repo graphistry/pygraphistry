@@ -174,8 +174,8 @@ def _normalize_gfql_ops(
     try:
         from graphistry.compute.ast import normalize_gfql_to_wire
         return normalize_gfql_to_wire(gfql_ops)
-    except (TypeError, ValueError, GFQLValidationError, GFQLSyntaxError) as exc:
-        # Precise exception handling for GFQL parsing errors
+    except (TypeError, ValueError, AssertionError, GFQLValidationError, GFQLSyntaxError) as exc:
+        # AssertionError: AST from_json methods use bare asserts for required fields
         _issue(
             'Invalid GFQL operation in collection',
             {'index': entry_index, 'error': str(exc)},
