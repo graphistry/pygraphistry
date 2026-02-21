@@ -2533,6 +2533,27 @@ personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
 
+def from_file(path, restore_remote=False):
+    """Load a Plottable graph from a bundle on disk.
+
+    Requires pydantic >= 2.0: ``pip install 'graphistry[serialization]'``
+
+    :param path: Path to bundle directory or .zip file
+    :type path: str
+    :param restore_remote: If True, restore remote server state (dataset_id, url, etc.)
+    :type restore_remote: bool
+    :returns: Tuple of (Plottable, BundleReadReport)
+
+    **Example**
+        ::
+
+            g, report = graphistry.from_file('/tmp/my_graph')
+            g, report = graphistry.from_file('/tmp/my_graph.zip', restore_remote=True)
+    """
+    from graphistry.io.plottable_bundle import from_file as _from_file
+    return _from_file(path, restore_remote=restore_remote)
+
+
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, o):

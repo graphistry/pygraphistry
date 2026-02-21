@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -101,6 +101,7 @@ class Plottable(Protocol):
     _node_features : Optional[pd.DataFrame]
     _node_features_raw: Optional[pd.DataFrame]
     _node_target : Optional[pd.DataFrame]
+    _node_target_encoder : Optional[Any]
     _node_target_raw : Optional[pd.DataFrame]
 
     _edge_embedding : Optional[pd.DataFrame]
@@ -162,6 +163,9 @@ class Plottable(Protocol):
     # layout
     _partition_offsets: Optional[Dict[str, Dict[int, float]]]  # from gib
 
+
+    def to_file(self, path: str, format: Optional[str] = None) -> Tuple[Any, Any]:
+        ...
 
     def reset_caches(self) -> None:
         ...

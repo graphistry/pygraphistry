@@ -58,7 +58,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     PyGraphistry,
     GraphistryClient,
     from_igraph,
-    from_cugraph
+    from_cugraph,
+    from_file
 )
 
 from graphistry.compute import (

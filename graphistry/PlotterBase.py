@@ -1823,6 +1823,26 @@ class PlotterBase(Plottable):
         return res
 
 
+    def to_file(self, path, format=None):
+        """Save this Plottable graph to disk as a bundle.
+
+        Requires pydantic >= 2.0: ``pip install 'graphistry[serialization]'``
+
+        :param path: Destination path (directory, or .zip file if format="zip")
+        :type path: str
+        :param format: None for directory (default), "zip" for zip archive
+        :type format: Optional[str]
+        :returns: Tuple of (self, BundleWriteReport)
+
+        **Example**
+            ::
+
+                g2, report = g.to_file('/tmp/my_graph')
+                g2, report = g.to_file('/tmp/my_graph.zip', format='zip')
+        """
+        from graphistry.io.plottable_bundle import to_file as _to_file
+        return _to_file(self, path, format=format)
+
     def settings(self, height=None, url_params={}, render=None):
         """Specify iframe height and add URL parameter dictionary.
 
