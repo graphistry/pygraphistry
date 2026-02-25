@@ -202,7 +202,7 @@ docker run --rm --gpus all \
 ### Environment Control
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `WITH_LINT` | 1 | Run flake8 linting |
+| `WITH_LINT` | 1 | Run ruff linting |
 | `WITH_TYPECHECK` | 1 | Run mypy type checking |
 | `WITH_BUILD` | 0 | Build documentation |
 | `WITH_NEO4J` | 0 | Run Neo4j integration tests |

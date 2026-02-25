@@ -27,7 +27,7 @@ fi
 
 echo "Running ruff on: $TARGET"
 
-# Quick syntax error check (matches the old flake8 E9/F63/F7/F82 pass)
+# Quick syntax error check (E9/F63/F7/F82)
 echo "=== Running quick syntax check ==="
 "${RUFF_CMD_ARR[@]}" check \
     $TARGET \
