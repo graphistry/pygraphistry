@@ -2885,7 +2885,7 @@ class PlotterBase(Plottable):
             if memoize:
                 hashed = (
                     hashlib.sha256(table.hash_values().to_numpy().tobytes()).hexdigest()
-                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
+                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
                 )
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
@@ -3013,7 +3013,7 @@ class PlotterBase(Plottable):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
                     raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
             if not (self._complex_encodings is None
-                or self._complex_encodings == {  # noqa: W503
+                or self._complex_encodings == {
                     'node_encodings': {'current': {}, 'default': {} },
                     'edge_encodings': {'current': {}, 'default': {} }}):
                 raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')

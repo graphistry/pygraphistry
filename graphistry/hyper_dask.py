@@ -451,8 +451,8 @@ def format_hyperedges(
             ([x for x in events.columns.tolist() if not x == defs.node_type] 
                 if not drop_edge_attrs 
                 else [])
-            + [defs.edge_type, defs.attrib_id, defs.event_id]  # noqa: W503
-            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+            + [defs.edge_type, defs.attrib_id, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             #subframes = [df.persist() for df in subframes]
             for df in subframes:
@@ -516,8 +516,8 @@ def format_direct_edges(
             ([x for x in events.columns.tolist() if not x == defs.node_type]
                 if not drop_edge_attrs
                 else [])
-            + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
-            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             # subframes = [ df.persist() for df in subframes ]
             for df in subframes:
@@ -543,8 +543,8 @@ def format_direct_edges(
             ([x for x in events.columns.tolist() if not x == defs.node_type]
                 if not drop_edge_attrs
                 else [])
-            + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
-            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
 
         # Create empty pandas DataFrame with correct column structure, then convert to target engine
         # This pattern works across all engines (pandas, cudf, dask, dask_cudf)

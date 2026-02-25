@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infra
+- **Linting**: Replace flake8 with ruff for linting (closes #466). Config in `pyproject.toml`, scripts in `bin/ruff.sh` / `bin/lint.sh`. Cleaned stale `# noqa` comments for W503/W504/E126 (codes not applicable in ruff).
+
 ## [0.50.6 - 2026-01-27]
 
 ### Fixed

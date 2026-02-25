@@ -640,14 +640,14 @@ def hop(self: Plottable,
 
         matches_edges = concat(
             [ matches_edges ]
-            + ([ hop_edges_forward[[ EDGE_ID ]] ] if hop_edges_forward is not None else mt)  # noqa: W503
-            + ([ hop_edges_reverse[[ EDGE_ID ]] ] if hop_edges_reverse is not None else mt),  # noqa: W503
+            + ([ hop_edges_forward[[ EDGE_ID ]] ] if hop_edges_forward is not None else mt)
+            + ([ hop_edges_reverse[[ EDGE_ID ]] ] if hop_edges_reverse is not None else mt),
             ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
 
         new_node_ids = concat(
             mt
-                + ( [ new_node_ids_forward ] if new_node_ids_forward is not None else mt )  # noqa: W503
-                + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),  # noqa: W503
+                + ( [ new_node_ids_forward ] if new_node_ids_forward is not None else mt )
+                + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),
             ignore_index=True, sort=False).drop_duplicates()
 
         if len(new_node_ids) > 0:
@@ -728,10 +728,10 @@ def hop(self: Plottable,
             else:
                 matches_nodes = concat(
                     mt
-                        + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]  # noqa: W503
+                        + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]
                             if hop_edges_forward is not None
                             else mt)
-                        + ( [hop_edges_reverse[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()]  # noqa: W503
+                        + ( [hop_edges_reverse[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()]
                             if hop_edges_reverse is not None
                             else mt),
                     ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])

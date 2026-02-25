@@ -187,7 +187,7 @@ For contributors and developers who wish to work on PyGraphistry itself, we reco
 
     pip install graphistry[dev]
 
-- **Includes**: Testing tools, documentation tools, and other development dependencies like `flake8`, `pytest`, `sphinx`, etc.
+- **Includes**: Testing tools, documentation tools, and other development dependencies like `ruff`, `pytest`, `sphinx`, etc.
 
 References
 ----------
