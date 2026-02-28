@@ -91,8 +91,8 @@ def from_igraph(self,
         if node_col not in nodes_df:
             #TODO if no g._nodes but 'name' in nodes_df, still use?
             if (
-                ('name' in nodes_df) and  # noqa: W504
-                (g._nodes is not None and g._node is not None) and  # noqa: W504
+                ('name' in nodes_df) and
+                (g._nodes is not None and g._node is not None) and
                 (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
             ):
                 nodes_df = nodes_df.rename(columns={'name': node_col})

@@ -152,8 +152,8 @@ class GraphistryClient(AuthManagerProtocol):
             ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                     # noqa: W503
-                + self.server(),    # noqa: W503
+                + "://"                   
+                + self.server(),  
                 certificate_validation=self.certificate_validation(),
             )
             .login(username, password, org_name)
@@ -183,8 +183,8 @@ class GraphistryClient(AuthManagerProtocol):
             ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                     # noqa: W503
-                + self.server(),    # noqa: W503
+                + "://"                   
+                + self.server(),  
                 certificate_validation=self.certificate_validation(),
             )
             .pkey_login(personal_key_id, personal_key_secret, org_name)
@@ -221,8 +221,8 @@ class GraphistryClient(AuthManagerProtocol):
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                     # noqa: W503
-            + self.server(),    # noqa: W503
+            + "://"                   
+            + self.server(),  
             certificate_validation=self.certificate_validation(),
         ).sso_login(org_name, idp_name)
         try:
@@ -355,8 +355,8 @@ class GraphistryClient(AuthManagerProtocol):
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                     # noqa: W503
-            + self.server(),    # noqa: W503
+            + "://"                   
+            + self.server(),  
             certificate_validation=self.certificate_validation(),
         ).sso_get_token(state)
 
@@ -391,8 +391,8 @@ class GraphistryClient(AuthManagerProtocol):
                 ArrowUploader(
                     client_session=self.session,
                     server_base_path=self.protocol()
-                    + "://"                   # noqa: W503
-                    + self.server(),  # noqa: W503
+                    + "://"                 
+                    + self.server(),
                     certificate_validation=self.certificate_validation(),
                 )
                 .refresh(self.api_token() if using_self_token else token)
@@ -426,8 +426,8 @@ class GraphistryClient(AuthManagerProtocol):
             ok = ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                   # noqa: W503
-                + self.server(),  # noqa: W503
+                + "://"                 
+                + self.server(),
                 certificate_validation=self.certificate_validation(),
             ).verify(self.api_token() if using_self_token else token)
             if using_self_token:

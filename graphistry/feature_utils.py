@@ -1040,9 +1040,9 @@ def process_dirty_dataframes(
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
     elif (
         y is not None
-        and len(y.columns) > 0  # noqa: E126,W503
-        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_skrub  # noqa: E126,W503
+        and len(y.columns) > 0
+        and not is_dataframe_all_numeric(y)
+        and has_skrub
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1086,9 +1086,9 @@ def process_dirty_dataframes(
         )
     elif (
         y is not None
-        and len(y.columns) > 0  # noqa: E126,W503
-        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_skrub  # noqa: E126,W503
+        and len(y.columns) > 0
+        and not is_dataframe_all_numeric(y)
+        and not has_skrub
     ):
         logger.warning("-*-*- y is not numeric and no skrub, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore

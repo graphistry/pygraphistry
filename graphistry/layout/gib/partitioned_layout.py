@@ -201,11 +201,11 @@ def partitioned_layout(
     normalized_nodes = combined_nodes.copy()
     normalized_nodes['x'] = (
         combined_nodes['x']
-        - combined_nodes[partition_key].map(partition_stats['x_min'])  # noqa: W503
+        - combined_nodes[partition_key].map(partition_stats['x_min'])
     ) / combined_nodes[partition_key].map(partition_stats['dx'])
     normalized_nodes['y'] = (
         combined_nodes['y']
-        - combined_nodes[partition_key].map(partition_stats['y_min'])  # noqa: W503
+        - combined_nodes[partition_key].map(partition_stats['y_min'])
     ) / combined_nodes[partition_key].map(partition_stats['dy'])
     g_locally_positioned = self.nodes(normalized_nodes)
 
@@ -213,16 +213,16 @@ def partitioned_layout(
     global_nodes['x'] = (
         (
             g_locally_positioned._nodes['x']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])  # noqa: W503
+            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])
         )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])  # noqa: W503
+        + g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])
     )
     global_nodes['y'] = (
         (
             g_locally_positioned._nodes['y']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])  # noqa: W503
+            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])
         )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])  # noqa: W503
+        + g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])
     )
     global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)

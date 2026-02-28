@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import IO, Dict, Iterable, List, Optional, Set, Tuple, Union
+import importlib
 import types
 import os
 from urllib.request import urlopen
@@ -13,7 +14,7 @@ from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfPa
 
 DEFUSED_ET: Optional[types.ModuleType]
 try:
-    from defusedxml import ElementTree as _DEFUSED_ET
+    _DEFUSED_ET = importlib.import_module("defusedxml.ElementTree")
 except Exception:
     DEFUSED_ET = None
 else:

@@ -68,7 +68,7 @@ To manually build, see `docs/`.
 
 You may need to add ignore rules:
 
-* flake8: bin/lint.sh
+* ruff: pyproject.toml (or bin/lint.sh)
 * mypi: mypi.ini
 * sphinx: docs/source/conf.py
 
