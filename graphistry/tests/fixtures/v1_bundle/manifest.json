@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2025-01-01T00:00:00+00:00",
+  "python_version": "3.10.0",
+  "graphistry_version": "0.35.0",
+  "plottable_metadata": {
+    "bindings": {
+      "source": "s",
+      "destination": "d",
+      "node": "id",
+      "edge_weight": "w"
+    },
+    "encodings": {
+      "edge_weight": "w"
+    },
+    "metadata": {
+      "name": "Golden Test Graph",
+      "description": "A test graph for v1 bundle compatibility"
+    }
+  },
+  "settings": {
+    "height": 600,
+    "render": "g",
+    "url_params": {
+      "info": "true",
+      "play": "2000"
+    }
+  },
+  "remote": {
+    "dataset_id": "golden_dataset_123",
+    "url": "https://hub.graphistry.com/graph/golden_dataset_123",
+    "nodes_file_id": null,
+    "edges_file_id": null,
+    "privacy": null
+  },
+  "algorithm_config": {
+    "_n_components": 2,
+    "_metric": "euclidean"
+  },
+  "kg_config": {},
+  "layout": {},
+  "graph_indices": {},
+  "artifacts": {
+    "_edges": {
+      "kind": "parquet",
+      "path": "data/_edges.parquet",
+      "sha256": "9cc1ca161bd8c82d2144c2d25fa1fc878794c9b4c448e9245f4eb40fc975ce00"
+    },
+    "_nodes": {
+      "kind": "parquet",
+      "path": "data/_nodes.parquet",
+      "sha256": "63412ad383eb6e74bcecc390bcf3c86e72cf18224d00b54b223be1c133219280"
+    },
+    "_xy": {
+      "kind": "parquet",
+      "path": "data/_xy.parquet",
+      "sha256": "503a6aa07ff3efd3be70e7ef400a44f97aa43fef0c60146d679848a68268fa48"
+    }
+  },
+  "files": {
+    "data/_edges.parquet": "9cc1ca161bd8c82d2144c2d25fa1fc878794c9b4c448e9245f4eb40fc975ce00",
+    "data/_nodes.parquet": "63412ad383eb6e74bcecc390bcf3c86e72cf18224d00b54b223be1c133219280",
+    "data/_xy.parquet": "503a6aa07ff3efd3be70e7ef400a44f97aa43fef0c60146d679848a68268fa48"
+  }
+}

@@ -16,5 +16,8 @@ __all__ = [
     'serialize_node_bindings',
     'serialize_edge_bindings',
     'serialize_node_encodings',
-    'serialize_edge_encodings'
+    'serialize_edge_encodings',
 ]
+
+# Note: to_file and from_file imported lazily via graphistry.io.plottable_bundle
+# to avoid requiring pydantic at import time.
