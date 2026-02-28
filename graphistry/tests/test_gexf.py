@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import os
 import tempfile
 from numbers import Integral, Real
@@ -73,6 +74,11 @@ def _assert_roundtrip_payload(g2):
     assert g2._edges["viz_color"].iloc[0] == "#AABBCC"
     assert g2._edges["viz_thickness"].iloc[0] == pytest.approx(1.5)
     assert g2._edges["weight"].iloc[0] == pytest.approx(2.5)
+
+
+def _read_gexf_bytes(filename: str) -> bytes:
+    with open(os.path.join(DATA_DIR, filename), "rb") as f:
+        return f.read()
 
 
 class TestGEXF(NoAuthTestCase):
@@ -167,6 +173,23 @@ class TestGEXF(NoAuthTestCase):
         edge_e20 = g._edges[g._edges["edge_id"] == "e20"].iloc[0]
         assert edge_e20["viz_color"] == "#112233"
         assert edge_e20["viz_opacity"] == pytest.approx(0.6)
+
+    def test_gexf_in_memory_bytes_and_stream(self):
+        payload = _read_gexf_bytes("sample-1.2draft-viz.gexf")
+        g_bytes = graphistry.gexf(payload, parse_engine="stdlib")
+        g_stream = graphistry.gexf(io.BytesIO(payload), parse_engine="stdlib")
+
+        node_cols = ["node_id", "label", "viz_color", "viz_size", "viz_x", "viz_y", "viz_opacity", "viz_shape_icon"]
+        edge_cols = ["source", "target", "label", "viz_color", "viz_thickness", "viz_opacity", "weight"]
+
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g_bytes._nodes, node_cols, "node_id"),
+            _sorted_frame(g_stream._nodes, node_cols, "node_id"),
+        )
+        pd.testing.assert_frame_equal(
+            _sorted_frame(g_bytes._edges, edge_cols, ["source", "target"]),
+            _sorted_frame(g_stream._edges, edge_cols, ["source", "target"]),
+        )
 
     def test_gexf_node_viz_only(self):
         path = os.path.join(DATA_DIR, "sample-1.2draft-node-viz-only.gexf")
