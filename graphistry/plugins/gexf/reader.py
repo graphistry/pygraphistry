@@ -32,6 +32,7 @@ VIZ_NAMESPACES = {"http://www.gephi.org/gexf/1.1draft/viz", "http://www.gexf.net
 GEXF_NODE_SHAPE_ICON_MAP = {"disc": "circle", "square": "square", "triangle": "caret-up", "diamond": "diamond", "image": "picture-o"}
 GEXF_NODE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity", "position", "icon"}
 GEXF_EDGE_VIZ_ALLOWED: Set[str] = {"color", "size", "opacity"}
+DEFAULT_GEXF_URL_TIMEOUT_SECONDS = 10.0
 
 GexfSource = Union[str, bytes, bytearray, IO[bytes], IO[str]]
 ScalarValue = Optional[Union[int, float, bool, str]]
@@ -45,7 +46,7 @@ def _read_source_bytes(source: GexfSource) -> bytes:
         return bytes(source)
     if isinstance(source, str):
         if source.startswith(("http://", "https://")):
-            with urlopen(source) as resp:
+            with urlopen(source, timeout=DEFAULT_GEXF_URL_TIMEOUT_SECONDS) as resp:
                 return resp.read()
         if not os.path.exists(source):
             raise ValueError(f"GEXF file not found: {source}")

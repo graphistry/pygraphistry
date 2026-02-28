@@ -3,6 +3,7 @@ import io
 import os
 import tempfile
 from numbers import Integral, Real
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -82,6 +83,26 @@ def _read_gexf_bytes(filename: str) -> bytes:
 
 
 class TestGEXF(NoAuthTestCase):
+    def test_gexf_url_fetch_uses_default_timeout(self):
+        payload = _read_gexf_bytes("sample-1.1draft-basic.gexf")
+
+        class _FakeHTTPResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return payload
+
+        with patch("graphistry.plugins.gexf.reader.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value = _FakeHTTPResponse()
+            g = graphistry.gexf("https://example.com/sample.gexf", parse_engine="stdlib")
+
+        mocked_urlopen.assert_called_once_with("https://example.com/sample.gexf", timeout=10.0)
+        self.assertEqual(len(g._nodes), 3)
+
     def test_gexf_11draft_basic(self):
         path = os.path.join(DATA_DIR, "sample-1.1draft-basic.gexf")
         g = graphistry.gexf(path)
