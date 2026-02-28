@@ -73,6 +73,30 @@ def parse_where_json(where_json: Any) -> List[WhereComparison]:
     return clauses
 
 
+def normalize_where_entries(where_entries: Sequence[Any]) -> List[WhereComparison]:
+    clauses: List[WhereComparison] = []
+    for i, entry in enumerate(where_entries):
+        if isinstance(entry, dict):
+            parsed = parse_where_json([entry])
+            clauses.extend(parsed)
+            continue
+        if not isinstance(entry, WhereComparison):
+            raise ValueError(
+                f"where[{i}] must be a WhereComparison or dict clause, got {type(entry).__name__}"
+            )
+        if not isinstance(entry.left, StepColumnRef) or not isinstance(entry.right, StepColumnRef):
+            raise ValueError(
+                f"where[{i}] must use StepColumnRef for left/right, got "
+                f"{type(entry.left).__name__}/{type(entry.right).__name__}"
+            )
+        if entry.op not in _WHERE_OP_REV:
+            raise ValueError(
+                f"where[{i}] uses unsupported comparison operator '{entry.op}'"
+            )
+        clauses.append(entry)
+    return clauses
+
+
 def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, str]]]:
     result: List[Dict[str, Dict[str, str]]] = []
     for clause in where:

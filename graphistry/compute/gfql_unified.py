@@ -28,11 +28,16 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
-from graphistry.compute.gfql.same_path_types import WhereComparison, parse_where_json
+from graphistry.compute.gfql.same_path_types import (
+    WhereComparison,
+    normalize_where_entries,
+    parse_where_json,
+)
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
 )
+from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 logger = setup_logger(__name__)
 
@@ -251,10 +256,7 @@ def gfql(self: Plottable,
         where_param: Optional[List[WhereComparison]] = None
         if where is not None:
             if isinstance(where, (list, tuple)):
-                if any(isinstance(entry, dict) for entry in where):
-                    where_param = parse_where_json(where)
-                else:
-                    where_param = list(where)
+                where_param = normalize_where_entries(where)
             else:
                 raise ValueError(f"where must be a list of comparisons, got {type(where).__name__}")
 
@@ -375,6 +377,7 @@ def _chain_dispatch(
     context: ExecutionContext,
 ) -> Plottable:
     if chain_obj.where:
+        validate_chain_schema(g, chain_obj.chain, collect_all=False)
         is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
         engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
         inputs = build_same_path_inputs(

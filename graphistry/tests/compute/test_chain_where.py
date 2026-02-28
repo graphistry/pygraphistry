@@ -73,3 +73,42 @@ def test_gfql_list_empty_with_where_raises():
     g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
     with pytest.raises(ValueError, match="empty chains have no aliases"):
         g.gfql([], where=[compare(col('a', 'owner_id'), '==', col('c', 'owner_id'))])
+
+
+def test_gfql_list_where_rejects_unsupported_entry_class():
+    nodes_df = pd.DataFrame([
+        {'id': 'acct1', 'type': 'account', 'owner_id': 'user1'},
+        {'id': 'user1', 'type': 'user'},
+    ])
+    edges_df = pd.DataFrame([{'src': 'acct1', 'dst': 'user1'}])
+    g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+    with pytest.raises(ValueError, match=r"where\[0\].*WhereComparison"):
+        g.gfql(
+            [n({'type': 'account'}, name='a'), e_forward(), n(name='c')],
+            where=[123],
+        )
+
+
+def test_chain_constructor_where_rejects_unsupported_entry_class():
+    with pytest.raises(ValueError, match=r"where\[0\].*WhereComparison"):
+        Chain(
+            [n({'type': 'account'}, name='a'), e_forward(), n(name='c')],
+            where=[object()],
+        )
+
+
+def test_gfql_list_where_mixed_entries_reject_unsupported_entry_class():
+    nodes_df = pd.DataFrame([
+        {'id': 'acct1', 'type': 'account', 'owner_id': 'user1'},
+        {'id': 'user1', 'type': 'user'},
+    ])
+    edges_df = pd.DataFrame([{'src': 'acct1', 'dst': 'user1'}])
+    g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
+
+    valid = compare(col('a', 'owner_id'), '==', col('c', 'owner_id'))
+    with pytest.raises(ValueError, match=r"where\[1\].*WhereComparison"):
+        g.gfql(
+            [n({'type': 'account'}, name='a'), e_forward(), n(name='c')],
+            where=[valid, ('bad', 'entry')],
+        )

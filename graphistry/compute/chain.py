@@ -14,6 +14,7 @@ from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
+    normalize_where_entries,
     parse_where_json,
     where_to_json,
 )
@@ -74,7 +75,7 @@ class Chain(ASTSerializable):
         validate: bool = True,
     ) -> None:
         self.chain = chain
-        self.where = list(where or [])
+        self.where = normalize_where_entries(where or [])
         if validate:
             self.validate(collect_all=False)
 

@@ -565,6 +565,7 @@ class DFSamePathExecutor:
 def build_same_path_inputs(g: Plottable, chain: Sequence[ASTObject], where: Sequence[WhereComparison], engine: Engine, include_paths: bool = False) -> SamePathExecutorInputs:
     bindings = _collect_alias_bindings(chain)
     _validate_where_aliases(bindings, where)
+    _validate_where_columns(bindings, where, g)
     return SamePathExecutorInputs(graph=g, chain=tuple(chain), where=tuple(where), engine=engine, alias_bindings=bindings, column_requirements=_collect_required_columns(where), include_paths=include_paths)
 
 
@@ -606,3 +607,30 @@ def _validate_where_aliases(bindings: Dict[str, AliasBinding], where: Sequence[W
     missing = sorted(alias for alias in referenced if alias not in bindings)
     if missing:
         raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")
+
+
+def _validate_where_columns(bindings: Dict[str, AliasBinding], where: Sequence[WhereComparison], g: Plottable) -> None:
+    if not where:
+        return
+
+    node_cols = set(g._nodes.columns) if g._nodes is not None else set()
+    edge_cols = set(g._edges.columns) if g._edges is not None else set()
+
+    for clause in where:
+        for ref in (clause.left, clause.right):
+            binding = bindings.get(ref.alias)
+            if binding is None:
+                continue
+            cols = node_cols if binding.kind == "node" else edge_cols
+            if not cols:
+                # Unknown schema at this stage (e.g., nodes not materialized yet).
+                # Leave this to runtime capture validation.
+                continue
+            if ref.column not in cols:
+                available = ", ".join(sorted(cols)[:10])
+                if len(cols) > 10:
+                    available += ", ..."
+                raise ValueError(
+                    f"WHERE references missing column '{ref.column}' on alias '{ref.alias}' "
+                    f"({binding.kind}). Available columns: {available}"
+                )

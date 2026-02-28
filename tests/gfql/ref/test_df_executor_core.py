@@ -52,6 +52,15 @@ def test_missing_alias_raises():
         build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
 
+def test_missing_where_column_raises_during_input_build():
+    chain = [n(name="a"), e_forward(name="r"), n(name="c")]
+    where = [compare(col("a", "missing_col"), "==", col("c", "owner_id"))]
+    graph = _make_graph()
+
+    with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_col'"):
+        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+
+
 def test_forward_captures_alias_frames_and_prunes():
     graph = _make_graph()
     chain = [
