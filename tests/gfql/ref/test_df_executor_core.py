@@ -6,6 +6,7 @@ import pytest
 
 from graphistry.Engine import Engine
 from graphistry.compute import n, e_forward, e_reverse, e_undirected
+from graphistry.compute.ast import call
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     DFSamePathExecutor,
@@ -58,6 +59,34 @@ def test_missing_where_column_raises_during_input_build():
     graph = _make_graph()
 
     with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_col'"):
+        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+
+
+def test_where_column_added_by_prior_call_is_accepted():
+    chain = [
+        call("get_indegrees", {"col": "deg"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "deg"), "<=", col("c", "deg"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_where_missing_column_after_prior_call_still_rejected():
+    chain = [
+        call("get_indegrees", {"col": "deg"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
+    graph = _make_graph()
+
+    with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
         build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
 

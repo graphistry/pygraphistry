@@ -1,6 +1,6 @@
 """Schema validation for GFQL chains without execution."""
 
-from typing import List, Optional, Union, TYPE_CHECKING, cast
+from typing import List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
@@ -12,6 +12,34 @@ from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
 from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
+
+
+def _coerce_chain_ops(ops: Union[List[ASTObject], 'Chain']) -> List[ASTObject]:
+    if hasattr(ops, 'chain'):
+        return cast(List[ASTObject], getattr(ops, 'chain'))
+    return cast(List[ASTObject], ops)
+
+
+def trace_chain_schema(
+    g: Plottable,
+    ops: Union[List[ASTObject], 'Chain'],
+) -> List[Tuple[Set[str], Set[str]]]:
+    """Trace visible node/edge schema at each chain operation index.
+
+    Entry ``i`` in the returned list is the schema available when validating
+    operation ``i`` (after applying schema effects of prior calls).
+    """
+    chain_ops = _coerce_chain_ops(ops)
+    node_columns = set(g._nodes.columns) if g._nodes is not None else set()
+    edge_columns = set(g._edges.columns) if g._edges is not None else set()
+    snapshots: List[Tuple[Set[str], Set[str]]] = []
+
+    for op in chain_ops:
+        snapshots.append((set(node_columns), set(edge_columns)))
+        if isinstance(op, ASTCall):
+            _apply_call_schema_effects(op, node_columns, edge_columns)
+
+    return snapshots
 
 
 def validate_chain_schema(
@@ -38,14 +66,7 @@ def validate_chain_schema(
     Raises:
         GFQLSchemaError: If collect_all=False and validation fails
     """
-    # Handle Chain objects
-    chain_ops: List[ASTObject]
-    if hasattr(ops, 'chain'):
-        # ops is a Chain object, so access its chain attribute
-        # The chain attribute is guaranteed to be List[ASTObject] at runtime
-        chain_ops = cast(List[ASTObject], getattr(ops, 'chain'))
-    else:
-        chain_ops = cast(List[ASTObject], ops)
+    chain_ops = _coerce_chain_ops(ops)
 
     errors: List[GFQLSchemaError] = []
 

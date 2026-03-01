@@ -34,6 +34,7 @@ except Exception:  # pragma: no cover - optional dependency
 from graphistry.compute.gfql.same_path.multihop import apply_non_adjacent_where_post_prune
 from graphistry.compute.gfql.same_path.where_filter import apply_edge_where_post_prune, filter_edges_by_where
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.validate.validate_schema import trace_chain_schema
 
 AliasKind = Literal["node", "edge"]
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
@@ -565,7 +566,8 @@ class DFSamePathExecutor:
 def build_same_path_inputs(g: Plottable, chain: Sequence[ASTObject], where: Sequence[WhereComparison], engine: Engine, include_paths: bool = False) -> SamePathExecutorInputs:
     bindings = _collect_alias_bindings(chain)
     _validate_where_aliases(bindings, where)
-    _validate_where_columns(bindings, where, g)
+    schema_trace = trace_chain_schema(g, list(chain))
+    _validate_where_columns(bindings, where, schema_trace)
     return SamePathExecutorInputs(graph=g, chain=tuple(chain), where=tuple(where), engine=engine, alias_bindings=bindings, column_requirements=_collect_required_columns(where), include_paths=include_paths)
 
 
@@ -609,22 +611,25 @@ def _validate_where_aliases(bindings: Dict[str, AliasBinding], where: Sequence[W
         raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")
 
 
-def _validate_where_columns(bindings: Dict[str, AliasBinding], where: Sequence[WhereComparison], g: Plottable) -> None:
+def _validate_where_columns(
+    bindings: Dict[str, AliasBinding],
+    where: Sequence[WhereComparison],
+    schema_trace: Sequence[Tuple[set, set]],
+) -> None:
     if not where:
         return
-
-    node_cols = set(g._nodes.columns) if g._nodes is not None else set()
-    edge_cols = set(g._edges.columns) if g._edges is not None else set()
 
     for clause in where:
         for ref in (clause.left, clause.right):
             binding = bindings.get(ref.alias)
             if binding is None:
                 continue
+            if binding.step_index >= len(schema_trace):
+                continue
+            node_cols, edge_cols = schema_trace[binding.step_index]
             cols = node_cols if binding.kind == "node" else edge_cols
             if not cols:
-                # Unknown schema at this stage (e.g., nodes not materialized yet).
-                # Leave this to runtime capture validation.
+                # Unknown schema at this stage; keep runtime capture as fallback safety.
                 continue
             if ref.column not in cols:
                 available = ", ".join(sorted(cols)[:10])
@@ -632,5 +637,5 @@ def _validate_where_columns(bindings: Dict[str, AliasBinding], where: Sequence[W
                     available += ", ..."
                 raise ValueError(
                     f"WHERE references missing column '{ref.column}' on alias '{ref.alias}' "
-                    f"({binding.kind}). Available columns: {available}"
+                    f"({binding.kind}, step={binding.step_index}). Available columns: {available}"
                 )
