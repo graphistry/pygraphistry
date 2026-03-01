@@ -7,53 +7,27 @@ Run with:
 import cProfile
 import pstats
 import io
-import pandas as pd
-from typing import Tuple
 
 import graphistry
-from graphistry.compute.ast import n, e_forward
-from graphistry.compute.gfql.same_path_types import col, compare, where_to_json
-
-
-def make_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    import random
-    random.seed(42)
-
-    nodes = pd.DataFrame({
-        'id': list(range(n_nodes)),
-        'v': list(range(n_nodes)),
-    })
-
-    edges_list = []
-    for i in range(n_edges):
-        src = random.randint(0, n_nodes - 2)
-        dst = random.randint(src + 1, n_nodes - 1)
-        edges_list.append({'src': src, 'dst': dst, 'eid': i})
-    edges = pd.DataFrame(edges_list).drop_duplicates(subset=['src', 'dst'])
-
-    return nodes, edges
+from graphistry.compute.gfql.same_path_types import where_to_json
+from tests.gfql.ref.profile_utils import make_dense_graph, multihop_chain, simple_chain, simple_where
 
 
 def profile_simple_query(g, n_runs=5):
-    chain = [n(name="a"), e_forward(name="e"), n(name="c")]
+    chain = simple_chain()
     for _ in range(n_runs):
         g.gfql({"chain": chain, "where": []}, engine="pandas")
 
 
 def profile_multihop_query(g, n_runs=5):
-    chain = [
-        n({"id": 0}, name="a"),
-        e_forward(min_hops=1, max_hops=3, name="e"),
-        n(name="c")
-    ]
+    chain = multihop_chain()
     for _ in range(n_runs):
         g.gfql({"chain": chain, "where": []}, engine="pandas")
 
 
 def profile_where_query(g, n_runs=5):
-    chain = [n(name="a"), e_forward(name="e"), n(name="c")]
-    where = [compare(col("a", "v"), "<", col("c", "v"))]
-    where_json = where_to_json(where)
+    chain = simple_chain()
+    where_json = where_to_json(simple_where())
     for _ in range(n_runs):
         g.gfql({"chain": chain, "where": where_json}, engine="pandas")
 
@@ -65,8 +39,8 @@ def profile_samepath_query(g_small, n_runs=5):
     )
     from graphistry.Engine import Engine
 
-    chain = [n(name="a"), e_forward(name="e"), n(name="c")]
-    where = [compare(col("a", "v"), "<", col("c", "v"))]
+    chain = simple_chain()
+    where = simple_where()
 
     for _ in range(n_runs):
         inputs = build_same_path_inputs(
@@ -104,17 +78,17 @@ def run_profile(func, g, name):
 
 def main():
     print("Creating large graph: 50K nodes, 200K edges")
-    nodes_df, edges_df = make_graph(50000, 200000)
+    nodes_df, edges_df = make_dense_graph(50000, 200000)
     g = graphistry.nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
     print(f"Large graph: {len(nodes_df)} nodes, {len(edges_df)} edges")
 
     print("Creating small graph: 1K nodes, 2K edges")
-    nodes_small, edges_small = make_graph(1000, 2000)
+    nodes_small, edges_small = make_dense_graph(1000, 2000)
     g_small = graphistry.nodes(nodes_small, 'id').edges(edges_small, 'src', 'dst')
     print(f"Small graph: {len(nodes_small)} nodes, {len(edges_small)} edges")
 
     print("\nWarmup...")
-    chain = [n(name="a"), e_forward(name="e"), n(name="c")]
+    chain = simple_chain()
     g.gfql({"chain": chain, "where": []}, engine="pandas")
 
     # Profile legacy chain on large graph

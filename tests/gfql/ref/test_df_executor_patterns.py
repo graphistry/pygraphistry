@@ -1,6 +1,5 @@
 """Operator and bug pattern tests for df_executor."""
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +12,26 @@ from graphistry.compute.gfql.df_executor import (
 )
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
+from tests.gfql.ref.patterns_case_data import (
+    FIVE_WHYS_CASES,
+    FIVE_WHYS_IDS,
+    IMPOSSIBLE_CONSTRAINT_CASES,
+    IMPOSSIBLE_CONSTRAINT_IDS,
+    LONGER_PATH_CASES,
+    LONGER_PATH_IDS,
+    MIXED_DIRECTION_CASES,
+    MIXED_DIRECTION_IDS,
+    MIN_HOPS_CASES,
+    MIN_HOPS_IDS,
+    MULTIPLE_PATH_LENGTH_CASES,
+    MULTIPLE_PATH_LENGTH_IDS,
+    PREDICATE_PARITY_CASES,
+    PREDICATE_PARITY_IDS,
+    PREDICATE_RESULT_CASES,
+    PREDICATE_RESULT_IDS,
+    UNDIRECTED_BUG_PATTERN_CASES,
+    UNDIRECTED_BUG_PATTERN_IDS,
+)
 from tests.gfql.ref.conftest import (
     _assert_parity,
     assert_node_membership,
@@ -190,46 +209,8 @@ class TestP1OperatorsSingleHop:
 class TestP2LongerPaths:
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where, include_ids, exclude_ids",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 3}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n(name="a"), e_forward(), n(name="b"), e_forward(), n(name="c"), e_forward(), n(name="d")],
-                [compare(col("a", "v"), "<", col("d", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 3}, {"id": "c", "v": 5}, {"id": "d", "v": 7}, {"id": "e", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}, {"src": "d", "dst": "e"}],
-                [n(name="a"), e_forward(), n(name="b"), e_forward(), n(name="c"), e_forward(), n(name="d"), e_forward(), n(name="e")],
-                [compare(col("a", "v"), "<", col("c", "v")), compare(col("c", "v"), "<", col("e", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 3}, {"id": "c", "v": 5}, {"id": "d", "v": 7}, {"id": "e", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}, {"src": "d", "dst": "e"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2), n(name="mid"), e_forward(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 3}, {"id": "c", "v": 5}, {"id": "d1", "v": 10}, {"id": "d2", "v": 0}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d1"}, {"src": "c", "dst": "d2"}],
-                [n(name="a"), e_forward(), n(name="b"), e_forward(), n(name="c"), e_forward(), n(name="d")],
-                [compare(col("a", "v"), "<", col("d", "v"))],
-                {"d1"},
-                {"d2"},
-            ),
-        ],
-        ids=[
-            "four_node_chain",
-            "five_node_chain_multiple_where",
-            "long_chain_with_multihop",
-            "long_chain_filters_partial_path",
-        ],
+        LONGER_PATH_CASES,
+        ids=LONGER_PATH_IDS,
     )
     def test_longer_path_matrix(self, node_rows, edge_rows, chain, where, include_ids, exclude_ids):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -301,27 +282,8 @@ class TestP1UndirectedMultihop:
 class TestP1MixedDirectionChains:
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 3}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "c", "dst": "b"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="mid1"), e_reverse(), n(name="mid2"), e_forward(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [{"id": "a", "v": 10}, {"id": "b", "v": 5}, {"id": "c", "v": 7}, {"id": "d", "v": 1}],
-                [{"src": "b", "dst": "a"}, {"src": "b", "dst": "c"}, {"src": "d", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_reverse(), n(name="mid1"), e_forward(), n(name="mid2"), e_reverse(), n(name="end")],
-                [compare(col("start", "v"), ">", col("end", "v"))],
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 3}, {"id": "c", "v": 5}, {"id": "d", "v": 7}, {"id": "e", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "d", "dst": "c"}, {"src": "e", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2), n(name="mid"), e_reverse(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-        ],
-        ids=["forward_reverse_forward", "reverse_forward_reverse", "mixed_with_multihop"],
+        MIXED_DIRECTION_CASES,
+        ids=MIXED_DIRECTION_IDS,
     )
     def test_mixed_direction_matrix(self, node_rows, edge_rows, chain, where):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -543,45 +505,8 @@ class TestBugPatternMergeSuffix:
 class TestBugPatternUndirected:
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_undirected(), n(name="mid"), e_undirected(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [{"id": "a", "v": 1, "w": 10}, {"id": "b", "v": 5, "w": 5}, {"id": "c", "v": 10, "w": 1}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v")), compare(col("start", "w"), ">", col("end", "w"))],
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "c", "v": 3}, {"id": "d", "v": 4}],
-                [{"src": "a", "dst": "b"}, {"src": "c", "dst": "b"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="mid"), e_undirected(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}],
-                [{"src": "a", "dst": "a"}, {"src": "a", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "c", "v": 3}, {"id": "d", "v": 4}],
-                [{"src": "b", "dst": "a"}, {"src": "b", "dst": "c"}, {"src": "d", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_undirected(), n(name="mid1"), e_reverse(), n(name="mid2"), e_undirected(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-        ],
-        ids=[
-            "undirected_non_adjacent_where",
-            "undirected_multiple_where",
-            "mixed_directed_undirected_chain",
-            "undirected_with_self_loop",
-            "undirected_reverse_undirected_chain",
-        ],
+        UNDIRECTED_BUG_PATTERN_CASES,
+        ids=UNDIRECTED_BUG_PATTERN_IDS,
     )
     def test_undirected_bug_pattern_matrix(self, node_rows, edge_rows, chain, where):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -591,154 +516,8 @@ class TestBugPatternUndirected:
 class TestImpossibleConstraints:
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where",
-        [
-            (
-                [
-                    {"id": "a", "v": 5},
-                    {"id": "b", "v": 10},
-                    {"id": "c", "v": 3},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "a", "dst": "c"},
-                ],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="end")],
-                [
-                    compare(col("start", "v"), "<", col("end", "v")),
-                    compare(col("start", "v"), ">", col("end", "v")),
-                ],
-            ),
-            (
-                [
-                    {"id": "a", "v": 5},
-                    {"id": "b", "v": 5},
-                    {"id": "c", "v": 10},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "a", "dst": "c"},
-                ],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="end")],
-                [
-                    compare(col("start", "v"), "==", col("end", "v")),
-                    compare(col("start", "v"), "!=", col("end", "v")),
-                ],
-            ),
-            (
-                [
-                    {"id": "a", "v": 5},
-                    {"id": "b", "v": 10},
-                    {"id": "c", "v": 3},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "a", "dst": "c"},
-                ],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="end")],
-                [
-                    compare(col("start", "v"), "<=", col("end", "v")),
-                    compare(col("start", "v"), ">", col("end", "v")),
-                ],
-            ),
-            (
-                [
-                    {"id": "a", "v": 100},
-                    {"id": "b", "v": 50},
-                    {"id": "c", "v": 10},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "b", "dst": "c"},
-                ],
-                [
-                    n({"id": "a"}, name="start"),
-                    e_forward(),
-                    n(name="mid"),
-                    e_forward(),
-                    n({"id": "c"}, name="end"),
-                ],
-                [compare(col("start", "v"), "<", col("mid", "v"))],
-            ),
-            (
-                [
-                    {"id": "a", "v": 100},
-                    {"id": "b", "v": 50},
-                    {"id": "c", "v": 25},
-                    {"id": "d", "v": 10},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "b", "dst": "c"},
-                    {"src": "c", "dst": "d"},
-                ],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [
-                    {"id": "a", "v": 5, "w": 10},
-                    {"id": "b", "v": 10, "w": 5},
-                    {"id": "c", "v": 3, "w": 20},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "a", "dst": "c"},
-                ],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="end")],
-                [
-                    compare(col("start", "v"), "<", col("end", "v")),
-                    compare(col("start", "w"), "<", col("end", "w")),
-                ],
-            ),
-            (
-                [
-                    {"id": "a", "v": 1},
-                    {"id": "b", "v": 100},
-                    {"id": "c", "v": 50},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "b", "dst": "c"},
-                ],
-                [
-                    n({"id": "a"}, name="start"),
-                    e_forward(),
-                    n(name="mid"),
-                    e_forward(),
-                    n({"id": "c"}, name="end"),
-                ],
-                [compare(col("mid", "v"), "<", col("end", "v"))],
-            ),
-            (
-                [
-                    {"id": "a", "v": 100},
-                    {"id": "b", "v": 50},
-                    {"id": "c", "v": 10},
-                ],
-                [
-                    {"src": "a", "dst": "b"},
-                    {"src": "b", "dst": "c"},
-                ],
-                [
-                    n({"id": "a"}, name="start"),
-                    e_forward(),
-                    n(name="mid"),
-                    e_forward(),
-                    n({"id": "c"}, name="end"),
-                ],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-        ],
-        ids=[
-            "contradictory_lt_gt_same_column",
-            "contradictory_eq_neq_same_column",
-            "contradictory_lte_gt_same_column",
-            "no_paths_satisfy_predicate",
-            "multihop_no_valid_endpoints",
-            "contradictory_on_different_columns",
-            "chain_with_impossible_intermediate",
-            "non_adjacent_impossible_constraint",
-        ],
+        IMPOSSIBLE_CONSTRAINT_CASES,
+        ids=IMPOSSIBLE_CONSTRAINT_IDS,
     )
     def test_impossible_constraints_matrix(self, node_rows, edge_rows, chain, where):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -772,109 +551,8 @@ class TestImpossibleConstraints:
 class TestFiveWhysAmplification:
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where, include_ids, exclude_ids",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "x", "v": 100}, {"id": "y", "v": 200}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}, {"src": "x", "dst": "y"}],
-                [n({"id": "a"}, name="start"), e_reverse(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                {"x", "y"},
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "d", "v": 15}, {"id": "e", "v": 100}, {"id": "f", "v": 200}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}, {"src": "d", "dst": "b"}, {"src": "f", "dst": "e"}],
-                [n({"id": "a"}, name="start"), e_reverse(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"c", "d"},
-                {"e", "f"},
-            ),
-            (
-                [{"id": "a", "v": 1000}, {"id": "b", "v": 1}, {"id": "c", "v": 2}, {"id": "d", "v": 3}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 100}, {"id": "c", "v": 2}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="mid"), e_forward(), n(name="end")],
-                [compare(col("mid", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 10}, {"id": "b", "v": 20}, {"id": "c", "v": 30}, {"id": "z", "v": 5}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c"},
-                {"z"},
-            ),
-            (
-                [{"id": "a", "v": 1, "w": 100}, {"id": "b", "v": None, "w": None}, {"id": "c", "v": 10, "w": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 10}, {"id": "c", "v": 5}, {"id": "d", "v": 15}, {"id": "e", "v": 20}],
-                [{"src": "a", "dst": "b"}, {"src": "a", "dst": "c"}, {"src": "a", "dst": "d"}, {"src": "b", "dst": "e"}, {"src": "c", "dst": "e"}, {"src": "d", "dst": "e"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"e"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "d", "v": 20}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}, {"src": "a", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c", "d"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "c", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"c"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "d", "v": 20}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_undirected(), n(name="mid1"), e_reverse(), n(name="mid2"), e_undirected(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 100}, {"id": "b", "v": 50}, {"id": "c", "v": 25}, {"id": "d", "v": 10}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}, {"src": "d", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=1, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                set(),
-                set(),
-            ),
-        ],
-        ids=[
-            "reverse_multihop_with_unreachable_intermediate",
-            "reverse_multihop_asymmetric_fanout",
-            "aggressive_where_empties_mid_pass",
-            "where_eliminates_all_intermediates",
-            "non_adjacent_where_references_unreached_value",
-            "non_adjacent_multihop_value_comparison",
-            "diamond_convergent_multihop_where",
-            "parallel_paths_different_lengths",
-            "undirected_multihop_bidirectional_traversal",
-            "undirected_reverse_mixed_chain",
-            "undirected_multihop_with_aggressive_where",
-        ],
+        FIVE_WHYS_CASES,
+        ids=FIVE_WHYS_IDS,
     )
     def test_five_whys_matrix(self, node_rows, edge_rows, chain, where, include_ids, exclude_ids):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -888,90 +566,8 @@ class TestMinHopsEdgeFiltering:
 
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where, include_ids, exclude_ids, expected_edge_count",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"c"},
-                set(),
-                2,
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "c", "v": 3}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=3, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"d"},
-                set(),
-                3,
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "d", "v": 15}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}, {"src": "a", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"c"},
-                set(),
-                None,
-            ),
-            (
-                [{"id": "a", "v": 10}, {"id": "b", "v": 5}, {"id": "c", "v": 1}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_reverse(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), ">", col("end", "v"))],
-                {"c"},
-                set(),
-                None,
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "c", "dst": "b"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"c"},
-                set(),
-                None,
-            ),
-            (
-                [{"id": "start", "v": 0}, {"id": "mid1", "v": 1}, {"id": "mid2", "v": 2}, {"id": "end", "v": 100}],
-                [{"src": "start", "dst": "mid1"}, {"src": "mid1", "dst": "mid2"}, {"src": "mid2", "dst": "end"}],
-                [n({"id": "start"}, name="s"), e_forward(min_hops=3, max_hops=3), n(name="e")],
-                [compare(col("s", "v"), "<", col("e", "v"))],
-                {"end"},
-                set(),
-                3,
-            ),
-            (
-                [{"id": "start", "v": 0}, {"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "end", "v": 10}, {"id": "x", "v": 100}],
-                [{"src": "start", "dst": "a"}, {"src": "a", "dst": "b"}, {"src": "b", "dst": "end"}, {"src": "start", "dst": "x"}],
-                [n({"id": "start"}, name="s"), e_forward(min_hops=3, max_hops=3), n(name="e")],
-                [compare(col("s", "v"), "<", col("e", "v"))],
-                {"end"},
-                {"x"},
-                None,
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}, {"id": "d", "v": 15}],
-                [{"src": "a", "dst": "b"}, {"src": "c", "dst": "b"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(), n(name="mid1"), e_reverse(), n(name="mid2"), e_forward(), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"d"},
-                set(),
-                None,
-            ),
-        ],
-        ids=[
-            "min_hops_2_linear_chain",
-            "min_hops_3_long_chain",
-            "min_hops_equals_max_hops_exact_path",
-            "min_hops_reverse_chain",
-            "min_hops_undirected_chain",
-            "min_hops_sparse_critical_intermediate",
-            "min_hops_with_branch_not_taken",
-            "min_hops_mixed_directions",
-        ],
+        MIN_HOPS_CASES,
+        ids=MIN_HOPS_IDS,
     )
     def test_min_hops_matrix(self, node_rows, edge_rows, chain, where, include_ids, exclude_ids, expected_edge_count):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -987,73 +583,8 @@ class TestMultiplePathLengths:
 
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where, include_ids, exclude_ids",
-        [
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "a", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "c", "v": 3}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "d"}, {"src": "a", "dst": "b"}, {"src": "b", "dst": "d"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c", "d"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 2}, {"id": "c", "v": 3}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "d"}, {"src": "a", "dst": "b"}, {"src": "b", "dst": "d"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=3, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c", "d"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "a"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=3, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<=", col("end", "v"))],
-                {"a", "b", "c"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "x", "v": 2}, {"id": "y", "v": 3}, {"id": "z", "v": 4}, {"id": "d", "v": 10}],
-                [{"src": "a", "dst": "x"}, {"src": "x", "dst": "d"}, {"src": "a", "dst": "y"}, {"src": "y", "dst": "z"}, {"src": "z", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=3, max_hops=3), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"y", "z", "d"},
-                {"x"},
-            ),
-            (
-                [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "a", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_undirected(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-                {"b", "c"},
-                set(),
-            ),
-            (
-                [{"id": "a", "v": 10}, {"id": "b", "v": 5}, {"id": "c", "v": 1}],
-                [{"src": "b", "dst": "a"}, {"src": "c", "dst": "b"}, {"src": "c", "dst": "a"}],
-                [n({"id": "a"}, name="start"), e_reverse(min_hops=2, max_hops=2), n(name="end")],
-                [compare(col("start", "v"), ">", col("end", "v"))],
-                {"b", "c"},
-                set(),
-            ),
-        ],
-        ids=[
-            "diamond_with_shortcut",
-            "triple_paths_different_lengths",
-            "triple_paths_exact_min_hops_3",
-            "cycle_multiple_path_lengths",
-            "parallel_paths_with_min_hops_filter",
-            "undirected_multiple_routes",
-            "reverse_multiple_path_lengths",
-        ],
+        MULTIPLE_PATH_LENGTH_CASES,
+        ids=MULTIPLE_PATH_LENGTH_IDS,
     )
     def test_multiple_path_lengths_matrix(self, node_rows, edge_rows, chain, where, include_ids, exclude_ids):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)
@@ -1066,35 +597,8 @@ class TestPredicateTypes:
 
     @pytest.mark.parametrize(
         "node_rows, where",
-        [
-            (
-                [{"id": "a", "active": True}, {"id": "b", "active": False}, {"id": "c", "active": True}],
-                [compare(col("start", "active"), "==", col("end", "active"))],
-            ),
-            (
-                [{"id": "a", "active": False}, {"id": "b", "active": False}, {"id": "c", "active": True}],
-                [compare(col("start", "active"), "<", col("end", "active"))],
-            ),
-            (
-                [{"id": "a", "ts": pd.Timestamp("2024-01-01")}, {"id": "b", "ts": pd.Timestamp("2024-06-01")}, {"id": "c", "ts": pd.Timestamp("2024-12-01")}],
-                [compare(col("start", "ts"), "<", col("end", "ts"))],
-            ),
-            (
-                [{"id": "a", "score": 1.5}, {"id": "b", "score": 2.7}, {"id": "c", "score": 1.5}],
-                [compare(col("start", "score"), "<=", col("end", "score"))],
-            ),
-            (
-                [{"id": "a", "v": 1.0}, {"id": "b", "v": np.nan}, {"id": "c", "v": 10.0}],
-                [compare(col("start", "v"), "<", col("end", "v"))],
-            ),
-        ],
-        ids=[
-            "boolean_comparison_eq",
-            "boolean_comparison_lt",
-            "datetime_comparison",
-            "float_comparison_with_decimals",
-            "nan_in_numeric_comparison",
-        ],
+        PREDICATE_PARITY_CASES,
+        ids=PREDICATE_PARITY_IDS,
     )
     def test_predicate_parity_matrix(self, node_rows, where):
         graph = make_cg_graph_from_rows(node_rows, [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}])
@@ -1103,39 +607,8 @@ class TestPredicateTypes:
 
     @pytest.mark.parametrize(
         "node_rows, edge_rows, chain, where, include_ids",
-        [
-            (
-                [{"id": "a", "name": "apple"}, {"id": "b", "name": "banana"}, {"id": "c", "name": "cherry"}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "name"), "<", col("end", "name"))],
-                {"b", "c"},
-            ),
-            (
-                [{"id": "a", "tag": "important"}, {"id": "b", "tag": "normal"}, {"id": "c", "tag": "important"}],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2), n(name="end")],
-                [compare(col("start", "tag"), "==", col("end", "tag"))],
-                {"c"},
-            ),
-            (
-                [
-                    {"id": "a", "created": pd.Timestamp("2024-01-01")},
-                    {"id": "b", "created": pd.Timestamp("2024-03-01")},
-                    {"id": "c", "created": pd.Timestamp("2024-06-01")},
-                    {"id": "d", "created": pd.Timestamp("2024-09-01")},
-                ],
-                [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
-                [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=3), n(name="end")],
-                [compare(col("start", "created"), "<", col("end", "created"))],
-                {"b", "c", "d"},
-            ),
-        ],
-        ids=[
-            "string_lexicographic_comparison",
-            "string_equality",
-            "multihop_with_datetime_range",
-        ],
+        PREDICATE_RESULT_CASES,
+        ids=PREDICATE_RESULT_IDS,
     )
     def test_predicate_result_matrix(self, node_rows, edge_rows, chain, where, include_ids):
         graph = make_cg_graph_from_rows(node_rows, edge_rows)

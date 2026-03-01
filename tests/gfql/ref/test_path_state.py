@@ -66,6 +66,11 @@ def sync_pruned_to_forward_steps(state: PathState, forward_steps) -> None:
         forward_steps[edge_idx]._edges = df
 
 
+class _MockStep:
+    def __init__(self):
+        self._edges = None
+
+
 class TestPathStateImmutability:
     def test_empty_creates_empty_state(self):
         state = empty_state()
@@ -192,7 +197,6 @@ class TestPathStateSetNodes:
 class TestPathStateWithPrunedEdges:
 
     def test_with_pruned_edges_stores_df(self):
-        import pandas as pd
         df = pd.DataFrame({'a': [1, 2, 3]})
 
         s1 = empty_state()
@@ -203,7 +207,6 @@ class TestPathStateWithPrunedEdges:
         assert s2.pruned_edges[1] is df
 
     def test_with_pruned_edges_preserves_existing(self):
-        import pandas as pd
         df1 = pd.DataFrame({'a': [1]})
         df2 = pd.DataFrame({'b': [2]})
 
@@ -232,14 +235,7 @@ class TestPathStateSyncMethods:
         assert set(target_edges[1]) == {10, 20}
 
     def test_sync_pruned_to_forward_steps(self):
-        import pandas as pd
-
-        # Create mock forward_steps with _edges attribute
-        class MockStep:
-            def __init__(self):
-                self._edges = None
-
-        forward_steps = [MockStep(), MockStep(), MockStep()]
+        forward_steps = [_MockStep(), _MockStep(), _MockStep()]
 
         df1 = pd.DataFrame({'x': [1]})
         df2 = pd.DataFrame({'y': [2]})
@@ -269,54 +265,35 @@ class TestPathStateRoundTrip:
 
 class TestPathStateImmutabilityContracts:
 
-    def test_pathstate_methods_return_new_objects(self):
-        import pandas as pd
-
+    @pytest.mark.parametrize(
+        "update_fn",
+        [
+            lambda state: restrict_nodes(state, 0, idx([2, 3])),
+            lambda state: restrict_edges(state, 1, idx([10])),
+            lambda state: set_nodes(state, 0, idx([99])),
+            lambda state: set_edges(state, 1, idx([99])),
+            lambda state: with_pruned_edges(state, 0, pd.DataFrame({'a': [1]})),
+        ],
+        ids=["restrict_nodes", "restrict_edges", "set_nodes", "set_edges", "with_pruned_edges"],
+    )
+    def test_pathstate_methods_return_new_objects(self, update_fn):
         s1 = PathState.from_mutable({0: idx([1, 2, 3])}, {1: idx([10, 20])})
+        s2 = update_fn(s1)
 
-        # restrict_nodes returns new object
-        s2 = restrict_nodes(s1, 0, idx([2, 3]))
         assert s1 is not s2
-        assert set(s1.allowed_nodes[0]) == {1, 2, 3}  # Original unchanged
-
-        # restrict_edges returns new object
-        s3 = restrict_edges(s1, 1, idx([10]))
-        assert s1 is not s3
-        assert set(s1.allowed_edges[1]) == {10, 20}  # Original unchanged
-
-        # set_nodes returns new object
-        s4 = set_nodes(s1, 0, idx([99]))
-        assert s1 is not s4
-        assert set(s1.allowed_nodes[0]) == {1, 2, 3}  # Original unchanged
-
-        # set_edges returns new object
-        s5 = set_edges(s1, 1, idx([99]))
-        assert s1 is not s5
-        assert set(s1.allowed_edges[1]) == {10, 20}  # Original unchanged
-
-        # with_pruned_edges returns new object
-        df = pd.DataFrame({'a': [1]})
-        s6 = with_pruned_edges(s1, 0, df)
-        assert s1 is not s6
-        assert 0 not in s1.pruned_edges  # Original unchanged
+        assert set(s1.allowed_nodes[0]) == {1, 2, 3}
+        assert set(s1.allowed_edges[1]) == {10, 20}
+        assert 0 not in s1.pruned_edges
 
     def test_pathstate_cannot_be_modified_after_creation(self):
         state = PathState.from_mutable({0: idx([1, 2])}, {1: idx([10])})
 
-        # Cannot reassign fields (frozen dataclass)
-        with pytest.raises(AttributeError):
-            state.allowed_nodes = MappingProxyType({})  # type: ignore
+        for field in ("allowed_nodes", "allowed_edges", "pruned_edges"):
+            with pytest.raises(AttributeError):
+                setattr(state, field, MappingProxyType({}))  # type: ignore[arg-type]
 
-        with pytest.raises(AttributeError):
-            state.allowed_edges = MappingProxyType({})  # type: ignore
-
-        with pytest.raises(AttributeError):
-            state.pruned_edges = MappingProxyType({})  # type: ignore
-
-        # Cannot modify MappingProxyType contents
         with pytest.raises(TypeError):
             state.allowed_nodes[0] = idx([99])  # type: ignore
-
         with pytest.raises(TypeError):
             state.allowed_nodes[99] = idx([1])  # type: ignore
 

@@ -8,11 +8,12 @@ Outputs timing data for different chain complexities and graph sizes.
 """
 import time
 import pandas as pd
-from typing import List, Dict, Any, Tuple
+from typing import List, Any, Tuple
 from dataclasses import dataclass
 import graphistry
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
-from graphistry.compute.gfql.same_path_types import WhereComparison, StepColumnRef, col, compare, where_to_json
+from graphistry.compute.ast import n, e_forward
+from graphistry.compute.gfql.same_path_types import WhereComparison, where_to_json
+from tests.gfql.ref.profile_utils import make_dense_graph, multihop_chain, simple_chain, simple_where
 
 
 @dataclass
@@ -39,25 +40,6 @@ def make_linear_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.Data
     return nodes, edges
 
 
-def make_dense_graph(n_nodes: int, n_edges: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    import random
-    random.seed(42)
-
-    nodes = pd.DataFrame({
-        'id': list(range(n_nodes)),
-        'v': list(range(n_nodes)),
-    })
-
-    edges_list = []
-    for i in range(n_edges):
-        src = random.randint(0, n_nodes - 2)
-        dst = random.randint(src + 1, n_nodes - 1)
-        edges_list.append({'src': src, 'dst': dst, 'eid': i})
-    edges = pd.DataFrame(edges_list).drop_duplicates(subset=['src', 'dst'])
-
-    return nodes, edges
-
-
 def profile_query(
     g: graphistry.Plottable,
     chain: List[Any],
@@ -67,9 +49,6 @@ def profile_query(
     n_edges: int,
     n_runs: int = 3
 ) -> ProfileResult:
-
-    from graphistry.compute.chain import Chain
-
     where_json = where_to_json(where) if where else []
 
     result = g.gfql({"chain": chain, "where": where_json}, engine="pandas")
@@ -123,7 +102,7 @@ def run_profiles() -> List[ProfileResult]:
 
         # Chain variants
         chains = [
-            ("simple", [n(name="a"), e_forward(name="e"), n(name="c")], []),
+            ("simple", simple_chain(), []),
 
             ("with_filter", [
                 n({"id": 0}, name="a"),
@@ -131,23 +110,11 @@ def run_profiles() -> List[ProfileResult]:
                 n(name="c")
             ], []),
 
-            ("with_where_adjacent", [
-                n(name="a"),
-                e_forward(name="e"),
-                n(name="c")
-            ], [compare(col("a", "v"), "<", col("c", "v"))]),
+            ("with_where_adjacent", simple_chain(), simple_where()),
 
-            ("multihop", [
-                n({"id": 0}, name="a"),
-                e_forward(min_hops=1, max_hops=3, name="e"),
-                n(name="c")
-            ], []),
+            ("multihop", multihop_chain(), []),
 
-            ("multihop_with_where", [
-                n({"id": 0}, name="a"),
-                e_forward(min_hops=1, max_hops=3, name="e"),
-                n(name="c")
-            ], [compare(col("a", "v"), "<", col("c", "v"))]),
+            ("multihop_with_where", multihop_chain(), simple_where()),
         ]
 
         for chain_name, chain, where in chains:
