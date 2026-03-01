@@ -30,6 +30,19 @@ from tests.gfql.ref.conftest import (
 )
 
 
+def _inputs(chain, where, engine=Engine.PANDAS, graph=None):
+    return build_same_path_inputs(graph or _make_graph(), chain, where, engine)
+
+
+def _prior_call_chain(function, params):
+    return [
+        call(function, params),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+
+
 def test_build_inputs_collects_alias_metadata():
     chain = [
         n({"type": "account"}, name="a"),
@@ -39,7 +52,7 @@ def test_build_inputs_collects_alias_metadata():
     where = [compare(col("a", "owner_id"), "==", col("c", "owner_id"))]
     graph = _make_graph()
 
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    inputs = _inputs(chain, where, graph=graph)
 
     assert set(inputs.alias_bindings) == {"a", "r", "c"}
     assert set(inputs.column_requirements["a"]) == {"owner_id"}
@@ -52,7 +65,7 @@ def test_missing_alias_raises():
     graph = _make_graph()
 
     with pytest.raises(ValueError):
-        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+        _inputs(chain, where, graph=graph)
 
 
 def test_missing_where_column_raises_during_input_build():
@@ -61,75 +74,48 @@ def test_missing_where_column_raises_during_input_build():
     graph = _make_graph()
 
     with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_col'"):
-        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+        _inputs(chain, where, graph=graph)
 
 
 def test_where_column_added_by_prior_call_is_accepted():
-    chain = [
-        call("get_indegrees", {"col": "deg"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
+    chain = _prior_call_chain("get_indegrees", {"col": "deg"})
     where = [compare(col("a", "deg"), "<=", col("c", "deg"))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    inputs = _inputs(chain, where)
     assert inputs is not None
 
 
 def test_where_missing_column_after_prior_call_still_rejected():
-    chain = [
-        call("get_indegrees", {"col": "deg"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
+    chain = _prior_call_chain("get_indegrees", {"col": "deg"})
     where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
-    graph = _make_graph()
-
     with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
-        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+        _inputs(chain, where)
 
 
 def test_missing_where_column_can_be_ignored_by_env(monkeypatch):
     chain = [n(name="a"), e_forward(name="r"), n(name="c")]
     where = [compare(col("a", "missing_col"), "==", col("c", "owner_id"))]
-    graph = _make_graph()
     monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_ERRORS_ENV, "missing_column")
 
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    inputs = _inputs(chain, where)
     assert inputs is not None
 
 
 def test_missing_where_column_can_be_ignored_for_specific_calls(monkeypatch):
-    chain = [
-        call("get_indegrees", {"col": "deg"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
+    chain = _prior_call_chain("get_indegrees", {"col": "deg"})
     where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
-    graph = _make_graph()
     monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_CALLS_ENV, "get_indegrees")
 
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    inputs = _inputs(chain, where)
     assert inputs is not None
 
 
 def test_missing_where_column_is_not_ignored_for_other_calls(monkeypatch):
-    chain = [
-        call("get_indegrees", {"col": "deg"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
+    chain = _prior_call_chain("get_indegrees", {"col": "deg"})
     where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
-    graph = _make_graph()
     monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_CALLS_ENV, "get_outdegrees")
 
     with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
-        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+        _inputs(chain, where)
 
 
 @pytest.mark.parametrize(
@@ -144,16 +130,9 @@ def test_missing_where_column_is_not_ignored_for_other_calls(monkeypatch):
     ids=["hop", "topological_levels", "umap", "hypergraph", "collapse"],
 )
 def test_where_columns_from_prior_calls_are_accepted(function, params, column, op):
-    chain = [
-        call(function, params),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
+    chain = _prior_call_chain(function, params)
     where = [compare(col("a", column), op, col("c", column))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    inputs = _inputs(chain, where)
     assert inputs is not None
 
 
