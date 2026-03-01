@@ -166,7 +166,7 @@ predicate ::= comparison | membership | range | null_check | string_pred | tempo
 comparison ::= ("gt" | "lt" | "ge" | "le" | "eq" | "ne") "(" value ")"
 membership ::= "is_in(" "[" value ("," value)* "]" ")"
 range ::= "between(" value "," value ("," "inclusive=" boolean)? ")"
-null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
+null_check ::= "isnull()" | "notnull()" | "isna()" | "notna()"
 string_pred ::= string_match | string_check
 string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
               | "match(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
@@ -313,10 +313,10 @@ islower()    # All lowercase
 ### Null Predicates
 
 ```python
-is_null()     # Is null/None
-not_null()    # Is not null/None
-is_na()       # Is NaN (numeric)
-not_na()      # Is not NaN
+isnull()     # Is null/None
+notnull()    # Is not null/None
+isna()       # Is NaN (numeric)
+notna()      # Is not NaN
 ```
 
 ### Temporal Predicates

@@ -123,7 +123,7 @@ Exploring Relationships Between Nodes
     from graphistry import n, e_forward
 
     # df[['src', 'dst', ...]]
-    chain([
+    g.gfql([
         n({"type": "person"}), e_forward(), n({"type": "company"})
     ])._edges
 

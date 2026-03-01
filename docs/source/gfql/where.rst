@@ -60,6 +60,52 @@ JSON wire format details live in :doc:`/gfql/spec/wire_protocol`.
 Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON uses `eq`, `neq`,
 `lt`, `le`, `gt`, `ge`).
 
+Validation Behavior
+-------------------
+
+WHERE is validated before same-path execution starts.
+
+Validation checks include:
+
+- **Alias bindings**: Every referenced alias must exist as a `name=` on a node
+  or edge step in the chain.
+- **Column visibility**: Each referenced column must exist on the visible
+  schema at that step. This includes columns added by prior safelisted
+  `call(...)` operations whose schema effects are known.
+- **Clause shape**: In Python, each `where` entry must be a
+  `compare(col(...), op, col(...))` object (or equivalent dict clause); in
+  JSON, each entry must use exactly one operator key (`eq`, `neq`, `lt`, `le`,
+  `gt`, `ge`) with string `left`/`right` values.
+
+Common failures:
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    # Missing alias binding ("missing" was never introduced via name=)
+    g.gfql(
+        [n(name="a"), e_forward(name="e"), n(name="c")],
+        where=[compare(col("missing", "x"), "==", col("c", "owner_id"))],
+    )
+    # ValueError: WHERE references aliases with no node/edge bindings: missing
+
+    # Missing column on an alias
+    g.gfql(
+        [n(name="a"), e_forward(name="e"), n(name="c")],
+        where=[compare(col("a", "missing_col"), "==", col("c", "owner_id"))],
+    )
+    # ValueError: WHERE references missing column 'missing_col' on alias 'a' ...
+
+    # Invalid where entry type
+    g.gfql([n(name="a"), e_forward(name="e"), n(name="c")], where=[123])
+    # ValueError: where[0] must be a WhereComparison or dict clause ...
+
+Advanced troubleshooting (opt-in): set environment variables
+`GRAPHISTRY_WHERE_VALIDATION_IGNORE_ERRORS` and
+`GRAPHISTRY_WHERE_VALIDATION_IGNORE_CALLS` to selectively suppress specific
+missing-column validation paths during migration/debugging.
+
 WHERE can compare columns from node or edge steps when the types align.
 Null handling follows predicate semantics; use `isna()`/`notna()` in per-step
 filters when needed (for example, `n({"owner_id": notna()})`).

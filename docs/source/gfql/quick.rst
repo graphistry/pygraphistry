@@ -12,11 +12,11 @@ Basic Usage
 
 .. code-block:: python
 
-    g.gfql(ops=[...], engine=EngineAbstract.AUTO)
+    g.gfql([...], engine=EngineAbstract.AUTO)
 
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
-- **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
+- **query**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
 Node Matchers

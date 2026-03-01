@@ -147,8 +147,8 @@ g.gfql(
 | `n.text CONTAINS 'search'` | `contains("search")` | `{"type": "Contains", "pattern": "search"}` |
 | `n.name STARTS WITH 'Dr'` | `startswith("Dr")` | `{"type": "Startswith", "pattern": "Dr"}` |
 | `n.email ENDS WITH '.com'` | `endswith(".com")` | `{"type": "Endswith", "pattern": ".com"}` |
-| `n.val IS NULL` | `is_null()` | `{"type": "IsNull"}` |
-| `n.val IS NOT NULL` | `not_null()` | `{"type": "NotNull"}` |
+| `n.val IS NULL` | `isnull()` | `{"type": "IsNull"}` |
+| `n.val IS NOT NULL` | `notnull()` | `{"type": "NotNull"}` |
 
 ## Complete Examples
 
