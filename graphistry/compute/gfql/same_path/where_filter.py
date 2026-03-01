@@ -12,15 +12,12 @@ from .df_utils import (
     domain_is_empty,
     domain_to_frame,
     domain_union,
-    env_flag,
-    env_lower,
-    env_optional_int,
     evaluate_clause,
-    normalize_limit,
     project_node_attrs,
     semijoin_eval_pairs,
     series_values,
 )
+from .env_utils import env_flag, env_lower, env_optional_int, normalize_limit
 from .multihop import filter_multihop_edges_by_endpoints
 
 if TYPE_CHECKING:

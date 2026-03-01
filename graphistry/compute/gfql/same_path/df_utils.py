@@ -1,5 +1,4 @@
 import operator
-import os
 from typing import Any, Optional, Sequence, Tuple, Union
 
 import pandas as pd
@@ -11,7 +10,6 @@ except Exception:  # pragma: no cover
 
 from graphistry.compute.typing import DataFrameT, DomainT, SeriesT
 
-_BOOL_TRUE = {"1", "true", "yes", "on"}
 _OPS = {
     "==": operator.eq,
     "!=": operator.ne,
@@ -21,32 +19,6 @@ _OPS = {
     "<=": operator.le,
 }
 OP_FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
-
-
-def env_lower(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip().lower()
-
-
-def env_flag(name: str, default: bool = False) -> bool:
-    raw = env_lower(name)
-    return default if not raw else raw in _BOOL_TRUE
-
-
-def env_optional_int(name: str) -> Optional[int]:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
-
-
-def normalize_limit(value: Optional[float], default: Optional[float]) -> Optional[float]:
-    value = default if value is None else value
-    return None if value is not None and value <= 0 else value
-
-
 def _is_cudf_obj(obj: object) -> bool:
     return cudf is not None and obj.__class__.__module__.startswith("cudf")
 

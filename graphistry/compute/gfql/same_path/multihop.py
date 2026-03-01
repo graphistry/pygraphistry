@@ -12,15 +12,12 @@ from .df_utils import (
     domain_from_values,
     domain_intersect,
     domain_is_empty,
-    env_flag,
-    env_lower,
-    env_optional_int,
     evaluate_clause,
-    normalize_limit,
     project_node_attrs,
     semijoin_eval_pairs,
     series_values,
 )
+from .env_utils import env_flag, env_lower, env_optional_int, normalize_limit
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.df_executor import DFSamePathExecutor, WhereComparison
