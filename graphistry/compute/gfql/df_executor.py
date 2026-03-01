@@ -19,7 +19,15 @@ from graphistry.compute.gfql.same_path.df_utils import (
     domain_is_empty,
     series_values,
 )
-from graphistry.otel import otel_enabled, otel_span
+try:
+    from graphistry.otel import otel_span, otel_enabled  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    @contextmanager
+    def otel_span(*_args: Any, **_kwargs: Any):
+        yield
+
+    def otel_enabled() -> bool:
+        return False
 from graphistry.compute.gfql.same_path.multihop import apply_non_adjacent_where_post_prune
 from graphistry.compute.gfql.same_path.path_state_ops import (
     backward_propagate_constraints,
