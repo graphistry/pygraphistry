@@ -9,17 +9,7 @@ from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
-try:
-    from graphistry.otel import otel_traced, otel_detail_enabled  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - optional dependency
-    def otel_traced(*_args: Any, **_kwargs: Any):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    def otel_detail_enabled() -> bool:
-        return False
+from graphistry.otel import otel_detail_enabled, otel_traced
 from .gfql.policy import (
     PolicyContext,
     PolicyException,
