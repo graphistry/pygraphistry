@@ -11,9 +11,7 @@ from graphistry.compute.gfql.df_executor import (
     execute_same_path_chain,
 )
 from graphistry.compute.gfql.same_path_types import col, compare
-from graphistry.tests.test_compute import CGFull
-
-from tests.gfql.ref.conftest import _assert_parity, run_chain_with_parity
+from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_with_parity
 
 
 class TestWhereClauseEdgeColumns:
@@ -29,7 +27,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "c", "etype": "follow"},  # same type - VALID
             {"src": "b", "dst": "d", "etype": "block"},   # different type - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -57,7 +55,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "c", "etype": "follow"},  # same type - INVALID
             {"src": "b", "dst": "d", "etype": "block"},   # different type - VALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -85,7 +83,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "c", "weight": 5},   # 10 > 5 - VALID
             {"src": "b", "dst": "d", "weight": 15},  # 10 < 15 - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -111,7 +109,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "a", "dst": "b", "weight": 5},   # a.priority(10) > weight(5) - VALID
             {"src": "a", "dst": "c", "weight": 15},  # a.priority(10) < weight(15) - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -138,7 +136,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "d", "weight": 10},  # different from e1 - VALID
             {"src": "c", "dst": "d", "weight": 10},  # same as e2 - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -172,7 +170,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b1", "dst": "c", "etype": "block"},   # different from e1
             {"src": "b2", "dst": "c", "etype": "follow"},  # same as e1
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -206,7 +204,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b1", "dst": "c", "etype": "block"},
             {"src": "b2", "dst": "c", "etype": "block"},  # different from e1 - PASSES edge
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -239,7 +237,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "c", "etype": "B"},  # != A, != C below
             {"src": "c", "dst": "d", "etype": "C"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -271,7 +269,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "c", "etype": "B"},
             {"src": "c", "dst": "d", "etype": "B"},  # same as e2 - FAILS
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -304,7 +302,7 @@ class TestWhereClauseEdgeColumns:
             {"src": "b", "dst": "d", "weight": 7},
             {"src": "c", "dst": "d", "weight": 5},   # but this edge has weight=5
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Single-hop test with node vs edge comparison
         chain = [
@@ -334,7 +332,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "c", "dst": "b", "etype": "follow"},   # traverse reverse: b <- c (VALID)
             {"src": "d", "dst": "b", "etype": "block"},    # traverse reverse: b <- d (INVALID)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -362,7 +360,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "c", "dst": "b", "etype": "friend"},   # b-c (stored as c->b, traverse as b->c)
             {"src": "c", "dst": "d", "etype": "friend"},   # c-d
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -391,7 +389,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "etype": "friend"},   # same as e1 - VALID
             {"src": "b", "dst": "d", "etype": "enemy"},    # different from e1 - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -419,7 +417,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "etype": "follow"},   # same - VALID
             {"src": "b", "dst": "d", "etype": None},       # NULL - should be excluded
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -446,7 +444,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "a", "dst": "b", "weight": 5},
             {"src": "b", "dst": "c", "weight": None},  # NULL
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -477,7 +475,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "d", "weight": 10},   # 10 == 10 - INVALID for >
             {"src": "b", "dst": "e", "weight": 15},   # 10 < 15 - INVALID for >
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -506,7 +504,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "weight": 10},   # 10 <= 10 - VALID
             {"src": "b", "dst": "d", "weight": 5},    # 10 <= 5 - INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -534,7 +532,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "etype": "x"},
             {"src": "c", "dst": "d", "etype": "x"},   # all same - VALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -566,7 +564,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "etype": "x"},
             {"src": "c", "dst": "d", "etype": "y"},   # mismatch
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -599,7 +597,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "c", "dst": "b", "etype": "friend"},   # stored c->b, traverse reverse
             {"src": "d", "dst": "b", "etype": "enemy"},    # stored d->b, traverse reverse
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -628,7 +626,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "b", "dst": "c", "etype": "foo"},
             {"src": "d", "dst": "c", "etype": "bar"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -655,7 +653,7 @@ class TestEdgeWhereDirectionAndHops:
             {"src": "a", "dst": "b", "label": "alpha"},
             {"src": "b", "dst": "c", "label": "alpha"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -687,7 +685,7 @@ class TestDimensionCoverageMatrix:
             {"src": "c", "dst": "b", "weight": 5},   # reverse: b <- c, 10 > 5 so e1 < e2 is False
             {"src": "d", "dst": "b", "weight": 15},  # reverse: b <- d, 10 < 15 so e1 < e2 is True
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -715,7 +713,7 @@ class TestDimensionCoverageMatrix:
             {"src": "c", "dst": "b", "weight": 10},  # 10 >= 10 True
             {"src": "d", "dst": "b", "weight": 15},  # 10 >= 15 False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -745,7 +743,7 @@ class TestDimensionCoverageMatrix:
             {"src": "c", "dst": "b", "weight": 5},   # stored as c->b, traverse as b--c
             {"src": "b", "dst": "d", "weight": 15},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -773,7 +771,7 @@ class TestDimensionCoverageMatrix:
             {"src": "b", "dst": "c", "weight": 10},  # 10 <= 10 True
             {"src": "d", "dst": "b", "weight": 5},   # stored d->b, 10 <= 5 False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -801,7 +799,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": None},  # NULL
             {"src": "b", "dst": "c", "weight": 10},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -827,7 +825,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": 10},
             {"src": "b", "dst": "c", "weight": None},  # NULL
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -853,7 +851,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": None},
             {"src": "b", "dst": "c", "weight": 10},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -878,7 +876,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": 10},
             {"src": "b", "dst": "c", "weight": None},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -905,7 +903,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": None},
             {"src": "b", "dst": "c", "weight": None},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -931,7 +929,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": None},
             {"src": "b", "dst": "c", "weight": None},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -959,7 +957,7 @@ class TestDimensionCoverageMatrix:
             {"src": "b", "dst": "c", "weight": 10},    # 10 == 10: VALID
             {"src": "b", "dst": "d", "weight": None},  # 10 == NULL: INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -987,7 +985,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "weight": 10.0},
             {"src": "b", "dst": "c", "weight": np.nan},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1012,7 +1010,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b", "label": "foo"},
             {"src": "b", "dst": "c", "label": None},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1039,7 +1037,7 @@ class TestDimensionCoverageMatrix:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1072,7 +1070,7 @@ class TestRemainingDimensionGaps:
             {"src": "c", "dst": "b", "weight": 5},   # 10 > 5: True
             {"src": "d", "dst": "b", "weight": 15},  # 10 > 15: False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1100,7 +1098,7 @@ class TestRemainingDimensionGaps:
             {"src": "c", "dst": "b", "weight": 10},  # 10 <= 10: True
             {"src": "d", "dst": "b", "weight": 5},   # 10 <= 5: False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1130,7 +1128,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "c", "weight": 5},   # 10 > 5: True
             {"src": "d", "dst": "b", "weight": 15},  # stored d->b, 10 > 15: False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1158,7 +1156,7 @@ class TestRemainingDimensionGaps:
             {"src": "c", "dst": "b", "weight": 10},  # stored c->b, 10 >= 10: True
             {"src": "b", "dst": "d", "weight": 15},  # 10 >= 15: False
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1186,7 +1184,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "c", "etype": "friend"},  # friend != friend: False
             {"src": "d", "dst": "b", "etype": "enemy"},   # friend != enemy: True
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1216,7 +1214,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "c", "weight": 5},
             {"src": "c", "dst": "d", "weight": 10},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Single hop - just to verify edge WHERE works
         chain = [
@@ -1242,7 +1240,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "d", "weight": 5},
             {"src": "d", "dst": "e", "weight": 10},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Two single-hop steps to compare
         chain = [
@@ -1273,7 +1271,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "a", "weight": 10},  # reverse: a <- b
             {"src": "c", "dst": "b", "weight": 10},  # reverse: b <- c
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1297,7 +1295,7 @@ class TestRemainingDimensionGaps:
             {"src": "a", "dst": "b", "weight": 10},
             {"src": "c", "dst": "b", "weight": 5},  # stored c->b
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1321,7 +1319,7 @@ class TestRemainingDimensionGaps:
             {"src": "a", "dst": "b", "weight": 10},  # a.x(10) == weight(10) == b.y(10): VALID
             {"src": "a", "dst": "c", "weight": 10},  # a.x(10) == weight(10) != c.y(5): INVALID
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1352,7 +1350,7 @@ class TestRemainingDimensionGaps:
             {"src": "c", "dst": "b", "etype": "call"},     # stored c->b, traverse reverse
             {"src": "d", "dst": "b", "etype": "callback"}, # stored d->b, traverse reverse
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1380,7 +1378,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "c", "etype": "out"},  # forward from b
             {"src": "b", "dst": "d", "etype": "in"},   # forward from b, different type
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1408,7 +1406,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "c", "etype": "link"},  # forward
             {"src": "b", "dst": "d", "etype": "other"}, # forward, different type
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1439,7 +1437,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "d", "etype": "x"},
             {"src": "c", "dst": "d", "etype": "x"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1469,7 +1467,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "d", "etype": "x"},  # matches a->b
             {"src": "c", "dst": "d", "etype": "y"},  # matches a->c
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1498,7 +1496,7 @@ class TestRemainingDimensionGaps:
             {"src": "b", "dst": "d", "etype": "x"},  # matches a->b
             {"src": "c", "dst": "d", "etype": "x"},  # does NOT match a->c (y != x)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),

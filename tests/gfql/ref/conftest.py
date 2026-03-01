@@ -185,6 +185,10 @@ def run_chain_checked(graph, chain, where, engine=Engine.PANDAS):
     return execute_same_path_chain(graph, chain, where, engine)
 
 
+def make_cg_graph(nodes, edges, node_col="id", src_col="src", dst_col="dst"):
+    return CGFull().nodes(nodes, node_col).edges(edges, src_col, dst_col)
+
+
 # Determine which engines to test based on TEST_CUDF environment variable
 _ENGINE_MODES = ['pandas']
 if TEST_CUDF:

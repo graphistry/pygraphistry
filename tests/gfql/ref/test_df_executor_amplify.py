@@ -7,8 +7,7 @@ from graphistry.Engine import Engine
 from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import col, compare
-from graphistry.tests.test_compute import CGFull
-from tests.gfql.ref.conftest import _assert_parity, run_chain_with_parity
+from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_with_parity
 
 
 class TestYannakakisPrinciple:
@@ -26,7 +25,7 @@ class TestYannakakisPrinciple:
             {"src": "a", "dst": "x"},
             {"src": "x", "dst": "y"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -60,7 +59,7 @@ class TestYannakakisPrinciple:
             {"src": "a", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -91,7 +90,7 @@ class TestYannakakisPrinciple:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "x"},  # Spurious edge
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -124,7 +123,7 @@ class TestYannakakisPrinciple:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -152,7 +151,7 @@ class TestYannakakisPrinciple:
             {"src": "b", "dst": "d"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -185,7 +184,7 @@ class TestYannakakisPrinciple:
             {"src": "a", "dst": "p"},
             {"src": "p", "dst": "q"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -219,7 +218,7 @@ class TestHopLabelingPatterns:
             {"src": "a", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -245,7 +244,7 @@ class TestHopLabelingPatterns:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Multiple seeds via filter
         chain = [
@@ -272,7 +271,7 @@ class TestHopLabelingPatterns:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -296,7 +295,7 @@ class TestHopLabelingPatterns:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -326,7 +325,7 @@ class TestHopLabelingPatterns:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -357,7 +356,7 @@ class TestSensitivePhenomena:
             {"src": "b", "dst": "c"},
             {"src": "d", "dst": "b"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Forward should find b, c
         chain_fwd = [
@@ -385,7 +384,7 @@ class TestSensitivePhenomena:
             {"src": "b", "dst": "a"},
             {"src": "c", "dst": "b"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Reverse should find b, c
         chain_rev = [
@@ -410,7 +409,7 @@ class TestSensitivePhenomena:
         edges = pd.DataFrame([
             {"src": "b", "dst": "a"},  # Points TO a, not from a
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -434,7 +433,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Filter for type="special" which doesn't exist
         chain = [
@@ -461,7 +460,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -493,7 +492,7 @@ class TestSensitivePhenomena:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -522,7 +521,7 @@ class TestSensitivePhenomena:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -550,7 +549,7 @@ class TestSensitivePhenomena:
         edges = pd.DataFrame([
             {"src": "a", "dst": "b"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -575,7 +574,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -602,7 +601,7 @@ class TestSensitivePhenomena:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -632,7 +631,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -659,7 +658,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "a"},  # Self-loop
             {"src": "a", "dst": "b"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -681,7 +680,7 @@ class TestSensitivePhenomena:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "a"},  # Creates cycle
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -708,7 +707,7 @@ class TestSensitivePhenomena:
             {"src": "c", "dst": "a"},  # Cycle back
             {"src": "c", "dst": "d"},  # Branch out
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -736,7 +735,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "a", "dst": "b"},
             {"src": "a", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -759,7 +758,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "a", "dst": "c"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -782,7 +781,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "a", "dst": "b", "type": "friend"},
             {"src": "a", "dst": "c", "type": "enemy"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -805,7 +804,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -830,7 +829,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "b", "dst": "c"},
             {"src": "a", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -861,7 +860,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "b", "dst": "c", "quality": "good"},
             {"src": "b", "dst": "d", "quality": "bad"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -885,7 +884,7 @@ class TestNodeEdgeMatchFilters:
             {"src": "b", "dst": "a"},  # Points TO a
             {"src": "b", "dst": "c"},  # Points TO c
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -915,7 +914,7 @@ class TestWhereClauseConjunction:
             {"src": "b", "dst": "d"},
             {"src": "b", "dst": "e"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -946,7 +945,7 @@ class TestWhereClauseConjunction:
             {"src": "b", "dst": "d"},
             {"src": "b", "dst": "e"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -979,7 +978,7 @@ class TestWhereClauseConjunction:
             {"src": "b1", "dst": "c2"},
             {"src": "b2", "dst": "c1"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1012,7 +1011,7 @@ class TestWhereClauseConjunction:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1038,7 +1037,7 @@ class TestWhereClauseConjunction:
             {"src": "a", "dst": "b"},
             {"src": "a", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1065,7 +1064,7 @@ class TestWhereClauseConjunction:
             {"src": "a", "dst": "b"},
             {"src": "a", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1096,7 +1095,7 @@ class TestWhereClauseConjunction:
             {"src": "b1", "dst": "c"},
             {"src": "b2", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1133,7 +1132,7 @@ class TestWhereClauseConjunction:
             {"src": "b", "dst": "a"},  # reversed - need undirected to traverse
             {"src": "c", "dst": "b"},  # reversed
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1161,7 +1160,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "b"},
             {"src": "a", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1186,7 +1185,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "c"},
             {"src": "a", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1215,7 +1214,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "c"},
             {"src": "a", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1244,7 +1243,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "c"},
             {"src": "a", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1273,7 +1272,7 @@ class TestWhereClauseNegation:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1299,7 +1298,7 @@ class TestWhereClauseNegation:
             {"src": "b1", "dst": "c"},
             {"src": "b2", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1330,7 +1329,7 @@ class TestWhereClauseNegation:
             {"src": "b1", "dst": "c2"},
             {"src": "b2", "dst": "c2"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1361,7 +1360,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "b"},
             {"src": "a", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1387,7 +1386,7 @@ class TestWhereClauseNegation:
             {"src": "b1", "dst": "c"},
             {"src": "b2", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1424,7 +1423,7 @@ class TestWhereClauseNegation:
             {"src": "b1", "dst": "c"},
             {"src": "b2", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1457,7 +1456,7 @@ class TestWhereClauseNegation:
             {"src": "b2", "dst": "c"},
             {"src": "b3", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1488,7 +1487,7 @@ class TestWhereClauseNegation:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1519,7 +1518,7 @@ class TestWhereClauseNegation:
             {"src": "b2", "dst": "c2"},
             {"src": "b3", "dst": "c3"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1548,7 +1547,7 @@ class TestWhereClauseNegation:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "a"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Test 1: hop 1 only - b should pass
         chain1 = [
@@ -1590,7 +1589,7 @@ class TestWhereClauseNegation:
             {"src": "c", "dst": "b1"},  # reversed
             {"src": "c", "dst": "b2"},  # reversed
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1619,7 +1618,7 @@ class TestWhereClauseNegation:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),
@@ -1651,7 +1650,7 @@ class TestWhereClauseNegation:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="a"),

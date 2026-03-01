@@ -19,12 +19,11 @@ from graphistry.compute.gfql_unified import gfql
 from graphistry.compute.chain import Chain
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
-from graphistry.tests.test_compute import CGFull
-
 from tests.gfql.ref.conftest import (
     _make_graph,
     _make_hop_graph,
     _assert_parity,
+    make_cg_graph,
     run_chain_checked,
     TEST_CUDF,
     requires_gpu,
@@ -455,7 +454,7 @@ def test_topology_parity_scenarios():
     scenarios.append((nodes_edge_filter, edges_edge_filter, chain_edge_filter, where_edge_filter, {"dst": {"user1", "user2"}}))
 
     for nodes_df, edges_df, chain, where, edge_expect in scenarios:
-        graph = CGFull().nodes(nodes_df, "id").edges(edges_df, "src", "dst")
+        graph = make_cg_graph(nodes_df, edges_df)
         _assert_parity(graph, chain, where)
         if edge_expect:
             assert graph._edge is None or "etype" in edges_df.columns  # guard unused expectation
@@ -482,7 +481,7 @@ def test_cudf_gpu_path_if_available():
             {"src": "acct2", "dst": "user2"},
         ]
     )
-    graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+    graph = make_cg_graph(nodes, edges)
     chain = [
         n({"type": "account"}, name="a"),
         e_forward(name="r"),
@@ -568,7 +567,7 @@ class TestP0FeatureComposition:
             {"src": "a", "dst": "x"},
             {"src": "x", "dst": "y"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"type": "start"}, name="start"),
@@ -597,7 +596,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "d"}, name="start"),
@@ -626,7 +625,7 @@ class TestP0FeatureComposition:
             {"src": "y", "dst": "x"},  # cycle back
             {"src": "y", "dst": "z"},  # no cycle
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="a"),
@@ -660,7 +659,7 @@ class TestP0FeatureComposition:
             {"src": "n2", "dst": "n3"},
             {"src": "n2", "dst": "n4"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="a"),
@@ -685,7 +684,7 @@ class TestP0FeatureComposition:
             {"src": "n2", "dst": "n3"},
             {"src": "n2", "dst": "n4"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="a"),
@@ -719,7 +718,7 @@ class TestP0FeatureComposition:
             {"src": "y", "dst": "x"},  # cycle back
             {"src": "y", "dst": "z"},  # no cycle
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="a"),
@@ -758,7 +757,7 @@ class TestP0FeatureComposition:
             {"src": "n2", "dst": "n4"},
             {"src": "n2", "dst": "n5"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="a"),
@@ -795,7 +794,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "b", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -826,7 +825,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "a"},
             {"src": "d", "dst": "b"},  # d->b, so traversing reverse: b<-d
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -852,7 +851,7 @@ class TestP0FeatureComposition:
             {"src": "c", "dst": "b"},  # c->b (reverse to reach c from b)
             {"src": "d", "dst": "b"},  # d->b (reverse to reach d from b)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -882,7 +881,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "c"},  # b->c (forward from b)
             {"src": "b", "dst": "d"},  # b->d (reverse from d to reach b)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -915,7 +914,7 @@ class TestP0FeatureComposition:
             {"src": "c", "dst": "d"},  # endpoint from c
             {"src": "c", "dst": "e"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -942,7 +941,7 @@ class TestP0FeatureComposition:
             {"src": "c", "dst": "b"},  # reverse: b <- c (2 hops from a)
             {"src": "d", "dst": "c"},  # reverse: c <- d
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -970,7 +969,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -992,7 +991,7 @@ class TestP0FeatureComposition:
             {"src": "c", "dst": "b"},  # reverse: b <- c
             {"src": "c", "dst": "a"},  # reverse: a <- c
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1013,7 +1012,7 @@ class TestP0FeatureComposition:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1036,7 +1035,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "b"},  # Self-loop
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1060,7 +1059,7 @@ class TestP0FeatureComposition:
             {"src": "a", "dst": "c"},  # a->c: 5 != 10
             {"src": "b", "dst": "b"},  # Self-loop: 5 == 5
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1083,7 +1082,7 @@ class TestP0FeatureComposition:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "a"},  # Creates cycle a->b->a
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1106,7 +1105,7 @@ class TestP0FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "a"},  # Completes the triangle
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1130,7 +1129,7 @@ class TestP0FeatureComposition:
             {"src": "a", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1222,7 +1221,7 @@ class TestP0FeatureComposition:
         ]
 
         for nodes_df, edges_df, chain, where, desc in scenarios:
-            graph = CGFull().nodes(nodes_df, "id").edges(edges_df, "src", "dst")
+            graph = make_cg_graph(nodes_df, edges_df)
             inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
             executor = DFSamePathExecutor(inputs)
             executor._forward()
@@ -1261,7 +1260,7 @@ class TestP1FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1295,7 +1294,7 @@ class TestP1FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1318,7 +1317,7 @@ class TestP1FeatureComposition:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "seed"}, name="start"),
@@ -1352,7 +1351,7 @@ class TestP1FeatureComposition:
             {"src": "b2", "dst": "c2"},
             {"src": "c2", "dst": "c3"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"type": "A"}, name="a"),
@@ -1386,7 +1385,7 @@ class TestUnfilteredStarts:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),  # No filter - all nodes can be start
@@ -1414,7 +1413,7 @@ class TestUnfilteredStarts:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "a"},  # Cycle
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),  # No filter
@@ -1441,7 +1440,7 @@ class TestUnfilteredStarts:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "a"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),
@@ -1469,7 +1468,7 @@ class TestUnfilteredStarts:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),  # No filter
@@ -1495,7 +1494,7 @@ class TestUnfilteredStarts:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n(name="start"),  # No filter
@@ -1523,7 +1522,7 @@ class TestUnfilteredStarts:
             {"src": "b", "dst": "c"},
             {"src": "c", "dst": "d"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "d"}, name="start"),  # Filtered to 'd'
@@ -1549,7 +1548,7 @@ class TestUnfilteredStarts:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),  # Filtered to 'a'
@@ -1585,7 +1584,7 @@ class TestOracleLimitations:
             {"src": "a", "dst": "b", "weight": 1},
             {"src": "b", "dst": "c", "weight": 2},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1614,7 +1613,7 @@ class TestP0ReverseMultihop:
             {"src": "b", "dst": "a"},  # reverse: a <- b
             {"src": "c", "dst": "b"},  # reverse: b <- c
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1642,7 +1641,7 @@ class TestP0ReverseMultihop:
             {"src": "c", "dst": "b"},  # b <- c (so a <- b <- c)
             {"src": "d", "dst": "b"},  # b <- d (so a <- b <- d)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1669,7 +1668,7 @@ class TestP0ReverseMultihop:
             {"src": "c", "dst": "b"},  # b <- c
             {"src": "a", "dst": "c"},  # c <- a (creates cycle)
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -1690,7 +1689,7 @@ class TestP0ReverseMultihop:
             {"src": "a", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         # Reverse from c
         chain_rev = [
@@ -1720,7 +1719,7 @@ class TestP0MultipleStarts:
             {"src": "a2", "dst": "b"},
             {"src": "b", "dst": "c"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"type": "start"}, name="start"),
@@ -1746,7 +1745,7 @@ class TestP0MultipleStarts:
             {"src": "s2", "dst": "m2"},
             {"src": "m2", "dst": "e2"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"type": "start"}, name="start"),
@@ -1778,7 +1777,7 @@ class TestP0MultipleStarts:
             {"src": "shared", "dst": "end1"},
             {"src": "shared", "dst": "end2"},
         ])
-        graph = CGFull().nodes(nodes, "id").edges(edges, "src", "dst")
+        graph = make_cg_graph(nodes, edges)
 
         chain = [
             n({"type": "start"}, name="start"),
@@ -1872,7 +1871,7 @@ class TestDFExecutorFeatureParity:
     def test_named_alias_tags_with_where(self):
         nodes = pd.DataFrame({'id': [0, 1, 2, 3], 'v': [0, 1, 2, 3]})
         edges = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3], 'eid': [0, 1, 2]})
-        g = CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst')
+        g = make_cg_graph(nodes, edges)
 
         # Without WHERE
         chain_no_where = Chain([n(name='a'), e_forward(name='e'), n(name='b')])
@@ -1895,7 +1894,7 @@ class TestDFExecutorFeatureParity:
     def test_hop_labels_preserved_with_where(self):
         nodes = pd.DataFrame({'id': [0, 1, 2, 3], 'v': [0, 1, 2, 3]})
         edges = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3], 'eid': [0, 1, 2]})
-        g = CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst')
+        g = make_cg_graph(nodes, edges)
 
         # Without WHERE
         chain_no_where = Chain([
@@ -1925,7 +1924,7 @@ class TestDFExecutorFeatureParity:
             'dst': ['b', 'c', 'd', 'e'],
             'eid': [0, 1, 2, 3]
         })
-        g = CGFull().nodes(nodes, 'id').edges(edges, 'src', 'dst')
+        g = make_cg_graph(nodes, edges)
 
         # Without WHERE - output_min_hops=2 should exclude hop 1 edges
         chain_no_where = Chain([
