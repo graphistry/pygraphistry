@@ -11,6 +11,7 @@ from typing import Optional
 
 
 def setup_tracer() -> bool:
+    # Keep benchmark runs deterministic unless tracing is explicitly requested.
     if os.environ.get("GRAPHISTRY_OTEL", "").strip().lower() not in {"1", "true", "yes", "on"}:
         return False
 
