@@ -75,9 +75,9 @@ def test_plot_injects_traceparent(mock_post, mock_inject):
 @mock.patch("graphistry.ArrowFileUploader.inject_trace_headers")
 @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_upload_injects_traceparent(mock_post, mock_inject, mock_inject_files):
-    mock_inject.side_effect = _inject_trace
-    mock_inject_files.side_effect = _inject_trace
+def test_upload_injects_traceparent(mock_post, mock_inject_uploader, mock_inject_file):
+    mock_inject_uploader.side_effect = _inject_trace
+    mock_inject_file.side_effect = _inject_trace
     headers_seen = []
 
     def _fake_post(url, **kwargs):
