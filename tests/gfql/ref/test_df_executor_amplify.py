@@ -8,7 +8,7 @@ from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.tests.test_compute import CGFull
-from tests.gfql.ref.conftest import _assert_parity
+from tests.gfql.ref.conftest import _assert_parity, run_chain_with_parity
 
 
 class TestYannakakisPrinciple:
@@ -35,11 +35,7 @@ class TestYannakakisPrinciple:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
-        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+        result, result_nodes, result_edges = run_chain_with_parity(graph, chain, where)
 
         # Valid path a->b->c should be included
         assert {"a", "b", "c"} <= result_nodes
@@ -73,11 +69,7 @@ class TestYannakakisPrinciple:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
-        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+        result, result_nodes, result_edges = run_chain_with_parity(graph, chain, where)
 
         # All nodes on valid paths
         assert result_nodes == {"a", "b", "c", "d"}
@@ -108,10 +100,7 @@ class TestYannakakisPrinciple:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+        result, _, result_edges = run_chain_with_parity(graph, chain, where)
 
         # Valid path edges included
         assert ("a", "b") in result_edges
@@ -145,10 +134,7 @@ class TestYannakakisPrinciple:
         # Valid path exists: a->b->c->d where a.v=1 < d.v=10
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Full path should be included
         assert result_nodes == {"a", "b", "c", "d"}
@@ -175,11 +161,7 @@ class TestYannakakisPrinciple:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
-        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+        result, result_nodes, result_edges = run_chain_with_parity(graph, chain, where)
 
         # All nodes and edges from both paths
         assert result_nodes == {"a", "b", "c", "d"}
@@ -212,10 +194,7 @@ class TestYannakakisPrinciple:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Valid paths: a->b->c, a->p->q
         assert {"a", "b", "c", "p", "q"} <= result_nodes
@@ -249,10 +228,7 @@ class TestHopLabelingPatterns:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # d is reachable via both b and c - both intermediates should be included
         assert result_nodes == {"a", "b", "c", "d"}
@@ -279,10 +255,7 @@ class TestHopLabelingPatterns:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Both seeds and all reachable nodes
         assert {"a", "b", "c", "d"} <= result_nodes
@@ -308,10 +281,7 @@ class TestHopLabelingPatterns:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # All nodes on paths of length 2-3
         assert result_nodes == {"a", "b", "c", "d"}
@@ -365,10 +335,7 @@ class TestHopLabelingPatterns:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # All nodes reachable via undirected traversal
         assert {"a", "b", "c"} <= result_nodes
@@ -452,10 +419,7 @@ class TestSensitivePhenomena:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "undirected should find b via backward edge"
 
     # --- Filter Cascades ---
@@ -541,10 +505,7 @@ class TestSensitivePhenomena:
         # Compare start to end, ignoring middle
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Path a->b->c->d: start.v=1 < end.v=10, valid
         # c is middle at hop 2, d is end
         assert "d" in result_nodes
@@ -574,10 +535,7 @@ class TestSensitivePhenomena:
             compare(col("start", "type"), "==", col("end", "type")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # c matches both constraints, d fails type constraint
         assert "c" in result_nodes
         assert "d" not in result_nodes
@@ -602,10 +560,7 @@ class TestSensitivePhenomena:
         # a.v <= end.v (includes a itself since 5 <= 5)
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Both a (0 hops) and b (1 hop) should be valid endpoints
         assert "a" in result_nodes, "min_hops=0 should include seed"
         assert "b" in result_nodes
@@ -629,10 +584,7 @@ class TestSensitivePhenomena:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes
         assert "c" in result_nodes
 
@@ -659,11 +611,7 @@ class TestSensitivePhenomena:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
-        result_edges = set(zip(result._edges["src"], result._edges["dst"])) if result._edges is not None else set()
+        result, result_nodes, result_edges = run_chain_with_parity(graph, chain, where)
 
         # Both destinations should be found
         assert "c" in result_nodes
@@ -720,10 +668,7 @@ class TestSensitivePhenomena:
         ]
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Both a (via self-loop) and b should be reachable
         assert "b" in result_nodes
 
@@ -746,10 +691,7 @@ class TestSensitivePhenomena:
         # a.v=5 <= end.v, so a (reached at hop 2) is valid
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # a is reachable at hop 2 via a->b->a
         assert "a" in result_nodes, "should reach a via cycle at hop 2"
 
@@ -775,10 +717,7 @@ class TestSensitivePhenomena:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # b (hop 1), c (hop 2), d (hop 3) should all be reachable
         assert "b" in result_nodes
         assert "c" in result_nodes
@@ -806,10 +745,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "should reach target type node"
         assert "c" not in result_nodes, "should not reach other type node"
 
@@ -832,10 +768,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "a" in result_nodes, "good type source should be included"
         assert "b" not in result_nodes, "bad type source should be excluded"
 
@@ -858,10 +791,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "should reach via friend edge"
         assert "c" not in result_nodes, "should not reach via enemy edge"
 
@@ -884,10 +814,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "should reach b (target) at hop 1"
         assert "c" in result_nodes, "should reach c (target) at hop 2"
 
@@ -916,10 +843,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "a" in result_nodes, "sender a should be included"
         assert "c" in result_nodes, "target c should be reached"
         assert "b" not in result_nodes, "receiver b should be excluded as source"
@@ -946,10 +870,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "should reach b via good edge"
         assert "c" in result_nodes, "should reach c via good edges"
         assert "d" not in result_nodes, "should not reach d via bad edge"
@@ -973,10 +894,7 @@ class TestNodeEdgeMatchFilters:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "should reach b (target) at hop 1"
         assert "c" in result_nodes, "should reach c (target) at hop 2"
 
@@ -1009,10 +927,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "y"), "<", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c satisfies both clauses"
         assert "d" not in result_nodes, "d fails y clause"
         assert "e" not in result_nodes, "e fails x clause"
@@ -1044,10 +959,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "z"), ">", col("end", "z")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c satisfies all three clauses"
         assert "d" not in result_nodes, "d fails z clause"
         assert "e" not in result_nodes, "e fails x clause"
@@ -1081,10 +993,7 @@ class TestWhereClauseConjunction:
             compare(col("a", "y"), "<", col("c", "y")),   # non-adjacent
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Only path a->b1->c1 satisfies both clauses
         assert "b1" in result_nodes, "b1 has x==5 matching a"
         assert "c1" in result_nodes, "c1 has y>1"
@@ -1115,10 +1024,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "y"), "<", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c satisfies both clauses"
         assert "d" not in result_nodes, "d fails y clause"
 
@@ -1145,10 +1051,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "y"), "<", col("end", "y")),  # need end.y > 5
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" in result_nodes, "b satisfies: 5>3 AND 5<7"
         assert "c" not in result_nodes, "c fails: 5<7"
 
@@ -1174,10 +1077,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "y"), "<", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Only 'a' (seed) should remain, no valid endpoints
         assert "a" in result_nodes or len(result_nodes) == 0, "empty or seed-only result"
         assert "b" not in result_nodes, "b fails x clause"
@@ -1210,10 +1110,7 @@ class TestWhereClauseConjunction:
             compare(col("a", "y"), "<", col("c", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         result_edges = result._edges
 
         # c should be reachable via the valid path a->b1->c
@@ -1248,10 +1145,7 @@ class TestWhereClauseConjunction:
             compare(col("start", "y"), "<", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c reachable via undirected and satisfies both clauses"
 
 
@@ -1276,10 +1170,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("start", "x"), "!=", col("end", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c has different x value"
         assert "b" not in result_nodes, "b has same x value as a"
 
@@ -1307,10 +1198,7 @@ class TestWhereClauseNegation:
             compare(col("start", "y"), "==", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c: x!=5 AND y==10"
         assert "b" not in result_nodes, "b: x==5 fails !="
         assert "d" not in result_nodes, "d: y!=10 fails =="
@@ -1339,10 +1227,7 @@ class TestWhereClauseNegation:
             compare(col("start", "y"), ">", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "c" in result_nodes, "c: x!=5 AND 10>5"
         assert "b" not in result_nodes, "b: x==5 fails !="
         assert "d" not in result_nodes, "d: 10<15 fails >"
@@ -1371,10 +1256,7 @@ class TestWhereClauseNegation:
             compare(col("start", "y"), "!=", col("end", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "d" in result_nodes, "d: x!=5 AND y!=10"
         assert "b" not in result_nodes, "b: x==5 fails first !="
         assert "c" not in result_nodes, "c: y==10 fails second !="
@@ -1400,10 +1282,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("start", "x"), "!=", col("end", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "d" in result_nodes, "d has different x value"
         assert "c" not in result_nodes, "c has same x value as a"
 
@@ -1431,10 +1310,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("a", "x"), "!=", col("b", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b2" in result_nodes, "b2 has different x"
         assert "c" in result_nodes, "c reachable via b2"
         assert "b1" not in result_nodes, "b1 has same x as a"
@@ -1468,10 +1344,7 @@ class TestWhereClauseNegation:
             compare(col("a", "y"), "!=", col("c", "y")),  # non-adjacent
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         # Valid path: a->b1->c2 (b1.x==5, c2.y!=10)
         assert "b1" in result_nodes, "b1 has x==5"
         assert "c2" in result_nodes, "c2 has y!=10"
@@ -1497,10 +1370,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("start", "x"), "!=", col("end", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         assert "b" not in result_nodes, "b has same x"
         assert "c" not in result_nodes, "c has same x"
 
@@ -1528,10 +1398,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("a", "x"), "!=", col("b", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
         result_edges = result._edges
 
         assert "c" in result_nodes, "c reachable via a->b2->c"
@@ -1568,10 +1435,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("a", "x"), "!=", col("b", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c not reachable - all paths fail"
         assert "b1" not in result_nodes, "b1 fails !="
@@ -1607,10 +1471,7 @@ class TestWhereClauseNegation:
             compare(col("a", "y"), "==", col("c", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c reachable via b2"
         assert "b2" in result_nodes, "b2 on valid path"
@@ -1636,10 +1497,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("start", "x"), "!=", col("end", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c has same x as start"
 
@@ -1670,10 +1528,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("start", "x"), "!=", col("end", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c2" in result_nodes, "c2.x=10 != a.x=5"
         assert "b2" in result_nodes, "b2 on valid path to c2"
@@ -1746,10 +1601,7 @@ class TestWhereClauseNegation:
         ]
         where = [compare(col("a", "x"), "!=", col("b", "x"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c reachable via b2"
         assert "b2" in result_nodes, "b2 passes !="
@@ -1781,10 +1633,7 @@ class TestWhereClauseNegation:
             compare(col("b", "x"), "==", col("c", "x")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: a.x!=b.x AND b.x==c.x"
         assert "b" in result_nodes, "b on valid path"
@@ -1816,11 +1665,7 @@ class TestWhereClauseNegation:
             compare(col("b", "x"), "!=", col("c", "x")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: 5!=10 AND 10!=5"
         assert "d" not in result_nodes, "d: 10==10 fails second !="
-

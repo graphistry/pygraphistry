@@ -8,6 +8,7 @@ from graphistry.Engine import Engine
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     DFSamePathExecutor,
+    execute_same_path_chain,
 )
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
@@ -169,6 +170,14 @@ def to_list(series_or_df_col):
 
 def to_set(series_or_df_col):
     return set(_to_python(series_or_df_col))
+
+
+def run_chain_with_parity(graph, chain, where, engine=Engine.PANDAS):
+    _assert_parity(graph, chain, where)
+    result = execute_same_path_chain(graph, chain, where, engine)
+    node_ids = to_node_set(result._nodes) if result._nodes is not None else set()
+    edge_pairs = to_edge_set(result._edges) if result._edges is not None else set()
+    return result, node_ids, edge_pairs
 
 
 # Determine which engines to test based on TEST_CUDF environment variable

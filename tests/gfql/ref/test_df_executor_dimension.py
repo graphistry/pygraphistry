@@ -13,7 +13,7 @@ from graphistry.compute.gfql.df_executor import (
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.tests.test_compute import CGFull
 
-from tests.gfql.ref.conftest import _assert_parity
+from tests.gfql.ref.conftest import _assert_parity, run_chain_with_parity
 
 
 class TestWhereClauseEdgeColumns:
@@ -40,10 +40,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.etype == e2.etype (follow==follow)"
         assert "d" not in result_nodes, "d: e1.etype != e2.etype (follow!=block)"
@@ -71,10 +68,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("e1", "etype"), "!=", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d: e1.etype != e2.etype (follow!=block)"
         assert "c" not in result_nodes, "c: e1.etype == e2.etype (follow==follow)"
@@ -102,10 +96,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight > e2.weight (10 > 5)"
         assert "d" not in result_nodes, "d: e1.weight < e2.weight (10 < 15)"
@@ -129,10 +120,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("a", "priority"), ">", col("e", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "b" in result_nodes, "b: a.priority(10) > e.weight(5)"
         assert "c" not in result_nodes, "c: a.priority(10) < e.weight(15)"
@@ -161,10 +149,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Path a->b->d: e1.weight=5 != e2.weight=10 - VALID
         # Path a->c->d: e1.weight=10 == e2.weight=10 - INVALID
@@ -201,10 +186,7 @@ class TestWhereClauseEdgeColumns:
             compare(col("e1", "etype"), "!=", col("e2", "etype")),  # edge constraint
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Path a->b1->c: a.x==b1.x FAILS node constraint
         # Path a->b2->c: a.x!=b2.x PASSES, but e1.etype==e2.etype FAILS edge constraint
@@ -238,10 +220,7 @@ class TestWhereClauseEdgeColumns:
             compare(col("e1", "etype"), "!=", col("e2", "etype")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Path a->b2->c: a.x(5) != b2.x(10) AND e1.etype(follow) != e2.etype(block)
         assert "c" in result_nodes, "c reachable via valid path a->b2->c"
@@ -276,10 +255,7 @@ class TestWhereClauseEdgeColumns:
             compare(col("e2", "etype"), "!=", col("e3", "etype")),  # B != C - PASS
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d: A!=B AND B!=C"
 
@@ -311,10 +287,7 @@ class TestWhereClauseEdgeColumns:
             compare(col("e2", "etype"), "!=", col("e3", "etype")),  # B == B - FAIL
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" not in result_nodes, "d: B==B fails second constraint"
 
@@ -341,10 +314,7 @@ class TestWhereClauseEdgeColumns:
         ]
         where = [compare(col("start", "threshold"), "!=", col("e", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: start.threshold(5) != e.weight(10)"
         assert "b" not in result_nodes, "b: start.threshold(5) == e.weight(5)"
@@ -375,10 +345,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.etype(follow) == e2.etype(follow)"
         assert "d" not in result_nodes, "d: e1.etype(follow) != e2.etype(block)"
@@ -406,10 +373,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Both edges have etype=friend, should work despite different storage direction
         assert "b" in result_nodes, "b reachable"
@@ -438,10 +402,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.friend == e2.friend"
         assert "d" not in result_nodes, "d: e1.friend != e2.enemy"
@@ -469,10 +430,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.follow == e2.follow"
         # d should be excluded because NULL != "follow"
@@ -500,10 +458,7 @@ class TestEdgeWhereDirectionAndHops:
         # e1.weight != e2.weight: 5 != NULL -> should be excluded (SQL: NULL comparison)
         where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # NULL comparisons should fail, so c should not be included
         assert "c" not in result_nodes, "c excluded due to NULL comparison"
@@ -533,10 +488,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) > e2.weight(5)"
         assert "d" not in result_nodes, "d: e1.weight(10) == e2.weight(10)"
@@ -565,10 +517,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) <= e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) > e2.weight(5)"
@@ -601,10 +550,7 @@ class TestEdgeWhereDirectionAndHops:
             compare(col("e2", "etype"), "==", col("e3", "etype")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d reachable via path with all matching edge types"
 
@@ -636,10 +582,7 @@ class TestEdgeWhereDirectionAndHops:
             compare(col("e2", "etype"), "==", col("e3", "etype")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # e2.etype(x) != e3.etype(y), so no valid complete path
         assert "d" not in result_nodes, "d: e2.x != e3.y"
@@ -667,10 +610,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.friend == e2.friend"
         assert "d" not in result_nodes, "d: e1.friend != e2.enemy"
@@ -699,10 +639,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Only path a->b->c exists after node filter, and e1.foo == e2.foo
         assert "c" in result_nodes, "c via a->b->c with matching edge types"
@@ -729,10 +666,7 @@ class TestEdgeWhereDirectionAndHops:
         ]
         where = [compare(col("e1", "label"), "==", col("e2", "label"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: string comparison alpha == alpha"
 
@@ -764,10 +698,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d: e1.weight(10) < e2.weight(15)"
         assert "c" not in result_nodes, "c: e1.weight(10) >= e2.weight(5)"
@@ -795,10 +726,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) >= e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) < e2.weight(15)"
@@ -828,10 +756,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d: e1.weight(10) < e2.weight(15)"
         assert "c" not in result_nodes, "c: e1.weight(10) >= e2.weight(5)"
@@ -859,10 +784,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) <= e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) > e2.weight(5)"
@@ -890,10 +812,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # NULL < 10 should be NULL (treated as false)
         assert "c" not in result_nodes, "c excluded: NULL < 10 is NULL"
@@ -919,10 +838,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # 10 > NULL should be NULL (treated as false)
         assert "c" not in result_nodes, "c excluded: 10 > NULL is NULL"
@@ -948,10 +864,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c excluded: NULL <= 10 is NULL"
 
@@ -976,10 +889,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c excluded: 10 >= NULL is NULL"
 
@@ -1006,10 +916,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # NULL == NULL should be NULL (treated as false in SQL)
         assert "c" not in result_nodes, "c excluded: NULL == NULL is NULL"
@@ -1035,10 +942,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # NULL != NULL should be NULL (treated as false in SQL)
         assert "c" not in result_nodes, "c excluded: NULL != NULL is NULL"
@@ -1066,10 +970,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) == e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) == e2.weight(NULL) is NULL"
@@ -1097,10 +998,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c excluded: 10.0 == NaN is NaN"
 
@@ -1125,10 +1023,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("e1", "label"), "==", col("e2", "label"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" not in result_nodes, "c excluded: 'foo' == None is NULL"
 
@@ -1155,10 +1050,7 @@ class TestDimensionCoverageMatrix:
         ]
         where = [compare(col("start", "val"), "==", col("mid", "val"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # start.val(10) == mid.val(NULL) is NULL
         assert "c" not in result_nodes, "c excluded: path through NULL mid"
@@ -1191,10 +1083,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) > e2.weight(5)"
         assert "d" not in result_nodes, "d: e1.weight(10) <= e2.weight(15)"
@@ -1222,10 +1111,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) <= e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) > e2.weight(5)"
@@ -1255,10 +1141,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) > e2.weight(5)"
         assert "d" not in result_nodes, "d: e1.weight(10) <= e2.weight(15)"
@@ -1286,10 +1169,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.weight(10) >= e2.weight(10)"
         assert "d" not in result_nodes, "d: e1.weight(10) < e2.weight(15)"
@@ -1317,10 +1197,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "!=", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d: e1.friend != e2.enemy"
         assert "c" not in result_nodes, "c: e1.friend == e2.friend"
@@ -1377,10 +1254,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # a->b (10) -> c (10): e1==e2 True
         # a->b (10) -> d (5): e1==e2 False
@@ -1409,10 +1283,7 @@ class TestRemainingDimensionGaps:
         # start.threshold == e.weight: 10 == 10 True
         where = [compare(col("start", "threshold"), "==", col("e", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "b" in result_nodes, "b: start.threshold(10) == e.weight(10)"
 
@@ -1435,10 +1306,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("start", "threshold"), "==", col("e", "weight"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # a.threshold(10) == e.weight(10) for a--b edge
         assert "b" in result_nodes, "b: start.threshold(10) == e.weight(10)"
@@ -1465,10 +1333,7 @@ class TestRemainingDimensionGaps:
             compare(col("e", "weight"), "==", col("b", "y")),
         ]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "b" in result_nodes, "b: a.x(10) == e.weight(10) == b.y(10)"
         assert "c" not in result_nodes, "c: a.x(10) == e.weight(10) != c.y(5)"
@@ -1498,10 +1363,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.call == e2.call"
         assert "d" not in result_nodes, "d: e1.call != e2.callback"
@@ -1529,10 +1391,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.out == e2.out"
         assert "d" not in result_nodes, "d: e1.out != e2.in"
@@ -1560,10 +1419,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "c" in result_nodes, "c: e1.link == e2.link"
         assert "d" not in result_nodes, "d: e1.link != e2.other"
@@ -1594,10 +1450,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         assert "d" in result_nodes, "d reachable via both paths"
         assert "b" in result_nodes, "b on valid path"
@@ -1627,10 +1480,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Both paths are valid (x==x and y==y)
         assert "d" in result_nodes, "d reachable via both valid paths"
@@ -1659,10 +1509,7 @@ class TestRemainingDimensionGaps:
         ]
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
-        result_nodes = set(result._nodes["id"]) if result._nodes is not None else set()
+        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
 
         # Only a->b->d is valid
         assert "d" in result_nodes, "d reachable via a->b->d"
