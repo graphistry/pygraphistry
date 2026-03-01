@@ -15,7 +15,7 @@ from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from graphistry.tests.test_compute import CGFull
 
-from tests.gfql.ref.conftest import _assert_parity
+from tests.gfql.ref.conftest import _assert_parity, run_chain_checked
 
 
 class TestP1OperatorsSingleHop:
@@ -39,9 +39,7 @@ class TestP1OperatorsSingleHop:
     def test_single_hop_eq(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "==", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # Only a->b satisfies 5 == 5
         assert "a" in set(result._nodes["id"])
         assert "b" in set(result._nodes["id"])
@@ -49,9 +47,7 @@ class TestP1OperatorsSingleHop:
     def test_single_hop_neq(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "!=", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # a->c (5 != 10) and a->d (5 != 1) and c->d (10 != 1) satisfy
         result_ids = set(result._nodes["id"])
         assert "c" in result_ids, "c participates in valid paths"
@@ -60,27 +56,21 @@ class TestP1OperatorsSingleHop:
     def test_single_hop_lt(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # a->c (5 < 10) satisfies
         assert "c" in set(result._nodes["id"])
 
     def test_single_hop_gt(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), ">", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # a->d (5 > 1) and c->d (10 > 1) satisfy
         assert "d" in set(result._nodes["id"])
 
     def test_single_hop_lte(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # a->b (5 <= 5) and a->c (5 <= 10) satisfy
         result_ids = set(result._nodes["id"])
         assert "b" in result_ids
@@ -89,9 +79,7 @@ class TestP1OperatorsSingleHop:
     def test_single_hop_gte(self, basic_graph):
         chain = [n(name="start"), e_forward(), n(name="end")]
         where = [compare(col("start", "v"), ">=", col("end", "v"))]
-        _assert_parity(basic_graph, chain, where)
-
-        result = execute_same_path_chain(basic_graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(basic_graph, chain, where)
         # a->b (5 >= 5) and a->d (5 >= 1) and c->d (10 >= 1) satisfy
         result_ids = set(result._nodes["id"])
         assert "b" in result_ids
@@ -218,9 +206,7 @@ class TestP2LongerPaths:
         ]
         where = [compare(col("a", "v"), "<", col("d", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"])
         assert "d1" in result_ids, "d1 satisfies WHERE but excluded"
         assert "d2" not in result_ids, "d2 violates WHERE but included"
@@ -1205,9 +1191,7 @@ class TestFiveWhysAmplification:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         # c and d are reachable in exactly 2 reverse hops
         assert "c" in result_ids, "c is reachable in 2 hops but excluded"
@@ -1386,9 +1370,7 @@ class TestFiveWhysAmplification:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         # All of b, c, d satisfy 1 < their value
         assert "b" in result_ids
@@ -1500,9 +1482,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "c" in result_ids, "c should be reachable in exactly 2 hops"
         # Both edges should be in result (intermediate edge a->b is needed)
@@ -1530,9 +1510,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "d" in result_ids, "d should be reachable in exactly 3 hops"
         edge_count = len(result._edges) if result._edges is not None else 0
@@ -1561,9 +1539,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "c" in result_ids, "c reachable in exactly 2 hops via a->b->c"
 
@@ -1586,9 +1562,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), ">", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "c" in result_ids, "c reachable in 2 reverse hops"
 
@@ -1612,9 +1586,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "c" in result_ids, "c reachable in 2 undirected hops"
 
@@ -1639,9 +1611,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("s", "v"), "<", col("e", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         assert result._nodes is not None and len(result._nodes) > 0, "Should find the path"
         assert result._edges is not None and len(result._edges) == 3, "All 3 edges are critical"
 
@@ -1668,9 +1638,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("s", "v"), "<", col("e", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "end" in result_ids
         assert "x" not in result_ids, "Dead end should not be in results"
@@ -1701,9 +1669,7 @@ class TestMinHopsEdgeFiltering:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "d" in result_ids, "Should find path a->b<-c->d"
 
@@ -1731,9 +1697,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "b" in result_ids, "b is intermediate on valid 2-hop path"
         assert "c" in result_ids, "c is endpoint of valid 2-hop path"
@@ -1762,9 +1726,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "b" in result_ids, "b is on 2-hop and 3-hop paths"
         assert "c" in result_ids, "c is on 3-hop path"
@@ -1793,9 +1755,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         # Only 3-hop path a->b->c->d should be included
         assert "b" in result_ids, "b is on 3-hop path"
@@ -1824,9 +1784,7 @@ class TestMultiplePathLengths:
         # start.v < end.v would be 1 < 1 = False, so use <=
         where = [compare(col("start", "v"), "<=", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         # All nodes on cycle should be included
         assert "a" in result_ids, "a is start and end of 3-hop cycle"
@@ -1858,9 +1816,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "y" in result_ids, "y is on 3-hop path"
         assert "z" in result_ids, "z is on 3-hop path"
@@ -1889,9 +1845,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         # 2-hop path a-b-c should be found
         assert "b" in result_ids, "b is on 2-hop undirected path"
@@ -1918,9 +1872,7 @@ class TestMultiplePathLengths:
         ]
         where = [compare(col("start", "v"), ">", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "b" in result_ids, "b is on 2-hop reverse path"
         assert "c" in result_ids, "c is endpoint of 2-hop reverse path"
@@ -2058,9 +2010,7 @@ class TestPredicateTypes:
         # Lexicographic: "apple" < "banana" < "cherry"
         where = [compare(col("start", "name"), "<", col("end", "name"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "b" in result_ids  # apple < banana
         assert "c" in result_ids  # apple < cherry
@@ -2085,9 +2035,7 @@ class TestPredicateTypes:
         # start.tag == end.tag (only c matches)
         where = [compare(col("start", "tag"), "==", col("end", "tag"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "c" in result_ids  # "important" == "important"
         # Note: 'b' IS included because it's an intermediate node in the valid path a→b→c
@@ -2147,9 +2095,7 @@ class TestPredicateTypes:
         # All nodes created after start
         where = [compare(col("start", "created"), "<", col("end", "created"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"]) if result._nodes is not None else set()
         assert "b" in result_ids
         assert "c" in result_ids

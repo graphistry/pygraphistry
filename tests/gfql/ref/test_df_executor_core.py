@@ -25,6 +25,7 @@ from tests.gfql.ref.conftest import (
     _make_graph,
     _make_hop_graph,
     _assert_parity,
+    run_chain_checked,
     TEST_CUDF,
     requires_gpu,
 )
@@ -576,9 +577,7 @@ class TestP0FeatureComposition:
         ]
         where = [compare(col("start", "value"), "<", col("end", "value"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         assert result._nodes is not None
         result_ids = set(result._nodes["id"])
         # y violates WHERE (5 < 2 is false), should not be included
@@ -607,9 +606,7 @@ class TestP0FeatureComposition:
         ]
         where = [compare(col("start", "value"), ">", col("end", "value"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         assert result._nodes is not None
         result_ids = set(result._nodes["id"])
         # start is d (v=9), end can be b(v=5) or a(v=1)
@@ -640,9 +637,7 @@ class TestP0FeatureComposition:
         ]
         where = [compare(col("a", "id"), "==", col("c", "id"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
             caps=OracleCaps(max_nodes=50, max_edges=50),
@@ -701,9 +696,7 @@ class TestP0FeatureComposition:
         ]
         where = [compare(col("a", "v"), ">", col("c", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
             caps=OracleCaps(max_nodes=50, max_edges=50),
@@ -776,9 +769,7 @@ class TestP0FeatureComposition:
         ]
         where = [compare(col("a", "v"), "<=", col("c", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         oracle = enumerate_chain(
             graph, chain, where=where, include_paths=False,
             caps=OracleCaps(max_nodes=50, max_edges=50),
@@ -873,9 +864,7 @@ class TestP0FeatureComposition:
         # start.v < end.v: 1 < 10 (a,c valid), 1 < 2 (a,d valid)
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_nodes = set(result._nodes["id"])
         # Both c and d should be reachable and satisfy the constraint
         assert "c" in result_nodes, "c satisfies WHERE but excluded"
@@ -905,9 +894,7 @@ class TestP0FeatureComposition:
         # start.v < end.v
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_nodes = set(result._nodes["id"])
         # All nodes participate in valid paths
         assert "a" in result_nodes, "a can be start (a->b->c) or end (d->b->a)"
@@ -1283,9 +1270,7 @@ class TestP1FeatureComposition:
         ]
         where = [compare(col("start", "value"), "<", col("end", "value"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         assert result._nodes is not None
         result_ids = set(result._nodes["id"])
         # c satisfies 5 < 7, d does NOT satisfy 5 < 2
@@ -1638,9 +1623,7 @@ class TestP0ReverseMultihop:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"])
         # start=a(v=1), end can be b(v=5) or c(v=10)
         # Both satisfy 1 < 5 and 1 < 10
@@ -1668,9 +1651,7 @@ class TestP0ReverseMultihop:
         ]
         where = [compare(col("start", "v"), ">", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"])
         # c violates (10 > 15 is false), b and d satisfy
         assert "c" not in result_ids, "c violates WHERE but included"
@@ -1774,9 +1755,7 @@ class TestP0MultipleStarts:
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
 
-        _assert_parity(graph, chain, where)
-
-        result = execute_same_path_chain(graph, chain, where, Engine.PANDAS)
+        result = run_chain_checked(graph, chain, where)
         result_ids = set(result._nodes["id"])
         # s1->m1->e1 satisfies (1 < 10), s2->m2->e2 violates (100 < 60)
         assert "s1" in result_ids, "s1 satisfies WHERE but excluded"

@@ -180,6 +180,11 @@ def run_chain_with_parity(graph, chain, where, engine=Engine.PANDAS):
     return result, node_ids, edge_pairs
 
 
+def run_chain_checked(graph, chain, where, engine=Engine.PANDAS):
+    _assert_parity(graph, chain, where)
+    return execute_same_path_chain(graph, chain, where, engine)
+
+
 # Determine which engines to test based on TEST_CUDF environment variable
 _ENGINE_MODES = ['pandas']
 if TEST_CUDF:
