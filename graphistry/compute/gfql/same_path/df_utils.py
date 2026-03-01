@@ -2,6 +2,7 @@ import operator
 from typing import Any, Optional, Sequence, Tuple
 
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.gfql.same_path_types import OP_FLIP, SUPPORTED_WHERE_OPS
 from graphistry.compute.dataframe_utils import (
     concat_frames,
     df_cons,
@@ -24,8 +25,6 @@ _OPS = {
     "<": operator.lt,
     "<=": operator.le,
 }
-SUPPORTED_WHERE_OPS = frozenset(_OPS.keys())
-OP_FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
 
 
 def project_node_attrs(frame: DataFrameT, node_col: str, cols: Sequence[str], *, id_label: str, prefix: str = "", labels: Optional[Sequence[str]] = None, node_domain: Optional[DomainT] = None, dedupe: bool = False, drop_nulls: bool = False) -> DataFrameT:

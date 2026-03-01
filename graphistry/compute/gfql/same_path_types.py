@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence
+from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Sequence
 
 from graphistry.compute.typing import DataFrameT, DomainT
 
@@ -16,6 +16,13 @@ _WHERE_OP_MAP: Dict[str, ComparisonOp] = {
     "le": "<=",
 }
 _WHERE_OP_REV: Dict[ComparisonOp, str] = {value: key for key, value in _WHERE_OP_MAP.items()}
+SUPPORTED_WHERE_OPS: FrozenSet[ComparisonOp] = frozenset(_WHERE_OP_REV.keys())
+OP_FLIP: Dict[ComparisonOp, ComparisonOp] = {
+    "<": ">",
+    "<=": ">=",
+    ">": "<",
+    ">=": "<=",
+}
 
 
 @dataclass(frozen=True)
