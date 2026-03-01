@@ -20,6 +20,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from .gfql.policy import PolicyContext, PolicyException
 from .gfql.policy.stats import extract_graph_stats
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
@@ -564,6 +565,28 @@ def _handle_boundary_calls(
     return g_temp
 
 
+def _chain_otel_attrs(
+    self: Plottable,
+    ops: Union[List[ASTObject], "Chain"],
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    validate_schema: bool = True,
+    policy=None,
+    context=None,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Dict[str, Any]:
+    chain_len = len(ops.chain) if isinstance(ops, Chain) else len(ops)
+    attrs: Dict[str, Any] = {"gfql.chain_len": chain_len}
+    if isinstance(ops, Chain):
+        attrs["gfql.has_where"] = bool(ops.where)
+    if otel_detail_enabled():
+        attrs["gfql.engine"] = str(engine)
+        attrs["gfql.validate_schema"] = validate_schema
+        attrs["gfql.has_policy"] = policy is not None
+        attrs["gfql.has_start_nodes"] = start_nodes is not None
+    return attrs
+
+
+@otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def chain(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
