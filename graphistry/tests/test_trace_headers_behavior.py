@@ -1,7 +1,12 @@
 import json
+import sys
 from unittest import mock
 
 import pandas as pd
+
+# Import the ArrowFileUploader MODULE before graphistry shadows it with the class
+# This ensures sys.modules has the module, allowing proper mock patching
+import graphistry.ArrowFileUploader as _arrow_file_uploader_module  # noqa: F401
 
 import graphistry
 from graphistry.compute.ast import n, e_forward
@@ -72,12 +77,15 @@ def test_plot_injects_traceparent(mock_post, mock_inject):
     assert all(h.get("traceparent") == TRACEPARENT for h in headers_seen)
 
 
-@mock.patch("graphistry.ArrowFileUploader.inject_trace_headers")
 @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_upload_injects_traceparent(mock_post, mock_inject_uploader, mock_inject_file):
+def test_upload_injects_traceparent(mock_post, mock_inject_uploader):
+    # Patch ArrowFileUploader module's inject_trace_headers via sys.modules
+    # This is needed because graphistry.ArrowFileUploader resolves to the class,
+    # not the module (due to re-exports in graphistry/__init__.py)
+    arrow_file_uploader_module = sys.modules["graphistry.ArrowFileUploader"]
+
     mock_inject_uploader.side_effect = _inject_trace
-    mock_inject_file.side_effect = _inject_trace
     headers_seen = []
 
     def _fake_post(url, **kwargs):
@@ -86,8 +94,9 @@ def test_upload_injects_traceparent(mock_post, mock_inject_uploader, mock_inject
 
     mock_post.side_effect = _fake_post
 
-    g = _make_graph()
-    g.upload(validate=False, warn=False, memoize=False, erase_files_on_fail=False)
+    with mock.patch.object(arrow_file_uploader_module, "inject_trace_headers", side_effect=_inject_trace):
+        g = _make_graph()
+        g.upload(validate=False, warn=False, memoize=False, erase_files_on_fail=False)
 
     assert headers_seen
     assert all(h.get("traceparent") == TRACEPARENT for h in headers_seen)
