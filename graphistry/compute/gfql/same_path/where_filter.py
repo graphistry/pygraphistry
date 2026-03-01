@@ -6,6 +6,7 @@ from graphistry.compute.gfql.same_path_types import PathState
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
     OP_FLIP,
+    SUPPORTED_WHERE_OPS,
     concat_frames,
     domain_empty,
     domain_intersect,
@@ -194,7 +195,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 left_pos, right_pos = right_pos, left_pos
                 op = OP_FLIP.get(op, op)
 
-            if op not in {"==", "!=", "<", "<=", ">", ">="}:
+            if op not in SUPPORTED_WHERE_OPS:
                 continue
 
             left_node_idx, mid_node_idx, right_node_idx = node_indices[left_pos], node_indices[left_pos + 1], node_indices[left_pos + 2]

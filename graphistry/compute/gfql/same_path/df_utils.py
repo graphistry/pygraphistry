@@ -24,6 +24,7 @@ _OPS = {
     "<": operator.lt,
     "<=": operator.le,
 }
+SUPPORTED_WHERE_OPS = frozenset(_OPS.keys())
 OP_FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
 
 

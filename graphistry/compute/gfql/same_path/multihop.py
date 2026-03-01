@@ -7,6 +7,7 @@ from .bfs import bfs_reachability, build_edge_pairs, walk_edge_state
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
     OP_FLIP,
+    SUPPORTED_WHERE_OPS,
     df_cons,
     domain_empty,
     domain_from_values,
@@ -80,7 +81,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
     )
     non_adj_value_ops_raw = env_lower("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS")
     value_mode_ops = {op.strip() for op in non_adj_value_ops_raw.split(",") if op.strip()} if non_adj_value_ops_raw else ({"==", "!="} if auto_mode else {"=="})
-    value_mode_ops = {op for op in value_mode_ops if op in {"==", "!=", "<", "<=", ">", ">="}} or {"=="}
+    value_mode_ops = {op for op in value_mode_ops if op in SUPPORTED_WHERE_OPS} or {"=="}
     endpoint_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", int, int, str, str]]] = defaultdict(list)
     endpoint_eq_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", str, str]]] = defaultdict(list)
     for clause in executor.inputs.where:
@@ -316,7 +317,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             value_mode_enabled = value_mode_requested and (
                 value_card_max is None or value_cardinality <= value_card_max
             )
-            if (domain_semijoin_enabled or domain_semijoin_auto) and clause.op in {"==", "!=", "<", "<=", ">", ">="} and len(edge_idxs) == 2 and not (value_mode_enabled and domain_semijoin_auto and not domain_semijoin_enabled and endpoint_clause_count <= 1):
+            if (domain_semijoin_enabled or domain_semijoin_auto) and clause.op in SUPPORTED_WHERE_OPS and len(edge_idxs) == 2 and not (value_mode_enabled and domain_semijoin_auto and not domain_semijoin_enabled and endpoint_clause_count <= 1):
                 edge_idx_left, edge_idx_right = edge_idxs
                 edge_left = executor.inputs.chain[edge_idx_left]
                 edge_right = executor.inputs.chain[edge_idx_right]
