@@ -189,6 +189,16 @@ def make_cg_graph(nodes, edges, node_col="id", src_col="src", dst_col="dst"):
     return CGFull().nodes(nodes, node_col).edges(edges, src_col, dst_col)
 
 
+def make_cg_graph_from_rows(node_rows, edge_rows, node_col="id", src_col="src", dst_col="dst"):
+    return make_cg_graph(
+        pd.DataFrame(node_rows),
+        pd.DataFrame(edge_rows),
+        node_col=node_col,
+        src_col=src_col,
+        dst_col=dst_col,
+    )
+
+
 # Determine which engines to test based on TEST_CUDF environment variable
 _ENGINE_MODES = ['pandas']
 if TEST_CUDF:

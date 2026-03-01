@@ -13,7 +13,12 @@ from graphistry.compute.gfql.df_executor import (
 )
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
-from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_checked
+from tests.gfql.ref.conftest import (
+    _assert_parity,
+    make_cg_graph,
+    make_cg_graph_from_rows,
+    run_chain_checked,
+)
 
 
 def _chain_single_hop():
@@ -232,35 +237,29 @@ class TestP1OperatorsMultihop:
 
 class TestP1UndirectedMultihop:
 
-    def test_undirected_multihop_basic(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 1},
-            {"id": "b", "v": 5},
-            {"id": "c", "v": 10},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = _chain_multihop_from_a(e_undirected, min_hops=1, max_hops=2)
-        where = _where_start_end_v("<")
-
-        _assert_parity(graph, chain, where)
-
-    def test_undirected_multihop_bidirectional(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 1},
-            {"id": "b", "v": 5},
-            {"id": "c", "v": 10},
-        ])
-        # Only one direction in edges, but undirected should traverse both ways
-        edges = pd.DataFrame([
-            {"src": "b", "dst": "a"},
-            {"src": "c", "dst": "b"},
-        ])
-        graph = make_cg_graph(nodes, edges)
+    @pytest.mark.parametrize(
+        "edges",
+        [
+            [
+                {"src": "a", "dst": "b"},
+                {"src": "b", "dst": "c"},
+            ],
+            [
+                {"src": "b", "dst": "a"},
+                {"src": "c", "dst": "b"},
+            ],
+        ],
+        ids=["stored-forward", "stored-reverse"],
+    )
+    def test_undirected_multihop_orientations(self, edges):
+        graph = make_cg_graph_from_rows(
+            [
+                {"id": "a", "v": 1},
+                {"id": "b", "v": 5},
+                {"id": "c", "v": 10},
+            ],
+            edges,
+        )
 
         chain = _chain_multihop_from_a(e_undirected, min_hops=1, max_hops=2)
         where = _where_start_end_v("<")
@@ -582,124 +581,69 @@ class TestBugPatternMultihopBackprop:
 
 class TestBugPatternMergeSuffix:
 
-    def test_same_column_eq(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 3},
-            {"id": "c", "v": 5},  # Same as a
-            {"id": "d", "v": 7},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "b", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
+    @pytest.mark.parametrize(
+        "op, node_rows",
+        [
+            (
+                "==",
+                [
+                    {"id": "a", "v": 5},
+                    {"id": "b", "v": 3},
+                    {"id": "c", "v": 5},
+                    {"id": "d", "v": 7},
+                ],
+            ),
+            (
+                "<",
+                [
+                    {"id": "a", "v": 5},
+                    {"id": "b", "v": 3},
+                    {"id": "c", "v": 10},
+                    {"id": "d", "v": 1},
+                ],
+            ),
+            (
+                "<=",
+                [
+                    {"id": "a", "v": 5},
+                    {"id": "b", "v": 3},
+                    {"id": "c", "v": 5},
+                    {"id": "d", "v": 10},
+                ],
+            ),
+            (
+                ">",
+                [
+                    {"id": "a", "v": 5},
+                    {"id": "b", "v": 3},
+                    {"id": "c", "v": 1},
+                    {"id": "d", "v": 10},
+                ],
+            ),
+            (
+                ">=",
+                [
+                    {"id": "a", "v": 5},
+                    {"id": "b", "v": 3},
+                    {"id": "c", "v": 5},
+                    {"id": "d", "v": 1},
+                ],
+            ),
+        ],
+        ids=["eq", "lt", "lte", "gt", "gte"],
+    )
+    def test_same_column_ops(self, op, node_rows):
+        graph = make_cg_graph_from_rows(
+            node_rows,
+            [
+                {"src": "a", "dst": "b"},
+                {"src": "b", "dst": "c"},
+                {"src": "b", "dst": "d"},
+            ],
+        )
 
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        # start.v == end.v: only c matches (v=5)
-        where = [compare(col("start", "v"), "==", col("end", "v"))]
-
-        _assert_parity(graph, chain, where)
-
-    def test_same_column_lt(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 3},
-            {"id": "c", "v": 10},
-            {"id": "d", "v": 1},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "b", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        # start.v < end.v: c matches (5 < 10), d doesn't (5 < 1 is false)
-        where = [compare(col("start", "v"), "<", col("end", "v"))]
-
-        _assert_parity(graph, chain, where)
-
-    def test_same_column_lte(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 3},
-            {"id": "c", "v": 5},  # Equal
-            {"id": "d", "v": 10},  # Greater
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "b", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        # start.v <= end.v: c (5<=5) and d (5<=10) match
-        where = [compare(col("start", "v"), "<=", col("end", "v"))]
-
-        _assert_parity(graph, chain, where)
-
-    def test_same_column_gt(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 3},
-            {"id": "c", "v": 1},  # Less than a
-            {"id": "d", "v": 10},  # Greater than a
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "b", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        # start.v > end.v: only c matches (5 > 1)
-        where = [compare(col("start", "v"), ">", col("end", "v"))]
-
-        _assert_parity(graph, chain, where)
-
-    def test_same_column_gte(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 3},
-            {"id": "c", "v": 5},  # Equal
-            {"id": "d", "v": 1},  # Less
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "b", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        # start.v >= end.v: c (5>=5) and d (5>=1) match
-        where = [compare(col("start", "v"), ">=", col("end", "v"))]
-
+        chain = _chain_multihop_from_a(e_forward, min_hops=1, max_hops=2)
+        where = [compare(col("start", "v"), op, col("end", "v"))]
         _assert_parity(graph, chain, where)
 
 

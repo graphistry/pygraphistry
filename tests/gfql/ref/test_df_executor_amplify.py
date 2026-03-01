@@ -7,25 +7,31 @@ from graphistry.Engine import Engine
 from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
 from graphistry.compute.gfql.df_executor import execute_same_path_chain
 from graphistry.compute.gfql.same_path_types import col, compare
-from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_with_parity
+from tests.gfql.ref.conftest import (
+    _assert_parity,
+    make_cg_graph,
+    make_cg_graph_from_rows,
+    run_chain_with_parity,
+)
 
 
 class TestYannakakisPrinciple:
     def test_dead_end_branch_pruning(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 5},
-            {"id": "b", "v": 6},
-            {"id": "c", "v": 10},  # Valid endpoint
-            {"id": "x", "v": 4},
-            {"id": "y", "v": 1},   # Invalid endpoint (y.v < a.v)
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "c"},
-            {"src": "a", "dst": "x"},
-            {"src": "x", "dst": "y"},
-        ])
-        graph = make_cg_graph(nodes, edges)
+        graph = make_cg_graph_from_rows(
+            [
+                {"id": "a", "v": 5},
+                {"id": "b", "v": 6},
+                {"id": "c", "v": 10},  # Valid endpoint
+                {"id": "x", "v": 4},
+                {"id": "y", "v": 1},   # Invalid endpoint (y.v < a.v)
+            ],
+            [
+                {"src": "a", "dst": "b"},
+                {"src": "b", "dst": "c"},
+                {"src": "a", "dst": "x"},
+                {"src": "x", "dst": "y"},
+            ],
+        )
 
         chain = [
             n({"id": "a"}, name="start"),
@@ -47,19 +53,20 @@ class TestYannakakisPrinciple:
         assert ("a", "x") not in result_edges, "edge to dead-end should be pruned"
 
     def test_all_valid_paths_included(self):
-        nodes = pd.DataFrame([
-            {"id": "a", "v": 1},
-            {"id": "b", "v": 5},
-            {"id": "c", "v": 6},
-            {"id": "d", "v": 10},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b"},
-            {"src": "b", "dst": "d"},
-            {"src": "a", "dst": "c"},
-            {"src": "c", "dst": "d"},
-        ])
-        graph = make_cg_graph(nodes, edges)
+        graph = make_cg_graph_from_rows(
+            [
+                {"id": "a", "v": 1},
+                {"id": "b", "v": 5},
+                {"id": "c", "v": 6},
+                {"id": "d", "v": 10},
+            ],
+            [
+                {"src": "a", "dst": "b"},
+                {"src": "b", "dst": "d"},
+                {"src": "a", "dst": "c"},
+                {"src": "c", "dst": "d"},
+            ],
+        )
 
         chain = [
             n({"id": "a"}, name="start"),

@@ -12,7 +12,12 @@ from graphistry.compute.gfql.df_executor import (
     execute_same_path_chain,
 )
 from graphistry.compute.gfql.same_path_types import col, compare
-from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_with_parity
+from tests.gfql.ref.conftest import (
+    _assert_parity,
+    make_cg_graph,
+    make_cg_graph_from_rows,
+    run_chain_with_parity,
+)
 
 
 def _chain_forward_two_edges(end_alias: str = "end"):
@@ -720,14 +725,13 @@ class TestDimensionCoverageMatrix:
         ],
     )
     def test_null_inequality_excluded(self, op, e1_weight, e2_weight, reason):
-        nodes = pd.DataFrame([{"id": "a"}, {"id": "b"}, {"id": "c"}])
-        edges = pd.DataFrame(
+        graph = make_cg_graph_from_rows(
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
             [
                 {"src": "a", "dst": "b", "weight": e1_weight},
                 {"src": "b", "dst": "c", "weight": e2_weight},
-            ]
+            ],
         )
-        graph = make_cg_graph(nodes, edges)
 
         chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), op, col("e2", "weight"))]
@@ -744,14 +748,13 @@ class TestDimensionCoverageMatrix:
         ],
     )
     def test_both_null_comparisons_excluded(self, op, reason):
-        nodes = pd.DataFrame([{"id": "a"}, {"id": "b"}, {"id": "c"}])
-        edges = pd.DataFrame(
+        graph = make_cg_graph_from_rows(
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
             [
                 {"src": "a", "dst": "b", "weight": None},
                 {"src": "b", "dst": "c", "weight": None},
-            ]
+            ],
         )
-        graph = make_cg_graph(nodes, edges)
 
         chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), op, col("e2", "weight"))]
