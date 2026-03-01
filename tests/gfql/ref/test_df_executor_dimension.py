@@ -14,6 +14,48 @@ from graphistry.compute.gfql.same_path_types import col, compare
 from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_with_parity
 
 
+def _chain_forward_two_edges(end_alias: str = "end"):
+    return [
+        n({"id": "a"}, name="a"),
+        e_forward(name="e1"),
+        n(name="b"),
+        e_forward(name="e2"),
+        n(name=end_alias),
+    ]
+
+
+def _chain_reverse_two_edges():
+    return [
+        n({"id": "a"}, name="a"),
+        e_reverse(name="e1"),
+        n(name="b"),
+        e_reverse(name="e2"),
+        n(name="end"),
+    ]
+
+
+def _chain_undirected_two_edges():
+    return [
+        n({"id": "a"}, name="a"),
+        e_undirected(name="e1"),
+        n(name="b"),
+        e_undirected(name="e2"),
+        n(name="end"),
+    ]
+
+
+def _chain_forward_three_edges():
+    return [
+        n({"id": "a"}, name="a"),
+        e_forward(name="e1"),
+        n(name="b"),
+        e_forward(name="e2"),
+        n(name="c"),
+        e_forward(name="e3"),
+        n(name="d"),
+    ]
+
+
 class TestWhereClauseEdgeColumns:
     def test_edge_column_equality_two_edges(self):
         nodes = pd.DataFrame([
@@ -29,13 +71,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-        ]
+        chain = _chain_forward_two_edges("c")
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -57,13 +93,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-        ]
+        chain = _chain_forward_two_edges("c")
         where = [compare(col("e1", "etype"), "!=", col("e2", "etype"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -85,13 +115,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-        ]
+        chain = _chain_forward_two_edges("c")
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -172,13 +196,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-        ]
+        chain = _chain_forward_two_edges("c")
         where = [
             compare(col("a", "x"), "!=", col("b", "x")),      # node constraint
             compare(col("e1", "etype"), "!=", col("e2", "etype")),  # edge constraint
@@ -206,13 +224,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-        ]
+        chain = _chain_forward_two_edges("c")
         where = [
             compare(col("a", "x"), "!=", col("b", "x")),
             compare(col("e1", "etype"), "!=", col("e2", "etype")),
@@ -239,15 +251,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-            e_forward(name="e3"),
-            n(name="d"),
-        ]
+        chain = _chain_forward_three_edges()
         where = [
             compare(col("e1", "etype"), "!=", col("e2", "etype")),  # A != B - PASS
             compare(col("e2", "etype"), "!=", col("e3", "etype")),  # B != C - PASS
@@ -271,15 +275,7 @@ class TestWhereClauseEdgeColumns:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-            e_forward(name="e3"),
-            n(name="d"),
-        ]
+        chain = _chain_forward_three_edges()
         where = [
             compare(col("e1", "etype"), "!=", col("e2", "etype")),  # A != B - PASS
             compare(col("e2", "etype"), "!=", col("e3", "etype")),  # B == B - FAIL
@@ -334,13 +330,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_reverse(name="e1"),
-            n(name="b"),
-            e_reverse(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_reverse_two_edges()
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -419,13 +409,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "etype"), "==", col("e2", "etype"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -446,13 +430,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         # e1.weight != e2.weight: 5 != NULL -> should be excluded (SQL: NULL comparison)
         where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
 
@@ -477,13 +455,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -506,13 +478,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -534,15 +500,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-            e_forward(name="e3"),
-            n(name="d"),
-        ]
+        chain = _chain_forward_three_edges()
         where = [
             compare(col("e1", "etype"), "==", col("e2", "etype")),
             compare(col("e2", "etype"), "==", col("e3", "etype")),
@@ -566,15 +524,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="c"),
-            e_forward(name="e3"),
-            n(name="d"),
-        ]
+        chain = _chain_forward_three_edges()
         where = [
             compare(col("e1", "etype"), "==", col("e2", "etype")),
             compare(col("e2", "etype"), "==", col("e3", "etype")),
@@ -655,13 +605,7 @@ class TestEdgeWhereDirectionAndHops:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "label"), "==", col("e2", "label"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -687,13 +631,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_reverse(name="e1"),
-            n(name="b"),
-            e_reverse(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_reverse_two_edges()
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -715,13 +653,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_reverse(name="e1"),
-            n(name="b"),
-            e_reverse(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_reverse_two_edges()
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -745,13 +677,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_undirected(name="e1"),
-            n(name="b"),
-            e_undirected(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_undirected_two_edges()
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -773,13 +699,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_undirected(name="e1"),
-            n(name="b"),
-            e_undirected(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_undirected_two_edges()
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -801,13 +721,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -827,13 +741,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -853,13 +761,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -878,13 +780,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -905,13 +801,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -931,13 +821,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -959,13 +843,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -987,13 +865,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1012,13 +884,7 @@ class TestDimensionCoverageMatrix:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "label"), "==", col("e2", "label"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1072,13 +938,7 @@ class TestRemainingDimensionGaps:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_reverse(name="e1"),
-            n(name="b"),
-            e_reverse(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_reverse_two_edges()
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1100,13 +960,7 @@ class TestRemainingDimensionGaps:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_reverse(name="e1"),
-            n(name="b"),
-            e_reverse(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_reverse_two_edges()
         where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1130,13 +984,7 @@ class TestRemainingDimensionGaps:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_undirected(name="e1"),
-            n(name="b"),
-            e_undirected(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_undirected_two_edges()
         where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1158,13 +1006,7 @@ class TestRemainingDimensionGaps:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_undirected(name="e1"),
-            n(name="b"),
-            e_undirected(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_undirected_two_edges()
         where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1186,13 +1028,7 @@ class TestRemainingDimensionGaps:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_undirected(name="e1"),
-            n(name="b"),
-            e_undirected(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_undirected_two_edges()
         where = [compare(col("e1", "etype"), "!=", col("e2", "etype"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
@@ -1243,13 +1079,7 @@ class TestRemainingDimensionGaps:
         graph = make_cg_graph(nodes, edges)
 
         # Two single-hop steps to compare
-        chain = [
-            n({"id": "a"}, name="a"),
-            e_forward(name="e1"),
-            n(name="b"),
-            e_forward(name="e2"),
-            n(name="end"),
-        ]
+        chain = _chain_forward_two_edges()
         where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
 
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)

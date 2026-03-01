@@ -16,6 +16,22 @@ from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from tests.gfql.ref.conftest import _assert_parity, make_cg_graph, run_chain_checked
 
 
+def _chain_single_hop():
+    return [n(name="start"), e_forward(), n(name="end")]
+
+
+def _where_start_end_v(op: str):
+    return [compare(col("start", "v"), op, col("end", "v"))]
+
+
+def _chain_multihop_from_a(op, **kwargs):
+    return [
+        n({"id": "a"}, name="start"),
+        op(**kwargs),
+        n(name="end"),
+    ]
+
+
 class TestP1OperatorsSingleHop:
 
     @pytest.fixture
@@ -34,54 +50,26 @@ class TestP1OperatorsSingleHop:
         ])
         return make_cg_graph(nodes, edges)
 
-    def test_single_hop_eq(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), "==", col("end", "v"))]
+    @pytest.mark.parametrize(
+        "op, expected_in, expected_out",
+        [
+            ("==", {"a", "b"}, set()),
+            ("!=", {"c", "d"}, set()),
+            ("<", {"c"}, set()),
+            (">", {"d"}, set()),
+            ("<=", {"b", "c"}, set()),
+            (">=", {"b", "d"}, set()),
+        ],
+    )
+    def test_single_hop_operators(self, basic_graph, op, expected_in, expected_out):
+        chain = _chain_single_hop()
+        where = _where_start_end_v(op)
         result = run_chain_checked(basic_graph, chain, where)
-        # Only a->b satisfies 5 == 5
-        assert "a" in set(result._nodes["id"])
-        assert "b" in set(result._nodes["id"])
-
-    def test_single_hop_neq(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), "!=", col("end", "v"))]
-        result = run_chain_checked(basic_graph, chain, where)
-        # a->c (5 != 10) and a->d (5 != 1) and c->d (10 != 1) satisfy
         result_ids = set(result._nodes["id"])
-        assert "c" in result_ids, "c participates in valid paths"
-        assert "d" in result_ids, "d participates in valid paths"
-
-    def test_single_hop_lt(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), "<", col("end", "v"))]
-        result = run_chain_checked(basic_graph, chain, where)
-        # a->c (5 < 10) satisfies
-        assert "c" in set(result._nodes["id"])
-
-    def test_single_hop_gt(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), ">", col("end", "v"))]
-        result = run_chain_checked(basic_graph, chain, where)
-        # a->d (5 > 1) and c->d (10 > 1) satisfy
-        assert "d" in set(result._nodes["id"])
-
-    def test_single_hop_lte(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), "<=", col("end", "v"))]
-        result = run_chain_checked(basic_graph, chain, where)
-        # a->b (5 <= 5) and a->c (5 <= 10) satisfy
-        result_ids = set(result._nodes["id"])
-        assert "b" in result_ids
-        assert "c" in result_ids
-
-    def test_single_hop_gte(self, basic_graph):
-        chain = [n(name="start"), e_forward(), n(name="end")]
-        where = [compare(col("start", "v"), ">=", col("end", "v"))]
-        result = run_chain_checked(basic_graph, chain, where)
-        # a->b (5 >= 5) and a->d (5 >= 1) and c->d (10 >= 1) satisfy
-        result_ids = set(result._nodes["id"])
-        assert "b" in result_ids
-        assert "d" in result_ids
+        for node_id in expected_in:
+            assert node_id in result_ids
+        for node_id in expected_out:
+            assert node_id not in result_ids
 
 
 # --- P2 tests: longer paths (4+ nodes)
@@ -232,58 +220,10 @@ class TestP1OperatorsMultihop:
         ])
         return make_cg_graph(nodes, edges)
 
-    def test_multihop_eq(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "==", col("end", "v"))]
-        _assert_parity(multihop_graph, chain, where)
-
-    def test_multihop_neq(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "!=", col("end", "v"))]
-        _assert_parity(multihop_graph, chain, where)
-
-    def test_multihop_lt(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "<", col("end", "v"))]
-        _assert_parity(multihop_graph, chain, where)
-
-    def test_multihop_gt(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), ">", col("end", "v"))]
-        _assert_parity(multihop_graph, chain, where)
-
-    def test_multihop_lte(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "<=", col("end", "v"))]
-        _assert_parity(multihop_graph, chain, where)
-
-    def test_multihop_gte(self, multihop_graph):
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), ">=", col("end", "v"))]
+    @pytest.mark.parametrize("op", ["==", "!=", "<", ">", "<=", ">="])
+    def test_multihop_operators(self, multihop_graph, op):
+        chain = _chain_multihop_from_a(e_forward, min_hops=1, max_hops=2)
+        where = _where_start_end_v(op)
         _assert_parity(multihop_graph, chain, where)
 
 
@@ -304,12 +244,8 @@ class TestP1UndirectedMultihop:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_undirected(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "<", col("end", "v"))]
+        chain = _chain_multihop_from_a(e_undirected, min_hops=1, max_hops=2)
+        where = _where_start_end_v("<")
 
         _assert_parity(graph, chain, where)
 
@@ -326,12 +262,8 @@ class TestP1UndirectedMultihop:
         ])
         graph = make_cg_graph(nodes, edges)
 
-        chain = [
-            n({"id": "a"}, name="start"),
-            e_undirected(min_hops=1, max_hops=2),
-            n(name="end"),
-        ]
-        where = [compare(col("start", "v"), "<", col("end", "v"))]
+        chain = _chain_multihop_from_a(e_undirected, min_hops=1, max_hops=2)
+        where = _where_start_end_v("<")
 
         _assert_parity(graph, chain, where)
 
