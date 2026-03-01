@@ -2,12 +2,16 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT, DomainT
-from graphistry.compute.gfql.same_path_types import PathState
+from graphistry.compute.gfql.same_path_types import (
+    EQ_NEQ_WHERE_OPS,
+    INEQ_WHERE_OPS,
+    OP_FLIP,
+    PathState,
+    SUPPORTED_WHERE_OPS,
+)
 from .bfs import bfs_reachability, build_edge_pairs, walk_edge_state
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
-    OP_FLIP,
-    SUPPORTED_WHERE_OPS,
     df_cons,
     domain_empty,
     domain_from_values,
@@ -80,7 +84,9 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
         200000,
     )
     non_adj_value_ops_raw = env_lower("GRAPHISTRY_NON_ADJ_WHERE_VALUE_OPS")
-    value_mode_ops = {op.strip() for op in non_adj_value_ops_raw.split(",") if op.strip()} if non_adj_value_ops_raw else ({"==", "!="} if auto_mode else {"=="})
+    value_mode_ops = {
+        op.strip() for op in non_adj_value_ops_raw.split(",") if op.strip()
+    } if non_adj_value_ops_raw else (set(EQ_NEQ_WHERE_OPS) if auto_mode else {"=="})
     value_mode_ops = {op for op in value_mode_ops if op in SUPPORTED_WHERE_OPS} or {"=="}
     endpoint_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", int, int, str, str]]] = defaultdict(list)
     endpoint_eq_clauses: Dict[Tuple[int, int], List[Tuple["WhereComparison", str, str]]] = defaultdict(list)
@@ -281,7 +287,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                 _apply_pairs_and_backprop(start_idx, end_idx, left_vals_df["__start__"], right_vals_df["__current__"], backprop=False)
                 left_domain = series_values(left_vals_df["__start_val__"])
                 right_domain = series_values(right_vals_df["__end_val__"])
-            if bounds_enabled and clause.op in {"<", "<=", ">", ">="}:
+            if bounds_enabled and clause.op in INEQ_WHERE_OPS:
                 left_values, right_values = left_vals_df["__start_val__"], right_vals_df["__end_val__"]
                 if len(left_values) > 0 and len(right_values) > 0:
                     left_min = left_values.min()
@@ -343,7 +349,15 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             pairs_right = pairs_right[
                                 pairs_right["__to__"].isin(end_nodes)
                             ]
-                        force_semijoin = (not domain_semijoin_enabled) and domain_semijoin_auto and auto_mode and not value_mode_enabled and clause.op in {"==", "!="} and value_card_max is not None and value_cardinality > value_card_max
+                        force_semijoin = (
+                            (not domain_semijoin_enabled)
+                            and domain_semijoin_auto
+                            and auto_mode
+                            and not value_mode_enabled
+                            and clause.op in EQ_NEQ_WHERE_OPS
+                            and value_card_max is not None
+                            and value_cardinality > value_card_max
+                        )
                         if domain_semijoin_enabled or (domain_semijoin_auto and (force_semijoin or domain_semijoin_pair_max is None or ((edge_pair_est if edge_pair_est is not None else pair_est) > domain_semijoin_pair_max))):
                             start_val_df = left_vals.rename(columns={"__start_val__": "__value__"})
                             end_val_df = right_vals.rename(columns={"__end_val__": "__value__"})

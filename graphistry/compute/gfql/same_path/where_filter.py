@@ -2,11 +2,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT, DomainT
-from graphistry.compute.gfql.same_path_types import PathState
+from graphistry.compute.gfql.same_path_types import EQ_NEQ_WHERE_OPS, OP_FLIP, PathState, SUPPORTED_WHERE_OPS
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
-    OP_FLIP,
-    SUPPORTED_WHERE_OPS,
     concat_frames,
     domain_empty,
     domain_intersect,
@@ -234,7 +232,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
                 continue
 
             pair_est_value = len(left_pairs) * len(right_pairs)
-            if op in {"==", "!="}:
+            if op in EQ_NEQ_WHERE_OPS:
                 left_counts = (
                     left_pairs.groupby("__left_val__")
                     .size()

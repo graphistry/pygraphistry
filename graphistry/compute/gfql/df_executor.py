@@ -9,7 +9,7 @@ from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.compute.gfql.same_path_types import WhereComparison, PathState
+from graphistry.compute.gfql.same_path_types import INEQ_WHERE_OPS, PathState, WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.gfql.same_path.df_utils import (
@@ -185,7 +185,7 @@ class DFSamePathExecutor:
                                 right_frame,
                                 right_frame[right_col].isin(common),
                             )
-                    elif clause.op in {"<", "<=", ">", ">="}:
+                    elif clause.op in INEQ_WHERE_OPS:
                         left_vals = left_frame[left_col]
                         right_vals = right_frame[right_col]
                         left_min, left_max = left_vals.min(), left_vals.max()
