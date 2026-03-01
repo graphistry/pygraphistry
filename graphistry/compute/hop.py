@@ -490,16 +490,10 @@ def hop(self: Plottable,
                 logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
 
         matches_edges = concat(
-            [ matches_edges ]
-            + ([ hop_edges_forward[[ EDGE_ID ]] ] if hop_edges_forward is not None else mt)
-            + ([ hop_edges_reverse[[ EDGE_ID ]] ] if hop_edges_reverse is not None else mt),
-            ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
-
-        new_node_ids = concat(
-            mt
-                + ( [ new_node_ids_forward ] if new_node_ids_forward is not None else mt )
-                + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),
-            ignore_index=True, sort=False).drop_duplicates()
+            [matches_edges, hop_edges[[EDGE_ID]]],
+            ignore_index=True,
+            sort=False
+        ).drop_duplicates(subset=[EDGE_ID])
 
         if len(new_node_ids) > 0:
             max_reached_hop = current_hop
@@ -565,15 +559,9 @@ def hop(self: Plottable,
             if return_as_wave_front:
                 matches_nodes = new_node_ids[:0]
             else:
-                matches_nodes = concat(
-                    mt
-                        + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]
-                            if hop_edges_forward is not None
-                            else mt)
-                        + ( [hop_edges_reverse[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()]
-                            if hop_edges_reverse is not None
-                            else mt),
-                    ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+                matches_nodes = hop_edges[[FROM_COL]].rename(
+                    columns={FROM_COL: node_col}
+                ).drop_duplicates(subset=[node_col])
 
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
