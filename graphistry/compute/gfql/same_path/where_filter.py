@@ -2,7 +2,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.typing import DataFrameT, DomainT
-from graphistry.compute.gfql.same_path_types import EQ_NEQ_WHERE_OPS, OP_FLIP, PathState, SUPPORTED_WHERE_OPS
+from graphistry.compute.gfql.same_path_types import (
+    ComparisonOp,
+    EQ_NEQ_WHERE_OPS,
+    OP_FLIP,
+    PathState,
+    SUPPORTED_WHERE_OPS,
+)
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
     concat_frames,
@@ -187,7 +193,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
             if left_pos is None or right_pos is None or abs(left_pos - right_pos) != 1:
                 continue
 
-            op: str = clause.op
+            op: ComparisonOp = clause.op
             if left_pos > right_pos:
                 left_edge_idx, right_edge_idx = right_edge_idx, left_edge_idx
                 left_pos, right_pos = right_pos, left_pos
