@@ -9,17 +9,6 @@ from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
-try:
-    from graphistry.otel import otel_traced, otel_detail_enabled  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - optional dependency
-    def otel_traced(*_args: Any, **_kwargs: Any):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    def otel_detail_enabled() -> bool:
-        return False
 from .gfql.policy import (
     PolicyContext,
     PolicyException,
@@ -42,39 +31,6 @@ from graphistry.compute.validate.validate_schema import validate_chain_schema
 logger = setup_logger(__name__)
 
 
-def _gfql_otel_attrs(
-    self: Plottable,
-    query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-    output: Optional[str] = None,
-    policy: Optional[Dict[str, PolicyFunction]] = None,
-    where: Optional[Sequence[WhereComparison]] = None,
-) -> Dict[str, Any]:
-    if isinstance(query, dict):
-        query_type = "chain" if "chain" in query else "dag"
-    else:
-        query_type = detect_query_type(query)
-    attrs: Dict[str, Any] = {"gfql.query_type": query_type}
-    if isinstance(query, Chain):
-        attrs["gfql.chain_len"] = len(query.chain)
-        attrs["gfql.has_where"] = bool(query.where)
-    elif isinstance(query, list):
-        attrs["gfql.chain_len"] = len(query)
-        if where:
-            attrs["gfql.has_where"] = True
-    elif isinstance(query, ASTLet):
-        attrs["gfql.binding_count"] = len(query.bindings)
-    elif isinstance(query, dict):
-        attrs["gfql.binding_count"] = len(query)
-        if "chain" in query and isinstance(query["chain"], list):
-            attrs["gfql.chain_len"] = len(query["chain"])
-    if otel_detail_enabled():
-        attrs["gfql.output"] = output is not None
-        attrs["gfql.policy"] = policy is not None
-        attrs["gfql.engine"] = str(engine)
-    return attrs
-
-
 def detect_query_type(query: Any) -> QueryType:
     if isinstance(query, ASTLet):
         return "dag"
@@ -84,7 +40,6 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
-@otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
