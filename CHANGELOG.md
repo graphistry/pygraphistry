@@ -9,23 +9,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
+- **GEXF**: Added GEXF import/export with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
+- **GEXF**: Map node viz shapes to FA4 point icons on import.
 - **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `df_executor.py`, and `same_path/` submodules implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
 - **GFQL / WHERE**: `gfql([...], where=[...])` list form now supports same-path WHERE constraints (no need to wrap in `Chain(...)`).
 - **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN` for multi-equality semijoin pruning (2-hop, experimental).
 - **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG` for aggregated inequality pruning on 2-hop non-adj clauses (experimental).
-
-### Performance
-- **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
-- **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
-- **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
-- **GFQL / WHERE**: Avoid building semijoin pair tables when AUTO semijoin stays inactive; uses cheap pair estimates to gate work.
-- **GFQL / WHERE**: Reduce semijoin dedup overhead and reuse cached edge pairs per edge when `allowed_edges` is unset.
-
-### Infra
-- **Linting**: Replace flake8 with ruff for linting (closes #466). Config in `pyproject.toml`, scripts in `bin/ruff.sh` / `bin/lint.sh`. Cleaned stale `# noqa` comments for W503/W504/E126 (codes not applicable in ruff).
-
-## [0.50.6 - 2026-01-27]
 
 ### Fixed
 - **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
@@ -34,13 +24,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
 - **GFQL / WHERE**: Fixed vector-strategy guard to initialize start/end domains before pair-est gating (prevents UnboundLocalError).
 
-### Infra
-- **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, and WHERE filtering.
-- **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
+### Performance
+- **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
+- **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
+- **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
+- **GFQL / WHERE**: Avoid building semijoin pair tables when AUTO semijoin stays inactive; uses cheap pair estimates to gate work.
+- **GFQL / WHERE**: Reduce semijoin dedup overhead and reuse cached edge pairs per edge when `allowed_edges` is unset.
 
 ### Tests
 - **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
 - **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
+
+### Infra
+- **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, and WHERE filtering.
+- **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
+- **Linting**: Replace flake8 with ruff for linting (closes #466). Config in `pyproject.toml`, scripts in `bin/ruff.sh` / `bin/lint.sh`. Cleaned stale `# noqa` comments for W503/W504/E126 (codes not applicable in ruff).
+
+## [0.50.6 - 2026-01-27]
+
+### Fixed
+- **GFQL / hypergraph**: Avoid `DataFrame.style` access when `return_as` yields a DataFrame, preventing Jinja2 import errors in minimal environments without Jinja2 (PR #909).
+
+### Tests
 - **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
 
 ## [0.50.5 - 2026-01-25]
