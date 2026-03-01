@@ -90,6 +90,34 @@ def test_where_missing_column_after_prior_call_still_rejected():
         build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
 
+def test_where_hop_label_column_from_prior_call_is_accepted():
+    chain = [
+        call("hop", {"hops": 1, "label_node_hops": "nh"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "nh"), "<=", col("c", "nh"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_where_topological_level_column_from_prior_call_is_accepted():
+    chain = [
+        call("get_topological_levels", {"level_col": "lvl"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "lvl"), "<=", col("c", "lvl"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
 def test_forward_captures_alias_frames_and_prunes():
     graph = _make_graph()
     chain = [

@@ -236,7 +236,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': is_string,
             'reuse': is_bool
         },
-        'description': 'Generate node table from edges'
+        'description': 'Generate node table from edges',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
     
     'hop': {
@@ -269,7 +275,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'return_as_wave_front': is_bool,
             'engine': is_string
         },
-        'description': 'Traverse edges with optional hop bounds and node/edge hop label columns'
+        'description': 'Traverse edges with optional hop bounds and node/edge hop label columns',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p['label_node_hops']] if p.get('label_node_hops') else [],
+            'adds_edge_cols': lambda p: [p['label_edge_hops']] if p.get('label_edge_hops') else [],
+            'requires_node_cols': lambda p: list((p.get('source_node_match') or {}).keys()) + list((p.get('destination_node_match') or {}).keys()),
+            'requires_edge_cols': lambda p: list((p.get('edge_match') or {}).keys())
+        }
     },
 
     # In/out degree methods
@@ -334,7 +346,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'use_vids': is_bool,
             'params': is_dict
         },
-        'description': 'Run igraph algorithms'
+        'description': 'Run igraph algorithms',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('out_col', p['alg'])],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Layout operations
@@ -352,7 +370,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'y_out_col': is_string,
             'play': is_int
         },
-        'description': 'GPU-accelerated graph layouts'
+        'description': 'GPU-accelerated graph layouts',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('x_out_col', 'x'), p.get('y_out_col', 'y')],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'layout_igraph': {
@@ -368,7 +392,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'params': is_dict,
             'play': is_int
         },
-        'description': 'igraph-based layouts'
+        'description': 'igraph-based layouts',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('x_out_col', 'x'), p.get('y_out_col', 'y')],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'layout_graphviz': {
@@ -389,7 +419,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'y_out_col': is_string,
             'bind_position': is_bool
         },
-        'description': 'Graphviz layouts (dot, neato, etc)'
+        'description': 'Graphviz layouts (dot, neato, etc)',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'ring_continuous_layout': {
@@ -414,7 +450,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout based on numeric columns'
+        'description': 'Radial layout based on numeric columns',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'ring_categorical_layout': {
@@ -437,7 +479,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout grouping nodes by categories'
+        'description': 'Radial layout grouping nodes by categories',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'time_ring_layout': {
@@ -459,7 +507,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout for time-series rings'
+        'description': 'Radial layout for time-series rings',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'fa2_layout': {
@@ -473,7 +527,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': is_string,
             'featurize': is_dict
         },
-        'description': 'ForceAtlas2 layout algorithm'
+        'description': 'ForceAtlas2 layout algorithm',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Self-edge pruning
@@ -527,7 +587,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'warn_cycles': is_bool,
             'remove_self_loops': is_bool
         },
-        'description': 'Compute topological levels for DAG analysis'
+        'description': 'Compute topological levels for DAG analysis',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [p.get('level_col', 'level')],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Visual encoding methods
@@ -623,7 +689,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'partition_key': is_string_or_none,
             'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
         },
-        'description': 'Group-in-a-box layout with community detection'
+        'description': 'Group-in-a-box layout with community detection',
+        'schema_effects': {
+            'adds_node_cols': ['x', 'y'],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Hypergraph transformation
