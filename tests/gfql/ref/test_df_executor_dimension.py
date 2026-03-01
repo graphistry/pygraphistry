@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from graphistry.Engine import Engine
 from graphistry.compute import n, e_forward, e_reverse, e_undirected, is_in
@@ -709,125 +710,53 @@ class TestDimensionCoverageMatrix:
 
     # --- NULL with inequality operators ---
 
-    def test_null_less_than_excluded(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": None},  # NULL
-            {"src": "b", "dst": "c", "weight": 10},
-        ])
+    @pytest.mark.parametrize(
+        "op, e1_weight, e2_weight, reason",
+        [
+            ("<", None, 10, "NULL < 10 is NULL"),
+            (">", 10, None, "10 > NULL is NULL"),
+            ("<=", None, 10, "NULL <= 10 is NULL"),
+            (">=", 10, None, "10 >= NULL is NULL"),
+        ],
+    )
+    def test_null_inequality_excluded(self, op, e1_weight, e2_weight, reason):
+        nodes = pd.DataFrame([{"id": "a"}, {"id": "b"}, {"id": "c"}])
+        edges = pd.DataFrame(
+            [
+                {"src": "a", "dst": "b", "weight": e1_weight},
+                {"src": "b", "dst": "c", "weight": e2_weight},
+            ]
+        )
         graph = make_cg_graph(nodes, edges)
 
         chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), "<", col("e2", "weight"))]
-
+        where = [compare(col("e1", "weight"), op, col("e2", "weight"))]
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        # NULL < 10 should be NULL (treated as false)
-        assert "c" not in result_nodes, "c excluded: NULL < 10 is NULL"
-
-    def test_null_greater_than_excluded(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": 10},
-            {"src": "b", "dst": "c", "weight": None},  # NULL
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), ">", col("e2", "weight"))]
-
-        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        # 10 > NULL should be NULL (treated as false)
-        assert "c" not in result_nodes, "c excluded: 10 > NULL is NULL"
-
-    def test_null_less_equal_excluded(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": None},
-            {"src": "b", "dst": "c", "weight": 10},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), "<=", col("e2", "weight"))]
-
-        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        assert "c" not in result_nodes, "c excluded: NULL <= 10 is NULL"
-
-    def test_null_greater_equal_excluded(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": 10},
-            {"src": "b", "dst": "c", "weight": None},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), ">=", col("e2", "weight"))]
-
-        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        assert "c" not in result_nodes, "c excluded: 10 >= NULL is NULL"
+        assert "c" not in result_nodes, f"c excluded: {reason}"
 
     # --- Mixed NULL positions ---
 
-    def test_both_null_equality(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": None},
-            {"src": "b", "dst": "c", "weight": None},
-        ])
+    @pytest.mark.parametrize(
+        "op, reason",
+        [
+            ("==", "NULL == NULL is NULL"),
+            ("!=", "NULL != NULL is NULL"),
+        ],
+    )
+    def test_both_null_comparisons_excluded(self, op, reason):
+        nodes = pd.DataFrame([{"id": "a"}, {"id": "b"}, {"id": "c"}])
+        edges = pd.DataFrame(
+            [
+                {"src": "a", "dst": "b", "weight": None},
+                {"src": "b", "dst": "c", "weight": None},
+            ]
+        )
         graph = make_cg_graph(nodes, edges)
 
         chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), "==", col("e2", "weight"))]
-
+        where = [compare(col("e1", "weight"), op, col("e2", "weight"))]
         result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        # NULL == NULL should be NULL (treated as false in SQL)
-        assert "c" not in result_nodes, "c excluded: NULL == NULL is NULL"
-
-    def test_both_null_inequality(self):
-        nodes = pd.DataFrame([
-            {"id": "a"},
-            {"id": "b"},
-            {"id": "c"},
-        ])
-        edges = pd.DataFrame([
-            {"src": "a", "dst": "b", "weight": None},
-            {"src": "b", "dst": "c", "weight": None},
-        ])
-        graph = make_cg_graph(nodes, edges)
-
-        chain = _chain_forward_two_edges()
-        where = [compare(col("e1", "weight"), "!=", col("e2", "weight"))]
-
-        result, result_nodes, _ = run_chain_with_parity(graph, chain, where)
-
-        # NULL != NULL should be NULL (treated as false in SQL)
-        assert "c" not in result_nodes, "c excluded: NULL != NULL is NULL"
+        assert "c" not in result_nodes, f"c excluded: {reason}"
 
     def test_null_mixed_with_valid_paths(self):
         nodes = pd.DataFrame([
