@@ -2,6 +2,7 @@
 """
 Direct hop() microbenchmarks for common traversal shapes.
 """
+# ci: trigger
 
 from __future__ import annotations
 
