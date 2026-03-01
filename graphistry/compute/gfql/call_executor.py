@@ -175,7 +175,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
             # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
             if success and _is_plottable_like(result):
-                graph_for_stats = result
+                graph_for_stats = cast(Plottable, result)
                 result_stats = extract_graph_stats(graph_for_stats)
             elif success:
                 # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
