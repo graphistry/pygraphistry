@@ -74,6 +74,12 @@ def parse_where_json(where_json: Any) -> List[WhereComparison]:
 
 
 def normalize_where_entries(where_entries: Sequence[Any]) -> List[WhereComparison]:
+    """Normalize mixed WHERE input into validated ``WhereComparison`` objects.
+
+    Accepted entry forms:
+    - ``WhereComparison`` instances
+    - dict JSON clauses like ``{'eq': {'left': 'a.x', 'right': 'b.y'}}``
+    """
     clauses: List[WhereComparison] = []
     for i, entry in enumerate(where_entries):
         if isinstance(entry, dict):
