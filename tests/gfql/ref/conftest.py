@@ -172,6 +172,13 @@ def to_set(series_or_df_col):
     return set(_to_python(series_or_df_col))
 
 
+def assert_node_membership(node_ids, include_ids=(), exclude_ids=()):
+    for node_id in include_ids:
+        assert node_id in node_ids
+    for node_id in exclude_ids:
+        assert node_id not in node_ids
+
+
 def run_chain_with_parity(graph, chain, where, engine=Engine.PANDAS):
     _assert_parity(graph, chain, where)
     result = execute_same_path_chain(graph, chain, where, engine)
