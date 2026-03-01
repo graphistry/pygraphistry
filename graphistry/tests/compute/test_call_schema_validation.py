@@ -69,10 +69,10 @@ class TestCallSchemaValidation:
         
         # Invalid: encoding non-existent column
         call = ASTCall('encode_point_color', {'column': 'category'})
-        errors = validate_chain_schema(sample_graph, [call], collect_all=True)
-        # Note: encode methods don't require columns to exist (they create bindings)
-        # so this should not produce errors
-        assert len(errors) == 0
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            validate_chain_schema(sample_graph, [call], collect_all=False)
+        assert exc_info.value.code == ErrorCode.E301
+        assert 'category' in str(exc_info.value)
     
     def test_chain_with_multiple_calls(self, sample_graph):
         """Test validation of chains with multiple Call operations."""
@@ -110,6 +110,81 @@ class TestCallSchemaValidation:
                 if col in str(e):
                     error_cols.add(col)
         assert error_cols == missing_cols
+
+    def test_collapse_requires_column_and_adds_final_columns(self, sample_graph):
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            validate_chain_schema(
+                sample_graph,
+                [ASTCall('collapse', {'node': '0', 'attribute': 'user', 'column': 'missing_col'})],
+                collect_all=False
+            )
+        assert exc_info.value.code == ErrorCode.E301
+        assert 'missing_col' in str(exc_info.value)
+
+        chain = Chain([
+            ASTCall('collapse', {'node': '0', 'attribute': 'user', 'column': 'type'}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'node_final': 'x'}}),
+            ASTCall('filter_edges_by_dict', {'filter_dict': {'src_final': 'x'}}),
+        ])
+        errors = validate_chain_schema(sample_graph, chain, collect_all=True)
+        assert len(errors) == 0
+
+    def test_umap_requires_symbolic_columns_and_adds_embeddings(self, sample_graph):
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            validate_chain_schema(
+                sample_graph,
+                [ASTCall('umap', {'kind': 'nodes', 'X': ['missing_feature']})],
+                collect_all=False
+            )
+        assert exc_info.value.code == ErrorCode.E301
+        assert 'missing_feature' in str(exc_info.value)
+
+        chain = Chain([
+            ASTCall('umap', {'kind': 'nodes', 'X': ['score'], 'suffix': '_u', 'encode_weight': False}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'x_u': 0.0}}),
+        ])
+        errors = validate_chain_schema(sample_graph, chain, collect_all=True)
+        assert len(errors) == 0
+
+    def test_hypergraph_requires_entity_columns_on_selected_input(self, sample_graph):
+        with pytest.raises(GFQLSchemaError) as exc_info_nodes:
+            validate_chain_schema(
+                sample_graph,
+                [ASTCall('hypergraph', {'entity_types': ['missing_entity']})],
+                collect_all=False
+            )
+        assert exc_info_nodes.value.code == ErrorCode.E301
+        assert 'missing_entity' in str(exc_info_nodes.value)
+
+        with pytest.raises(GFQLSchemaError) as exc_info_edges:
+            validate_chain_schema(
+                sample_graph,
+                [ASTCall('hypergraph', {'from_edges': True, 'entity_types': ['missing_edge_col']})],
+                collect_all=False
+            )
+        assert exc_info_edges.value.code == ErrorCode.E301
+        assert 'missing_edge_col' in str(exc_info_edges.value)
+
+        chain = Chain([
+            ASTCall('hypergraph', {'entity_types': ['type']}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'nodeID': 'x'}}),
+        ])
+        errors = validate_chain_schema(sample_graph, chain, collect_all=True)
+        assert len(errors) == 0
+
+    def test_hypergraph_from_edges_without_edges_defers_to_runtime(self):
+        nodes_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+        g = CGFull().nodes(nodes_df)
+        # No edge dataframe available; schema validation should not shadow runtime E105 path.
+        errors = validate_chain_schema(
+            g,
+            [ASTCall('hypergraph', {'from_edges': True, 'entity_types': ['user', 'product']})],
+            collect_all=True
+        )
+        assert len(errors) == 0
     
     def test_operation_index_in_errors(self, sample_graph):
         """Test that errors include operation index."""

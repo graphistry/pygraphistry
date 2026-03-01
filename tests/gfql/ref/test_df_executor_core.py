@@ -12,6 +12,8 @@ from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
     execute_same_path_chain,
     _CUDF_MODE_ENV,
+    _WHERE_VALIDATION_IGNORE_ERRORS_ENV,
+    _WHERE_VALIDATION_IGNORE_CALLS_ENV,
 )
 from graphistry.compute.gfql_unified import gfql
 from graphistry.compute.chain import Chain
@@ -90,6 +92,46 @@ def test_where_missing_column_after_prior_call_still_rejected():
         build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
 
+def test_missing_where_column_can_be_ignored_by_env(monkeypatch):
+    chain = [n(name="a"), e_forward(name="r"), n(name="c")]
+    where = [compare(col("a", "missing_col"), "==", col("c", "owner_id"))]
+    graph = _make_graph()
+    monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_ERRORS_ENV, "missing_column")
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_missing_where_column_can_be_ignored_for_specific_calls(monkeypatch):
+    chain = [
+        call("get_indegrees", {"col": "deg"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
+    graph = _make_graph()
+    monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_CALLS_ENV, "get_indegrees")
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_missing_where_column_is_not_ignored_for_other_calls(monkeypatch):
+    chain = [
+        call("get_indegrees", {"col": "deg"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
+    graph = _make_graph()
+    monkeypatch.setenv(_WHERE_VALIDATION_IGNORE_CALLS_ENV, "get_outdegrees")
+
+    with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
+        build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+
+
 def test_where_hop_label_column_from_prior_call_is_accepted():
     chain = [
         call("hop", {"hops": 1, "label_node_hops": "nh"}),
@@ -112,6 +154,48 @@ def test_where_topological_level_column_from_prior_call_is_accepted():
         n(name="c"),
     ]
     where = [compare(col("a", "lvl"), "<=", col("c", "lvl"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_where_umap_embedding_column_from_prior_call_is_accepted():
+    chain = [
+        call("umap", {"kind": "nodes", "X": ["score"], "suffix": "_u", "encode_weight": False}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "x_u"), "<=", col("c", "x_u"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_where_hypergraph_nodeid_from_prior_call_is_accepted():
+    chain = [
+        call("hypergraph", {"entity_types": ["type"]}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "nodeID"), "==", col("c", "nodeID"))]
+    graph = _make_graph()
+
+    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
+    assert inputs is not None
+
+
+def test_where_collapse_final_node_column_from_prior_call_is_accepted():
+    chain = [
+        call("collapse", {"node": "acct1", "attribute": "account", "column": "type"}),
+        n(name="a"),
+        e_forward(name="r"),
+        n(name="c"),
+    ]
+    where = [compare(col("a", "node_final"), "==", col("c", "node_final"))]
     graph = _make_graph()
 
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)

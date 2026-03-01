@@ -257,6 +257,13 @@ def _validate_call_op(
     schema_effects = method_info.get('schema_effects')
     if not schema_effects:
         return errors
+    if op.function == 'hypergraph':
+        from_edges = bool(op.params.get('from_edges'))
+        # Preserve existing runtime E105 behavior when the selected input dataframe is missing.
+        if from_edges and not edge_columns:
+            return errors
+        if (not from_edges) and not node_columns:
+            return errors
 
     required_node_cols = schema_effects.get('requires_node_cols')
     if required_node_cols is not None:

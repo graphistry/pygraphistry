@@ -79,6 +79,103 @@ def is_list_or_dict(v: Any) -> bool:
     return isinstance(v, (list, dict))
 
 
+def _symbolic_cols(v: Any) -> list:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list) and all(isinstance(item, str) for item in v):
+        return list(v)
+    return []
+
+
+def _resolve_hyper_opts(params: Dict[str, Any]) -> Dict[str, Any]:
+    opts = params.get('opts')
+    return opts if isinstance(opts, dict) else {}
+
+
+def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
+    cols: list = []
+    entity_types = params.get('entity_types')
+    if isinstance(entity_types, list):
+        cols.extend([c for c in entity_types if isinstance(c, str)])
+    opts = _resolve_hyper_opts(params)
+    event_id = opts.get('EVENTID')
+    if isinstance(event_id, str):
+        cols.append(event_id)
+    return cols
+
+
+def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
+    opts = _resolve_hyper_opts(params)
+    node_id = opts.get('NODEID', 'nodeID')
+    node_type = opts.get('NODETYPE', 'type')
+    title = opts.get('TITLE', 'nodeTitle')
+    out = []
+    if isinstance(node_id, str):
+        out.append(node_id)
+    if isinstance(node_type, str):
+        out.append(node_type)
+    if isinstance(title, str):
+        out.append(title)
+    return out
+
+
+def _hypergraph_edge_adds(params: Dict[str, Any]) -> list:
+    opts = _resolve_hyper_opts(params)
+    edge_type = opts.get('EDGETYPE', 'edgeType')
+    if params.get('direct'):
+        src = opts.get('SOURCE', 'src')
+        dst = opts.get('DESTINATION', 'dst')
+    else:
+        src = opts.get('ATTRIBID', 'attribID')
+        dst = opts.get('EVENTID', 'EventID')
+    out = []
+    if isinstance(src, str):
+        out.append(src)
+    if isinstance(dst, str):
+        out.append(dst)
+    if isinstance(edge_type, str):
+        out.append(edge_type)
+    return out
+
+
+def _umap_kind(params: Dict[str, Any]) -> str:
+    return params.get('kind', 'nodes')
+
+
+def _umap_suffix(params: Dict[str, Any]) -> str:
+    suffix = params.get('suffix', '')
+    return suffix if isinstance(suffix, str) else ''
+
+
+def _umap_node_required_cols(params: Dict[str, Any]) -> list:
+    if _umap_kind(params) != 'nodes':
+        return []
+    return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
+
+
+def _umap_edge_required_cols(params: Dict[str, Any]) -> list:
+    if _umap_kind(params) != 'edges':
+        return []
+    return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
+
+
+def _umap_node_adds(params: Dict[str, Any]) -> list:
+    if _umap_kind(params) != 'nodes':
+        return []
+    suffix = _umap_suffix(params)
+    return [f'x{suffix}', f'y{suffix}']
+
+
+def _umap_edge_adds(params: Dict[str, Any]) -> list:
+    kind = _umap_kind(params)
+    suffix = _umap_suffix(params)
+    if kind == 'edges':
+        return [f'x{suffix}', f'y{suffix}']
+    if kind == 'nodes' and params.get('encode_weight', True):
+        return ['_src_implicit', '_dst_implicit', f'_weight{suffix}']
+    return []
+
+
 
 
 def is_dict_str_to_list_str(v: Any) -> bool:
@@ -541,7 +638,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': set(),
         'required_params': set(),
         'param_validators': {},
-        'description': 'Remove self-loops from graph'
+        'description': 'Remove self-loops from graph',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Graph transformations
@@ -556,7 +659,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'unwrap': is_bool,
             'verbose': is_bool
         },
-        'description': 'Collapse nodes by shared attribute values'
+        'description': 'Collapse nodes by shared attribute values',
+        'schema_effects': {
+            'adds_node_cols': ['node_final'],
+            'adds_edge_cols': ['src_final', 'dst_final'],
+            'requires_node_cols': lambda p: [p['column']] if isinstance(p.get('column'), str) else [],
+            'requires_edge_cols': []
+        }
     },
 
     'drop_nodes': {
@@ -565,7 +674,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'nodes': lambda v: isinstance(v, list) or is_dict(v)
         },
-        'description': 'Remove specified nodes and their edges'
+        'description': 'Remove specified nodes and their edges',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'keep_nodes': {
@@ -574,7 +689,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'nodes': lambda v: isinstance(v, list) or is_dict(v)
         },
-        'description': 'Keep only specified nodes and their edges'
+        'description': 'Keep only specified nodes and their edges',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Topology analysis
@@ -608,7 +729,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'categorical_mapping': is_dict,
             'default_mapping': is_string_or_none
         },
-        'description': 'Map node column values to colors'
+        'description': 'Map node column values to colors',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': lambda p: [p['column']],
+            'requires_edge_cols': []
+        }
     },
 
     'encode_edge_color': {
@@ -622,7 +749,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'categorical_mapping': is_dict,
             'default_mapping': is_string_or_none
         },
-        'description': 'Map edge column values to colors'
+        'description': 'Map edge column values to colors',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': lambda p: [p['column']]
+        }
     },
 
     'encode_point_size': {
@@ -633,7 +766,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'categorical_mapping': is_dict,
             'default_mapping': lambda v: isinstance(v, (int, float))
         },
-        'description': 'Map node column values to sizes'
+        'description': 'Map node column values to sizes',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': lambda p: [p['column']],
+            'requires_edge_cols': []
+        }
     },
 
     'encode_point_icon': {
@@ -646,7 +785,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'default_mapping': is_string_or_none,
             'as_text': is_bool
         },
-        'description': 'Map node column values to icons'
+        'description': 'Map node column values to icons',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': lambda p: [p['column']],
+            'requires_edge_cols': []
+        }
     },
 
     # Metadata methods
@@ -656,7 +801,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'name': is_string
         },
-        'description': 'Set visualization name'
+        'description': 'Set visualization name',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     'description': {
@@ -665,7 +816,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'param_validators': {
             'description': is_string
         },
-        'description': 'Set visualization description'
+        'description': 'Set visualization description',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
     },
 
     # Layout with community detection
@@ -719,7 +876,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'from_edges': is_bool,
             'return_as': lambda v: is_string(v) and v in ['graph', 'all', 'entities', 'events', 'edges', 'nodes']
         },
-        'description': 'Transform event data into a hypergraph'
+        'description': 'Transform event data into a hypergraph',
+        'schema_effects': {
+            'adds_node_cols': _hypergraph_node_adds,
+            'adds_edge_cols': _hypergraph_edge_adds,
+            'requires_node_cols': lambda p: [] if p.get('from_edges') else _hypergraph_input_required_cols(p),
+            'requires_edge_cols': lambda p: _hypergraph_input_required_cols(p) if p.get('from_edges') else []
+        }
     },
 
     # UMAP embedding operations
@@ -758,7 +921,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'umap_fit_kwargs': is_dict,
             'umap_transform_kwargs': is_dict
         },
-        'description': 'UMAP dimensionality reduction for graph embeddings'
+        'description': 'UMAP dimensionality reduction for graph embeddings',
+        'schema_effects': {
+            'adds_node_cols': _umap_node_adds,
+            'adds_edge_cols': _umap_edge_adds,
+            'requires_node_cols': _umap_node_required_cols,
+            'requires_edge_cols': _umap_edge_required_cols
+        }
     }
 }
 

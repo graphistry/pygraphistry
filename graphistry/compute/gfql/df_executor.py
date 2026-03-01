@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from contextlib import contextmanager
-from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple
+from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple, Set
 
 from graphistry.Engine import Engine, safe_merge
 from graphistry.Plottable import Plottable
@@ -38,6 +38,8 @@ from graphistry.compute.validate.validate_schema import trace_chain_schema
 
 AliasKind = Literal["node", "edge"]
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
+_WHERE_VALIDATION_IGNORE_ERRORS_ENV = "GRAPHISTRY_WHERE_VALIDATION_IGNORE_ERRORS"
+_WHERE_VALIDATION_IGNORE_CALLS_ENV = "GRAPHISTRY_WHERE_VALIDATION_IGNORE_CALLS"
 
 
 @dataclass(frozen=True)
@@ -567,7 +569,7 @@ def build_same_path_inputs(g: Plottable, chain: Sequence[ASTObject], where: Sequ
     bindings = _collect_alias_bindings(chain)
     _validate_where_aliases(bindings, where)
     schema_trace = trace_chain_schema(g, list(chain))
-    _validate_where_columns(bindings, where, schema_trace)
+    _validate_where_columns(bindings, where, schema_trace, chain)
     return SamePathExecutorInputs(graph=g, chain=tuple(chain), where=tuple(where), engine=engine, alias_bindings=bindings, column_requirements=_collect_required_columns(where), include_paths=include_paths)
 
 
@@ -615,9 +617,14 @@ def _validate_where_columns(
     bindings: Dict[str, AliasBinding],
     where: Sequence[WhereComparison],
     schema_trace: Sequence[Tuple[set, set]],
+    chain: Sequence[ASTObject],
 ) -> None:
     if not where:
         return
+    ignore_errors = _parse_env_csv(_WHERE_VALIDATION_IGNORE_ERRORS_ENV)
+    ignore_calls = _parse_env_csv(_WHERE_VALIDATION_IGNORE_CALLS_ENV)
+    ignore_missing_column = "missing_column" in ignore_errors
+    upstream_call_names_by_step = _build_upstream_call_names(chain)
 
     for clause in where:
         for ref in (clause.left, clause.right):
@@ -632,6 +639,9 @@ def _validate_where_columns(
                 # Unknown schema at this stage; keep runtime capture as fallback safety.
                 continue
             if ref.column not in cols:
+                ignored_by_call = bool(ignore_calls & upstream_call_names_by_step.get(binding.step_index, set()))
+                if ignore_missing_column or ignored_by_call:
+                    continue
                 available = ", ".join(sorted(cols)[:10])
                 if len(cols) > 10:
                     available += ", ..."
@@ -639,3 +649,18 @@ def _validate_where_columns(
                     f"WHERE references missing column '{ref.column}' on alias '{ref.alias}' "
                     f"({binding.kind}, step={binding.step_index}). Available columns: {available}"
                 )
+
+
+def _parse_env_csv(env_name: str) -> Set[str]:
+    raw = os.environ.get(env_name, "")
+    return {token.strip().lower() for token in raw.split(",") if token.strip()}
+
+
+def _build_upstream_call_names(chain: Sequence[ASTObject]) -> Dict[int, Set[str]]:
+    upstream_by_step: Dict[int, Set[str]] = {}
+    seen_calls: Set[str] = set()
+    for idx, op in enumerate(chain):
+        upstream_by_step[idx] = set(seen_calls)
+        if isinstance(op, ASTCall):
+            seen_calls.add(op.function.lower())
+    return upstream_by_step
