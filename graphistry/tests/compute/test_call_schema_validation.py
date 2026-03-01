@@ -178,7 +178,7 @@ class TestCallSchemaValidation:
             'product': ['laptop', 'phone']
         })
         g = CGFull().nodes(nodes_df)
-        # No edge dataframe available; schema validation should not shadow runtime E105 path.
+        # Keep static validation permissive here so runtime can raise its clearer input-missing error.
         errors = validate_chain_schema(
             g,
             [ASTCall('hypergraph', {'from_edges': True, 'entity_types': ['user', 'product']})],
