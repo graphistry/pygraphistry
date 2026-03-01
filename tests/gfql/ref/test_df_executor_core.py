@@ -132,70 +132,25 @@ def test_missing_where_column_is_not_ignored_for_other_calls(monkeypatch):
         build_same_path_inputs(graph, chain, where, Engine.PANDAS)
 
 
-def test_where_hop_label_column_from_prior_call_is_accepted():
+@pytest.mark.parametrize(
+    "function,params,column,op",
+    [
+        ("hop", {"hops": 1, "label_node_hops": "nh"}, "nh", "<="),
+        ("get_topological_levels", {"level_col": "lvl"}, "lvl", "<="),
+        ("umap", {"kind": "nodes", "X": ["score"], "suffix": "_u", "encode_weight": False}, "x_u", "<="),
+        ("hypergraph", {"entity_types": ["type"]}, "nodeID", "=="),
+        ("collapse", {"node": "acct1", "attribute": "account", "column": "type"}, "node_final", "=="),
+    ],
+    ids=["hop", "topological_levels", "umap", "hypergraph", "collapse"],
+)
+def test_where_columns_from_prior_calls_are_accepted(function, params, column, op):
     chain = [
-        call("hop", {"hops": 1, "label_node_hops": "nh"}),
+        call(function, params),
         n(name="a"),
         e_forward(name="r"),
         n(name="c"),
     ]
-    where = [compare(col("a", "nh"), "<=", col("c", "nh"))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    assert inputs is not None
-
-
-def test_where_topological_level_column_from_prior_call_is_accepted():
-    chain = [
-        call("get_topological_levels", {"level_col": "lvl"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
-    where = [compare(col("a", "lvl"), "<=", col("c", "lvl"))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    assert inputs is not None
-
-
-def test_where_umap_embedding_column_from_prior_call_is_accepted():
-    chain = [
-        call("umap", {"kind": "nodes", "X": ["score"], "suffix": "_u", "encode_weight": False}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
-    where = [compare(col("a", "x_u"), "<=", col("c", "x_u"))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    assert inputs is not None
-
-
-def test_where_hypergraph_nodeid_from_prior_call_is_accepted():
-    chain = [
-        call("hypergraph", {"entity_types": ["type"]}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
-    where = [compare(col("a", "nodeID"), "==", col("c", "nodeID"))]
-    graph = _make_graph()
-
-    inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
-    assert inputs is not None
-
-
-def test_where_collapse_final_node_column_from_prior_call_is_accepted():
-    chain = [
-        call("collapse", {"node": "acct1", "attribute": "account", "column": "type"}),
-        n(name="a"),
-        e_forward(name="r"),
-        n(name="c"),
-    ]
-    where = [compare(col("a", "node_final"), "==", col("c", "node_final"))]
+    where = [compare(col("a", column), op, col("c", column))]
     graph = _make_graph()
 
     inputs = build_same_path_inputs(graph, chain, where, Engine.PANDAS)
@@ -1968,7 +1923,7 @@ class TestDFExecutorFeatureParity:
         # With WHERE (trivial - doesn't filter anything)
         where = [compare(col('a', 'v'), '<=', col('b', 'v'))]
         chain_with_where = Chain([n(name='a'), e_forward(name='e'), n(name='b')], where=where)
-        result_with_where = g.gfql(chain_with_where)
+        _ = g.gfql(chain_with_where)
 
         # Both should have named alias columns
         assert 'a' in result_no_where._nodes.columns, "chain should have 'a' column"
