@@ -15,6 +15,7 @@ from graphistry.io.metadata import (
     serialize_node_bindings,
     serialize_plottable_metadata,
 )
+from graphistry.plugins.gexf import reader as gexf_reader
 
 
 DATA_DIR = os.path.join("graphistry", "tests", "data", "gexf")
@@ -96,7 +97,7 @@ class TestGEXF(NoAuthTestCase):
             def read(self):
                 return payload
 
-        with patch("graphistry.plugins.gexf.reader.urlopen") as mocked_urlopen:
+        with patch.object(gexf_reader, "urlopen") as mocked_urlopen:
             mocked_urlopen.return_value = _FakeHTTPResponse()
             g = graphistry.gexf("https://example.com/sample.gexf", parse_engine="stdlib")
 
