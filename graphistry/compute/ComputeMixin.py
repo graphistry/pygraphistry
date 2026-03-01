@@ -68,6 +68,35 @@ def _safe_len(df: Any) -> int:
     return len(df)
 
 
+def _is_non_dask_cudf_df(df: Any) -> bool:
+    type_module = type(df).__module__
+    return "cudf" in type_module and "dask" not in type_module
+
+
+def _coerce_local_engine(g: "Plottable", target_engine: Engine) -> "Plottable":
+    if target_engine == Engine.CUDF:
+        if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
+            g = g.nodes(df_to_engine(g._nodes, Engine.CUDF), g._node)
+        if g._edges is not None and isinstance(g._edges, pd.DataFrame):
+            g = g.edges(
+                df_to_engine(g._edges, Engine.CUDF),
+                g._source,
+                g._destination,
+                edge=g._edge,
+            )
+    elif target_engine == Engine.PANDAS:
+        if g._nodes is not None and _is_non_dask_cudf_df(g._nodes):
+            g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
+        if g._edges is not None and _is_non_dask_cudf_df(g._edges):
+            g = g.edges(
+                df_to_engine(g._edges, Engine.PANDAS),
+                g._source,
+                g._destination,
+                edge=g._edge,
+            )
+    return g
+
+
 class ComputeMixin(Plottable):
     
     def __init__(self, *a, **kw):
@@ -162,19 +191,7 @@ class ComputeMixin(Plottable):
         g: Plottable = self
 
         if engine != EngineAbstract.AUTO:
-            engine_val = Engine(engine.value)
-            if engine_val == Engine.CUDF:
-                if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
-                    import cudf
-                    g = g.nodes(cudf.DataFrame.from_pandas(g._nodes), g._node)
-                if g._edges is not None and isinstance(g._edges, pd.DataFrame):
-                    import cudf
-                    g = g.edges(cudf.DataFrame.from_pandas(g._edges), g._source, g._destination, edge=g._edge)
-            elif engine_val == Engine.PANDAS:
-                if g._nodes is not None and 'cudf' in type(g._nodes).__module__ and 'dask' not in type(g._nodes).__module__:
-                    g = g.nodes(g._nodes.to_pandas(), g._node)
-                if g._edges is not None and 'cudf' in type(g._edges).__module__ and 'dask' not in type(g._edges).__module__:
-                    g = g.edges(g._edges.to_pandas(), g._source, g._destination, edge=g._edge)
+            g = _coerce_local_engine(g, Engine(engine.value))
 
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
