@@ -484,7 +484,12 @@ def combine_steps(
 
 
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
-    """Split boundary call()s from traversal ops; reject interior mixing."""
+    """Split ops into call-prefix, traversal middle, and call-suffix segments.
+
+    This helper is intentionally structural only: validation for illegal
+    call/traversal mixing in the middle segment is handled by
+    ``_handle_boundary_calls()``.
+    """
     from graphistry.compute.ast import ASTCall
 
     first_traversal = next((i for i, op in enumerate(ops)
@@ -509,6 +514,18 @@ def _handle_boundary_calls(
     context,
     start_nodes: Optional[DataFrameT]
 ) -> Optional[Plottable]:
+    """Handle boundary ``call()`` operations around traversal chains.
+
+    Allowed pattern:
+    - ``[call..., traversal..., call...]`` where traversals are ``n()/e()``.
+
+    Rejected pattern:
+    - Any interior segment that mixes ``call()`` with traversal ops.
+
+    Returns:
+    - ``None`` when there is no boundary-call pattern to handle.
+    - A materialized ``Plottable`` when boundary-call execution was applied.
+    """
     from graphistry.compute.ast import ASTCall
 
     has_call = any(isinstance(op, ASTCall) for op in ops)
@@ -635,6 +652,12 @@ def _chain_impl(
 ) -> Plottable:
     """
     Internal implementation of chain without policy wrapper indentation.
+    
+    Implementation overview:
+    1. Forward pass: execute each op to build per-step wavefronts.
+    2. Backward pass: reverse-prune wavefronts so surviving rows satisfy the
+       full chain, not just local step filters.
+    3. Materialize: combine surviving node/edge rows, preserving labels/tags.
 
     **Example: Find nodes of some type**
 
@@ -839,6 +862,7 @@ def _chain_impl(
             except PolicyException:
                 raise
 
+        # Phase 1: Forward pass to build step-local wavefronts.
         logger.debug('======================== FORWARDS ========================')
         g_stack : List[Plottable] = []
         for i, op in enumerate(ops):
@@ -879,6 +903,7 @@ def _chain_impl(
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
             success = True
         else:
+            # Phase 2: Backward pass to propagate downstream constraints.
             g_stack_reverse : List[Plottable] = []
             for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
                 prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
@@ -969,6 +994,7 @@ def _chain_impl(
                     logger.debug('nodes: %s', g_step._nodes)
                     logger.debug('edges: %s', g_step._edges)
 
+            # Phase 3: Materialize final node/edge outputs from pruned steps.
             logger.debug('============ COMBINE NODES ============')
             final_nodes_df = combine_steps(
                 g,
