@@ -15,6 +15,7 @@ from graphistry.compute.typing import DataFrameT, DomainT
 
 from .df_utils import (
     concat_frames,
+    domain_from_values,
     domain_intersect,
     domain_is_empty,
     domain_union,
@@ -44,7 +45,7 @@ def backward_prune(executor: "DFSamePathExecutor", allowed_tags: Dict[str, objec
             continue
         alias = executor.meta.alias_for_step(idx)
         allowed = allowed_tags.get(alias) if alias is not None else None
-        allowed_nodes[idx] = allowed if allowed is not None else series_values(frame[node_col])
+        allowed_nodes[idx] = domain_from_values(allowed, frame) if allowed is not None else series_values(frame[node_col])
 
     for edge_idx, left_node_idx, right_node_idx in zip(
         reversed(edge_indices),
