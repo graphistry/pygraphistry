@@ -4,12 +4,49 @@ This module provides defensive DataFrame type coercion to ensure
 all GFQL operations honor the user's explicit engine parameter.
 """
 
-from typing import Optional
+from typing import Any, Optional
+import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine, df_to_engine
 from graphistry.util import setup_logger
 
 logger = setup_logger(__name__)
+
+
+def _is_non_dask_cudf_df(df: Any) -> bool:
+    type_module = type(df).__module__
+    return "cudf" in type_module and "dask" not in type_module
+
+
+def ensure_local_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
+    """Coerce local pandas/cudf DataFrames on a Plottable to requested engine.
+
+    This helper keeps legacy behavior used by `materialize_nodes()`:
+    - pandas -> cudf conversion when CUDF requested
+    - non-dask-cudf -> pandas conversion when PANDAS requested
+    - dask-backed cudf objects are intentionally left unchanged
+    """
+    if requested_engine == Engine.CUDF:
+        if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
+            g = g.nodes(df_to_engine(g._nodes, Engine.CUDF), g._node)
+        if g._edges is not None and isinstance(g._edges, pd.DataFrame):
+            g = g.edges(
+                df_to_engine(g._edges, Engine.CUDF),
+                g._source,
+                g._destination,
+                edge=g._edge,
+            )
+    elif requested_engine == Engine.PANDAS:
+        if g._nodes is not None and _is_non_dask_cudf_df(g._nodes):
+            g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
+        if g._edges is not None and _is_non_dask_cudf_df(g._edges):
+            g = g.edges(
+                df_to_engine(g._edges, Engine.PANDAS),
+                g._source,
+                g._destination,
+                edge=g._edge,
+            )
+    return g
 
 
 def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:

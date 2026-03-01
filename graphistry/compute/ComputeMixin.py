@@ -22,6 +22,7 @@ from .python_remote import (
     python_remote_json as python_remote_json_base
 )
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
+from .engine_coercion import ensure_local_engine_match
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -66,35 +67,6 @@ def _safe_len(df: Any) -> int:
             raise
 
     return len(df)
-
-
-def _is_non_dask_cudf_df(df: Any) -> bool:
-    type_module = type(df).__module__
-    return "cudf" in type_module and "dask" not in type_module
-
-
-def _coerce_local_engine(g: "Plottable", target_engine: Engine) -> "Plottable":
-    if target_engine == Engine.CUDF:
-        if g._nodes is not None and isinstance(g._nodes, pd.DataFrame):
-            g = g.nodes(df_to_engine(g._nodes, Engine.CUDF), g._node)
-        if g._edges is not None and isinstance(g._edges, pd.DataFrame):
-            g = g.edges(
-                df_to_engine(g._edges, Engine.CUDF),
-                g._source,
-                g._destination,
-                edge=g._edge,
-            )
-    elif target_engine == Engine.PANDAS:
-        if g._nodes is not None and _is_non_dask_cudf_df(g._nodes):
-            g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
-        if g._edges is not None and _is_non_dask_cudf_df(g._edges):
-            g = g.edges(
-                df_to_engine(g._edges, Engine.PANDAS),
-                g._source,
-                g._destination,
-                edge=g._edge,
-            )
-    return g
 
 
 class ComputeMixin(Plottable):
@@ -191,7 +163,7 @@ class ComputeMixin(Plottable):
         g: Plottable = self
 
         if engine != EngineAbstract.AUTO:
-            g = _coerce_local_engine(g, Engine(engine.value))
+            g = ensure_local_engine_match(g, Engine(engine.value))
 
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
