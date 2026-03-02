@@ -13,11 +13,11 @@ from graphistry.Engine import (
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
+from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
 from .typing import DataFrameT, DomainT
 from .util import generate_safe_column_name
-from graphistry.otel import otel_traced, otel_detail_enabled
 
 
 logger = setup_logger(__name__)
@@ -123,10 +123,8 @@ def hop(self: Plottable,
     def _domain_is_empty(domain: Optional[DomainT]) -> bool:
         return domain is None or len(domain) == 0
 
-    def _domain_diff(candidates: Optional[DomainT], visited: Optional[DomainT]) -> Optional[DomainT]:
-        if candidates is None or visited is None:
-            return candidates
-        if len(candidates) == 0 or len(visited) == 0:
+    def _domain_diff(candidates: DomainT, visited: Optional[DomainT]) -> DomainT:
+        if visited is None or len(candidates) == 0 or len(visited) == 0:
             return candidates
         return candidates[~candidates.isin(visited)]
 
@@ -371,24 +369,22 @@ def hop(self: Plottable,
     max_reached_hop = 0
     skip_full_loop = False
     if fast_path_enabled:
-        frontier_ids: Optional[DomainT] = _domain_unique(starting_nodes[node_col])
-        visited_node_ids: Optional[DomainT] = None
-        visited_edge_ids: Optional[DomainT] = None
+        frontier_ids = _domain_unique(starting_nodes[node_col])
+        visited_node_ids = None
+        visited_edge_ids = None
         while True:
             if not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops:
                 break
             if _domain_is_empty(frontier_ids):
-                break
-            if frontier_ids is None:
                 break
 
             current_hop += 1
 
             hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
             cand_nodes = _domain_unique(hop_edges[TO_COL])
-            seed_ids = None
+            seed_ids_domain = None
             if visited_node_ids is None and not return_as_wave_front:
-                seed_ids = _domain_unique(hop_edges[FROM_COL])
+                seed_ids_domain = _domain_unique(hop_edges[FROM_COL])
 
             cand_edges = _domain_unique(hop_edges[EDGE_ID])
 
@@ -396,7 +392,7 @@ def hop(self: Plottable,
                 max_reached_hop = current_hop
 
             if visited_node_ids is None and not return_as_wave_front:
-                visited_node_ids = seed_ids
+                visited_node_ids = seed_ids_domain
 
             new_frontier = _domain_diff(cand_nodes, visited_node_ids)
             if not _domain_is_empty(new_frontier):
@@ -815,15 +811,13 @@ def hop(self: Plottable,
 
     if track_node_hops and node_hop_records is not None and node_hop_col is not None and g_out._nodes is not None:
         hop_map = (
-            node_hop_records[[g_out._node, node_hop_col]]
-            .drop_duplicates(subset=[g_out._node])
-            .set_index(g_out._node)[node_hop_col]
+            node_hop_records[[node_col, node_hop_col]]
+            .drop_duplicates(subset=[node_col])
+            .set_index(node_col)[node_hop_col]
         )
-        node_col_out: Optional[str] = g_out._node
-        if node_col_out is not None and node_col_out in g_out._nodes.columns and node_hop_col in g_out._nodes.columns:
-            node_col_out_str = node_col_out
+        if node_col in g_out._nodes.columns and node_hop_col in g_out._nodes.columns:
             try:
-                mapped = g_out._nodes[node_col_out_str].map(hop_map)
+                mapped = g_out._nodes[node_col].map(hop_map)
                 g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].where(
                     g_out._nodes[node_hop_col].notna(),
                     mapped
@@ -831,33 +825,27 @@ def hop(self: Plottable,
             except Exception:
                 pass
             seeds_mask = None
-            if seeds_provided and not label_seeds and starting_nodes is not None and node_col_out_str in starting_nodes.columns:
-                seed_ids_df = starting_nodes[[node_col_out_str]].drop_duplicates()
-                seeds_mask = g_out._nodes[node_col_out_str].isin(seed_ids_df[node_col_out_str])
+            if seeds_provided and not label_seeds and starting_nodes is not None and node_col in starting_nodes.columns:
+                seed_ids = starting_nodes[[node_col]].drop_duplicates()
+                seeds_mask = g_out._nodes[node_col].isin(seed_ids[node_col])
             missing_mask = g_out._nodes[node_hop_col].isna()
             if seeds_mask is not None:
                 missing_mask = missing_mask & ~seeds_mask
-            if (
-                g_out._edges is not None
-                and edge_hop_col is not None
-                and edge_hop_col in g_out._edges.columns
-                and g_out._source
-                and g_out._destination
-            ):
+            if g_out._edges is not None and edge_hop_col is not None and edge_hop_col in g_out._edges.columns:
                 edge_map_df = concat(
                     [
-                        g_out._edges[[g_out._source, edge_hop_col]].rename(columns={g_out._source: node_col_out_str}),
-                        g_out._edges[[g_out._destination, edge_hop_col]].rename(columns={g_out._destination: node_col_out_str}),
+                        g_out._edges[[g_out._source, edge_hop_col]].rename(columns={g_out._source: node_col}),
+                        g_out._edges[[g_out._destination, edge_hop_col]].rename(columns={g_out._destination: node_col}),
                     ],
                     ignore_index=True,
                     sort=False,
                 )
                 if len(edge_map_df) > 0:
-                    edge_map = edge_map_df.groupby(node_col_out_str)[edge_hop_col].min()
+                    edge_map = edge_map_df.groupby(node_col)[edge_hop_col].min()
                 else:
                     SeriesCls = s_series(engine_concrete)
                     edge_map = SeriesCls([], dtype='float64')
-                mapped_edge_hops = g_out._nodes[node_col_out_str].map(edge_map)
+                mapped_edge_hops = g_out._nodes[node_col].map(edge_map)
                 if seeds_mask is not None:
                     mapped_edge_hops = mapped_edge_hops.mask(seeds_mask)
                 g_out._nodes[node_hop_col] = _combine_first_no_warn(
@@ -865,7 +853,7 @@ def hop(self: Plottable,
                     mapped_edge_hops
                 )
             if missing_mask.any():
-                g_out._nodes.loc[missing_mask, node_hop_col] = g_out._nodes.loc[missing_mask, node_col_out_str].map(edge_map)
+                g_out._nodes.loc[missing_mask, node_hop_col] = g_out._nodes.loc[missing_mask, node_col].map(edge_map)
             if seeds_mask is not None:
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
                 g_out._nodes.loc[zero_seed_mask, node_hop_col] = s_na(engine_concrete)
@@ -884,21 +872,21 @@ def hop(self: Plottable,
         and g_out._nodes is not None
         and len(g_out._nodes) > 0
         and node_hop_records is not None
-        and g_out._node in g_out._nodes.columns
+        and node_col in g_out._nodes.columns
         and starting_nodes is not None
-        and g_out._node in starting_nodes.columns
+        and node_col in starting_nodes.columns
         and node_hop_col is not None
     ):
-        seed_mask_all = g_out._nodes[g_out._node].isin(starting_nodes[g_out._node])
+        seed_mask_all = g_out._nodes[node_col].isin(starting_nodes[node_col])
         if direction == 'undirected':
             g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
-            seen_nodes_series = node_hop_records[g_out._node].dropna()
-            seed_ids_series = starting_nodes[g_out._node].dropna()
+            seen_nodes_series = node_hop_records[node_col].dropna()
+            seed_ids_series = starting_nodes[node_col].dropna()
             unreached_mask = ~seed_ids_series.isin(seen_nodes_series)
             unreached_seed_ids = seed_ids_series[unreached_mask]
             if len(unreached_seed_ids) > 0:
-                mask = g_out._nodes[g_out._node].isin(unreached_seed_ids)
+                mask = g_out._nodes[node_col].isin(unreached_seed_ids)
                 g_out._nodes.loc[mask, node_hop_col] = s_na(engine_concrete)
 
     if g_out._nodes is not None and (final_output_min is not None or final_output_max is not None):
@@ -911,23 +899,20 @@ def hop(self: Plottable,
                 if final_output_max is not None:
                     mask = mask & (g_out._nodes[node_hop_col] <= final_output_max)
             endpoint_ids = None
-            node_col_out_edges: Optional[str] = g_out._node
-            if node_col_out_edges is not None and g_out._edges is not None and g_out._source and g_out._destination:
-                node_col_out_edges_str = node_col_out_edges
+            if g_out._edges is not None:
                 endpoint_ids = concat(
                     [
-                        g_out._edges[[g_out._source]].rename(columns={g_out._source: node_col_out_edges_str}),
-                        g_out._edges[[g_out._destination]].rename(columns={g_out._destination: node_col_out_edges_str}),
+                        g_out._edges[[g_out._source]].rename(columns={g_out._source: node_col}),
+                        g_out._edges[[g_out._destination]].rename(columns={g_out._destination: node_col}),
                     ],
                     ignore_index=True,
                     sort=False,
-                ).drop_duplicates(subset=[node_col_out_edges_str])
-                mask = mask | g_out._nodes[node_col_out_edges_str].isin(endpoint_ids[node_col_out_edges_str])
-            if label_seeds and seeds_provided and starting_nodes is not None and node_col_out_edges is not None and node_col_out_edges in starting_nodes.columns:
-                seed_ids_df = starting_nodes[[node_col_out_edges_str]].drop_duplicates()
-                mask = mask | g_out._nodes[node_col_out_edges_str].isin(seed_ids_df[node_col_out_edges_str])
-            if node_col_out_edges is not None:
-                g_out = g_out.nodes(g_out._nodes[mask].drop_duplicates(subset=[node_col_out_edges_str]))
+                ).drop_duplicates(subset=[node_col])
+                mask = mask | g_out._nodes[node_col].isin(endpoint_ids[node_col])
+            if label_seeds and seeds_provided and starting_nodes is not None and node_col in starting_nodes.columns:
+                seed_ids = starting_nodes[[node_col]].drop_duplicates()
+                mask = mask | g_out._nodes[node_col].isin(seed_ids[node_col])
+            g_out = g_out.nodes(g_out._nodes[mask].drop_duplicates(subset=[node_col]))
         except Exception:
             pass
 
@@ -938,7 +923,6 @@ def hop(self: Plottable,
         logger.debug('======== /HOP =============')
         logger.debug('==========================')
 
-    node_col_out_seeds: Optional[str] = g_out._node
     if (
         return_as_wave_front
         and resolved_min_hops is not None
@@ -947,15 +931,13 @@ def hop(self: Plottable,
         and not label_seeds
         and g_out._nodes is not None
         and starting_nodes is not None
-        and node_col_out_seeds is not None
-        and node_col_out_seeds in starting_nodes.columns
+        and node_col in starting_nodes.columns
     ):
-        node_col_out_seeds_str = node_col_out_seeds
-        seed_ids_df = starting_nodes[[node_col_out_seeds_str]].drop_duplicates()
-        seeds_not_reached = seed_ids_df
-        if matches_nodes is not None and node_col_out_seeds_str in matches_nodes.columns:
-            seeds_not_reached = seed_ids_df[~seed_ids_df[node_col_out_seeds_str].isin(matches_nodes[node_col_out_seeds_str])]
-        filtered_nodes = g_out._nodes[~g_out._nodes[node_col_out_seeds_str].isin(seeds_not_reached[node_col_out_seeds_str])]
+        seed_ids = starting_nodes[[node_col]].drop_duplicates()
+        seeds_not_reached = seed_ids
+        if matches_nodes is not None and node_col in matches_nodes.columns:
+            seeds_not_reached = seed_ids[~seed_ids[node_col].isin(matches_nodes[node_col])]
+        filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(seeds_not_reached[node_col])]
         g_out = g_out.nodes(filtered_nodes)
 
     return g_out
