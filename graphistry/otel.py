@@ -1,4 +1,7 @@
-"""Optional OpenTelemetry helpers for Graphistry."""
+"""Optional OpenTelemetry helpers for Graphistry.
+
+Provides tracing instrumentation with graceful fallback when OTel deps unavailable.
+"""
 
 from __future__ import annotations
 
