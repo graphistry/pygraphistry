@@ -60,6 +60,19 @@ JSON wire format details live in :doc:`/gfql/spec/wire_protocol`.
 Supported operators: `==`, `!=`, `<`, `<=`, `>`, `>=` (JSON uses `eq`, `neq`,
 `lt`, `le`, `gt`, `ge`).
 
+Current scope:
+
+- Same-path column-vs-column comparisons across named aliases
+- AND semantics across `where=[...]` entries
+
+In progress:
+
+- Boolean composition (`OR`, `NOT`, grouping)
+- Column-vs-literal comparisons
+- Predicate/function expressions in `where`
+- Computed expressions
+- Cross-path/global constraints
+
 Validation Behavior
 -------------------
 
