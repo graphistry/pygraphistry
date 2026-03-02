@@ -1,5 +1,5 @@
 """
-Graph hop/traversal operations for PyGraphistry
+Graph hop/traversal operations for PyGraphistry.
 
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
