@@ -1,6 +1,7 @@
 """Optional OpenTelemetry setup for benchmarks.
 
 This keeps deps optional: if opentelemetry is missing, it no-ops.
+Uses graphistry.otel for consistent tracing configuration.
 """
 
 from __future__ import annotations
