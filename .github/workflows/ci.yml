@@ -163,7 +163,7 @@ jobs:
           echo "df_executor missing; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
-        python benchmarks/run_chain_vs_samepath.py \
+        python benchmarks/gfql/chain_vs_samepath.py \
           --runs 1 \
           --warmup 0 \
           --max-scenario-seconds 10 \
