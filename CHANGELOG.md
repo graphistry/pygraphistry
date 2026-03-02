@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.51.0 - 2026-03-02]
+
 ### Added
 - **GEXF**: Added GEXF import/export with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
 - **GEXF**: Map node viz shapes to FA4 point icons on import.
@@ -26,6 +28,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / WHERE**: Fixed vector-strategy guard to initialize start/end domains before pair-est gating (prevents UnboundLocalError).
 
 ### Performance
+- **Compute / hop**: Optimized hop traversal with simplified domain operations and reduced redundant checks (8-35% faster across scenarios).
 - **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
 - **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
 - **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
