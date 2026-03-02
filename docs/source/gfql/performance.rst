@@ -56,6 +56,10 @@ GFQL excels in scenarios requiring deep analytical capabilities. It is designed 
 
 By focusing on these areas, GFQL meets the demands of modern data projects, from initial exploration to advanced analysis, without the overhead typically associated with large-scale analytics.
 
+.. note::
+   Same-path constraints (``where``) can be more expensive on dense graphs.
+   Prefer selective per-step predicates and see :doc:`/gfql/where` for details.
+
 Built on Graphistry's Expertise
 -------------------------------
 

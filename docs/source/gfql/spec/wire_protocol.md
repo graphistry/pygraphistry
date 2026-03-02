@@ -119,7 +119,9 @@ Optional fields:
 
 **Python**:
 ```python
-chain([
+from graphistry import n, e_forward
+
+g.gfql([
     n({"id": "Alice"}),
     e_forward({"type": "friend"}),
     n({"status": "active"})
@@ -147,6 +149,62 @@ chain([
   ]
 }
 ```
+
+Optional fields:
+- `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
+  with `left`/`right` as `alias.column` strings. Multiple entries are ANDed.
+
+**Chain with WHERE (wire format):**
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "user"}, "name": "c"}
+  ],
+  "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+
+### WHERE Validation Errors
+
+The parser and same-path validator reject malformed or unresolved WHERE clauses
+before execution.
+
+Unsupported operator key:
+```json
+{
+  "type": "Chain",
+  "chain": [{"type": "Node", "name": "a"}, {"type": "Node", "name": "c"}],
+  "where": [{"lte": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+Expected error: `Unsupported WHERE operator 'lte'`.
+
+Missing required keys:
+```json
+{
+  "type": "Chain",
+  "chain": [{"type": "Node", "name": "a"}, {"type": "Node", "name": "c"}],
+  "where": [{"eq": {"left": "a.owner_id"}}]
+}
+```
+Expected error: `WHERE clause must have 'left' and 'right' keys`.
+
+Alias not bound in the chain:
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "name": "a"},
+    {"type": "Edge", "direction": "forward", "name": "e"},
+    {"type": "Node", "name": "c"}
+  ],
+  "where": [{"eq": {"left": "missing.owner_id", "right": "c.owner_id"}}]
+}
+```
+Expected error: `WHERE references aliases with no node/edge bindings: missing`.
 
 ### Let Operation
 

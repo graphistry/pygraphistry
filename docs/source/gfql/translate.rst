@@ -123,13 +123,15 @@ Exploring Relationships Between Nodes
     from graphistry import n, e_forward
 
     # df[['src', 'dst', ...]]
-    chain([
+    g.gfql([
         n({"type": "person"}), e_forward(), n({"type": "company"})
     ])._edges
 
 **Explanation**:
 
 - **GFQL**: Starts from nodes of type ``"person"``, traverses forward edges, and reaches nodes of type ``"company"``. The resulting edges are stored in ``edges_df``. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
+- **Same-path constraints**: Use `where` to relate attributes across steps
+  (same-path scope only; see :doc:`/gfql/where`).
 
 .. graphviz::
 

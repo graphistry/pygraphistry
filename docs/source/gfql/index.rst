@@ -19,6 +19,7 @@ See also:
    translate
    combo
    quick
+   where
    predicates/quick
    datetime_filtering
    builtin_calls

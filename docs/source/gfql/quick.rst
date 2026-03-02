@@ -12,11 +12,11 @@ Basic Usage
 
 .. code-block:: python
 
-    g.gfql(ops=[...], engine=EngineAbstract.AUTO)
+    g.gfql([...], engine=EngineAbstract.AUTO)
 
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
-- **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
+- **query**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
 Node Matchers
@@ -160,6 +160,32 @@ See :doc:`predicates/quick` for more information.
       from graphistry import n, is_in
 
       n({"category": is_in(["A", "B", "C"])})
+
+Where (Same-Path Constraints)
+-----------------------------
+
+Use `where` to relate attributes across named steps in a chain.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(name="e"),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[
+            compare(col("a", "owner_id"), "==", col("c", "owner_id")),
+            compare(col("e", "org_id"), "==", col("a", "org_id")),
+        ],
+    )
+
+`compare()` can relate node and edge columns when the column types align.
+WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
+equivalent explicit form.
+Multiple WHERE comparisons are ANDed.
 
 Combined Examples
 -----------------

@@ -30,9 +30,9 @@ The following table lists the available operators, their descriptions, and examp
    * - ``le(value)``
      - Less than or equal to ``value``.
      - ``n({ "score": le(70) })``
-  * - ``eq(value)``
-    - Equal to ``value``.
-    - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
+   * - ``eq(value)``
+     - Equal to ``value``.
+     - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
    * - ``ne(value)``
      - Not equal to ``value``.
      - ``n({ "status": ne("inactive") })``
@@ -41,7 +41,9 @@ The following table lists the available operators, their descriptions, and examp
      - ``n({ "age": between(18, 65) })``
 
 .. note::
-   All numeric comparison operators (``gt``, ``lt``, ``ge``, ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
+   For null-safe comparisons, use ``isna()``/``notna()`` in per-step
+   predicates. All numeric comparison operators (``gt``, ``lt``, ``ge``,
+   ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
    
    - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
    - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
@@ -219,6 +221,21 @@ Usage Examples
             "age": gt(18)
         })
     ])
+
+**Example 5: Same-Path Constraint with WHERE**
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g_filtered = g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
 
 Additional Notes
 ----------------

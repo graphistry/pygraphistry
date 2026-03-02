@@ -53,6 +53,37 @@ Path pattern expressions for matching graph structures:
 - Define paths through the graph: start nodes → edges → end nodes
 - Each operation refines the pattern match based on previous results
 
+#### WHERE (Same-Path Constraints)
+
+WHERE ties attributes across named steps in a chain. Use it when you need to
+enforce relationships between nodes/edges on the same path (for example,
+start.owner_id equals end.owner_id).
+Multiple WHERE comparisons are conjunctive (AND).
+
+**Python example:**
+
+```python
+from graphistry import n, e_forward, col, compare
+
+g.gfql(
+    [n({"type": "account"}, name="a"), e_forward(), n({"type": "user"}, name="c")],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+)
+```
+
+**Wire format (JSON):**
+
+```json
+{
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "user"}, "name": "c"}
+  ],
+  "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+
 #### Operations
 
 Act on graph entities (nodes and edges):
@@ -84,7 +115,7 @@ Type system matching modern data formats:
 query ::= chain
 
 (* Chain - path pattern expression *)
-chain ::= "[" operation ("," operation)* "]"
+chain ::= "[" operation ("," operation)* "]" where_clause?
 
 (* Operations *)
 operation ::= node_matcher | edge_matcher
@@ -100,6 +131,15 @@ edge_matcher ::= edge_forward | edge_reverse | edge_undirected
 edge_forward ::= "e_forward(" edge_params? ")"
 edge_reverse ::= "e_reverse(" edge_params? ")"  
 edge_undirected ::= ("e" | "e_undirected") "(" edge_params? ")"
+
+(* WHERE (same-path constraints) *)
+where_clause ::= ", where=" where_list
+where_list ::= "[" where_expr ("," where_expr)* "]"
+where_expr ::= where_op "(" column_ref "," column_ref ")"
+where_op ::= "eq" | "neq" | "gt" | "lt" | "ge" | "le"
+column_ref ::= alias "." column
+alias ::= identifier
+column ::= identifier
 
 (* Parameters *)
 edge_params ::= edge_match_params ("," hop_params)? ("," node_filter_params)? ("," name_param)?
@@ -126,7 +166,7 @@ predicate ::= comparison | membership | range | null_check | string_pred | tempo
 comparison ::= ("gt" | "lt" | "ge" | "le" | "eq" | "ne") "(" value ")"
 membership ::= "is_in(" "[" value ("," value)* "]" ")"
 range ::= "between(" value "," value ("," "inclusive=" boolean)? ")"
-null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
+null_check ::= "isnull()" | "notnull()" | "isna()" | "notna()"
 string_pred ::= string_match | string_check
 string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
               | "match(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
@@ -155,6 +195,7 @@ integer ::= ["-"]? [0-9]+
 float ::= ["-"]? [0-9]+ "." [0-9]+
 boolean ::= "True" | "False"
 null ::= "None"
+identifier ::= [A-Za-z_][A-Za-z0-9_]*
 datetime_args ::= integer ("," integer)*
 date_args ::= integer "," integer "," integer
 time_args ::= integer "," integer ("," integer)?
@@ -272,10 +313,10 @@ islower()    # All lowercase
 ### Null Predicates
 
 ```python
-is_null()     # Is null/None
-not_null()    # Is not null/None
-is_na()       # Is NaN (numeric)
-not_na()      # Is not NaN
+isnull()     # Is null/None
+notnull()    # Is not null/None
+isna()       # Is NaN (numeric)
+notna()      # Is not NaN
 ```
 
 ### Temporal Predicates

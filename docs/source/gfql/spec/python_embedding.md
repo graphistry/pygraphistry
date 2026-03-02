@@ -53,6 +53,54 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+### Same-Path Constraints (WHERE)
+
+```python
+from graphistry import n, e_forward, col, compare
+
+result = g.gfql(
+    [
+        n({"type": "account"}, name="a"),
+        e_forward(),
+        n({"type": "user"}, name="c"),
+    ],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+)
+```
+Multiple WHERE comparisons are ANDed.
+
+#### Common WHERE Validation Errors
+
+WHERE is validated before same-path execution starts, so invalid references fail
+early with clean errors.
+
+```python
+from graphistry import n, e_forward, col, compare
+
+# Missing alias binding in WHERE
+g.gfql(
+    [n(name="a"), e_forward(name="e"), n(name="c")],
+    where=[compare(col("missing", "x"), "==", col("c", "owner_id"))],
+)
+# ValueError: WHERE references aliases with no node/edge bindings: missing
+
+# Missing column on a bound alias
+g.gfql(
+    [n(name="a"), e_forward(name="e"), n(name="c")],
+    where=[compare(col("a", "missing_col"), "==", col("c", "owner_id"))],
+)
+# ValueError: WHERE references missing column 'missing_col' on alias 'a' ...
+
+# Invalid WHERE entry class
+g.gfql([n(name="a"), e_forward(name="e"), n(name="c")], where=[123])
+# ValueError: where[0] must be a WhereComparison or dict clause ...
+```
+
+Advanced troubleshooting (migration/debugging): you can set
+`GRAPHISTRY_WHERE_VALIDATION_IGNORE_ERRORS` and
+`GRAPHISTRY_WHERE_VALIDATION_IGNORE_CALLS` to suppress specific missing-column
+validation branches when needed.
+
 ## Engine Selection
 
 GFQL supports multiple execution engines:
