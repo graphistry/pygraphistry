@@ -38,9 +38,26 @@ from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(__name__)
+
+
+def _featurize_otel_attrs(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    kind = kwargs.get("kind")
+    if kind is None and len(args) > 1:
+        kind = args[1]
+    attrs: Dict[str, Any] = {
+        "graphistry.featurize.kind": str(kind),
+        "graphistry.featurize.feature_engine": str(kwargs.get("feature_engine", "auto")),
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.featurize.embedding"] = kwargs.get("embedding", False)
+        attrs["graphistry.featurize.memoize"] = kwargs.get("memoize", True)
+        attrs["graphistry.featurize.dbscan"] = kwargs.get("dbscan", False)
+    return attrs
+
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -2569,6 +2586,7 @@ class FeatureMixin(ComputeMixin):
         return X, y
 
 
+    @otel_traced("graphistry.featurize", attrs_fn=_featurize_otel_attrs)
     def featurize(
         self,
         kind: str = "nodes",

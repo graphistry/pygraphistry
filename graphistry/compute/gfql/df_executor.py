@@ -27,6 +27,7 @@ from graphistry.compute.gfql.same_path.path_state_ops import (
 from graphistry.compute.gfql.same_path.where_filter import apply_edge_where_post_prune
 from graphistry.compute.typing import DataFrameT, DomainT
 from graphistry.compute.validate.validate_schema import trace_chain_schema
+from graphistry.otel import otel_enabled, otel_span
 
 AliasKind = Literal["node", "edge"]
 _CUDF_MODE_ENV = "GRAPHISTRY_CUDF_SAME_PATH_MODE"
@@ -64,39 +65,56 @@ class DFSamePathExecutor:
         self._source_column = inputs.graph._source
         self._destination_column = inputs.graph._destination
 
+    def _otel_attrs(self) -> Dict[str, Any]:
+        attrs: Dict[str, Any] = {
+            "gfql.engine": self.inputs.engine.value,
+            "gfql.chain_len": len(self.inputs.chain),
+            "gfql.where_len": len(self.inputs.where),
+            "gfql.include_paths": self.inputs.include_paths,
+        }
+        nodes, edges = self.inputs.graph._nodes, self.inputs.graph._edges
+        if nodes is not None:
+            attrs["graphistry.nodes"] = len(nodes)
+        if edges is not None:
+            attrs["graphistry.edges"] = len(edges)
+        return attrs
+
     def edges_df_for_step(self, edge_idx: int, state: Optional[PathState] = None) -> Optional[DataFrameT]:
         return state.pruned_edges[edge_idx] if state is not None and edge_idx in state.pruned_edges else self.forward_steps[edge_idx]._edges
 
     def run(self) -> Plottable:
-        self._forward()
-        mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
-        if mode == "oracle":
-            return self._unsafe_run_test_only_oracle()
-        if mode == "strict" and self.inputs.engine == Engine.CUDF:
-            try:  # check cudf presence
-                import cudf  # type: ignore  # noqa: F401
-            except Exception:
-                raise RuntimeError(
-                    "cuDF engine requested with strict mode but cudf is unavailable")
-        return self._run_native()
+        attrs = self._otel_attrs() if otel_enabled() else None
+        with otel_span("gfql.df_executor.run", attrs=attrs):
+            self._forward()
+            mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
+            if mode == "oracle":
+                return self._unsafe_run_test_only_oracle()
+            if mode == "strict" and self.inputs.engine == Engine.CUDF:
+                try:  # check cudf presence
+                    import cudf  # type: ignore  # noqa: F401
+                except Exception:
+                    raise RuntimeError(
+                        "cuDF engine requested with strict mode but cudf is unavailable")
+            return self._run_native()
 
     def _forward(self) -> None:
-        graph = self.inputs.graph
-        ops = self.inputs.chain
-        self.forward_steps = []
-        for idx, op in enumerate(ops):
-            is_call = isinstance(op, ASTCall)
-            current_g = self.forward_steps[-1] if is_call and self.forward_steps else graph
-            prev_nodes = None if is_call or not self.forward_steps else self.forward_steps[-1]._nodes
-            g_step = op(
-                g=current_g,
-                prev_node_wavefront=prev_nodes,
-                target_wave_front=None,
-                engine=self.inputs.engine,
-            )
-            self.forward_steps.append(g_step)
-            self._capture_alias_frame(op, g_step, idx)
-        self._apply_forward_where_pruning()
+        with otel_span("gfql.df_executor.forward", attrs={"gfql.forward_steps": len(self.inputs.chain)}):
+            graph = self.inputs.graph
+            ops = self.inputs.chain
+            self.forward_steps = []
+            for idx, op in enumerate(ops):
+                is_call = isinstance(op, ASTCall)
+                current_g = self.forward_steps[-1] if is_call and self.forward_steps else graph
+                prev_nodes = None if is_call or not self.forward_steps else self.forward_steps[-1]._nodes
+                g_step = op(
+                    g=current_g,
+                    prev_node_wavefront=prev_nodes,
+                    target_wave_front=None,
+                    engine=self.inputs.engine,
+                )
+                self.forward_steps.append(g_step)
+                self._capture_alias_frame(op, g_step, idx)
+            self._apply_forward_where_pruning()
 
     def _capture_alias_frame(self, op: ASTObject, step_result: Plottable, step_index: int) -> None:
         alias = getattr(op, "_name", None)
@@ -121,6 +139,10 @@ class DFSamePathExecutor:
     def _apply_forward_where_pruning(self) -> None:
         if not self.inputs.where:
             return
+        with otel_span("gfql.df_executor.forward_where_prune", attrs={"gfql.where_len": len(self.inputs.where)}):
+            self._apply_forward_where_pruning_impl()
+
+    def _apply_forward_where_pruning_impl(self) -> None:
         def _apply_mask(alias: str, frame: DataFrameT, mask: Any) -> bool:
             new_frame = frame[mask]
             if len(new_frame) >= len(frame):
@@ -199,11 +221,16 @@ class DFSamePathExecutor:
         return self._materialize_from_oracle(nodes_df, edges_df)
 
     def _run_native(self) -> Plottable:
-        allowed_tags = self._compute_allowed_tags()
-        state = self._backward_prune(allowed_tags)
-        state = apply_non_adjacent_where_post_prune(self, state)
-        state = apply_edge_where_post_prune(self, state)
-        return self._materialize_filtered(state)
+        with otel_span("gfql.df_executor.compute_allowed_tags"):
+            allowed_tags = self._compute_allowed_tags()
+        with otel_span("gfql.df_executor.backward_prune"):
+            state = self._backward_prune(allowed_tags)
+        with otel_span("gfql.df_executor.post_prune.non_adjacent"):
+            state = apply_non_adjacent_where_post_prune(self, state)
+        with otel_span("gfql.df_executor.post_prune.edge_where"):
+            state = apply_edge_where_post_prune(self, state)
+        with otel_span("gfql.df_executor.materialize"):
+            return self._materialize_filtered(state)
 
     _run_gpu = _run_native
 

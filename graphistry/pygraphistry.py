@@ -6,6 +6,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
 from graphistry.Engine import EngineAbstractType
+from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -524,6 +525,19 @@ class GraphistryClient(AuthManagerProtocol):
         # setter
         self.session.protocol = value
         return value
+
+    def otel(
+        self,
+        enabled: Optional[bool] = None,
+        detail: Optional[bool] = None,
+        reset: bool = False,
+    ) -> Tuple[bool, bool]:
+        """Get/set OpenTelemetry tracing for Graphistry (process-wide)."""
+        if isinstance(enabled, str):
+            enabled = bool(strtobool(enabled))
+        if isinstance(detail, str):
+            detail = bool(strtobool(detail))
+        return otel_config(enabled=enabled, detail=detail, reset=reset)
 
     def api_version(self, value: Optional[ApiVersion] = None) -> ApiVersion:
         """Set or get the API version. Only api=3 is supported.
@@ -2529,7 +2543,7 @@ class GraphistryClient(AuthManagerProtocol):
         response = requests.post(
             self._switch_org_url(value),
             data={'slug': value},
-            headers={'Authorization': f'Bearer {self.api_token()}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {self.api_token()}'}),
             verify=self.session.certificate_validation,
         )
         log_requests_error(response)
@@ -2564,6 +2578,7 @@ protocol = PyGraphistry.protocol
 register = PyGraphistry.register
 sso_get_token = PyGraphistry.sso_get_token
 privacy = PyGraphistry.privacy
+otel = PyGraphistry.otel
 login = PyGraphistry.login
 refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token

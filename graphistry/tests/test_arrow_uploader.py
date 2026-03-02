@@ -214,6 +214,47 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert tok == "123"
 
+    @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
+    @mock.patch("requests.post")
+    def test_create_dataset_injects_traceparent(self, mock_post, mock_inject):
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        mock_inject.side_effect = lambda headers: {**headers, "traceparent": traceparent}
+        mock_post.return_value = self._mock_response(json_data={"success": True, "data": {"dataset_id": "ds1"}})
+
+        au = ArrowUploader(token="tok")
+        au.create_dataset(
+            {
+                "node_encodings": {"bindings": {}},
+                "edge_encodings": {"bindings": {"source": "src", "destination": "dst"}},
+                "metadata": {},
+                "name": "n",
+                "description": "d",
+            }
+        )
+
+        headers = mock_post.call_args[1]["headers"]
+        assert headers["Authorization"] == "Bearer tok"
+        assert headers["traceparent"] == traceparent
+
+    @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
+    @mock.patch("requests.post")
+    def test_post_arrow_generic_injects_traceparent(self, mock_post, mock_inject):
+        import pyarrow as pa
+
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        mock_inject.side_effect = lambda headers: {**headers, "traceparent": traceparent}
+        mock_resp = mock.Mock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader(token="tok", server_base_path="http://test")
+        table = pa.Table.from_pydict({"src": [1], "dst": [2]})
+        au.post_arrow_generic("api/v2/upload/datasets/ds/edges/arrow", "tok", table)
+
+        headers = mock_post.call_args[1]["headers"]
+        assert headers["Authorization"] == "Bearer tok"
+        assert headers["traceparent"] == traceparent
+
 
     @mock.patch('requests.post')
     def test_login_with_org_success(self, mock_post):

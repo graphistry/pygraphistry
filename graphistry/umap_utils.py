@@ -23,18 +23,61 @@ from graphistry.plugins_types.embed_types import XSymbolic, YSymbolic
 from .PlotterBase import Plottable, PlotterBase
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
 
-DataFrameLike = Union[pd.DataFrame, Any]
+
+def _umap_otel_attrs(
+    self: Plottable,
+    X: XSymbolic = None,
+    y: YSymbolic = None,
+    kind: GraphEntityKind = "nodes",
+    scale: float = 1.0,
+    n_neighbors: int = 12,
+    min_dist: float = 0.1,
+    spread: float = 0.5,
+    local_connectivity: int = 1,
+    repulsion_strength: float = 1,
+    negative_sample_rate: int = 5,
+    n_components: int = 2,
+    metric: str = "euclidean",
+    suffix: str = "",
+    play: Optional[int] = 0,
+    encode_position: bool = True,
+    encode_weight: bool = True,
+    dbscan: bool = False,
+    engine: UMAPEngine = "auto",
+    feature_engine: str = "auto",
+    inplace: bool = False,
+    memoize: bool = True,
+    umap_kwargs: Dict[str, Any] = {},
+    umap_fit_kwargs: Dict[str, Any] = {},
+    umap_transform_kwargs: Dict[str, Any] = {},
+    **featurize_kwargs: Any,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {
+        "graphistry.umap.kind": str(kind),
+        "graphistry.umap.engine": str(engine),
+        "graphistry.umap.n_components": n_components,
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.umap.n_neighbors"] = n_neighbors
+        attrs["graphistry.umap.min_dist"] = min_dist
+        attrs["graphistry.umap.dbscan"] = dbscan
+        attrs["graphistry.umap.memoize"] = memoize
+        attrs["graphistry.umap.feature_engine"] = str(feature_engine)
+        attrs["graphistry.umap.inplace"] = inplace
+    return attrs
+
 
 if TYPE_CHECKING:
-    class _UMAPMixinBase(FeatureMixin, Plottable):
-        pass
-
-    MIXIN_BASE = _UMAPMixinBase
+    MIXIN_BASE = FeatureMixin
 else:
     MIXIN_BASE = object
+
+
+DataFrameLike = Union[pd.DataFrame, Any]
 
 # Error message for empty feature matrix
 _EMPTY_FEATURES_ERROR_MSG = (
@@ -727,6 +770,7 @@ class UMAPMixin(MIXIN_BASE):
         ...
 
     @overload
+    @otel_traced("graphistry.umap", attrs_fn=_umap_otel_attrs)
     def umap(
         self,
         X: XSymbolic = None,
