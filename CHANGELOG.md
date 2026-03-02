@@ -37,6 +37,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
 
 ### Infra
+- **Benchmarks**: Added GFQL benchmark scripts and a CI job that runs a small subset on GFQL/benchmark changes and uploads `gfql-bench.md`.
 - **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, and WHERE filtering.
 - **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
 - **Linting**: Replace flake8 with ruff for linting (closes #466). Config in `pyproject.toml`, scripts in `bin/ruff.sh` / `bin/lint.sh`. Cleaned stale `# noqa` comments for W503/W504/E126 (codes not applicable in ruff).

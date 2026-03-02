@@ -25,6 +25,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
+      benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
@@ -60,6 +61,10 @@ jobs:
             - 'graphistry/models/gfql/**'
             - 'graphistry/Plottable.py'
             - 'tests/gfql/**'
+
+          # Benchmark-specific changes
+          benchmarks:
+            - 'benchmarks/**'
             
           # Documentation changes
           docs:
@@ -126,6 +131,53 @@ jobs:
         cd tck-gfql
         echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
         PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
+
+  gfql-benchmarks:
+    needs: changes
+    if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.benchmarks == 'true' || github.event_name == 'workflow_dispatch') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test]
+
+    - name: Run GFQL benchmarks (small)
+      run: |
+        source pygraphistry/bin/activate
+        if [[ ! -f graphistry/compute/gfql/df_executor.py ]]; then
+          echo "df_executor missing; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        python benchmarks/gfql/chain_vs_samepath.py \
+          --runs 1 \
+          --warmup 0 \
+          --max-scenario-seconds 10 \
+          --graph-filter tiny,small \
+          --scenario-filter 1hop_simple,2hop_where_nonadj_eq_lowcard,2hop_where_nonadj_multi_eq \
+          --output gfql-bench.md
+        cat gfql-bench.md
+        cat gfql-bench.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload benchmark artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: gfql-benchmarks
+        path: gfql-bench.md
 
   python-lint-types:
     needs: changes

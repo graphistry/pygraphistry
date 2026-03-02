@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+"""Run q1-q9 from graph-benchmark on Graphistry (pandas/cudf)."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+from time import perf_counter
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+
+import pandas as pd
+
+import graphistry
+from graphistry.compute.ast import n, e_forward
+from graphistry.compute.predicates.numeric import between
+
+
+DEFAULT_ROOT = Path(os.environ.get("GRAPH_BENCHMARK_ROOT", "/home/lmeyerov/Work/graph-benchmark"))
+
+NODE_FILES = {
+    "Person": "persons.parquet",
+    "City": "cities.parquet",
+    "State": "states.parquet",
+    "Country": "countries.parquet",
+    "Interest": "interests.parquet",
+}
+
+EDGE_FILES = [
+    ("follows.parquet", "FOLLOWS", "Person", "Person"),
+    ("lives_in.parquet", "LIVES_IN", "Person", "City"),
+    ("interested_in.parquet", "HAS_INTEREST", "Person", "Interest"),
+    ("city_in.parquet", "CITY_IN", "City", "State"),
+    ("state_in.parquet", "STATE_IN", "State", "Country"),
+]
+
+DEFAULT_MODE = "baseline"
+
+
+def _load_nodes(nodes_path: Path) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    persons = pd.read_parquet(nodes_path / NODE_FILES["Person"])
+    cities = pd.read_parquet(nodes_path / NODE_FILES["City"])
+    states = pd.read_parquet(nodes_path / NODE_FILES["State"])
+    countries = pd.read_parquet(nodes_path / NODE_FILES["Country"])
+    interests = pd.read_parquet(nodes_path / NODE_FILES["Interest"])
+
+    offsets: Dict[str, int] = {}
+    offsets["Person"] = 0
+    offsets["City"] = int(persons["id"].max()) + 1
+    offsets["State"] = offsets["City"] + int(cities["id"].max()) + 1
+    offsets["Country"] = offsets["State"] + int(states["id"].max()) + 1
+    offsets["Interest"] = offsets["Country"] + int(countries["id"].max()) + 1
+
+    def _apply(df: pd.DataFrame, node_type: str) -> pd.DataFrame:
+        out = df.copy()
+        out["node_type"] = node_type
+        out["node_id"] = out["id"].astype("int64") + offsets[node_type]
+        return out
+
+    persons = _apply(persons, "Person")
+    persons["gender_lc"] = persons["gender"].str.lower()
+
+    interests = _apply(interests, "Interest")
+    interests["interest_lc"] = interests["interest"].str.lower()
+
+    cities = _apply(cities, "City")
+    states = _apply(states, "State")
+    countries = _apply(countries, "Country")
+
+    nodes = pd.concat([persons, interests, cities, states, countries], ignore_index=True, sort=False)
+    return nodes, offsets
+
+
+def _load_edges(edges_path: Path, offsets: Dict[str, int]) -> pd.DataFrame:
+    edges: List[pd.DataFrame] = []
+    for filename, rel, src_type, dst_type in EDGE_FILES:
+        path = edges_path / filename
+        if not path.exists() and filename in {"interested_in.parquet", "interests.parquet"}:
+            fallback = "interests.parquet" if filename == "interested_in.parquet" else "interested_in.parquet"
+            path = edges_path / fallback
+        df = pd.read_parquet(path).rename(columns={"from": "src", "to": "dst"})
+        df["src"] = df["src"].astype("int64") + offsets[src_type]
+        df["dst"] = df["dst"].astype("int64") + offsets[dst_type]
+        df["rel"] = rel
+        edges.append(df[["src", "dst", "rel"]])
+    return pd.concat(edges, ignore_index=True, sort=False)
+
+
+def _maybe_to_cudf(engine: str, df: pd.DataFrame) -> Any:
+    if engine == "pandas":
+        return df
+    if engine != "cudf":
+        raise ValueError(f"Unsupported engine: {engine}")
+    try:
+        import cudf  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("cudf engine requested but cudf is not available") from exc
+    return cudf.from_pandas(df)
+
+
+def _concat_frames(engine: str, frames: List[Any]) -> Any:
+    if not frames:
+        return pd.DataFrame()
+    if engine == "cudf":
+        import cudf  # type: ignore
+
+        return cudf.concat(frames, ignore_index=True)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _edges_by_rel(edges: Any, rel: str) -> Any:
+    return edges[edges["rel"] == rel]
+
+
+def _nodes_by_type(nodes: Any, node_type: str) -> Any:
+    return nodes[nodes["node_type"] == node_type]
+
+
+def _build_preindexed_graphs(
+    nodes: Any,
+    edges: Any,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+    engine: str,
+    spec: Dict[str, Tuple[List[str], List[str]]],
+) -> Dict[str, Any]:
+    nodes_by_type = {t: _nodes_by_type(nodes, t) for t in nodes_df["node_type"].unique().tolist()}
+    edges_by_rel = {r: _edges_by_rel(edges, r) for r in edges_df["rel"].unique().tolist()}
+
+    def _graph_for(types: List[str], rels: List[str]) -> Any:
+        nodes_parts = [nodes_by_type[t] for t in types]
+        edges_parts = [edges_by_rel[r] for r in rels]
+        g_nodes = _concat_frames(engine, nodes_parts)
+        g_edges = _concat_frames(engine, edges_parts)
+        return graphistry.nodes(g_nodes, "node_id").edges(g_edges, "src", "dst")
+
+    return {name: _graph_for(types, rels) for name, (types, rels) in spec.items()}
+
+
+def _timed(label: str, fn: Callable[[], Any], runs: int, warmup: int) -> Tuple[Any, List[float]]:
+    for _ in range(warmup):
+        fn()
+    times: List[float] = []
+    result: Any = None
+    for _ in range(runs):
+        start = perf_counter()
+        result = fn()
+        times.append((perf_counter() - start) * 1000.0)
+    return result, times
+
+
+def _median(values: Iterable[float]) -> float:
+    values = sorted(values)
+    if not values:
+        return 0.0
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return (values[mid - 1] + values[mid]) / 2
+
+
+def _query1(g: Any, engine: str, mode: str) -> pd.DataFrame:
+    chain = [
+        n(),
+        e_forward(),
+        n(),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person"}),
+        e_forward({"rel": "FOLLOWS"}),
+        n({"node_type": "Person"}),
+    ]
+    gq = g.gfql(chain, engine=engine)
+    edges = gq._edges
+    nodes = gq._nodes
+    dst_col = gq._destination
+    counts = edges.groupby(dst_col).size().reset_index(name="numFollowers")
+    persons = nodes[["node_id", "name"]].drop_duplicates()
+    result = counts.merge(persons, left_on=dst_col, right_on="node_id")
+    return result.sort_values("numFollowers", ascending=False).head(3)
+
+
+def _query2(g_follow: Any, g_lives: Any, engine: str, mode: str) -> pd.DataFrame:
+    top = _query1(g_follow, engine, mode)
+    top_id = int(top.iloc[0]["node_id"])
+    chain = [
+        n({"node_id": top_id}),
+        e_forward(),
+        n(),
+    ] if mode == "preindexed" else [
+        n({"node_id": top_id}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City"}),
+    ]
+    gq = g_lives.gfql(chain, engine=engine)
+    nodes = gq._nodes
+    person = nodes[nodes["node_type"] == "Person"][["node_id", "name"]]
+    city = nodes[nodes["node_type"] == "City"][["node_id", "city", "state", "country"]]
+    edges = _edges_by_rel(gq._edges, "LIVES_IN")
+    joined = edges.merge(person, left_on="src", right_on="node_id")
+    joined = joined.merge(city, left_on="dst", right_on="node_id", suffixes=("_person", "_city"))
+    return joined[["name", "city", "state", "country"]]
+
+
+def _query3(g: Any, engine: str, mode: str, country: str) -> pd.DataFrame:
+    chain = [
+        n(),
+        e_forward(),
+        n(),
+        e_forward(),
+        n(),
+        e_forward(),
+        n({"country": country}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person"}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City"}),
+        e_forward({"rel": "CITY_IN"}),
+        n({"node_type": "State"}),
+        e_forward({"rel": "STATE_IN"}),
+        n({"node_type": "Country", "country": country}),
+    ]
+    gq = g.gfql(chain, engine=engine)
+    nodes = gq._nodes
+    edges = gq._edges
+    persons = nodes[nodes["node_type"] == "Person"][["node_id", "age"]]
+    cities = nodes[nodes["node_type"] == "City"][["node_id", "city"]]
+    lives_in = _edges_by_rel(edges, "LIVES_IN")
+    merged = lives_in.merge(persons, left_on="src", right_on="node_id")
+    merged = merged.merge(cities, left_on="dst", right_on="node_id", suffixes=("_person", "_city"))
+    avg_age = merged.groupby("city")["age"].mean().reset_index(name="averageAge")
+    return avg_age.sort_values("averageAge").head(5)
+
+
+def _query4(g: Any, engine: str, mode: str, age_lower: int, age_upper: int) -> pd.DataFrame:
+    chain = [
+        n({"age": between(age_lower, age_upper)}),
+        e_forward(),
+        n(),
+        e_forward(),
+        n(),
+        e_forward(),
+        n(),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person", "age": between(age_lower, age_upper)}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City"}),
+        e_forward({"rel": "CITY_IN"}),
+        n({"node_type": "State"}),
+        e_forward({"rel": "STATE_IN"}),
+        n({"node_type": "Country"}),
+    ]
+    gq = g.gfql(chain, engine=engine)
+    nodes = gq._nodes
+    edges = gq._edges
+    countries = nodes[nodes["node_type"] == "Country"][["node_id", "country"]]
+    lives_in = _edges_by_rel(edges, "LIVES_IN")
+    city_in = _edges_by_rel(edges, "CITY_IN")
+    state_in = _edges_by_rel(edges, "STATE_IN")
+
+    path = lives_in.merge(city_in, left_on="dst", right_on="src", suffixes=("_person", "_city"))
+    path = path.merge(state_in, left_on="dst_city", right_on="src", suffixes=("", "_state"))
+    counts = path.groupby("dst").size().reset_index(name="personCounts")
+    result = counts.merge(countries, left_on="dst", right_on="node_id")
+    return result[["country", "personCounts"]].sort_values("personCounts", ascending=False).head(3)
+
+
+def _query5(
+    g_interest: Any,
+    g_location: Any,
+    engine: str,
+    mode: str,
+    gender: str,
+    city: str,
+    country: str,
+    interest: str,
+) -> pd.DataFrame:
+    chain_interest = [
+        n({"gender_lc": gender.lower()}),
+        e_forward(),
+        n({"interest_lc": interest.lower()}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person", "gender_lc": gender.lower()}),
+        e_forward({"rel": "HAS_INTEREST"}),
+        n({"node_type": "Interest", "interest_lc": interest.lower()}),
+    ]
+    g_interest = g_interest.gfql(chain_interest, engine=engine)
+    interest_people = g_interest._nodes
+    interest_people = interest_people[interest_people["node_type"] == "Person"][["node_id"]]
+
+    chain_location = [
+        n(),
+        e_forward(),
+        n({"city": city, "country": country}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person"}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City", "city": city, "country": country}),
+    ]
+    g_location = g_location.gfql(chain_location, engine=engine)
+    location_edges = _edges_by_rel(g_location._edges, "LIVES_IN")
+    location_people = location_edges[["src"]].rename(columns={"src": "node_id"}).drop_duplicates()
+
+    matched = interest_people.merge(location_people, on="node_id")
+    return pd.DataFrame({"numPersons": [len(matched)]})
+
+
+def _query6(
+    g_interest: Any,
+    g_location: Any,
+    engine: str,
+    mode: str,
+    gender: str,
+    interest: str,
+) -> pd.DataFrame:
+    chain_interest = [
+        n({"gender_lc": gender.lower()}),
+        e_forward(),
+        n({"interest_lc": interest.lower()}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person", "gender_lc": gender.lower()}),
+        e_forward({"rel": "HAS_INTEREST"}),
+        n({"node_type": "Interest", "interest_lc": interest.lower()}),
+    ]
+    g_interest = g_interest.gfql(chain_interest, engine=engine)
+    interest_people = g_interest._nodes
+    interest_people = interest_people[interest_people["node_type"] == "Person"][["node_id"]]
+
+    chain_location = [
+        n(),
+        e_forward(),
+        n(),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person"}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City"}),
+    ]
+    g_location = g_location.gfql(chain_location, engine=engine)
+    lives_in = _edges_by_rel(g_location._edges, "LIVES_IN")
+    city_nodes = g_location._nodes
+    city_nodes = city_nodes[city_nodes["node_type"] == "City"][["node_id", "city", "country"]]
+
+    matched = lives_in.merge(interest_people, left_on="src", right_on="node_id")
+    grouped = matched.groupby("dst").size().reset_index(name="numPersons")
+    result = grouped.merge(city_nodes, left_on="dst", right_on="node_id")
+    return result.sort_values("numPersons", ascending=False).head(5)
+
+
+def _query7(
+    g_interest: Any,
+    g_location: Any,
+    engine: str,
+    mode: str,
+    country: str,
+    age_lower: int,
+    age_upper: int,
+    interest: str,
+) -> pd.DataFrame:
+    chain_interest = [
+        n({"age": between(age_lower, age_upper)}),
+        e_forward(),
+        n({"interest_lc": interest.lower()}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person", "age": between(age_lower, age_upper)}),
+        e_forward({"rel": "HAS_INTEREST"}),
+        n({"node_type": "Interest", "interest_lc": interest.lower()}),
+    ]
+    g_interest = g_interest.gfql(chain_interest, engine=engine)
+    interest_people = g_interest._nodes
+    interest_people = interest_people[interest_people["node_type"] == "Person"][["node_id"]]
+
+    chain_location = [
+        n(),
+        e_forward(),
+        n(),
+        e_forward(),
+        n({"country": country}),
+    ] if mode == "preindexed" else [
+        n({"node_type": "Person"}),
+        e_forward({"rel": "LIVES_IN"}),
+        n({"node_type": "City"}),
+        e_forward({"rel": "CITY_IN"}),
+        n({"node_type": "State", "country": country}),
+    ]
+    g_location = g_location.gfql(chain_location, engine=engine)
+
+    lives_in = _edges_by_rel(g_location._edges, "LIVES_IN")
+    city_in = _edges_by_rel(g_location._edges, "CITY_IN")
+    state_nodes = g_location._nodes
+    state_nodes = state_nodes[state_nodes["node_type"] == "State"][["node_id", "state", "country"]]
+
+    path = lives_in.merge(city_in, left_on="dst", right_on="src", suffixes=("_person", "_city"))
+    path = path.merge(interest_people, left_on="src_person", right_on="node_id")
+    grouped = path.groupby("dst_city").size().reset_index(name="numPersons")
+    result = grouped.merge(state_nodes, left_on="dst_city", right_on="node_id")
+    return result.sort_values("numPersons", ascending=False).head(1)
+
+
+def _query8(g: Any) -> pd.DataFrame:
+    edges = _edges_by_rel(g._edges, "FOLLOWS")
+    indeg = edges.groupby("dst").size().rename("indeg")
+    outdeg = edges.groupby("src").size().rename("outdeg")
+    degrees = indeg.to_frame().merge(outdeg.to_frame(), left_index=True, right_index=True, how="inner")
+    degrees["paths"] = degrees["indeg"] * degrees["outdeg"]
+    return pd.DataFrame({"numPaths": [int(degrees["paths"].sum())]})
+
+
+def _query9(g: Any, age_1: int, age_2: int) -> pd.DataFrame:
+    nodes = g._nodes
+    persons = nodes[nodes["node_type"] == "Person"][["node_id", "age"]]
+    edges = _edges_by_rel(g._edges, "FOLLOWS")
+
+    b_nodes = persons[persons["age"] < age_1][["node_id"]]
+    c_nodes = persons[persons["age"] > age_2][["node_id"]]
+
+    in_edges = edges.merge(b_nodes, left_on="dst", right_on="node_id")
+    out_edges = edges.merge(c_nodes, left_on="dst", right_on="node_id")
+    indeg = in_edges.groupby("dst").size().rename("indeg")
+    outdeg = out_edges.groupby("src").size().rename("outdeg")
+    degrees = indeg.to_frame().merge(outdeg.to_frame(), left_index=True, right_index=True, how="inner")
+    degrees["paths"] = degrees["indeg"] * degrees["outdeg"]
+    return pd.DataFrame({"numPaths": [int(degrees["paths"].sum())]})
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--graph-benchmark-root", type=Path, default=DEFAULT_ROOT)
+    parser.add_argument("--engine", choices=["pandas", "cudf"], default="pandas")
+    parser.add_argument("--mode", choices=["baseline", "preindexed", "presorted"], default=DEFAULT_MODE)
+    parser.add_argument(
+        "--include-preindex",
+        action="store_true",
+        help="For preindexed mode, report per-query medians including preindex build time.",
+    )
+    parser.add_argument("--runs", type=int, default=1)
+    parser.add_argument("--warmup", type=int, default=0)
+    parser.add_argument("--output-json", type=Path, default=None)
+    args = parser.parse_args()
+
+    nodes_path = args.graph_benchmark_root / "data" / "output" / "nodes"
+    edges_path = args.graph_benchmark_root / "data" / "output" / "edges"
+    if not nodes_path.exists() or not edges_path.exists():
+        raise FileNotFoundError(
+            f"Missing data at {nodes_path} or {edges_path}. Run generate_data.sh in graph-benchmark first."
+        )
+
+    nodes_df, offsets = _load_nodes(nodes_path)
+    edges_df = _load_edges(edges_path, offsets)
+
+    nodes = _maybe_to_cudf(args.engine, nodes_df)
+    edges = _maybe_to_cudf(args.engine, edges_df)
+
+    if args.include_preindex and args.mode != "preindexed":
+        raise ValueError("--include-preindex requires --mode preindexed")
+
+    if args.mode == "presorted":
+        nodes = nodes.sort_values(["node_type", "node_id"])
+        edges = edges.sort_values(["rel", "src", "dst"])
+
+    g_full = graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
+
+    results: Dict[str, Dict[str, Any]] = {}
+    preindex_ms_by_query: Dict[str, float] = {}
+    preindex_total_ms: Optional[float] = None
+
+    def _run(label: str, fn: Callable[[], pd.DataFrame]) -> None:
+        _, times = _timed(label, fn, runs=args.runs, warmup=args.warmup)
+        median_ms = _median(times)
+        result = {
+            "median_ms": median_ms,
+            "runs": times,
+        }
+        if args.include_preindex and label in preindex_ms_by_query:
+            preindex_ms = preindex_ms_by_query[label]
+            result["preindex_ms"] = preindex_ms
+            result["median_ms_with_preindex"] = median_ms + preindex_ms
+        results[label] = result
+
+    if args.mode == "preindexed":
+        preindex_graphs: Dict[str, Tuple[List[str], List[str]]] = {
+            "g_q1": (["Person"], ["FOLLOWS"]),
+            "g_q2_lives": (["Person", "City"], ["LIVES_IN"]),
+            "g_q3": (["Person", "City", "State", "Country"], ["LIVES_IN", "CITY_IN", "STATE_IN"]),
+            "g_q5_interest": (["Person", "Interest"], ["HAS_INTEREST"]),
+            "g_q5_location": (["Person", "City"], ["LIVES_IN"]),
+            "g_q7_interest": (["Person", "Interest"], ["HAS_INTEREST"]),
+            "g_q7_location": (["Person", "City", "State"], ["LIVES_IN", "CITY_IN"]),
+        }
+        preindex_by_query: Dict[str, List[str]] = {
+            "q1": ["g_q1"],
+            "q2": ["g_q1", "g_q2_lives"],
+            "q3": ["g_q3"],
+            "q4": ["g_q3"],
+            "q5": ["g_q5_interest", "g_q5_location"],
+            "q6": ["g_q5_interest", "g_q5_location"],
+            "q7": ["g_q7_interest", "g_q7_location"],
+            "q8": ["g_q1"],
+            "q9": ["g_q1"],
+        }
+
+        if args.include_preindex:
+            for label, graph_names in preindex_by_query.items():
+                spec = {name: preindex_graphs[name] for name in graph_names}
+                start = perf_counter()
+                _build_preindexed_graphs(nodes, edges, nodes_df, edges_df, args.engine, spec)
+                preindex_ms_by_query[label] = (perf_counter() - start) * 1000.0
+
+        start = perf_counter()
+        all_graphs = _build_preindexed_graphs(
+            nodes,
+            edges,
+            nodes_df,
+            edges_df,
+            args.engine,
+            preindex_graphs,
+        )
+        preindex_total_ms = (perf_counter() - start) * 1000.0
+
+        g_q1 = all_graphs["g_q1"]
+        g_q2_follow = g_q1
+        g_q2_lives = all_graphs["g_q2_lives"]
+        g_q3 = all_graphs["g_q3"]
+        g_q4 = g_q3
+        g_q5_interest = all_graphs["g_q5_interest"]
+        g_q5_location = all_graphs["g_q5_location"]
+        g_q6_interest = g_q5_interest
+        g_q6_location = g_q5_location
+        g_q7_interest = all_graphs["g_q7_interest"]
+        g_q7_location = all_graphs["g_q7_location"]
+        g_q8 = g_q1
+        g_q9 = g_q8
+    else:
+        g_q1 = g_full
+        g_q2_follow = g_full
+        g_q2_lives = g_full
+        g_q3 = g_full
+        g_q4 = g_full
+        g_q5_interest = g_full
+        g_q5_location = g_full
+        g_q6_interest = g_full
+        g_q6_location = g_full
+        g_q7_interest = g_full
+        g_q7_location = g_full
+        g_q8 = g_full
+        g_q9 = g_full
+
+    _run("q1", lambda: _query1(g_q1, args.engine, args.mode))
+    _run("q2", lambda: _query2(g_q2_follow, g_q2_lives, args.engine, args.mode))
+    _run("q3", lambda: _query3(g_q3, args.engine, args.mode, country="United States"))
+    _run("q4", lambda: _query4(g_q4, args.engine, args.mode, age_lower=30, age_upper=40))
+    _run(
+        "q5",
+        lambda: _query5(
+            g_q5_interest,
+            g_q5_location,
+            args.engine,
+            args.mode,
+            gender="male",
+            city="London",
+            country="United Kingdom",
+            interest="fine dining",
+        ),
+    )
+    _run(
+        "q6",
+        lambda: _query6(
+            g_q6_interest,
+            g_q6_location,
+            args.engine,
+            args.mode,
+            gender="female",
+            interest="tennis",
+        ),
+    )
+    _run(
+        "q7",
+        lambda: _query7(
+            g_q7_interest,
+            g_q7_location,
+            args.engine,
+            args.mode,
+            country="United States",
+            age_lower=23,
+            age_upper=30,
+            interest="photography",
+        ),
+    )
+    _run("q8", lambda: _query8(g_q8))
+    _run("q9", lambda: _query9(g_q9, age_1=50, age_2=25))
+
+    output = {
+        "engine": args.engine,
+        "mode": args.mode,
+        "preindex_total_ms": preindex_total_ms,
+        "results": results,
+    }
+    print(json.dumps(output, indent=2, sort_keys=True))
+    if args.output_json is not None:
+        args.output_json.write_text(json.dumps(output, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
