@@ -37,7 +37,19 @@ def otel(
     detail: Optional[bool] = None,
     reset: bool = False,
 ) -> Tuple[bool, bool]:
-    """Get/set OpenTelemetry enablement for Graphistry spans."""
+    """Get/set OpenTelemetry enablement for Graphistry spans.
+
+    Call at application startup for consistent behavior across threads.
+    Thread-safe for reads; concurrent writes may see momentary inconsistency.
+
+    Args:
+        enabled: Enable/disable OTel tracing (None to leave unchanged)
+        detail: Enable/disable detailed span attributes (None to leave unchanged)
+        reset: Reset to environment variable defaults
+
+    Returns:
+        Tuple of (enabled, detail) current values
+    """
     global _otel_enabled_override, _otel_detail_override
     if reset:
         _otel_enabled_override = None
