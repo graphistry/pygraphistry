@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+- **Ecosystem**: Added [graphistry-skills](https://github.com/graphistry/graphistry-skills) documentation for LLM coding assistants (Claude Code, Cursor, Codex). Skills improve AI code generation success rates from ~50% to ~90%.
+
 ## [0.51.0 - 2026-03-02]
 
 ### Added
