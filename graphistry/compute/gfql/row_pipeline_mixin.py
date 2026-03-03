@@ -76,6 +76,9 @@ class RowPipelineMixin:
     _GFQL_QUANTIFIER_RE = re.compile(r"^(?P<fn>ANY|ALL|NONE|SINGLE)\s*\((?P<body>.*)\)$", re.IGNORECASE | re.DOTALL)
     _GFQL_SIZE_RE = re.compile(r"(?is)^size\s*\((?P<inner>.+)\)$")
     _GFQL_ABS_RE = re.compile(r"(?is)^abs\s*\((?P<inner>.+)\)$")
+    _GFQL_TOBOOLEAN_RE = re.compile(r"(?is)^toBoolean\s*\((?P<inner>.+)\)$")
+    _GFQL_TOSTRING_RE = re.compile(r"(?is)^toString\s*\((?P<inner>.+)\)$")
+    _GFQL_COALESCE_RE = re.compile(r"(?is)^coalesce\s*\((?P<inner>.+)\)$")
 
     @staticmethod
     def _gfql_is_null_scalar(value: Any) -> bool:
@@ -156,7 +159,9 @@ class RowPipelineMixin:
         txt = expr
         upper = txt.upper()
         needle = keyword.upper()
-        depth = 0
+        depth_paren = 0
+        depth_bracket = 0
+        depth_brace = 0
         in_single = False
         in_double = False
         idx = 0
@@ -174,14 +179,30 @@ class RowPipelineMixin:
                 idx += 1
                 continue
             if ch == "(":
-                depth += 1
+                depth_paren += 1
                 idx += 1
                 continue
             if ch == ")":
-                depth = max(0, depth - 1)
+                depth_paren = max(0, depth_paren - 1)
                 idx += 1
                 continue
-            if depth == 0 and upper.startswith(needle, idx):
+            if ch == "[":
+                depth_bracket += 1
+                idx += 1
+                continue
+            if ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+                idx += 1
+                continue
+            if ch == "{":
+                depth_brace += 1
+                idx += 1
+                continue
+            if ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+                idx += 1
+                continue
+            if depth_paren == 0 and depth_bracket == 0 and depth_brace == 0 and upper.startswith(needle, idx):
                 left_ok = idx == 0 or not (upper[idx - 1].isalnum() or upper[idx - 1] == "_")
                 right_idx = idx + len(needle)
                 right_ok = right_idx >= len(upper) or not (upper[right_idx].isalnum() or upper[right_idx] == "_")
@@ -198,7 +219,9 @@ class RowPipelineMixin:
         expr: str, operators: Sequence[str]
     ) -> Optional[Tuple[str, str, str]]:
         txt = expr
-        depth = 0
+        depth_paren = 0
+        depth_bracket = 0
+        depth_brace = 0
         in_single = False
         in_double = False
         idx = 0
@@ -216,14 +239,30 @@ class RowPipelineMixin:
                 idx += 1
                 continue
             if ch == "(":
-                depth += 1
+                depth_paren += 1
                 idx += 1
                 continue
             if ch == ")":
-                depth = max(0, depth - 1)
+                depth_paren = max(0, depth_paren - 1)
                 idx += 1
                 continue
-            if depth == 0:
+            if ch == "[":
+                depth_bracket += 1
+                idx += 1
+                continue
+            if ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+                idx += 1
+                continue
+            if ch == "{":
+                depth_brace += 1
+                idx += 1
+                continue
+            if ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+                idx += 1
+                continue
+            if depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
                 for op in operators:
                     if not txt.startswith(op, idx):
                         continue
@@ -242,6 +281,67 @@ class RowPipelineMixin:
                         return left, op, right
             idx += 1
         return None
+
+    @staticmethod
+    def _gfql_split_top_level_commas(expr: str) -> List[str]:
+        parts: List[str] = []
+        current: List[str] = []
+        depth_paren = 0
+        depth_bracket = 0
+        depth_brace = 0
+        in_single = False
+        in_double = False
+        escaped = False
+
+        for ch in expr:
+            if in_single or in_double:
+                current.append(ch)
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+
+            if ch == "'":
+                in_single = True
+                current.append(ch)
+                continue
+            if ch == '"':
+                in_double = True
+                current.append(ch)
+                continue
+
+            if ch == "(":
+                depth_paren += 1
+            elif ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+            elif ch == "[":
+                depth_bracket += 1
+            elif ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+            elif ch == "{":
+                depth_brace += 1
+            elif ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+
+            if ch == "," and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+                part = "".join(current).strip()
+                if part:
+                    parts.append(part)
+                current = []
+                continue
+            current.append(ch)
+
+        part = "".join(current).strip()
+        if part:
+            parts.append(part)
+        return parts
 
     @staticmethod
     def _gfql_parse_quantifier_expr(expr: str) -> Optional[Tuple[str, str, str, str]]:
@@ -297,7 +397,16 @@ class RowPipelineMixin:
     def _gfql_null_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
         if hasattr(value, "isna"):
             return value.isna()
-        return self._gfql_broadcast_scalar(table_df, pd.isna(value)).astype(bool)
+        try:
+            marker = pd.isna(value)
+        except Exception:
+            marker = RowPipelineMixin._gfql_is_null_scalar(value)
+        if isinstance(marker, bool):
+            return self._gfql_broadcast_scalar(table_df, marker).astype(bool)
+        return self._gfql_broadcast_scalar(
+            table_df,
+            RowPipelineMixin._gfql_is_null_scalar(value),
+        ).astype(bool)
 
     @staticmethod
     def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
@@ -502,6 +611,75 @@ class RowPipelineMixin:
             if hasattr(inner, "abs"):
                 return inner.abs()
             return abs(inner)
+
+        to_boolean_match = RowPipelineMixin._GFQL_TOBOOLEAN_RE.fullmatch(txt)
+        if to_boolean_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, to_boolean_match.group("inner"))
+            if hasattr(inner, "astype"):
+                null_mask = self._gfql_null_mask(table_df, inner)
+                normalized = inner.astype(str).str.strip().str.lower()
+                true_mask = normalized.isin(["true", "t", "1", "yes"])
+                false_mask = normalized.isin(["false", "f", "0", "no"])
+                unsupported_mask = ~(true_mask | false_mask | null_mask)
+                if hasattr(unsupported_mask, "any") and bool(unsupported_mask.any()):
+                    raise ValueError(f"unsupported row expression: toBoolean() invalid input in {expr!r}")
+                out = true_mask.where(~false_mask, False)
+                return out.where(~null_mask, pd.NA)
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            if isinstance(inner, bool):
+                return inner
+            if isinstance(inner, (int, float)):
+                return inner != 0
+            txt_inner = str(inner).strip().lower()
+            if txt_inner in {"true", "t", "1", "yes"}:
+                return True
+            if txt_inner in {"false", "f", "0", "no"}:
+                return False
+            raise ValueError(f"unsupported row expression: toBoolean() invalid input in {expr!r}")
+
+        to_string_match = RowPipelineMixin._GFQL_TOSTRING_RE.fullmatch(txt)
+        if to_string_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, to_string_match.group("inner"))
+            if hasattr(inner, "astype"):
+                null_mask = self._gfql_null_mask(table_df, inner)
+                out = inner.astype(str)
+                if hasattr(out, "str"):
+                    out = out.str.replace(r"^True$", "true", regex=True)
+                    out = out.str.replace(r"^False$", "false", regex=True)
+                return out.where(~null_mask, None)
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            if isinstance(inner, bool):
+                return "true" if inner else "false"
+            return str(inner)
+
+        coalesce_match = RowPipelineMixin._GFQL_COALESCE_RE.fullmatch(txt)
+        if coalesce_match is not None:
+            arg_text = coalesce_match.group("inner").strip()
+            arg_parts = RowPipelineMixin._gfql_split_top_level_commas(arg_text)
+            if len(arg_parts) == 0:
+                raise ValueError(f"unsupported row expression: coalesce() requires arguments in {expr!r}")
+
+            values = [self._gfql_eval_string_expr(table_df, part) for part in arg_parts]
+            out = values[0]
+            if not hasattr(out, "astype"):
+                out = self._gfql_broadcast_scalar(table_df, out)
+            for candidate in values[1:]:
+                if not hasattr(candidate, "astype"):
+                    candidate = self._gfql_broadcast_scalar(table_df, candidate)
+                null_mask = self._gfql_null_mask(table_df, out)
+                out = out.where(~null_mask, candidate)
+            return out
+
+        if txt.startswith("-"):
+            inner_txt = txt[1:].strip()
+            if inner_txt:
+                return 0 - self._gfql_eval_string_expr(table_df, inner_txt)
+        if txt.startswith("+"):
+            inner_txt = txt[1:].strip()
+            if inner_txt:
+                return self._gfql_eval_string_expr(table_df, inner_txt)
 
         subscript_match = re.fullmatch(
             r"([A-Za-z_][A-Za-z0-9_.]*)\s*\[\s*([^\]]+)\s*\]",

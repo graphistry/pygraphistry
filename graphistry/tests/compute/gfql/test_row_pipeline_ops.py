@@ -309,6 +309,50 @@ class TestRowPipelineExecution:
             {"score": 5, "score_plus_2": 7, "neg_score": -5},
         ]
 
+    def test_row_pipeline_select_unary_neg_parenthesized_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("v", "-(3 + 2)")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"v": -5}]
+
+    def test_row_pipeline_select_list_literal_comparison(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("eq", "[1, 2] = [1, 2]"), ("neq", "[1, 2] = [1]")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"eq": True, "neq": False}]
+
+    def test_row_pipeline_select_toboolean_tostring_coalesce(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "s": ["true", "false", None]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("b", "toBoolean(s)"),
+                ("s2", "toString(coalesce(s, 'x'))"),
+            ]),
+            order_by([("s2", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"b": False, "s2": "false"},
+            {"b": True, "s2": "true"},
+            {"b": None, "s2": "x"},
+        ]
+
     def test_row_pipeline_select_alias_property_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "a": [True, True], "num": [2, 5]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
