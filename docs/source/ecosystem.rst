@@ -14,6 +14,7 @@ The Graphistry community of projects, open source, and partners has grown over t
        ai [label="pygraphistry[ai]"];
        cucat [label="cu-cat (optional)"];
        louie [label="Louie.AI"];
+       skills [label="graphistry-skills"];
 
        pandas [label="pandas"];
        arrow [label="Apache Arrow"];
@@ -23,7 +24,7 @@ The Graphistry community of projects, open source, and partners has grown over t
 
        {rank=same; pandas; arrow; server; rapids; pytorch;}
        {rank=same; gfql; core; ai; cucat;}
-       {rank=min; louie;}
+       {rank=min; louie; skills;}
 
        pandas -> core;
        arrow -> core;
@@ -42,6 +43,10 @@ The Graphistry community of projects, open source, and partners has grown over t
 
        core -> server [style=dashed];
        gfql -> server [style=dashed];
+
+       skills -> core [style=dashed];
+       skills -> gfql [style=dashed];
+       skills -> ai [style=dashed];
    }
 
 Legend: Solid arrows show “can drive/use” relationships, not dataflow. Dashed arrows show optional server usage.
