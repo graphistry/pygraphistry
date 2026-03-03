@@ -1,13 +1,13 @@
 #!/bin/bash
 # Generate Comment Inventory for DECOMMENT Protocol
 #
-# Usage: ./ai/assets/generate_comment_inventory.sh [base_branch] [output_file]
+# Usage: ./.agents/assets/generate_comment_inventory.sh [base_branch] [output_file]
 #
 # This script automates Phase 1 of the DECOMMENT protocol by extracting all
 # comments added in a PR and formatting them with context for categorization.
 #
 # Example:
-#   ./ai/assets/generate_comment_inventory.sh master plans/my-feature/comment_inventory.md
+#   ./.agents/assets/generate_comment_inventory.sh master plans/my-feature/comment_inventory.md
 
 set -euo pipefail
 

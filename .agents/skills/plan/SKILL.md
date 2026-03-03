@@ -1,3 +1,8 @@
+---
+name: plan
+description: "Create and maintain a resumable phased execution plan for complex tasks. Use when work spans multiple steps or sessions and requires strict status tracking."
+---
+
 # Task Plan Template
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
@@ -126,8 +131,8 @@ git log --oneline -n 10
 - Tests: `graphistry/tests/` (mirrors source structure: `graphistry/foo/bar.py` → `graphistry/tests/foo/test_bar.py`)
 - Docs: `docs/`
 - Plans: `plans/` (gitignored - safe for auxiliary files, temp secrets, working data; Codex: avoid `~/.codex/plans`; if used, copy here then delete)
-- AI prompts: `ai/prompts/`
-- AI docs: `ai/docs/`
+- AI skills: `.agents/skills/`
+- AI docs: `.agents/docs/`
 
 ### Security & Working Files
 
@@ -143,7 +148,7 @@ echo "export GRAPHISTRY_SERVER='https://hub.graphistry.com'" >> plans/[task]/.en
 source plans/[task]/.env
 ```
 
-**For commits:** See [ai/prompts/CONVENTIONAL_COMMITS.md](CONVENTIONAL_COMMITS.md)
+**For commits:** See [the conventional commits skill](../conventional-commits/SKILL.md)
 
 ## Phase Protocol
 

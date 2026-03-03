@@ -4,7 +4,7 @@ When exposing or updating GFQL `call()` functions, the change is **multi-system*
 runtime executors, JSON schema validators, static typing, documentation, and tests
 all need to stay in sync. Use this playbook (paired with
 [`predicates_checklist.md`](./predicates_checklist.md) and the guidance in
-[`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md))
+[`../../skills/gfql-llm-guide-maintenance/SKILL.md`](../../skills/gfql-llm-guide-maintenance/SKILL.md))
 to avoid regressions.
 
 > **Scope**: Items below are required for *every* new or modified `call()` entry.
@@ -90,7 +90,7 @@ to avoid regressions.
 ## 📎 Optional (Promote When User-Facing)
 
 - **Marketing / blog teaser** when the call is a marquee feature.
-- **LLM prompt updates** (`ai/prompts/gfql/*`) beyond baseline instructions.
+- **LLM prompt updates** (`.agents/skills/gfql-llm-guide-maintenance/SKILL.md`) beyond baseline instructions.
 - **Customer templates** or dataset refreshes referencing the new capability.
 
 Keep this file synchronized with future GFQL evolutions—open a PR to amend when the onboarding surface changes.

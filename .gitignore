@@ -105,3 +105,7 @@ AI_PROGRESS/
 plans/
 tmp/
 test_env/
+
+# Claude Code local setup
+.claude/settings.local.json
+.claude/skills

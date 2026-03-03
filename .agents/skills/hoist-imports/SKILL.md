@@ -1,10 +1,15 @@
+---
+name: hoist-imports
+description: "Refactor dynamic imports to top-level imports with an inventory, categorization, and verification workflow. Use during cleanup or review-prep when import placement needs standardization."
+---
+
 # Hoist Imports Protocol
 
 **Purpose:** Move dynamic imports to top-level unless there's a documented reason not to.
 
 ## Quick Reference (60-second version)
 
-1. **Identify**: Run `./ai/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md`
+1. **Identify**: Run `./.agents/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md`
 2. **Categorize**: Review each as HOIST (move to top) or KEEP (document reason)
 3. **Hoist**: Move imports to top-level following PEP 8 section ordering
 4. **Verify**: Run tests, confirm no circular imports or heavy load issues
@@ -27,7 +32,7 @@ This protocol guides the systematic refactoring of dynamic imports (imports insi
 
 ## Prerequisites
 
-1. **Plan File**: Ensure you have a current plan file (see `ai/prompts/PLAN.md`)
+1. **Plan File**: Ensure you have a current plan file (see `../plan/SKILL.md`)
 2. **Clean Git State**: All changes committed to feature branch
 3. **PR Context**: Know which branch the PR will land into (usually `master` or `main`)
 
@@ -50,7 +55,7 @@ This protocol guides the systematic refactoring of dynamic imports (imports insi
 **Commands:**
 ```bash
 # Automated inventory generation (RECOMMENDED)
-./ai/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md
+./.agents/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md
 
 # Manual alternatives (if automation script unavailable):
 # Get base branch
@@ -324,7 +329,7 @@ Add this phase to your plan:
 
 **Tool Calls:**
 ```bash
-./ai/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md
+./.agents/assets/find_dynamic_imports.sh master plans/[task]/dynamic_imports.md
 # [edit commands]
 git commit -m "refactor: Hoist dynamic imports to top-level"
 git push

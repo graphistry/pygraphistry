@@ -1,3 +1,8 @@
+---
+name: decomment
+description: "Remove low-value comments from pull requests while preserving necessary documentation. Use before review or merge when cleaning up explanatory comments in changed code."
+---
+
 # Decomment Protocol
 
 **Purpose:** Remove unnecessary comments from PRs while preserving valuable documentation.
@@ -15,7 +20,7 @@ This protocol guides the systematic removal of redundant comments from code chan
 
 ## Prerequisites
 
-1. **Plan File**: Ensure you have a current plan file (see `ai/prompts/PLAN.md`)
+1. **Plan File**: Ensure you have a current plan file (see `../plan/SKILL.md`)
    - If no plan exists for this work, create one following PLAN.md template
    - If plan exists but is stale, refresh it with current state
 2. **Clean Git State**: All changes committed to feature branch
@@ -39,7 +44,7 @@ This protocol guides the systematic removal of redundant comments from code chan
 **Commands:**
 ```bash
 # Automated inventory generation (RECOMMENDED)
-./ai/assets/generate_comment_inventory.sh master plans/[task]/comment_inventory.md
+./.agents/assets/generate_comment_inventory.sh master plans/[task]/comment_inventory.md
 
 # Manual alternatives:
 # Get base branch
@@ -217,7 +222,7 @@ Phase 4: Verification Results
 ls plans/[current-task]/plan.md
 
 # If no plan exists:
-# 1. Create plan following ai/prompts/PLAN.md template
+# 1. Create plan following ../plan/SKILL.md template
 # 2. Document decomment work as Phase N.A: "Remove redundant comments"
 
 # If plan exists but stale:

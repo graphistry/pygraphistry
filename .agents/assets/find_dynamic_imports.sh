@@ -1,14 +1,14 @@
 #!/bin/bash
 # Find Dynamic Imports for HOISTIMPORTS Protocol
 #
-# Usage: ./ai/assets/find_dynamic_imports.sh [base_branch] [output_file]
+# Usage: ./.agents/assets/find_dynamic_imports.sh [base_branch] [output_file]
 #
 # This script automates Phase 1 of the HOISTIMPORTS protocol by extracting all
 # dynamic imports (imports inside functions/methods/conditionals) added in a PR
 # and formatting them with context for categorization.
 #
 # Example:
-#   ./ai/assets/find_dynamic_imports.sh master plans/my-feature/dynamic_imports.md
+#   ./.agents/assets/find_dynamic_imports.sh master plans/my-feature/dynamic_imports.md
 
 set -euo pipefail
 
