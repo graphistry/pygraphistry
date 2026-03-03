@@ -121,3 +121,7 @@ Graphistry works with a variety of partners and projects, some of which include:
 * `Jupyter <https://jupyter.org/>`_
 * `Pandas <https://pandas.pydata.org/>`_
 * `Dask <https://www.dask.org/>`_
+
+**AI Coding Assistants:**
+
+* `graphistry-skills <https://github.com/graphistry/graphistry-skills>`_: Skills for Claude Code, Cursor, Codex, and other LLM coding assistants to generate better PyGraphistry code (~90% vs ~50% success rate)

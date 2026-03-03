@@ -45,6 +45,16 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 From global 10 banks, manufacturers, news agencies, and government agencies, to startups, game companies, scientists, biotechs, and NGOs, many teams are tackling their graph workloads with Graphistry.
 
+## AI Assistant Integration
+
+For LLM coding assistants (Claude Code, Cursor, Codex, etc.), install the official [graphistry-skills](https://github.com/graphistry/graphistry-skills) package for better PyGraphistry code generation:
+
+```bash
+npx skills add graphistry/graphistry-skills
+```
+
+Skills improve AI success rates from ~50% to ~90% on PyGraphistry tasks by providing context-aware guidance for graph ETL, visualization, GFQL queries, and AI workflows.
+
 ## Gallery
 
 The [notebook demo gallery](https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html) shares many more live visualizations, demos, and integration examples
