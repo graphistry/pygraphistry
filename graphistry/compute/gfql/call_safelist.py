@@ -40,6 +40,10 @@ def is_string(v: Any) -> bool:
     return isinstance(v, str)
 
 
+def is_non_empty_string(v: Any) -> bool:
+    return isinstance(v, str) and v.strip() != ""
+
+
 def is_int(v: Any) -> bool:
     return isinstance(v, int)
 
@@ -83,7 +87,65 @@ def is_list_of_pairs(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, (list, tuple)) and len(item) == 2 for item in v)
 
 
+def _is_json_compatible_value(v: Any) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, (bool, int, float, str)):
+        return True
+    if isinstance(v, list):
+        return all(_is_json_compatible_value(item) for item in v)
+    if isinstance(v, dict):
+        return all(isinstance(k, str) and _is_json_compatible_value(val) for k, val in v.items())
+    return False
+
+
+def is_projection_items(v: Any) -> bool:
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        alias, expr = item
+        if not is_non_empty_string(alias):
+            return False
+        if not (isinstance(expr, str) or _is_json_compatible_value(expr)):
+            return False
+    return True
+
+
+def is_order_keys(v: Any) -> bool:
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        expr, direction = item
+        if not is_non_empty_string(expr):
+            return False
+        if not isinstance(direction, str) or direction.lower() not in {"asc", "desc"}:
+            return False
+    return True
+
+
+def is_where_rows_filter_dict(v: Any) -> bool:
+    if not isinstance(v, dict):
+        return False
+    # Lazy import avoids circular import at module import time
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    for k, val in v.items():
+        if not is_non_empty_string(k):
+            return False
+        if not (isinstance(val, ASTPredicate) or _is_json_compatible_value(val)):
+            return False
+    return True
+
+
+def is_non_empty_list_of_strings(v: Any) -> bool:
+    return is_list_of_strings(v) and len(v) > 0
+
+
 def is_list_of_agg_specs(v: Any) -> bool:
+    allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean"}
     if not isinstance(v, list):
         return False
     for item in v:
@@ -91,19 +153,37 @@ def is_list_of_agg_specs(v: Any) -> bool:
             return False
         alias = item[0]
         func = item[1]
-        if not isinstance(alias, str):
+        if not is_non_empty_string(alias):
             return False
         if not isinstance(func, str):
             return False
-        if len(item) == 3:
+        func_l = func.lower()
+        if func_l not in allowed:
+            return False
+        if func_l == "count":
+            if len(item) == 2:
+                continue
             expr = item[2]
-            if not (expr is None or expr == "*" or isinstance(expr, str)):
+            if not (expr is None or expr == "*" or is_non_empty_string(expr)):
+                return False
+            continue
+        # non-count aggs require a column expression
+        if len(item) != 3:
+            return False
+        expr = item[2]
+        if not is_non_empty_string(expr):
+            return False
+        if expr == "*":
                 return False
     return True
 
 
 def is_unwind_expr(v: Any) -> bool:
-    return isinstance(v, str) or isinstance(v, (list, tuple))
+    if is_non_empty_string(v):
+        return True
+    if isinstance(v, (list, tuple)):
+        return all(_is_json_compatible_value(item) for item in v)
+    return False
 
 
 def is_non_negative_int_like(v: Any) -> bool:
@@ -457,7 +537,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'items'},
         'required_params': {'items'},
         'param_validators': {
-            'items': is_list_of_pairs
+            'items': is_projection_items
         },
         'description': 'Project row table columns/expressions into aliased outputs',
         'schema_effects': {
@@ -472,7 +552,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'items'},
         'required_params': {'items'},
         'param_validators': {
-            'items': is_list_of_pairs
+            'items': is_projection_items
         },
         'description': 'WITH-style row projection with scope-reset semantics',
         'schema_effects': {
@@ -487,7 +567,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'filter_dict'},
         'required_params': set(),
         'param_validators': {
-            'filter_dict': is_dict
+            'filter_dict': is_where_rows_filter_dict
         },
         'description': 'Filter active row table by column values/predicates',
         'schema_effects': {
@@ -502,7 +582,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'keys'},
         'required_params': {'keys'},
         'param_validators': {
-            'keys': is_list_of_pairs
+            'keys': is_order_keys
         },
         'description': 'Sort active row table by expression/direction keys',
         'schema_effects': {
@@ -538,7 +618,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'expr'},
         'param_validators': {
             'expr': is_unwind_expr,
-            'as_': is_string
+            'as_': is_non_empty_string
         },
         'description': 'Explode list-like row expression into multiple rows',
         'schema_effects': {
@@ -553,7 +633,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'keys', 'aggregations'},
         'required_params': {'keys', 'aggregations'},
         'param_validators': {
-            'keys': is_list_of_strings,
+            'keys': is_non_empty_list_of_strings,
             'aggregations': is_list_of_agg_specs
         },
         'description': 'Group rows by keys and compute vectorized aggregations',
