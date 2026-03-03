@@ -117,6 +117,81 @@ class TestGFQLRowPipeline:
         with pytest.raises(Exception, match="requires node column|alias column not found"):
             g.gfql([rows(source="missing")])
 
+    def test_row_pipeline_rows_edges_table_projection(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"]})
+        edges_df = pd.DataFrame({
+            "s": ["a", "b", "a"],
+            "d": ["b", "c", "c"],
+            "weight": [1, 3, 2],
+        })
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(table="edges"),
+            select([("weight", "weight")]),
+            order_by([("weight", "desc")]),
+        ])
+
+        assert list(result._nodes.columns) == ["weight"]
+        assert result._nodes["weight"].tolist() == [3, 2, 1]
+
+    def test_row_pipeline_select_allows_literal_expressions(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("id", "id"), ("one", 1), ("txt", "id")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "one": 1, "txt": "a"},
+            {"id": "b", "one": 1, "txt": "b"},
+        ]
+
+    def test_row_pipeline_invalid_rows_table_rejected(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="table"):
+            g.gfql([rows("bad_table")])
+
+    def test_row_pipeline_select_missing_column_raises(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="select expression column not found"):
+            g.gfql([rows(), select([("x", "missing_col")])])
+
+    def test_row_pipeline_order_by_missing_column_raises(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="order_by column not found"):
+            g.gfql([rows(), order_by([("missing_col", "asc")])])
+
+    @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
+    def test_row_pipeline_skip_invalid_values_rejected(self, value):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
+            g.gfql([rows(), skip(value)])
+
+    @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
+    def test_row_pipeline_limit_invalid_values_rejected(self, value):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
+            g.gfql([rows(), limit(value)])
+
     def test_row_pipeline_vectorized_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
 
