@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+    Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
 )
 from typing_extensions import Literal
 
@@ -1518,3 +1518,45 @@ ref = ASTRef  # noqa: E305
 # Import type-safe call() function from models/gfql/types/call
 # This provides overloaded signatures for IDE autocomplete and type checking
 from graphistry.models.gfql.types.call import call  # noqa: E305 E402 F401
+
+
+def rows(table: str = "nodes", source: Optional[str] = None) -> ASTCall:
+    """Create a row-source operation for GFQL row pipelines.
+
+    This operation converts graph outputs into a row table context (nodes or edges),
+    optionally constrained to a named alias/source tag.
+    """
+    params: Dict[str, Any] = {"table": table}
+    if source is not None:
+        params["source"] = source
+    return ASTCall("rows", params)
+
+
+def select(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+    """Create a row projection operation for GFQL row pipelines."""
+    return ASTCall("select", {"items": list(items)})
+
+
+def return_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+    """Python-safe alias for Cypher RETURN semantics."""
+    return select(items)
+
+
+def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
+    """Create an ORDER BY operation for GFQL row pipelines."""
+    return ASTCall("order_by", {"keys": list(keys)})
+
+
+def skip(value: Any) -> ASTCall:
+    """Create a SKIP operation for GFQL row pipelines."""
+    return ASTCall("skip", {"value": value})
+
+
+def limit(value: Any) -> ASTCall:
+    """Create a LIMIT operation for GFQL row pipelines."""
+    return ASTCall("limit", {"value": value})
+
+
+def distinct() -> ASTCall:
+    """Create a DISTINCT operation for GFQL row pipelines."""
+    return ASTCall("distinct", {})

@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from graphistry.compute.ast import ASTLet, ASTRef, n, e
+from graphistry.compute.ast import ASTCall, ASTLet, ASTRef, distinct, limit, n, e, order_by, return_, rows, select, skip
 from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 
@@ -26,6 +26,42 @@ class TestGFQLAPI:
         
         # chain_let should not be in public API - removed from ComputeMixin
         assert not hasattr(g, 'chain_let')
+
+    def test_row_pipeline_primitives_build_ast_calls(self):
+        row_step = rows("nodes", source="a")
+        assert isinstance(row_step, ASTCall)
+        assert row_step.function == "rows"
+        assert row_step.params == {"table": "nodes", "source": "a"}
+
+        select_step = select([("name", "name"), ("age", "age")])
+        assert isinstance(select_step, ASTCall)
+        assert select_step.function == "select"
+        assert select_step.params == {"items": [("name", "name"), ("age", "age")]}
+
+        return_step = return_([("name", "name")])
+        assert isinstance(return_step, ASTCall)
+        assert return_step.function == "select"
+        assert return_step.params == {"items": [("name", "name")]}
+
+        order_step = order_by([("name", "asc"), ("age", "desc")])
+        assert isinstance(order_step, ASTCall)
+        assert order_step.function == "order_by"
+        assert order_step.params == {"keys": [("name", "asc"), ("age", "desc")]}
+
+        skip_step = skip(3)
+        assert isinstance(skip_step, ASTCall)
+        assert skip_step.function == "skip"
+        assert skip_step.params == {"value": 3}
+
+        limit_step = limit(10)
+        assert isinstance(limit_step, ASTCall)
+        assert limit_step.function == "limit"
+        assert limit_step.params == {"value": 10}
+
+        distinct_step = distinct()
+        assert isinstance(distinct_step, ASTCall)
+        assert distinct_step.function == "distinct"
+        assert distinct_step.params == {}
 
 
 class TestGFQL:
