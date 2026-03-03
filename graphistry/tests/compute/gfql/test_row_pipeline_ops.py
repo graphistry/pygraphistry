@@ -168,6 +168,51 @@ class TestRowPipelineExecution:
             {"id": "b", "v": 3},
         ]
 
+    def test_row_pipeline_unwind_string_expression_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b"],
+            "first": [[1, 2], [3]],
+            "second": [[4], [5, 6]],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            unwind("first + second", as_="x"),
+            select([("x", "x")]),
+            order_by([("x", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"x": 1},
+            {"x": 2},
+            {"x": 3},
+            {"x": 4},
+            {"x": 5},
+            {"x": 6},
+        ]
+
+    def test_row_pipeline_unwind_subscript_expression(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b"],
+            "qrows": [[[2], [3, 4]], [[5], [6, 7]]],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            unwind("qrows[0]", as_="q"),
+            select([("q", "q")]),
+            order_by([("q", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"q": 2},
+            {"q": 5},
+        ]
+
     def test_row_pipeline_group_by_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
@@ -331,6 +376,22 @@ class TestRowPipelineExecution:
         assert result._nodes.to_dict(orient="records") == [
             {"id": "a", "one": 1, "txt": "a"},
             {"id": "b", "one": 1, "txt": "b"},
+        ]
+
+    def test_row_pipeline_select_broadcasts_list_map_literals(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("id", "id"), ("lst", [1, 2]), ("mp", {"k": "v"})]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "lst": [1, 2], "mp": {"k": "v"}},
+            {"id": "b", "lst": [1, 2], "mp": {"k": "v"}},
         ]
 
     def test_row_pipeline_invalid_rows_table_rejected(self):

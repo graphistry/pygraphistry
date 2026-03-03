@@ -189,6 +189,12 @@ class RowPipelineMixin:
         tmp_col = "__gfql_tmp_scalar__"
         while tmp_col in table_df.columns:
             tmp_col = f"{tmp_col}_x"
+
+        # Treat list/map literals as scalar row values by explicit broadcasting.
+        # Plain `assign(col=[...])` interprets list values as column vectors.
+        if isinstance(value, (list, tuple, dict)):
+            return table_df.assign(**{tmp_col: [value for _ in range(len(table_df))]})[tmp_col]
+
         return table_df.assign(**{tmp_col: value})[tmp_col]
 
     def _gfql_bool_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
@@ -247,6 +253,26 @@ class RowPipelineMixin:
         is_lit, lit = self._gfql_parse_literal_token(txt)
         if is_lit:
             return lit
+
+        subscript_match = re.fullmatch(
+            r"([A-Za-z_][A-Za-z0-9_.]*)\s*\[\s*([^\]]+)\s*\]",
+            txt,
+        )
+        if subscript_match is not None:
+            base_value = self._gfql_eval_string_expr(table_df, subscript_match.group(1))
+            key_value = self._gfql_eval_string_expr(table_df, subscript_match.group(2))
+            if hasattr(key_value, "iloc"):
+                raise ValueError(
+                    f"unsupported row expression: dynamic subscript keys in {expr!r}"
+                )
+            if hasattr(base_value, "str"):
+                return base_value.str.get(key_value)
+            try:
+                return base_value[key_value]
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression: subscript failed for {expr!r}: {exc}"
+                ) from exc
 
         is_not_null_match = RowPipelineMixin._GFQL_IS_NOT_NULL_RE.fullmatch(txt)
         if is_not_null_match is not None:
@@ -400,7 +426,7 @@ class RowPipelineMixin:
             if isinstance(expr, str):
                 projected[alias] = self._gfql_eval_string_expr(table_df, expr)
             else:
-                projected[alias] = expr
+                projected[alias] = self._gfql_broadcast_scalar(table_df, expr)
 
         out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)
@@ -494,15 +520,19 @@ class RowPipelineMixin:
         as_clean = as_.strip()
 
         if isinstance(expr, str):
-            if expr not in table_df.columns:
-                raise ValueError(f"unwind expression column not found: {expr!r}")
-            explode_src = table_df[expr]
+            if expr in table_df.columns:
+                explode_src = table_df[expr]
+            else:
+                explode_src = self._gfql_eval_string_expr(table_df, expr)
         elif isinstance(expr, (list, tuple)):
-            explode_src = [list(expr)] * len(table_df)
+            explode_src = self._gfql_broadcast_scalar(table_df, list(expr))
         else:
             raise ValueError(
-                "unwind(expr=...) currently supports a column name or list/tuple literal"
+                "unwind(expr=...) currently supports a row expression or list/tuple literal"
             )
+
+        if not hasattr(explode_src, "astype"):
+            explode_src = self._gfql_broadcast_scalar(table_df, explode_src)
 
         tmp_col = "__gfql_unwind_values__"
         out_df = table_df.assign(**{tmp_col: explode_src})

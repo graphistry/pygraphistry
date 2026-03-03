@@ -31,6 +31,7 @@ Usage:
     g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
+import re
 from typing import Dict, Any, List
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
@@ -236,7 +237,9 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
 def _unwind_requires_node_cols(params: Dict[str, Any]) -> list:
     expr = params.get('expr')
     if isinstance(expr, str):
-        return [expr]
+        txt = expr.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", txt):
+            return [txt]
     return []
 
 
