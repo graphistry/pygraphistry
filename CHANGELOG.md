@@ -23,7 +23,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
 
 ### Docs
-- **AI tooling**: Migrated legacy assistant prompts from `ai/prompts/` into structured skills under `ai/skills/*/SKILL.md` (with frontmatter), and moved assistant docs/assets into `.agents/` with updated internal references (#930).
+- **AI tooling**: Migrated legacy assistant prompts from `ai/prompts/` into structured skills under `.agents/skills/*/SKILL.md` (with frontmatter), and moved assistant docs/assets into `.agents/` with updated internal references (#930).
 
 ## [0.50.6 - 2026-01-27]
 

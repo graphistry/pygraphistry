@@ -20,7 +20,7 @@ This protocol guides the systematic removal of redundant comments from code chan
 
 ## Prerequisites
 
-1. **Plan File**: Ensure you have a current plan file (see `ai/skills/plan/SKILL.md`)
+1. **Plan File**: Ensure you have a current plan file (see `../plan/SKILL.md`)
    - If no plan exists for this work, create one following PLAN.md template
    - If plan exists but is stale, refresh it with current state
 2. **Clean Git State**: All changes committed to feature branch
@@ -222,7 +222,7 @@ Phase 4: Verification Results
 ls plans/[current-task]/plan.md
 
 # If no plan exists:
-# 1. Create plan following ai/skills/plan/SKILL.md template
+# 1. Create plan following ../plan/SKILL.md template
 # 2. Document decomment work as Phase N.A: "Remove redundant comments"
 
 # If plan exists but stale:

@@ -131,7 +131,7 @@ git log --oneline -n 10
 - Tests: `graphistry/tests/` (mirrors source structure: `graphistry/foo/bar.py` → `graphistry/tests/foo/test_bar.py`)
 - Docs: `docs/`
 - Plans: `plans/` (gitignored - safe for auxiliary files, temp secrets, working data; Codex: avoid `~/.codex/plans`; if used, copy here then delete)
-- AI skills: `ai/skills/`
+- AI skills: `.agents/skills/`
 - AI docs: `.agents/docs/`
 
 ### Security & Working Files

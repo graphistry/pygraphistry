@@ -5,7 +5,7 @@ Assistant-facing support material for this repository.
 ## Purpose
 
 - Keep reusable agent docs and helper scripts in one place.
-- Keep task-oriented skill definitions in `ai/skills/`.
+- Keep task-oriented skill definitions in `.agents/skills/`.
 
 ## Layout
 
@@ -27,8 +27,8 @@ Assistant-facing support material for this repository.
 
 ## Related Paths
 
-- Skills: `ai/skills/`
-- Skill index: `ai/skills/SKILLS.md`
+- Skills: `.agents/skills/`
+- Skill index: `.agents/skills/SKILLS.md`
 - Plans (gitignored): `plans/`
 
 ## Quick Commands

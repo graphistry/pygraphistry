@@ -32,7 +32,7 @@ This protocol guides the systematic refactoring of dynamic imports (imports insi
 
 ## Prerequisites
 
-1. **Plan File**: Ensure you have a current plan file (see `ai/skills/plan/SKILL.md`)
+1. **Plan File**: Ensure you have a current plan file (see `../plan/SKILL.md`)
 2. **Clean Git State**: All changes committed to feature branch
 3. **PR Context**: Know which branch the PR will land into (usually `master` or `main`)
 
