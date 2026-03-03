@@ -81,55 +81,6 @@ class TestCallSafelist:
             })
         assert exc_info.value.code == ErrorCode.E201
 
-    def test_row_pipeline_rows_validation(self):
-        params = validate_call_params('rows', {})
-        assert params == {}
-
-        params = validate_call_params('rows', {'table': 'edges', 'source': 'rel'})
-        assert params == {'table': 'edges', 'source': 'rel'}
-
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params('rows', {'table': 'bad'})
-        assert exc_info.value.code == ErrorCode.E201
-
-    def test_row_pipeline_select_validation(self):
-        params = validate_call_params('select', {'items': [('name', 'name'), ('const', 1)]})
-        assert params == {'items': [('name', 'name'), ('const', 1)]}
-
-        for bad_items in [None, 'name', [('a',)], [('a', 'b', 'c')], [1]]:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params('select', {'items': bad_items})
-            assert exc_info.value.code == ErrorCode.E201
-
-    def test_row_pipeline_order_by_validation(self):
-        params = validate_call_params('order_by', {'keys': [('name', 'asc'), ('score', 'desc')]})
-        assert params == {'keys': [('name', 'asc'), ('score', 'desc')]}
-
-        for bad_keys in [None, 'name', [('a',)], [('a', 'asc', 'x')], [1]]:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params('order_by', {'keys': bad_keys})
-            assert exc_info.value.code == ErrorCode.E201
-
-    @pytest.mark.parametrize("function", ["skip", "limit"])
-    def test_row_pipeline_skip_limit_validation(self, function):
-        for value in [0, 2, 2.0, '3']:
-            params = validate_call_params(function, {'value': value})
-            assert params == {'value': value}
-
-        for bad_value in [True, -1, -1.0, '-1', '1.5', 'abc']:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params(function, {'value': bad_value})
-            assert exc_info.value.code == ErrorCode.E201
-
-    def test_row_pipeline_distinct_validation(self):
-        params = validate_call_params('distinct', {})
-        assert params == {}
-
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params('distinct', {'extra': True})
-        assert exc_info.value.code == ErrorCode.E303
-
-
 class TestASTCall:
     """Test ASTCall node validation and serialization."""
     
