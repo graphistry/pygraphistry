@@ -912,9 +912,16 @@ class RowPipelineMixin:
                     agg_df = grouped[expr].max().reset_index(name=alias)
                 elif func in {"avg", "mean"}:
                     agg_df = grouped[expr].mean().reset_index(name=alias)
+                elif func == "collect":
+                    # collect() ignores null entries; compute collection on
+                    # non-null rows and merge against full key space below.
+                    non_null_df = table_df.loc[~table_df[expr].isna(), key_cols + [expr]]
+                    agg_df = non_null_df.groupby(key_cols, sort=False, dropna=False)[expr].agg(list).reset_index(name=alias)
                 else:
                     raise ValueError(f"unsupported group_by aggregation function: {func!r}")
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left")
+            if func == "collect":
+                out_df[alias] = out_df[alias].where(~out_df[alias].isna(), [[] for _ in range(len(out_df))])
 
         return self._gfql_row_table(out_df)

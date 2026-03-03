@@ -256,6 +256,29 @@ class TestRowPipelineExecution:
             {"grp": "y", "cnt": 1, "sum_score": 5, "avg_score": 5.0},
         ]
 
+    def test_row_pipeline_group_by_collect_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "grp": ["x", "x", "y", "y"],
+            "score": [1, None, 5, 6],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            group_by(
+                ["grp"],
+                [("scores", "collect", "score")],
+            ),
+            order_by([("grp", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"grp": "x", "scores": [1.0]},
+            {"grp": "y", "scores": [5.0, 6.0]},
+        ]
+
     def test_row_pipeline_with_alias(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 1]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
@@ -660,6 +683,14 @@ class TestRowPipelineSafelist:
         assert params == {
             "keys": ["grp"],
             "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")],
+        }
+        params = validate_call_params(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("vals", "collect", "v")]},
+        )
+        assert params == {
+            "keys": ["grp"],
+            "aggregations": [("vals", "collect", "v")],
         }
 
         with pytest.raises(GFQLTypeError) as exc_info:

@@ -146,7 +146,7 @@ def is_non_empty_list_of_strings(v: Any) -> bool:
 
 
 def is_list_of_agg_specs(v: Any) -> bool:
-    allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean"}
+    allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean", "collect"}
     if not isinstance(v, list):
         return False
     for item in v:
