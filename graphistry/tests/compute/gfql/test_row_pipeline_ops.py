@@ -299,8 +299,91 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [
             {"id": "a", "is_null": False, "is_big": False, "flag": False},
-            {"id": "b", "is_null": True, "is_big": False, "flag": True},
+            {"id": "b", "is_null": True, "is_big": None, "flag": True},
             {"id": "c", "is_null": False, "is_big": True, "flag": True},
+        ]
+
+    def test_row_pipeline_select_quantifier_literals(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("any_hit", "any(x IN [1, 2, 3] WHERE x = 2)"),
+                ("all_lt_5", "all(x IN [1, 2, 3] WHERE x < 5)"),
+                ("none_gt_3", "none(x IN [1, 2, 3] WHERE x > 3)"),
+                ("single_even", "single(x IN [1, 2, 3] WHERE x % 2 = 0)"),
+                ("size_list", "size([1, 2, 3])"),
+                ("abs_num", "abs(-7)"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {
+                "any_hit": True,
+                "all_lt_5": True,
+                "none_gt_3": True,
+                "single_even": True,
+                "size_list": 3,
+                "abs_num": 7,
+            }
+        ]
+
+    def test_row_pipeline_select_quantifier_empty_and_null(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("any_empty", "any(x IN [] WHERE x = 1)"),
+                ("all_empty", "all(x IN [] WHERE x = 1)"),
+                ("none_empty", "none(x IN [] WHERE x = 1)"),
+                ("single_empty", "single(x IN [] WHERE x = 1)"),
+                ("any_null", "any(x IN [null] WHERE x = 1)"),
+                ("all_null", "all(x IN [null] WHERE x = 1)"),
+                ("none_null", "none(x IN [null] WHERE x = 1)"),
+                ("single_null", "single(x IN [null] WHERE x = 1)"),
+            ]),
+        ])
+        row = result._nodes.to_dict(orient="records")[0]
+
+        assert row["any_empty"] is False
+        assert row["all_empty"] is True
+        assert row["none_empty"] is True
+        assert row["single_empty"] is False
+        assert pd.isna(row["any_null"])
+        assert pd.isna(row["all_null"])
+        assert pd.isna(row["none_null"])
+        assert pd.isna(row["single_null"])
+
+    def test_row_pipeline_select_quantifier_on_list_columns(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "vals": [[1, 2, 3], [2], []],
+            "maps": [[{"a": 1}, {"a": 2}], [{"a": 0}], []],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("id", "id"),
+                ("has_2", "any(x IN vals WHERE x = 2)"),
+                ("all_lt_4", "all(x IN vals WHERE x < 4)"),
+                ("any_map_a_2", "any(x IN maps WHERE x.a = 2)"),
+            ]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "has_2": True, "all_lt_4": True, "any_map_a_2": True},
+            {"id": "b", "has_2": True, "all_lt_4": True, "any_map_a_2": False},
+            {"id": "c", "has_2": False, "all_lt_4": True, "any_map_a_2": False},
         ]
 
     def test_row_pipeline_order_by_string_expression(self):
