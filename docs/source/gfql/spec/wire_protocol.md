@@ -379,6 +379,50 @@ null                // null
 
 **Note**: The `timezone` field is optional for DateTime values and defaults to "UTC" if omitted. This ensures consistent behavior across systems while allowing explicit timezone specification when needed.
 
+## Collections Payloads
+
+Collections are Graphistry visualization overlays that use GFQL wire protocol operations to define subsets
+of nodes, edges, or subgraphs. They are applied in priority order, with earlier collections overriding later
+ones for styling.
+
+### Collection Set
+
+Collection sets wrap GFQL operations in a `gfql_chain` object:
+
+```json
+{
+  "type": "set",
+  "id": "purchasers",
+  "name": "Purchasers",
+  "node_color": "#00BFFF",
+  "expr": {
+    "type": "gfql_chain",
+    "gfql": [
+      {"type": "Node", "filter_dict": {"status": "purchased"}}
+    ]
+  }
+}
+```
+
+### Collection Intersection
+
+Intersections reference previously defined set IDs:
+
+```json
+{
+  "type": "intersection",
+  "name": "High Value Purchasers",
+  "node_color": "#AA00AA",
+  "expr": {
+    "type": "intersection",
+    "sets": ["purchasers", "vip"]
+  }
+}
+```
+
+For Python examples and helper constructors, see the
+:doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+
 ## Examples
 
 ### User 360 Query

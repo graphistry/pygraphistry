@@ -3,6 +3,8 @@
 Layout Settings & Visualization Embedding
 =========================================
 
+.. CI: trigger docs build
+
 This guide shows how to embed and configure Graphistry visualizations using the PyGraphistry Python API. For users interested in using URL parameters for embedding in HTML, refer to the external documentation.
 
 Using PyGraphistry for Customization
@@ -35,6 +37,44 @@ Use :meth:`graphistry.PlotterBase.PlotterBase.scene_settings` to modify the appe
 - ``edge_curvature``: Range 0.0 to 1.0 (0.0 for straight edges, displayed as 0-100 in UI)
 - ``edge_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
 - ``point_opacity``: Range 0.0 to 1.0 (0.0 fully transparent, 1.0 fully opaque, displayed as 0-100 in UI)
+
+Encodings (Color, Size, Icons)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the ``encode_*`` methods to style nodes and edges based on columns (for example, color by entity type).
+See the :doc:`Color encodings notebook </demos/more_examples/graphistry_features/encodings-colors>` for full examples.
+
+Collections
+~~~~~~~~~~~
+
+Collections define labeled subsets (nodes, edges, or subgraphs) using full GFQL and apply layered styling
+that overrides base encodings. Use them to call out alerts or critical paths on top of your standard color
+encodings, with priority-based overrides when subsets overlap.
+
+For a full walkthrough, see the :doc:`Collections tutorial notebook </demos/more_examples/graphistry_features/collections>`.
+For GFQL syntax, see :doc:`GFQL documentation </gfql/index>`.
+For schema details, see `Collections URL options <https://hub.graphistry.com/docs/api/1/rest/url/#url-collections>`_.
+
+.. code-block:: python
+
+   from graphistry import collection_set, n
+
+   collections = [
+       collection_set(
+           expr=n({"subscribed_to_newsletter": True}),
+           id="newsletter_subscribers",
+           name="Newsletter Subscribers",
+           node_color="#32CD32",
+       )
+   ]
+
+   g2 = g.collections(
+       collections=collections,
+       show_collections=True,
+       collections_global_node_color="CCCCCC",
+       collections_global_edge_color="CCCCCC",
+   )
+   g2.plot()
 
 
 Styling the Background and Foreground

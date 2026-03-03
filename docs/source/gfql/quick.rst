@@ -445,6 +445,9 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
       # Results have x, y coordinates for visualization
       result.plot()
 
+Tip: For subset-based coloring after GFQL, use ``result.collections(...)`` and see
+:doc:`/visualization/layout/settings`.
+
 Remote Graph References
 -----------------------
 
