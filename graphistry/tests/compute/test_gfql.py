@@ -64,6 +64,76 @@ class TestGFQLAPI:
         assert distinct_step.params == {}
 
 
+class TestGFQLRowPipeline:
+    def test_row_pipeline_exec_projection_sort_page_distinct(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "name": ["n2", "n1", "n2", "n3"],
+            "score": [2, 3, 2, 1]
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("name", "name"), ("score", "score")]),
+            distinct(),
+            order_by([("score", "desc"), ("name", "asc")]),
+            skip(1),
+            limit(2),
+        ])
+
+        assert list(result._nodes.columns) == ["name", "score"]
+        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [
+            {"name": "n2", "score": 2},
+            {"name": "n3", "score": 1},
+        ]
+        assert result._edges is not None
+        assert len(result._edges) == 0
+
+    def test_row_pipeline_exec_with_match_alias_source(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "grp": ["x", "x", "y"],
+        })
+        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            n({"grp": "x"}, name="a"),
+            rows(source="a"),
+            return_([("id", "id")]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert list(result._nodes.columns) == ["id"]
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
+    def test_row_pipeline_bad_source_alias_raises(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="requires node column|alias column not found"):
+            g.gfql([rows(source="missing")])
+
+    def test_row_pipeline_vectorized_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2]})
+        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([
+            rows(),
+            order_by([("score", "asc")]),
+            limit(2),
+        ])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes["score"].to_pandas().tolist() == [1, 2]
+
+
 class TestGFQL:
     """Test unified GFQL entrypoint"""
     

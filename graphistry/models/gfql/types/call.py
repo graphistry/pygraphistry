@@ -14,6 +14,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Tuple,
     TypedDict,
     Union,
     TYPE_CHECKING,
@@ -60,6 +61,12 @@ CallMethodName = Literal[
     'materialize_nodes',
     'name',
     'prune_self_edges',
+    'rows',
+    'select',
+    'order_by',
+    'skip',
+    'limit',
+    'distinct',
     'umap'
 ]
 
@@ -396,6 +403,37 @@ class DescriptionParams(TypedDict, total=False):
     description: str  # Required in safelist
 
 
+class RowsParams(TypedDict, total=False):
+    """Parameters for rows operation."""
+    table: Literal['nodes', 'edges']
+    source: Optional[str]
+
+
+class SelectParams(TypedDict, total=False):
+    """Parameters for select operation."""
+    items: List[Tuple[str, Any]]
+
+
+class OrderByParams(TypedDict, total=False):
+    """Parameters for order_by operation."""
+    keys: List[Tuple[Any, str]]
+
+
+class SkipParams(TypedDict, total=False):
+    """Parameters for skip operation."""
+    value: Union[int, float, str]
+
+
+class LimitParams(TypedDict, total=False):
+    """Parameters for limit operation."""
+    value: Union[int, float, str]
+
+
+class DistinctParams(TypedDict, total=False):
+    """Parameters for distinct operation (no params)."""
+    pass
+
+
 # Union type of all param types for generic usage
 CallParams = Union[
     HopParams,
@@ -428,6 +466,12 @@ CallParams = Union[
     GetTopologicalLevelsParams,
     NameParams,
     DescriptionParams,
+    RowsParams,
+    SelectParams,
+    OrderByParams,
+    SkipParams,
+    LimitParams,
+    DistinctParams,
 ]
 
 
@@ -550,6 +594,30 @@ def call(function: Literal['name'], params: NameParams = ...) -> 'ASTCall':
 
 @overload
 def call(function: Literal['description'], params: DescriptionParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['rows'], params: RowsParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['select'], params: SelectParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['order_by'], params: OrderByParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['skip'], params: SkipParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['limit'], params: LimitParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['distinct'], params: DistinctParams = ...) -> 'ASTCall':
     ...
 
 # Generic fallback for other methods

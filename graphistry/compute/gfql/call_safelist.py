@@ -79,6 +79,50 @@ def is_list_or_dict(v: Any) -> bool:
     return isinstance(v, (list, dict))
 
 
+def is_list_of_pairs(v: Any) -> bool:
+    return isinstance(v, list) and all(isinstance(item, (list, tuple)) and len(item) == 2 for item in v)
+
+
+def is_non_negative_int_like(v: Any) -> bool:
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return v >= 0
+    if isinstance(v, float):
+        return v.is_integer() and v >= 0
+    if isinstance(v, str):
+        txt = v.strip()
+        return txt.isdigit()
+    return False
+
+
+def _rows_requires_node_cols(params: Dict[str, Any]) -> list:
+    if params.get('table', 'nodes') != 'nodes':
+        return []
+    source = params.get('source')
+    return [source] if isinstance(source, str) else []
+
+
+def _rows_requires_edge_cols(params: Dict[str, Any]) -> list:
+    if params.get('table', 'nodes') != 'edges':
+        return []
+    source = params.get('source')
+    return [source] if isinstance(source, str) else []
+
+
+def _select_added_node_cols(params: Dict[str, Any]) -> list:
+    out: list = []
+    for item in params.get('items', []):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        alias = item[0]
+        if isinstance(alias, str):
+            out.append(alias)
+        else:
+            out.append(str(alias))
+    return out
+
+
 def _symbolic_cols(v: Any) -> list:
     if isinstance(v, str):
         return [v]
@@ -319,6 +363,80 @@ EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
 #     }
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
+    'rows': {
+        'allowed_params': {'table', 'source'},
+        'required_params': set(),
+        'param_validators': {
+            'table': lambda v: v in ['nodes', 'edges'],
+            'source': is_string_or_none
+        },
+        'description': 'Set active row table from nodes/edges, optionally filtered by source alias',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': _rows_requires_node_cols,
+            'requires_edge_cols': _rows_requires_edge_cols
+        }
+    },
+
+    'select': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_list_of_pairs
+        },
+        'description': 'Project row table columns/expressions into aliased outputs',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'order_by': {
+        'allowed_params': {'keys'},
+        'required_params': {'keys'},
+        'param_validators': {
+            'keys': is_list_of_pairs
+        },
+        'description': 'Sort active row table by expression/direction keys',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'skip': {
+        'allowed_params': {'value'},
+        'required_params': {'value'},
+        'param_validators': {
+            'value': is_non_negative_int_like
+        },
+        'description': 'Skip first N rows from active row table',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
+    'limit': {
+        'allowed_params': {'value'},
+        'required_params': {'value'},
+        'param_validators': {
+            'value': is_non_negative_int_like
+        },
+        'description': 'Limit active row table to first N rows',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
+    'distinct': {
+        'allowed_params': set(),
+        'required_params': set(),
+        'param_validators': {},
+        'description': 'Drop duplicate rows from active row table',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
     'get_degrees': {
         'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
         'required_params': set(),
