@@ -1537,9 +1537,19 @@ def select(items: Iterable[Tuple[str, Any]]) -> ASTCall:
     return ASTCall("select", {"items": list(items)})
 
 
+def with_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+    """Python-safe alias for Cypher WITH row projection semantics."""
+    return ASTCall("with_", {"items": list(items)})
+
+
 def return_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
     """Python-safe alias for Cypher RETURN semantics."""
     return select(items)
+
+
+def where_rows(filter_dict: Optional[Dict[str, Any]] = None) -> ASTCall:
+    """Create a row-table WHERE operation using column/predicate filter dict."""
+    return ASTCall("where_rows", {"filter_dict": {} if filter_dict is None else filter_dict})
 
 
 def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
@@ -1560,3 +1570,15 @@ def limit(value: Any) -> ASTCall:
 def distinct() -> ASTCall:
     """Create a DISTINCT operation for GFQL row pipelines."""
     return ASTCall("distinct", {})
+
+
+def unwind(expr: Any, as_: str = "value") -> ASTCall:
+    """Create a constrained UNWIND row expansion operation."""
+    return ASTCall("unwind", {"expr": expr, "as_": as_})
+
+
+def group_by(
+    keys: Iterable[str], aggregations: Iterable[Sequence[Any]]
+) -> ASTCall:
+    """Create grouped aggregation operation for row pipelines."""
+    return ASTCall("group_by", {"keys": list(keys), "aggregations": list(aggregations)})

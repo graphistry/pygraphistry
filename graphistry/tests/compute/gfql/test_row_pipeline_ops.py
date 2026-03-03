@@ -1,8 +1,23 @@
 import pandas as pd
 import pytest
 
-from graphistry.compute.ast import ASTCall, distinct, limit, n, order_by, return_, rows, select, skip
+from graphistry.compute.ast import (
+    ASTCall,
+    distinct,
+    group_by,
+    limit,
+    n,
+    order_by,
+    return_,
+    rows,
+    select,
+    skip,
+    unwind,
+    where_rows,
+    with_,
+)
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.predicates.numeric import gt
 from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.tests.test_compute import CGFull
 
@@ -19,10 +34,20 @@ class TestRowPipelineASTPrimitives:
         assert select_step.function == "select"
         assert select_step.params == {"items": [("name", "name"), ("age", "age")]}
 
+        with_step = with_([("name", "name")])
+        assert isinstance(with_step, ASTCall)
+        assert with_step.function == "with_"
+        assert with_step.params == {"items": [("name", "name")]}
+
         return_step = return_([("name", "name")])
         assert isinstance(return_step, ASTCall)
         assert return_step.function == "select"
         assert return_step.params == {"items": [("name", "name")]}
+
+        where_step = where_rows({"name": "alice"})
+        assert isinstance(where_step, ASTCall)
+        assert where_step.function == "where_rows"
+        assert where_step.params == {"filter_dict": {"name": "alice"}}
 
         order_step = order_by([("name", "asc"), ("age", "desc")])
         assert isinstance(order_step, ASTCall)
@@ -43,6 +68,19 @@ class TestRowPipelineASTPrimitives:
         assert isinstance(distinct_step, ASTCall)
         assert distinct_step.function == "distinct"
         assert distinct_step.params == {}
+
+        unwind_step = unwind("vals", as_="v")
+        assert isinstance(unwind_step, ASTCall)
+        assert unwind_step.function == "unwind"
+        assert unwind_step.params == {"expr": "vals", "as_": "v"}
+
+        group_step = group_by(["grp"], [("cnt", "count"), ("sum_score", "sum", "score")])
+        assert isinstance(group_step, ASTCall)
+        assert group_step.function == "group_by"
+        assert group_step.params == {
+            "keys": ["grp"],
+            "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")],
+        }
 
 
 class TestRowPipelineExecution:
@@ -89,6 +127,83 @@ class TestRowPipelineExecution:
 
         assert list(result._nodes.columns) == ["id"]
         assert result._nodes["id"].tolist() == ["a", "b"]
+
+    def test_row_pipeline_where_rows_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "score": [1, 3, 2],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            where_rows({"score": gt(1)}),
+            order_by([("id", "asc")]),
+            return_([("id", "id"), ("score", "score")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "b", "score": 3},
+            {"id": "c", "score": 2},
+        ]
+
+    def test_row_pipeline_unwind_column_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b"],
+            "vals": [[1, 2], [3]],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            unwind("vals", as_="v"),
+            select([("id", "id"), ("v", "v")]),
+            order_by([("v", "asc")]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "v": 1},
+            {"id": "a", "v": 2},
+            {"id": "b", "v": 3},
+        ]
+
+    def test_row_pipeline_group_by_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "grp": ["x", "x", "y"],
+            "score": [1, 2, 5],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            group_by(
+                ["grp"],
+                [("cnt", "count"), ("sum_score", "sum", "score"), ("avg_score", "avg", "score")],
+            ),
+            order_by([("grp", "asc")]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {"grp": "x", "cnt": 2, "sum_score": 3, "avg_score": 1.5},
+            {"grp": "y", "cnt": 1, "sum_score": 5, "avg_score": 5.0},
+        ]
+
+    def test_row_pipeline_with_alias(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 1]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            with_([("id2", "id"), ("score2", "score")]),
+            order_by([("score2", "asc")]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {"id2": "b", "score2": 1},
+            {"id2": "a", "score2": 2},
+        ]
 
     def test_row_pipeline_bad_source_alias_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
@@ -189,6 +304,32 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert result._nodes["score"].to_pandas().tolist() == [1, 2]
 
+    def test_row_pipeline_cudf_where_unwind_group_by_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "grp": ["x", "x", "y"],
+            "vals": [[1, 2], [3], [4, 5]],
+            "score": [1, 2, 5],
+        })
+        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([
+            rows(),
+            where_rows({"score": gt(1)}),
+            unwind("vals", as_="v"),
+            group_by(["grp"], [("cnt", "count"), ("sum_v", "sum", "v")]),
+            order_by([("grp", "asc")]),
+        ])
+        assert type(result._nodes).__module__.startswith("cudf")
+        pdf = result._nodes.to_pandas()
+        assert pdf.to_dict(orient="records") == [
+            {"grp": "x", "cnt": 1, "sum_v": 3},
+            {"grp": "y", "cnt": 2, "sum_v": 9},
+        ]
+
 
 class TestRowPipelineSafelist:
     def test_row_pipeline_rows_validation(self):
@@ -210,6 +351,16 @@ class TestRowPipelineSafelist:
             with pytest.raises(GFQLTypeError) as exc_info:
                 validate_call_params("select", {"items": bad_items})
             assert exc_info.value.code == ErrorCode.E201
+
+    def test_row_pipeline_with_where_rows_validation(self):
+        params = validate_call_params("with_", {"items": [("name", "name")]})
+        assert params == {"items": [("name", "name")]}
+        params = validate_call_params("where_rows", {"filter_dict": {"name": "alice"}})
+        assert params == {"filter_dict": {"name": "alice"}}
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"filter_dict": "bad"})
+        assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
@@ -238,3 +389,23 @@ class TestRowPipelineSafelist:
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("distinct", {"extra": True})
         assert exc_info.value.code == ErrorCode.E303
+
+    def test_row_pipeline_unwind_group_by_validation(self):
+        params = validate_call_params("unwind", {"expr": "vals", "as_": "v"})
+        assert params == {"expr": "vals", "as_": "v"}
+        params = validate_call_params(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")]},
+        )
+        assert params == {
+            "keys": ["grp"],
+            "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")],
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("unwind", {"expr": 1})
+        assert exc_info.value.code == ErrorCode.E201
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
+        assert exc_info.value.code == ErrorCode.E201

@@ -63,10 +63,14 @@ CallMethodName = Literal[
     'prune_self_edges',
     'rows',
     'select',
+    'with_',
+    'where_rows',
     'order_by',
     'skip',
     'limit',
     'distinct',
+    'unwind',
+    'group_by',
     'umap'
 ]
 
@@ -414,6 +418,16 @@ class SelectParams(TypedDict, total=False):
     items: List[Tuple[str, Any]]
 
 
+class WithParams(TypedDict, total=False):
+    """Parameters for with_ operation."""
+    items: List[Tuple[str, Any]]
+
+
+class WhereRowsParams(TypedDict, total=False):
+    """Parameters for where_rows operation."""
+    filter_dict: Dict[str, Any]
+
+
 class OrderByParams(TypedDict, total=False):
     """Parameters for order_by operation."""
     keys: List[Tuple[Any, str]]
@@ -432,6 +446,18 @@ class LimitParams(TypedDict, total=False):
 class DistinctParams(TypedDict, total=False):
     """Parameters for distinct operation (no params)."""
     pass
+
+
+class UnwindParams(TypedDict, total=False):
+    """Parameters for unwind operation."""
+    expr: Union[str, List[Any], Tuple[Any, ...]]
+    as_: str
+
+
+class GroupByParams(TypedDict, total=False):
+    """Parameters for group_by operation."""
+    keys: List[str]
+    aggregations: List[Union[Tuple[str, str], Tuple[str, str, Union[str, None]]]]
 
 
 # Union type of all param types for generic usage
@@ -468,10 +494,14 @@ CallParams = Union[
     DescriptionParams,
     RowsParams,
     SelectParams,
+    WithParams,
+    WhereRowsParams,
     OrderByParams,
     SkipParams,
     LimitParams,
     DistinctParams,
+    UnwindParams,
+    GroupByParams,
 ]
 
 
@@ -605,6 +635,14 @@ def call(function: Literal['select'], params: SelectParams = ...) -> 'ASTCall':
     ...
 
 @overload
+def call(function: Literal['with_'], params: WithParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['where_rows'], params: WhereRowsParams = ...) -> 'ASTCall':
+    ...
+
+@overload
 def call(function: Literal['order_by'], params: OrderByParams = ...) -> 'ASTCall':
     ...
 
@@ -618,6 +656,14 @@ def call(function: Literal['limit'], params: LimitParams = ...) -> 'ASTCall':
 
 @overload
 def call(function: Literal['distinct'], params: DistinctParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['unwind'], params: UnwindParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['group_by'], params: GroupByParams = ...) -> 'ASTCall':
     ...
 
 # Generic fallback for other methods

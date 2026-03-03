@@ -83,6 +83,29 @@ def is_list_of_pairs(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(item, (list, tuple)) and len(item) == 2 for item in v)
 
 
+def is_list_of_agg_specs(v: Any) -> bool:
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) not in {2, 3}:
+            return False
+        alias = item[0]
+        func = item[1]
+        if not isinstance(alias, str):
+            return False
+        if not isinstance(func, str):
+            return False
+        if len(item) == 3:
+            expr = item[2]
+            if not (expr is None or expr == "*" or isinstance(expr, str)):
+                return False
+    return True
+
+
+def is_unwind_expr(v: Any) -> bool:
+    return isinstance(v, str) or isinstance(v, (list, tuple))
+
+
 def is_non_negative_int_like(v: Any) -> bool:
     if isinstance(v, bool):
         return False
@@ -120,6 +143,57 @@ def _select_added_node_cols(params: Dict[str, Any]) -> list:
             out.append(alias)
         else:
             out.append(str(alias))
+    return out
+
+
+def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
+    filter_dict = params.get('filter_dict')
+    if not isinstance(filter_dict, dict):
+        return []
+    return [k for k in filter_dict.keys() if isinstance(k, str)]
+
+
+def _unwind_requires_node_cols(params: Dict[str, Any]) -> list:
+    expr = params.get('expr')
+    if isinstance(expr, str):
+        return [expr]
+    return []
+
+
+def _unwind_added_node_cols(params: Dict[str, Any]) -> list:
+    as_name = params.get('as_', 'value')
+    return [as_name] if isinstance(as_name, str) and as_name != '' else []
+
+
+def _group_by_requires_node_cols(params: Dict[str, Any]) -> list:
+    out: list = []
+    keys = params.get('keys')
+    if isinstance(keys, list):
+        out.extend([k for k in keys if isinstance(k, str)])
+    aggregations = params.get('aggregations')
+    if isinstance(aggregations, list):
+        for item in aggregations:
+            if not isinstance(item, (list, tuple)) or len(item) != 3:
+                continue
+            expr = item[2]
+            if isinstance(expr, str) and expr != "*":
+                out.append(expr)
+    return out
+
+
+def _group_by_added_node_cols(params: Dict[str, Any]) -> list:
+    out: list = []
+    keys = params.get('keys')
+    if isinstance(keys, list):
+        out.extend([k for k in keys if isinstance(k, str)])
+    aggregations = params.get('aggregations')
+    if isinstance(aggregations, list):
+        for item in aggregations:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            alias = item[0]
+            if isinstance(alias, str):
+                out.append(alias)
     return out
 
 
@@ -394,6 +468,36 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         }
     },
 
+    'with_': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_list_of_pairs
+        },
+        'description': 'WITH-style row projection with scope-reset semantics',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'where_rows': {
+        'allowed_params': {'filter_dict'},
+        'required_params': set(),
+        'param_validators': {
+            'filter_dict': is_dict
+        },
+        'description': 'Filter active row table by column values/predicates',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': _where_rows_requires_node_cols,
+            'requires_edge_cols': []
+        }
+    },
+
     'order_by': {
         'allowed_params': {'keys'},
         'required_params': {'keys'},
@@ -427,6 +531,38 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         'description': 'Limit active row table to first N rows',
         'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
+    'unwind': {
+        'allowed_params': {'expr', 'as_'},
+        'required_params': {'expr'},
+        'param_validators': {
+            'expr': is_unwind_expr,
+            'as_': is_string
+        },
+        'description': 'Explode list-like row expression into multiple rows',
+        'schema_effects': {
+            'adds_node_cols': _unwind_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': _unwind_requires_node_cols,
+            'requires_edge_cols': []
+        }
+    },
+
+    'group_by': {
+        'allowed_params': {'keys', 'aggregations'},
+        'required_params': {'keys', 'aggregations'},
+        'param_validators': {
+            'keys': is_list_of_strings,
+            'aggregations': is_list_of_agg_specs
+        },
+        'description': 'Group rows by keys and compute vectorized aggregations',
+        'schema_effects': {
+            'adds_node_cols': _group_by_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': _group_by_requires_node_cols,
+            'requires_edge_cols': []
+        }
     },
 
     'distinct': {

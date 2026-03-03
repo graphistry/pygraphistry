@@ -2,7 +2,7 @@ from .ComputeMixin import ComputeMixin
 from .ast import (
     n, e, e_forward, e_reverse, e_undirected,
     let, remote, ref, call,
-    rows, select, return_, order_by, skip, limit, distinct
+    rows, select, with_, return_, where_rows, order_by, skip, limit, distinct, unwind, group_by
 )
 from .chain import Chain
 from .calls import hypergraph
@@ -67,7 +67,7 @@ __all__ = [
     # AST nodes
     'n', 'e', 'e_forward', 'e_reverse', 'e_undirected',
     'let', 'remote', 'ref', 'call',
-    'rows', 'select', 'return_', 'order_by', 'skip', 'limit', 'distinct',
+    'rows', 'select', 'with_', 'return_', 'where_rows', 'order_by', 'skip', 'limit', 'distinct', 'unwind', 'group_by',
     # Call types
     'CallMethodName',
     # Predicates
