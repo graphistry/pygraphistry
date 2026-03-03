@@ -811,7 +811,20 @@ class RowPipelineMixin:
 
     def distinct(self: _RowPipelineContext) -> "Plottable":
         table_df = self._gfql_get_active_table()
-        return self._gfql_row_table(table_df.drop_duplicates())
+        try:
+            out_df = table_df.drop_duplicates()
+        except Exception:
+            # Fallback for unhashable list/map cells: dedupe by string-normalized
+            # object-like columns while preserving original row payload.
+            work_df = table_df
+            object_cols = [col for col in table_df.columns if str(table_df[col].dtype) == "object"]
+            if object_cols:
+                work_df = table_df.assign(
+                    **{col: table_df[col].astype(str) for col in object_cols}
+                )
+            mask = ~work_df.duplicated(keep="first")
+            out_df = table_df.loc[mask]
+        return self._gfql_row_table(out_df)
 
     def unwind(self: _RowPipelineContext, expr: Any, as_: str = "value") -> "Plottable":
         """Vectorized UNWIND for column or literal list expressions."""

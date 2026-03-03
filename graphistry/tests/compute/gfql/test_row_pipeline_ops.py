@@ -110,6 +110,27 @@ class TestRowPipelineExecution:
         assert result._edges is not None
         assert len(result._edges) == 0
 
+    def test_row_pipeline_distinct_unhashable_cells(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "vals": [[1, 2], [1, 2], [3]],
+            "meta": [{"k": "v"}, {"k": "v"}, {"k": "z"}],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("vals", "vals"), ("meta", "meta")]),
+            distinct(),
+            order_by([("vals", "asc")]),
+        ])
+
+        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [
+            {"vals": [1, 2], "meta": {"k": "v"}},
+            {"vals": [3], "meta": {"k": "z"}},
+        ]
+
     def test_row_pipeline_exec_with_match_alias_source(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
