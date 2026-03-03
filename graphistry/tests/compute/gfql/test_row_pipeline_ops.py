@@ -205,6 +205,93 @@ class TestRowPipelineExecution:
             {"id2": "a", "score2": 2},
         ]
 
+    def test_row_pipeline_select_string_arithmetic_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("score", "score"), ("score_plus_2", "score + 2"), ("neg_score", "-1 * score")]),
+            order_by([("score", "asc")]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {"score": 2, "score_plus_2": 4, "neg_score": -2},
+            {"score": 5, "score_plus_2": 7, "neg_score": -5},
+        ]
+
+    def test_row_pipeline_select_alias_property_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "a": [True, True], "num": [2, 5]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("num_proj", "a.num"), ("num_plus_1", "a.num + 1")]),
+            order_by([("num_proj", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"num_proj": 2, "num_plus_1": 3},
+            {"num_proj": 5, "num_plus_1": 6},
+        ]
+
+    def test_row_pipeline_select_boolean_null_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [2, None, 7]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("id", "id"),
+                ("is_null", "score IS NULL"),
+                ("is_big", "score > 5"),
+                ("flag", "(score IS NULL) OR (score > 5)"),
+            ]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "is_null": False, "is_big": False, "flag": False},
+            {"id": "b", "is_null": True, "is_big": False, "flag": True},
+            {"id": "c", "is_null": False, "is_big": True, "flag": True},
+        ]
+
+    def test_row_pipeline_order_by_string_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            order_by([("score + 2", "desc")]),
+            limit(2),
+            select([("id", "id"), ("score", "score")]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "b", "score": 3},
+            {"id": "c", "score": 2},
+        ]
+
+    def test_row_pipeline_order_by_mixed_list_values(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c", "d", "e", "f", "g"],
+            "v": [[], ["a"], [1], [None, 1], [1, None], float("nan"), None],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            order_by([("v", "asc")]),
+            select([("v", "v")]),
+        ])
+        ordered = result._nodes["v"].tolist()
+        assert ordered[:5] == [[], ["a"], [1], [1, None], [None, 1]]
+        assert pd.isna(ordered[5])
+        assert ordered[6] is None
+
     def test_row_pipeline_bad_source_alias_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
@@ -259,7 +346,7 @@ class TestRowPipelineExecution:
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
         g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-        with pytest.raises(Exception, match="select expression column not found"):
+        with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
             g.gfql([rows(), select([("x", "missing_col")])])
 
     def test_row_pipeline_order_by_missing_column_raises(self):
@@ -267,7 +354,7 @@ class TestRowPipelineExecution:
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
         g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-        with pytest.raises(Exception, match="order_by column not found"):
+        with pytest.raises(Exception, match="order_by column not found|unsupported token in row expression|unsupported row expression"):
             g.gfql([rows(), order_by([("missing_col", "asc")])])
 
     @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])

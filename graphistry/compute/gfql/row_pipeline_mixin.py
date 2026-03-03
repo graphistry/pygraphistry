@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence
+import math
+import re
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import pandas as pd
 
@@ -31,8 +33,283 @@ class _RowPipelineContext(Protocol):
     def select(self, items: List[Any]) -> "Plottable":
         ...
 
+    @staticmethod
+    def _gfql_strip_outer_parens(expr: str) -> str:
+        ...
+
+    @staticmethod
+    def _gfql_split_top_level_keyword(expr: str, keyword: str) -> Optional[Tuple[str, str]]:
+        ...
+
+    @staticmethod
+    def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
+        ...
+
+    def _gfql_broadcast_scalar(self, table_df: Any, value: Any) -> Any:
+        ...
+
+    def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
+        ...
+
+    def _gfql_null_mask(self, table_df: Any, value: Any) -> Any:
+        ...
+
+    def _gfql_resolve_token(self, table_df: Any, token: str) -> Any:
+        ...
+
+    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
+        ...
+
 
 class RowPipelineMixin:
+    _GFQL_BIN_OP_RE = re.compile(
+        r"^\s*(?P<left>[^()]+?)\s*(?P<op><=|>=|<>|!=|=|<|>|\+|-|\*|/|%)\s*(?P<right>[^()]+?)\s*$"
+    )
+    _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
+    _GFQL_IS_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NULL$", re.IGNORECASE)
+    _GFQL_IS_NOT_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NOT\s+NULL$", re.IGNORECASE)
+
+    @staticmethod
+    def _gfql_is_null_scalar(value: Any) -> bool:
+        if value is None:
+            return True
+        try:
+            marker = pd.isna(value)
+        except Exception:
+            return False
+        return bool(marker) if isinstance(marker, bool) else False
+
+    @staticmethod
+    def _gfql_is_nan_scalar(value: Any) -> bool:
+        if isinstance(value, bool):
+            return False
+        try:
+            return math.isnan(value)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _gfql_cypher_sort_key(value: Any) -> Any:
+        if RowPipelineMixin._gfql_is_nan_scalar(value):
+            return (8, 0)
+        if RowPipelineMixin._gfql_is_null_scalar(value):
+            return (9, 0)
+        if isinstance(value, dict):
+            items = tuple((str(k), RowPipelineMixin._gfql_cypher_sort_key(v)) for k, v in sorted(value.items(), key=lambda kv: str(kv[0])))
+            return (0, items)
+        if isinstance(value, str):
+            if value.startswith("<(") and value.endswith(")>"):
+                return (4, value)
+            if value.startswith("(") and value.endswith(")"):
+                return (1, value)
+            if value.startswith("[") and value.endswith("]"):
+                return (2, value)
+            return (5, value)
+        if isinstance(value, (list, tuple)):
+            nested = tuple(RowPipelineMixin._gfql_cypher_sort_key(v) for v in value)
+            return (3, nested)
+        if isinstance(value, bool):
+            return (6, int(value))
+        if isinstance(value, (int, float)):
+            return (7, float(value))
+        return (10, repr(value))
+
+    @staticmethod
+    def _gfql_strip_outer_parens(expr: str) -> str:
+        txt = expr.strip()
+        while txt.startswith("(") and txt.endswith(")"):
+            depth = 0
+            in_single = False
+            in_double = False
+            balanced = True
+            for idx, ch in enumerate(txt):
+                if ch == "'" and not in_double:
+                    in_single = not in_single
+                    continue
+                if ch == '"' and not in_single:
+                    in_double = not in_double
+                    continue
+                if in_single or in_double:
+                    continue
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0 and idx < len(txt) - 1:
+                        balanced = False
+                        break
+            if not balanced or depth != 0:
+                break
+            txt = txt[1:-1].strip()
+        return txt
+
+    @staticmethod
+    def _gfql_split_top_level_keyword(expr: str, keyword: str) -> Optional[Tuple[str, str]]:
+        txt = expr
+        upper = txt.upper()
+        needle = keyword.upper()
+        depth = 0
+        in_single = False
+        in_double = False
+        idx = 0
+        while idx < len(txt):
+            ch = txt[idx]
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                idx += 1
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                idx += 1
+                continue
+            if in_single or in_double:
+                idx += 1
+                continue
+            if ch == "(":
+                depth += 1
+                idx += 1
+                continue
+            if ch == ")":
+                depth = max(0, depth - 1)
+                idx += 1
+                continue
+            if depth == 0 and upper.startswith(needle, idx):
+                left_ok = idx == 0 or not (upper[idx - 1].isalnum() or upper[idx - 1] == "_")
+                right_idx = idx + len(needle)
+                right_ok = right_idx >= len(upper) or not (upper[right_idx].isalnum() or upper[right_idx] == "_")
+                if left_ok and right_ok:
+                    left = txt[:idx].strip()
+                    right = txt[right_idx:].strip()
+                    if left and right:
+                        return left, right
+            idx += 1
+        return None
+
+    def _gfql_broadcast_scalar(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+        tmp_col = "__gfql_tmp_scalar__"
+        while tmp_col in table_df.columns:
+            tmp_col = f"{tmp_col}_x"
+        return table_df.assign(**{tmp_col: value})[tmp_col]
+
+    def _gfql_bool_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+        if hasattr(value, "astype"):
+            mask = value
+            if hasattr(mask, "fillna"):
+                mask = mask.fillna(False)
+            return mask.astype(bool)
+        return self._gfql_broadcast_scalar(table_df, bool(value)).astype(bool)
+
+    def _gfql_null_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+        if hasattr(value, "isna"):
+            return value.isna()
+        return self._gfql_broadcast_scalar(table_df, pd.isna(value)).astype(bool)
+
+    @staticmethod
+    def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
+        txt = token.strip()
+        if txt == "":
+            return False, None
+        low = txt.lower()
+        if low == "null":
+            return True, None
+        if low == "true":
+            return True, True
+        if low == "false":
+            return True, False
+        if len(txt) >= 2 and txt[0] == txt[-1] and txt[0] in {"'", '"'}:
+            return True, txt[1:-1]
+        if re.fullmatch(r"-?\d+", txt):
+            return True, int(txt)
+        if re.fullmatch(r"-?\d+\.\d+", txt):
+            return True, float(txt)
+        return False, None
+
+    def _gfql_resolve_token(self: _RowPipelineContext, table_df: Any, token: str) -> Any:
+        txt = token.strip()
+        if txt in table_df.columns:
+            return table_df[txt]
+        prop_match = RowPipelineMixin._GFQL_ALIAS_PROP_RE.fullmatch(txt)
+        if prop_match is not None:
+            alias = prop_match.group("alias")
+            prop = prop_match.group("prop")
+            if prop in table_df.columns and (alias in table_df.columns or f"__ctx__{alias}" in table_df.columns):
+                return table_df[prop]
+        is_lit, lit = self._gfql_parse_literal_token(txt)
+        if is_lit:
+            return lit
+        raise ValueError(f"unsupported token in row expression: {token!r}")
+
+    def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
+        txt = self._gfql_strip_outer_parens(expr.strip())
+        if txt in table_df.columns:
+            return table_df[txt]
+
+        is_lit, lit = self._gfql_parse_literal_token(txt)
+        if is_lit:
+            return lit
+
+        is_not_null_match = RowPipelineMixin._GFQL_IS_NOT_NULL_RE.fullmatch(txt)
+        if is_not_null_match is not None:
+            base = self._gfql_eval_string_expr(table_df, is_not_null_match.group("value"))
+            return ~self._gfql_null_mask(table_df, base)
+
+        is_null_match = RowPipelineMixin._GFQL_IS_NULL_RE.fullmatch(txt)
+        if is_null_match is not None:
+            base = self._gfql_eval_string_expr(table_df, is_null_match.group("value"))
+            return self._gfql_null_mask(table_df, base)
+
+        and_split = self._gfql_split_top_level_keyword(txt, "AND")
+        if and_split is not None:
+            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[0]))
+            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[1]))
+            return left & right
+
+        or_split = self._gfql_split_top_level_keyword(txt, "OR")
+        if or_split is not None:
+            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[0]))
+            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[1]))
+            return left | right
+
+        if txt.upper().startswith("NOT "):
+            inner = txt[4:].strip()
+            inner_mask = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, inner))
+            return ~inner_mask
+
+        m = RowPipelineMixin._GFQL_BIN_OP_RE.match(txt)
+        if m:
+            left = self._gfql_resolve_token(table_df, m.group("left"))
+            right = self._gfql_resolve_token(table_df, m.group("right"))
+            op = m.group("op")
+            if op == "+":
+                return left + right
+            if op == "-":
+                return left - right
+            if op == "*":
+                return left * right
+            if op == "/":
+                return left / right
+            if op == "%":
+                return left % right
+            if op == "=":
+                return left == right
+            if op in {"<>", "!="}:
+                return left != right
+            if op == "<":
+                return left < right
+            if op == "<=":
+                return left <= right
+            if op == ">":
+                return left > right
+            if op == ">=":
+                return left >= right
+
+        try:
+            return self._gfql_resolve_token(table_df, txt)
+        except Exception:
+            pass
+
+        raise ValueError(f"unsupported row expression: {expr!r}")
+
     def _gfql_row_table(self: _RowPipelineContext, table_df: Any) -> "Plottable":
         """Return a plottable that treats ``table_df`` as the active row table."""
         out = self.bind()
@@ -121,9 +398,7 @@ class RowPipelineMixin:
             alias_raw, expr = item
             alias = str(alias_raw)
             if isinstance(expr, str):
-                if expr not in table_df.columns:
-                    raise ValueError(f"select expression column not found: {expr!r}")
-                projected[alias] = table_df[expr]
+                projected[alias] = self._gfql_eval_string_expr(table_df, expr)
             else:
                 projected[alias] = expr
 
@@ -157,6 +432,8 @@ class RowPipelineMixin:
 
         sort_cols: List[str] = []
         ascending: List[bool] = []
+        work_df = table_df
+        tmp_idx = 0
         for key_item in keys:
             if not isinstance(key_item, (list, tuple)) or len(key_item) != 2:
                 raise ValueError(
@@ -165,18 +442,34 @@ class RowPipelineMixin:
             expr, direction = key_item
             if not isinstance(expr, str):
                 raise ValueError(
-                    "order_by currently supports string column expressions, got "
+                    "order_by currently supports string expressions, got "
                     f"{type(expr).__name__}"
                 )
-            if expr not in table_df.columns:
-                raise ValueError(f"order_by column not found: {expr!r}")
-            sort_cols.append(expr)
+            if expr in work_df.columns:
+                sort_col = expr
+            else:
+                sort_col = f"__gfql_sort_{tmp_idx}__"
+                tmp_idx += 1
+                work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})
+            sort_cols.append(sort_col)
             ascending.append(str(direction).lower() != "desc")
 
         if sort_cols:
-            out_df = table_df.sort_values(by=sort_cols, ascending=ascending)
+            try:
+                out_df = work_df.sort_values(by=sort_cols, ascending=ascending)
+            except Exception:
+                key_df = work_df
+                key_cols: List[str] = []
+                for idx, col in enumerate(sort_cols):
+                    key_col = f"__gfql_sort_key_{idx}__"
+                    key_df = key_df.assign(**{key_col: key_df[col].map(RowPipelineMixin._gfql_cypher_sort_key)})
+                    key_cols.append(key_col)
+                out_df = key_df.sort_values(by=key_cols, ascending=ascending).drop(columns=key_cols)
+            drop_cols = [c for c in sort_cols if isinstance(c, str) and c.startswith("__gfql_sort_")]
+            if drop_cols:
+                out_df = out_df.drop(columns=drop_cols)
         else:
-            out_df = table_df
+            out_df = work_df
         return self._gfql_row_table(out_df)
 
     def skip(self: _RowPipelineContext, value: Any) -> "Plottable":
