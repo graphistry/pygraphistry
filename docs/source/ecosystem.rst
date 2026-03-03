@@ -66,12 +66,12 @@ Our :ref:`open-source graph query language GFQL <10min-gfql>` with optional GPU 
 
 The Graphistry team created GFQL to fill the gap between pandas/cudf and cypher. This project has been years in the making, and is built out of need from our experiences in working with graphs of all sizes in the compute and visualization tiers.
 
-Graphistry Louie.AI
--------------------
+Generative AI: Louie.AI and graphistry-skills
+---------------------------------------------
 
-`Louie.AI <https://www.louie.ai/>`_  is the new genAI-native experience for Graphistry and your favorite databases
+**Louie.AI**
 
-Louie.AI features:
+`Louie.AI <https://www.louie.ai/>`_ is the genAI-native experience for Graphistry and your favorite databases:
 
 * genAI-native notebooks: Talk to your data & databases and get back answers, visualizations, and more
 * genAI-native dashboards: Build and share dashboards with your data, AI, and Graphistry
@@ -79,6 +79,16 @@ Louie.AI features:
 * Real-time AI Knowledge Graph Database: Target data, transform into preintegrated genAI-friendly indexes, then talk to it or trigger workflows
 
 Check out the `Louie.AI homepage <https://www.louie.ai/>`_ for more information and early access.
+
+**graphistry-skills**
+
+`graphistry-skills <https://github.com/graphistry/graphistry-skills>`_ provides skills for LLM coding assistants (Claude Code, Cursor, Codex) to generate better PyGraphistry code (~90% vs ~50% success rate):
+
+.. code-block:: bash
+
+   npx skills add graphistry/graphistry-skills
+
+Skills provide context-aware guidance for graph ETL, visualization, GFQL queries, and AI workflows.
 
 
 Graphistry cu_cat
@@ -126,7 +136,3 @@ Graphistry works with a variety of partners and projects, some of which include:
 * `Jupyter <https://jupyter.org/>`_
 * `Pandas <https://pandas.pydata.org/>`_
 * `Dask <https://www.dask.org/>`_
-
-**AI Coding Assistants:**
-
-* `graphistry-skills <https://github.com/graphistry/graphistry-skills>`_: Skills for Claude Code, Cursor, Codex, and other LLM coding assistants to generate better PyGraphistry code (~90% vs ~50% success rate)
