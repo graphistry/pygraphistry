@@ -2,6 +2,8 @@
 
 Specialized documentation for AI assistants working on PyGraphistry. These guides supplement the main CLAUDE.md with detailed, topic-specific information.
 
+> **Note:** This directory is for *developing* PyGraphistry. For AI assistants *using* PyGraphistry, see [graphistry-skills](https://github.com/graphistry/graphistry-skills) which provides skills for Claude Code, Cursor, Codex, etc.
+
 ## 🎯 Quick Reference
 
 ### Critical Development Rules
