@@ -1,3 +1,4 @@
+import ast
 import math
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
@@ -68,6 +69,9 @@ class RowPipelineMixin:
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
     _GFQL_IS_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NULL$", re.IGNORECASE)
     _GFQL_IS_NOT_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NOT\s+NULL$", re.IGNORECASE)
+    _GFQL_LABEL_PRED_RE = re.compile(
+        r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<label>[A-Za-z_][A-Za-z0-9_]*)$"
+    )
 
     @staticmethod
     def _gfql_is_null_scalar(value: Any) -> bool:
@@ -185,6 +189,56 @@ class RowPipelineMixin:
             idx += 1
         return None
 
+    @staticmethod
+    def _gfql_split_top_level_operator(
+        expr: str, operators: Sequence[str]
+    ) -> Optional[Tuple[str, str, str]]:
+        txt = expr
+        depth = 0
+        in_single = False
+        in_double = False
+        idx = 0
+        while idx < len(txt):
+            ch = txt[idx]
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                idx += 1
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                idx += 1
+                continue
+            if in_single or in_double:
+                idx += 1
+                continue
+            if ch == "(":
+                depth += 1
+                idx += 1
+                continue
+            if ch == ")":
+                depth = max(0, depth - 1)
+                idx += 1
+                continue
+            if depth == 0:
+                for op in operators:
+                    if not txt.startswith(op, idx):
+                        continue
+
+                    # Prevent treating unary +/- as binary operators.
+                    if op in {"+", "-"}:
+                        prev_idx = idx - 1
+                        while prev_idx >= 0 and txt[prev_idx].isspace():
+                            prev_idx -= 1
+                        if prev_idx < 0 or txt[prev_idx] in {"(", "[", "{", ",", "+", "-", "*", "/", "%", "=", "<", ">"}:
+                            continue
+
+                    left = txt[:idx].strip()
+                    right = txt[idx + len(op) :].strip()
+                    if left and right:
+                        return left, op, right
+            idx += 1
+        return None
+
     def _gfql_broadcast_scalar(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
         tmp_col = "__gfql_tmp_scalar__"
         while tmp_col in table_df.columns:
@@ -228,6 +282,20 @@ class RowPipelineMixin:
             return True, int(txt)
         if re.fullmatch(r"-?\d+\.\d+", txt):
             return True, float(txt)
+        if txt.startswith("[") and txt.endswith("]"):
+            try:
+                parsed = ast.literal_eval(txt)
+            except Exception:
+                return False, None
+            if isinstance(parsed, (list, tuple)):
+                return True, list(parsed)
+        if txt.startswith("{") and txt.endswith("}"):
+            try:
+                parsed = ast.literal_eval(txt)
+            except Exception:
+                return False, None
+            if isinstance(parsed, dict):
+                return True, parsed
         return False, None
 
     def _gfql_resolve_token(self: _RowPipelineContext, table_df: Any, token: str) -> Any:
@@ -236,9 +304,8 @@ class RowPipelineMixin:
             return table_df[txt]
         prop_match = RowPipelineMixin._GFQL_ALIAS_PROP_RE.fullmatch(txt)
         if prop_match is not None:
-            alias = prop_match.group("alias")
             prop = prop_match.group("prop")
-            if prop in table_df.columns and (alias in table_df.columns or f"__ctx__{alias}" in table_df.columns):
+            if prop in table_df.columns:
                 return table_df[prop]
         is_lit, lit = self._gfql_parse_literal_token(txt)
         if is_lit:
@@ -249,6 +316,12 @@ class RowPipelineMixin:
         txt = self._gfql_strip_outer_parens(expr.strip())
         if txt in table_df.columns:
             return table_df[txt]
+
+        label_match = RowPipelineMixin._GFQL_LABEL_PRED_RE.fullmatch(txt)
+        if label_match is not None:
+            label_col = f"label__{label_match.group('label')}"
+            if label_col in table_df.columns:
+                return self._gfql_bool_mask(table_df, table_df[label_col])
 
         is_lit, lit = self._gfql_parse_literal_token(txt)
         if is_lit:
@@ -300,6 +373,53 @@ class RowPipelineMixin:
             inner = txt[4:].strip()
             inner_mask = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, inner))
             return ~inner_mask
+
+        # Comparison operators have lower precedence than arithmetic.
+        comp_split = RowPipelineMixin._gfql_split_top_level_operator(
+            txt, ["<=", ">=", "<>", "!=", "=", "<", ">"]
+        )
+        if comp_split is not None:
+            left_txt, op, right_txt = comp_split
+            left = self._gfql_eval_string_expr(table_df, left_txt)
+            right = self._gfql_eval_string_expr(table_df, right_txt)
+            if op == "=":
+                if RowPipelineMixin._gfql_is_null_scalar(right):
+                    return self._gfql_null_mask(table_df, left)
+                return left == right
+            if op in {"<>", "!="}:
+                if RowPipelineMixin._gfql_is_null_scalar(right):
+                    return ~self._gfql_null_mask(table_df, left)
+                return left != right
+            if op == "<":
+                return left < right
+            if op == "<=":
+                return left <= right
+            if op == ">":
+                return left > right
+            if op == ">=":
+                return left >= right
+
+        add_split = RowPipelineMixin._gfql_split_top_level_operator(txt, ["+", "-"])
+        if add_split is not None:
+            left_txt, op, right_txt = add_split
+            left = self._gfql_eval_string_expr(table_df, left_txt)
+            right = self._gfql_eval_string_expr(table_df, right_txt)
+            if op == "+":
+                return left + right
+            if op == "-":
+                return left - right
+
+        mul_split = RowPipelineMixin._gfql_split_top_level_operator(txt, ["*", "/", "%"])
+        if mul_split is not None:
+            left_txt, op, right_txt = mul_split
+            left = self._gfql_eval_string_expr(table_df, left_txt)
+            right = self._gfql_eval_string_expr(table_df, right_txt)
+            if op == "*":
+                return left * right
+            if op == "/":
+                return left / right
+            if op == "%":
+                return left % right
 
         m = RowPipelineMixin._GFQL_BIN_OP_RE.match(txt)
         if m:
