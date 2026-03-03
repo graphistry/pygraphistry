@@ -1,3 +1,8 @@
+---
+name: pyre-analysis
+description: "Run Pyre/Pysa analysis for call graphs and caller extraction in PyGraphistry. Use for type-aware refactors, indirect dependency tracing, and call-chain debugging."
+---
+
 # Pyre/Pysa Analysis for PyGraphistry
 
 **Recommendation**: Use AST (< 1s) for direct patterns, then Pysa (~60s) for call chains
@@ -15,14 +20,14 @@ docker run --rm -v $(pwd):/workspace -w /workspace python:3.12-slim \
 ls -lh pysa_results/call-graph.json  # Should be ~16MB, 37626 functions
 ```
 
-**3. Extract callers** (see `ai/assets/pysa_extract_callers.py`):
+**3. Extract callers** (see `.agents/assets/pysa_extract_callers.py`):
 ```bash
 # Single method
-python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
+python3 .agents/assets/pysa_extract_callers.py pysa_results/call-graph.json \
   PlotterBase.PlotterBase.bind
 
 # Multiple methods
-python3 ai/assets/pysa_extract_callers.py pysa_results/call-graph.json \
+python3 .agents/assets/pysa_extract_callers.py pysa_results/call-graph.json \
   PlotterBase.PlotterBase.bind \
   PlotterBase.PlotterBase.nodes \
   PlotterBase.PlotterBase.edges

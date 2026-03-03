@@ -1,3 +1,8 @@
+---
+name: lint-types-check
+description: "Run iterative lint and typecheck remediation for PyGraphistry. Use when fixing flake8/mypy issues and driving a branch to clean validation results."
+---
+
 # Lint and Type Check Template for PyGraphistry
 
 <!-- FILE TRACKING HEADER - FILL IN WHEN FILE CREATED -->

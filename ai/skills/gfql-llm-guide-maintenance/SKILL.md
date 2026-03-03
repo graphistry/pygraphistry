@@ -1,3 +1,8 @@
+---
+name: gfql-llm-guide-maintenance
+description: "Maintain GFQL LLM guidance docs when call surfaces, predicates, algorithms, or common failure patterns change. Use for release updates and guide conformance checks."
+---
+
 # LLM_GUIDE.md Maintenance Process
 
 **Purpose**: Update `LLM_GUIDE.md` when GFQL features change or user patterns emerge.
@@ -13,7 +18,7 @@
 5. **LLMs generating invalid JSON** → [LLM Failures](#llm-failures)
 6. **Multiple changes** → [Multi-Change Releases](#multi-change-releases)
 
-**See also**: the end-to-end checklist in `ai/docs/gfql/calls_checklist.md`
+**See also**: the end-to-end checklist in `.agents/docs/gfql/calls_checklist.md`
 whenever a `call()` surface changes.
 
 ## Update Triggers
@@ -97,7 +102,7 @@ grep "new_fn" graphistry/tests/compute/ -rn
 ```
 
 **Update**: `## Graph Algorithms` (add example) + `## Call Functions` (list)
-- Cross-check `ai/docs/gfql/calls_checklist.md` for required code/tests/doc updates
+- Cross-check `.agents/docs/gfql/calls_checklist.md` for required code/tests/doc updates
 
 **Format**:
 ```markdown

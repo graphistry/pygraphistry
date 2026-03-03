@@ -1,6 +1,11 @@
+---
+name: conventional-commits
+description: "Create atomic PyGraphistry commits with conventional commit messages and patch-based staging. Use when preparing commit sequences, selecting staged hunks, or writing commit messages."
+---
+
 # Conventional Commits Guide for PyGraphistry
 
-**⚠️ BEFORE STARTING: Reread [ai/prompts/PLAN.md](PLAN.md). Reuse existing `plans/*/plan.md` if one exists, else start a new one.**
+**⚠️ BEFORE STARTING: Reread [the planning skill](../plan/SKILL.md). Reuse existing `plans/*/plan.md` if one exists, else start a new one.**
 
 PyGraphistry-specific commit conventions only. See PLAN.md for execution protocol.
 

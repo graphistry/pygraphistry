@@ -2,10 +2,10 @@
 """Extract caller information from Pysa call-graph.json
 
 Usage:
-    python3 ai/assets/pysa_extract_callers.py path/to/call-graph.json method1 method2 ...
+    python3 .agents/assets/pysa_extract_callers.py path/to/call-graph.json method1 method2 ...
 
 Example:
-    python3 ai/assets/pysa_extract_callers.py \\
+    python3 .agents/assets/pysa_extract_callers.py \\
         pysa_results/call-graph.json \\
         PlotterBase.PlotterBase.bind \\
         PlotterBase.PlotterBase.nodes
