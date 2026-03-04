@@ -2230,14 +2230,30 @@ class RowPipelineMixin:
         return self.select(items)
 
     def where_rows(
-        self: _RowPipelineContext, filter_dict: Optional[Dict[str, Any]] = None
+        self: _RowPipelineContext,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        expr: Optional[str] = None,
     ) -> "Plottable":
-        """Filter active row table with vectorized column/predicate checks."""
+        """Filter active row table with vectorized dict predicates and/or expression."""
         table_df = self._gfql_get_active_table()
+        out_df = table_df
+
         if filter_dict is None:
             filter_dict = {}
-        from graphistry.compute.filter_by_dict import filter_by_dict
-        out_df = filter_by_dict(table_df, filter_dict)
+        if not isinstance(filter_dict, dict):
+            raise ValueError("where_rows(filter_dict=...) must be a dict when provided")
+        if filter_dict:
+            from graphistry.compute.filter_by_dict import filter_by_dict
+
+            out_df = filter_by_dict(out_df, filter_dict)
+
+        if expr is not None:
+            if not isinstance(expr, str) or expr.strip() == "":
+                raise ValueError("where_rows(expr=...) must be a non-empty string")
+            expr_value = self._gfql_eval_string_expr(out_df, expr)
+            mask = self._gfql_bool_mask(out_df, expr_value)
+            out_df = out_df.loc[mask]
+
         return self._gfql_row_table(out_df)
 
     def return_(self: _RowPipelineContext, items: List[Any]) -> "Plottable":

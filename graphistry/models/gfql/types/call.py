@@ -426,6 +426,7 @@ class WithParams(TypedDict, total=False):
 class WhereRowsParams(TypedDict, total=False):
     """Parameters for where_rows operation."""
     filter_dict: Dict[str, Any]
+    expr: str
 
 
 class OrderByParams(TypedDict, total=False):

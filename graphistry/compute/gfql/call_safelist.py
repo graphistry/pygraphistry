@@ -172,6 +172,39 @@ def is_where_rows_filter_dict(v: Any) -> bool:
     return True
 
 
+def is_where_rows_expr(v: Any) -> bool:
+    if not is_non_empty_string(v):
+        return False
+    txt = str(v).strip()
+    safe_funcs = {
+        "abs",
+        "coalesce",
+        "ends_with",
+        "head",
+        "nodes",
+        "relationships",
+        "reverse",
+        "sign",
+        "size",
+        "starts_with",
+        "tail",
+        "toboolean",
+        "tostring",
+    }
+    if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
+        return False
+    func_calls = [
+        fn
+        for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt)
+        if fn.lower() not in {"and", "or", "not"}
+    ]
+    if any(fn.lower() not in safe_funcs for fn in func_calls):
+        return False
+    if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\s]+", txt) is None:
+        return False
+    return True
+
+
 def is_non_empty_list_of_strings(v: Any) -> bool:
     return is_list_of_strings(v) and len(v) > 0
 
@@ -259,10 +292,44 @@ def _select_added_node_cols(params: Dict[str, Any]) -> list:
 
 
 def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
+    out: list = []
     filter_dict = params.get('filter_dict')
     if not isinstance(filter_dict, dict):
-        return []
-    return [k for k in filter_dict.keys() if isinstance(k, str)]
+        out = []
+    else:
+        out.extend([k for k in filter_dict.keys() if isinstance(k, str)])
+
+    expr = params.get('expr')
+    if isinstance(expr, str):
+        expr_clean = re.sub(r"(?s)'(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"", " ", expr)
+        ids = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean))
+        reserved = {
+            "and",
+            "or",
+            "not",
+            "is",
+            "null",
+            "in",
+            "contains",
+            "starts",
+            "with",
+            "ends",
+            "true",
+            "false",
+            "abs",
+            "coalesce",
+            "head",
+            "nodes",
+            "relationships",
+            "reverse",
+            "sign",
+            "size",
+            "tail",
+            "toboolean",
+            "tostring",
+        }
+        out.extend([name for name in ids if name.lower() not in reserved])
+    return sorted(set(out))
 
 
 def _unwind_requires_node_cols(params: Dict[str, Any]) -> list:
@@ -602,10 +669,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     },
 
     'where_rows': {
-        'allowed_params': {'filter_dict'},
+        'allowed_params': {'filter_dict', 'expr'},
         'required_params': set(),
         'param_validators': {
-            'filter_dict': is_where_rows_filter_dict
+            'filter_dict': is_where_rows_filter_dict,
+            'expr': is_where_rows_expr,
         },
         'description': 'Filter active row table by column values/predicates',
         'schema_effects': {

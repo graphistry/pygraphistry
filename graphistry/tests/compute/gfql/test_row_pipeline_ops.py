@@ -48,6 +48,10 @@ class TestRowPipelineASTPrimitives:
         assert isinstance(where_step, ASTCall)
         assert where_step.function == "where_rows"
         assert where_step.params == {"filter_dict": {"name": "alice"}}
+        where_expr_step = where_rows(expr="score > 1")
+        assert isinstance(where_expr_step, ASTCall)
+        assert where_expr_step.function == "where_rows"
+        assert where_expr_step.params == {"expr": "score > 1"}
 
         order_step = order_by([("name", "asc"), ("age", "desc")])
         assert isinstance(order_step, ASTCall)
@@ -181,6 +185,26 @@ class TestRowPipelineExecution:
         assert result._nodes.to_dict(orient="records") == [
             {"id": "b", "score": 3},
             {"id": "c", "score": 2},
+        ]
+
+    def test_row_pipeline_where_rows_expr_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "vals": [[1], [1, 2], [1, 2, 3]],
+            "name": ["n1", "n2", "n3"],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            where_rows(expr="size(vals) > 1 AND name != 'n3'"),
+            order_by([("id", "asc")]),
+            return_([("id", "id"), ("vals", "vals"), ("name", "name")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "b", "vals": [1, 2], "name": "n2"},
         ]
 
     def test_row_pipeline_unwind_column_vectorized(self):
@@ -1256,15 +1280,25 @@ class TestRowPipelineSafelist:
         assert params == {"items": [("name", "name")]}
         params = validate_call_params("where_rows", {"filter_dict": {"name": "alice"}})
         assert params == {"filter_dict": {"name": "alice"}}
+        params = validate_call_params("where_rows", {"expr": "score > 1 AND name != 'bob'"})
+        assert params == {"expr": "score > 1 AND name != 'bob'"}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
+        params = validate_call_params(
+            "where_rows",
+            {"filter_dict": {"score": pred}, "expr": "score > 1"},
+        )
+        assert params == {"filter_dict": {"score": pred}, "expr": "score > 1"}
 
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"filter_dict": "bad"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"filter_dict": {1: "x"}})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "rand() > 0.1"})
         assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):

@@ -1547,9 +1547,19 @@ def return_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
     return select(items)
 
 
-def where_rows(filter_dict: Optional[Dict[str, Any]] = None) -> ASTCall:
-    """Create a row-table WHERE operation using column/predicate filter dict."""
-    return ASTCall("where_rows", {"filter_dict": {} if filter_dict is None else filter_dict})
+def where_rows(
+    filter_dict: Optional[Dict[str, Any]] = None,
+    expr: Optional[str] = None,
+) -> ASTCall:
+    """Create a row-table WHERE operation using filter_dict and/or expression."""
+    params: Dict[str, Any] = {}
+    if filter_dict is not None:
+        params["filter_dict"] = filter_dict
+    if expr is not None:
+        params["expr"] = expr
+    if not params:
+        params["filter_dict"] = {}
+    return ASTCall("where_rows", params)
 
 
 def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
