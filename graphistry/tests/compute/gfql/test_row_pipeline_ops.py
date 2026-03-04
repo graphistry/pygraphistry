@@ -244,6 +244,28 @@ class TestRowPipelineExecution:
             {"q": 5},
         ]
 
+    def test_row_pipeline_unwind_dynamic_subscript_expression(self):
+        nodes_df = pd.DataFrame({
+            "id": ["seed"],
+        })
+        edges_df = pd.DataFrame({"s": [], "d": []})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            with_([("prows", [0, 1]), ("qrows", [[2], [3, 4]])]),
+            unwind("prows", as_="p"),
+            unwind("qrows[p]", as_="q"),
+            select([("p", "p"), ("q", "q")]),
+            order_by([("p", "asc"), ("q", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"p": 0, "q": 2},
+            {"p": 1, "q": 3},
+            {"p": 1, "q": 4},
+        ]
+
     def test_row_pipeline_group_by_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],

@@ -62,6 +62,11 @@ class _RowPipelineContext(Protocol):
     def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         ...
 
+    def _gfql_eval_dynamic_list_subscript(
+        self, table_df: Any, base_value: Any, key_value: Any, expr: str
+    ) -> Any:
+        ...
+
 
 class RowPipelineMixin:
     _GFQL_BIN_OP_RE = re.compile(
@@ -653,6 +658,86 @@ class RowPipelineMixin:
         out = out.where(~has_null_list, pd.NA)
         return out.reset_index(drop=True)
 
+    def _gfql_eval_dynamic_list_subscript(
+        self: _RowPipelineContext,
+        table_df: Any,
+        base_value: Any,
+        key_value: Any,
+        expr: str,
+    ) -> Any:
+        if not hasattr(base_value, "iloc"):
+            base_value = self._gfql_broadcast_scalar(table_df, base_value)
+
+        base_dtype = str(getattr(base_value, "dtype", "")).lower()
+        if base_dtype != "object":
+            raise ValueError(
+                f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
+            )
+
+        non_null_base = base_value.dropna()
+        sample = non_null_base.head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        sample_values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        if any(not isinstance(v, (list, tuple)) for v in sample_values):
+            raise ValueError(
+                f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
+            )
+
+        key_dtype = str(getattr(key_value, "dtype", "")).lower()
+        key_is_int_like = "int" in key_dtype and "bool" not in key_dtype
+        if not key_is_int_like:
+            if key_dtype != "object":
+                raise ValueError(
+                    f"unsupported row expression: dynamic subscript keys must be integer typed in {expr!r}"
+                )
+            non_null_keys = key_value.dropna()
+            key_sample = non_null_keys.head(128)
+            if hasattr(key_sample, "to_pandas"):
+                key_sample = key_sample.to_pandas()
+            key_values = key_sample.tolist() if hasattr(key_sample, "tolist") else list(key_sample)
+            if any((not isinstance(v, int)) or isinstance(v, bool) for v in key_values):
+                raise ValueError(
+                    f"unsupported row expression: dynamic subscript keys must be integer typed in {expr!r}"
+                )
+
+        row_col = "__gfql_dynsub_row__"
+        while row_col in table_df.columns:
+            row_col = f"{row_col}_x"
+        base_col = "__gfql_dynsub_base__"
+        while base_col in table_df.columns:
+            base_col = f"{base_col}_x"
+        key_col = "__gfql_dynsub_key__"
+        while key_col in table_df.columns:
+            key_col = f"{key_col}_x"
+        pos_col = "__gfql_dynsub_pos__"
+        while pos_col in table_df.columns:
+            pos_col = f"{pos_col}_x"
+
+        base = table_df.assign(
+            **{
+                row_col: range(len(table_df)),
+                base_col: base_value,
+                key_col: key_value,
+            }
+        )[[row_col, base_col, key_col]]
+
+        expanded = base[[row_col, base_col]].explode(base_col)
+        expanded = expanded.assign(
+            **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
+        )[[row_col, pos_col, base_col]]
+        if key_dtype == "object" and hasattr(expanded[pos_col], "astype"):
+            expanded[pos_col] = expanded[pos_col].astype("object")
+
+        merged = base[[row_col, key_col]].merge(
+            expanded,
+            left_on=[row_col, key_col],
+            right_on=[row_col, pos_col],
+            how="left",
+            sort=False,
+        )
+        return merged[base_col].reset_index(drop=True)
+
     def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
         txt = self._gfql_strip_outer_parens(expr.strip())
         if txt in table_df.columns:
@@ -768,8 +853,8 @@ class RowPipelineMixin:
             base_value = self._gfql_eval_string_expr(table_df, subscript_match.group(1))
             key_value = self._gfql_eval_string_expr(table_df, subscript_match.group(2))
             if hasattr(key_value, "iloc"):
-                raise ValueError(
-                    f"unsupported row expression: dynamic subscript keys in {expr!r}"
+                return self._gfql_eval_dynamic_list_subscript(
+                    table_df, base_value, key_value, expr
                 )
             if hasattr(base_value, "str"):
                 return base_value.str.get(key_value)
