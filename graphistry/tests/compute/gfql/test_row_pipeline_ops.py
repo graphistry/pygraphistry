@@ -452,6 +452,20 @@ class TestRowPipelineExecution:
             }
         ]
 
+    def test_row_pipeline_select_nested_quantifier_list_literal(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("nested_none", "none(x IN [['abc'], ['abc', 'def']] WHERE all(y IN x WHERE y = 'def'))"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"nested_none": True}]
+
     def test_row_pipeline_select_quantifier_empty_and_null(self):
         nodes_df = pd.DataFrame({"id": ["a"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
@@ -720,6 +734,8 @@ class TestRowPipelineSafelist:
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
         assert params == {"keys": [("name", "asc"), ("score", "desc")]}
+        params = validate_call_params("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
+        assert params == {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]}
 
         for bad_keys in [
             None,
@@ -735,6 +751,26 @@ class TestRowPipelineSafelist:
             with pytest.raises(GFQLTypeError) as exc_info:
                 validate_call_params("order_by", {"keys": bad_keys})
             assert exc_info.value.code == ErrorCode.E201
+
+    def test_row_pipeline_order_by_aggregate_alias_columns(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "division": ["x", "x", "y"],
+            "age": [3, 7, 4],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            group_by(["division"], [("count(*)", "count"), ("max(n.age)", "max", "age")]),
+            order_by([("count(*)", "asc"), ("max(n.age)", "desc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"division": "y", "count(*)": 1, "max(n.age)": 4},
+            {"division": "x", "count(*)": 2, "max(n.age)": 7},
+        ]
 
     @pytest.mark.parametrize("function", ["skip", "limit"])
     def test_row_pipeline_skip_limit_validation(self, function):

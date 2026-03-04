@@ -80,7 +80,20 @@ class RowPipelineMixin:
     _GFQL_TOBOOLEAN_RE = re.compile(r"(?is)^toBoolean\s*\((?P<inner>.+)\)$")
     _GFQL_TOSTRING_RE = re.compile(r"(?is)^toString\s*\((?P<inner>.+)\)$")
     _GFQL_COALESCE_RE = re.compile(r"(?is)^coalesce\s*\((?P<inner>.+)\)$")
-    _GFQL_ORDER_SAFE_FUNCS = {"abs", "tostring", "toboolean", "coalesce", "size"}
+    _GFQL_ORDER_SAFE_FUNCS = {
+        "abs",
+        "tostring",
+        "toboolean",
+        "coalesce",
+        "size",
+        "count",
+        "sum",
+        "min",
+        "max",
+        "avg",
+        "mean",
+        "collect",
+    }
 
     @staticmethod
     def _gfql_is_null_scalar(value: Any) -> bool:
@@ -448,8 +461,6 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_parse_structured_literal(text: str) -> Tuple[bool, Any]:
-        if re.search(r"(?i)\b(lambda|import|for|while|class|def)\b", text):
-            return False, None
         try:
             parsed = ast.literal_eval(text)
         except Exception:
@@ -1018,14 +1029,14 @@ class RowPipelineMixin:
                     "order_by currently supports string expressions, got "
                     f"{type(expr).__name__}"
                 )
-            if not RowPipelineMixin._gfql_order_expr_static_supported(expr):
-                raise ValueError(
-                    "unsupported order_by expression in vectorized mode; "
-                    f"use column/scalar arithmetic comparisons only: {expr!r}"
-                )
             if expr in work_df.columns:
                 sort_col = expr
             else:
+                if not RowPipelineMixin._gfql_order_expr_static_supported(expr):
+                    raise ValueError(
+                        "unsupported order_by expression in vectorized mode; "
+                        f"use column/scalar arithmetic comparisons only: {expr!r}"
+                    )
                 sort_col = f"__gfql_sort_{tmp_idx}__"
                 tmp_idx += 1
                 work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})

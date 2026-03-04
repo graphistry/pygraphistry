@@ -116,7 +116,20 @@ def is_projection_items(v: Any) -> bool:
 
 def is_order_keys(v: Any) -> bool:
     def _is_static_order_expr_supported(expr: str) -> bool:
-        safe_funcs = {"abs", "tostring", "toboolean", "coalesce", "size"}
+        safe_funcs = {
+            "abs",
+            "tostring",
+            "toboolean",
+            "coalesce",
+            "size",
+            "count",
+            "sum",
+            "min",
+            "max",
+            "avg",
+            "mean",
+            "collect",
+        }
         txt = expr.strip()
         if txt == "":
             return False
