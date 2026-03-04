@@ -1217,10 +1217,29 @@ class RowPipelineMixin:
             if key not in table_df.columns:
                 raise ValueError(f"group_by key column not found: {key!r}")
 
-        try:
-            grouped = table_df.groupby(key_cols, sort=False, dropna=False)
-        except TypeError:
-            grouped = table_df.groupby(key_cols, sort=False)
+        def _make_grouped(df: Any) -> Any:
+            def _build_grouped(group_df: Any) -> Any:
+                try:
+                    grouped_local = group_df.groupby(key_cols, sort=False, dropna=False)
+                except TypeError:
+                    grouped_local = group_df.groupby(key_cols, sort=False)
+                # Trigger factorization now so unhashable key payloads fail fast
+                # and can be normalized to string keys in the outer fallback.
+                grouped_local.size()
+                return grouped_local
+
+            try:
+                return _build_grouped(df)
+            except TypeError:
+                key_object_cols = [
+                    col for col in key_cols if col in df.columns and str(df[col].dtype) == "object"
+                ]
+                work_df = df
+                if key_object_cols:
+                    work_df = df.assign(**{col: df[col].astype(str) for col in key_object_cols})
+                return _build_grouped(work_df)
+
+        grouped = _make_grouped(table_df)
 
         base = grouped.size().reset_index(name="__gfql_group_size__")
         out_df = base[key_cols].copy()
@@ -1236,33 +1255,48 @@ class RowPipelineMixin:
             expr = agg[2] if len(agg) == 3 else None
 
             if func == "count" and (expr is None or expr == "*"):
+                grouped = _make_grouped(table_df)
                 agg_df = grouped.size().reset_index(name=alias)
             else:
                 if not isinstance(expr, str):
                     raise ValueError(
                         f"group_by aggregation {alias!r} requires string expr column"
                     )
-                if expr not in table_df.columns:
-                    raise ValueError(
-                        f"group_by aggregation column not found: {expr!r}"
-                    )
+                expr_col = expr
+                if expr_col not in table_df.columns:
+                    expr_values = self._gfql_eval_string_expr(table_df, expr_col)
+                    if not hasattr(expr_values, "astype"):
+                        expr_values = self._gfql_broadcast_scalar(table_df, expr_values)
+                    tmp_col = "__gfql_group_expr__"
+                    while tmp_col in table_df.columns:
+                        tmp_col = f"{tmp_col}_x"
+                    table_df = table_df.assign(**{tmp_col: expr_values})
+                    expr_col = tmp_col
+                grouped = _make_grouped(table_df)
                 if func == "count":
-                    agg_df = grouped[expr].count().reset_index(name=alias)
+                    agg_df = grouped[expr_col].count().reset_index(name=alias)
                 elif func == "count_distinct":
-                    agg_df = grouped[expr].nunique().reset_index(name=alias)
+                    agg_df = grouped[expr_col].nunique().reset_index(name=alias)
                 elif func == "sum":
-                    agg_df = grouped[expr].sum().reset_index(name=alias)
+                    agg_df = grouped[expr_col].sum().reset_index(name=alias)
                 elif func == "min":
-                    agg_df = grouped[expr].min().reset_index(name=alias)
+                    agg_df = grouped[expr_col].min().reset_index(name=alias)
                 elif func == "max":
-                    agg_df = grouped[expr].max().reset_index(name=alias)
+                    agg_df = grouped[expr_col].max().reset_index(name=alias)
                 elif func in {"avg", "mean"}:
-                    agg_df = grouped[expr].mean().reset_index(name=alias)
+                    agg_df = grouped[expr_col].mean().reset_index(name=alias)
                 elif func == "collect":
                     # collect() ignores null entries; compute collection on
                     # non-null rows and merge against full key space below.
-                    non_null_df = table_df.loc[~table_df[expr].isna(), key_cols + [expr]]
-                    agg_df = non_null_df.groupby(key_cols, sort=False, dropna=False)[expr].agg(list).reset_index(name=alias)
+                    grouped_df = grouped.obj
+                    non_null_df = grouped_df.loc[
+                        ~grouped_df[expr_col].isna(), key_cols + [expr_col]
+                    ]
+                    agg_df = (
+                        _make_grouped(non_null_df)[expr_col]
+                        .agg(list)
+                        .reset_index(name=alias)
+                    )
                 else:
                     raise ValueError(f"unsupported group_by aggregation function: {func!r}")
 

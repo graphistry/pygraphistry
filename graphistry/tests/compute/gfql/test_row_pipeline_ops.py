@@ -311,6 +311,46 @@ class TestRowPipelineExecution:
             {"grp": "y", "scores": [5.0, 6.0]},
         ]
 
+    def test_row_pipeline_group_by_expression_count_distinct_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "grp": ["x", "x", "x", "y"],
+            "score": [1, 1, 2, 3],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            group_by(["grp"], [("cnt_shifted", "count_distinct", "score + 1")]),
+            order_by([("grp", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"grp": "x", "cnt_shifted": 2},
+            {"grp": "y", "cnt_shifted": 1},
+        ]
+
+    def test_row_pipeline_group_by_expression_collect_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "grp": ["x", "x", "y"],
+            "score": [1, 2, 5],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            group_by(["grp"], [("scores_shifted", "collect", "score + 1")]),
+            order_by([("grp", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"grp": "x", "scores_shifted": [2, 3]},
+            {"grp": "y", "scores_shifted": [6]},
+        ]
+
     def test_row_pipeline_with_alias(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 1]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
@@ -833,6 +873,14 @@ class TestRowPipelineSafelist:
         assert params == {
             "keys": ["grp"],
             "aggregations": [("vals", "collect", "v")],
+        }
+        params = validate_call_params(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("vals", "collect", "v + 1")]},
+        )
+        assert params == {
+            "keys": ["grp"],
+            "aggregations": [("vals", "collect", "v + 1")],
         }
 
         with pytest.raises(GFQLTypeError) as exc_info:

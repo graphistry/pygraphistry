@@ -290,7 +290,11 @@ def _group_by_requires_node_cols(params: Dict[str, Any]) -> list:
             if not isinstance(item, (list, tuple)) or len(item) != 3:
                 continue
             expr = item[2]
-            if isinstance(expr, str) and expr != "*":
+            if (
+                isinstance(expr, str)
+                and expr != "*"
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr.strip()) is not None
+            ):
                 out.append(expr)
     return out
 
