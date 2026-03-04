@@ -843,6 +843,41 @@ class RowPipelineMixin:
         return len(values) > 0 and all(isinstance(v, bool) for v in values)
 
     @staticmethod
+    def _gfql_eval_sequence_fn_series(series_value: Any, fn_name: str, expr: str) -> Any:
+        try:
+            if fn_name == "head":
+                return series_value.str.get(0)
+            if fn_name == "tail":
+                return series_value.str.slice(start=1)
+            if fn_name == "reverse":
+                return series_value.str[::-1]
+        except Exception as exc:
+            raise ValueError(
+                f"unsupported row expression: {fn_name}() requires list/string input in {expr!r}"
+            ) from exc
+        raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
+
+    @staticmethod
+    def _gfql_eval_sequence_fn_scalar(value: Any, fn_name: str, expr: str) -> Any:
+        if RowPipelineMixin._gfql_is_null_scalar(value):
+            return None
+        try:
+            if fn_name == "head":
+                return value[0] if len(value) > 0 else None
+            if fn_name == "tail":
+                return value[1:]
+            if fn_name == "reverse":
+                if isinstance(value, str):
+                    return value[::-1]
+                if isinstance(value, (list, tuple)):
+                    return list(reversed(value))
+            raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
+        except Exception as exc:
+            raise ValueError(
+                f"unsupported row expression: {fn_name}() requires list/string input in {expr!r}"
+            ) from exc
+
+    @staticmethod
     def _gfql_replace_identifier(expr: str, identifier: str, replacement: str) -> str:
         return re.sub(
             rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
@@ -1793,71 +1828,22 @@ class RowPipelineMixin:
                 return -1
             return 0
 
-        head_match = RowPipelineMixin._GFQL_HEAD_RE.fullmatch(txt)
-        if head_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, head_match.group("inner"))
+        for fn_name, regex in (
+            ("head", RowPipelineMixin._GFQL_HEAD_RE),
+            ("tail", RowPipelineMixin._GFQL_TAIL_RE),
+            ("reverse", RowPipelineMixin._GFQL_REVERSE_RE),
+            ("nodes", RowPipelineMixin._GFQL_NODES_RE),
+            ("relationships", RowPipelineMixin._GFQL_RELATIONSHIPS_RE),
+        ):
+            fn_match = regex.fullmatch(txt)
+            if fn_match is None:
+                continue
+            inner = self._gfql_eval_string_expr(table_df, fn_match.group("inner"))
+            if fn_name in {"nodes", "relationships"}:
+                return inner
             if hasattr(inner, "str"):
-                try:
-                    return inner.str.get(0)
-                except Exception as exc:
-                    raise ValueError(
-                        f"unsupported row expression: head() requires list/string input in {expr!r}"
-                    ) from exc
-            if RowPipelineMixin._gfql_is_null_scalar(inner):
-                return None
-            try:
-                return inner[0] if len(inner) > 0 else None
-            except Exception as exc:
-                raise ValueError(
-                    f"unsupported row expression: head() requires list/string input in {expr!r}"
-                ) from exc
-
-        tail_match = RowPipelineMixin._GFQL_TAIL_RE.fullmatch(txt)
-        if tail_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, tail_match.group("inner"))
-            if hasattr(inner, "str"):
-                try:
-                    return inner.str.slice(start=1)
-                except Exception as exc:
-                    raise ValueError(
-                        f"unsupported row expression: tail() requires list/string input in {expr!r}"
-                    ) from exc
-            if RowPipelineMixin._gfql_is_null_scalar(inner):
-                return None
-            try:
-                return inner[1:]
-            except Exception as exc:
-                raise ValueError(
-                    f"unsupported row expression: tail() requires list/string input in {expr!r}"
-                ) from exc
-
-        reverse_match = RowPipelineMixin._GFQL_REVERSE_RE.fullmatch(txt)
-        if reverse_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, reverse_match.group("inner"))
-            if hasattr(inner, "str"):
-                try:
-                    return inner.str[::-1]
-                except Exception as exc:
-                    raise ValueError(
-                        f"unsupported row expression: reverse() requires list/string input in {expr!r}"
-                    ) from exc
-            if RowPipelineMixin._gfql_is_null_scalar(inner):
-                return None
-            if isinstance(inner, str):
-                return inner[::-1]
-            if isinstance(inner, (list, tuple)):
-                return list(reversed(inner))
-            raise ValueError(
-                f"unsupported row expression: reverse() requires list/string input in {expr!r}"
-            )
-
-        nodes_match = RowPipelineMixin._GFQL_NODES_RE.fullmatch(txt)
-        if nodes_match is not None:
-            return self._gfql_eval_string_expr(table_df, nodes_match.group("inner"))
-
-        rel_match = RowPipelineMixin._GFQL_RELATIONSHIPS_RE.fullmatch(txt)
-        if rel_match is not None:
-            return self._gfql_eval_string_expr(table_df, rel_match.group("inner"))
+                return RowPipelineMixin._gfql_eval_sequence_fn_series(inner, fn_name, expr)
+            return RowPipelineMixin._gfql_eval_sequence_fn_scalar(inner, fn_name, expr)
 
         if RowPipelineMixin._GFQL_RAND_RE.fullmatch(txt) is not None:
             row_col = "__gfql_rand_row__"

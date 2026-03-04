@@ -877,6 +877,215 @@ class TestRowPipelineExecution:
             {"id": "b", "one": 1, "txt": "b"},
         ]
 
+    def test_row_pipeline_select_case_when_expression(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select(
+                [
+                    ("id", "id"),
+                    ("bucket", "CASE WHEN score > 2 THEN 'hi' ELSE 'lo' END"),
+                ]
+            ),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "bucket": "lo"},
+            {"id": "b", "bucket": "hi"},
+            {"id": "c", "bucket": "lo"},
+        ]
+
+    def test_row_pipeline_select_sequence_function_family(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "vals": [[1, 2, 3], [4], []],
+                "txt": ["ab", "cd", ""],
+                "score": [-2, 0, 3],
+            }
+        )
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("h_vals", "head(vals)"),
+                        ("t_vals", "tail(vals)"),
+                        ("r_vals", "reverse(vals)"),
+                        ("h_txt", "head(txt)"),
+                        ("t_txt", "tail(txt)"),
+                        ("r_txt", "reverse(txt)"),
+                        ("sgn", "sign(score)"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        records = result._nodes.to_dict(orient="records")
+        assert records[:2] == [
+            {
+                "id": "a",
+                "h_vals": 1,
+                "t_vals": [2, 3],
+                "r_vals": [3, 2, 1],
+                "h_txt": "a",
+                "t_txt": "b",
+                "r_txt": "ba",
+                "sgn": -1,
+            },
+            {
+                "id": "b",
+                "h_vals": 4,
+                "t_vals": [],
+                "r_vals": [4],
+                "h_txt": "c",
+                "t_txt": "d",
+                "r_txt": "dc",
+                "sgn": 0,
+            },
+        ]
+        assert records[2]["id"] == "c"
+        assert pd.isna(records[2]["h_vals"])
+        assert records[2]["t_vals"] == []
+        assert records[2]["r_vals"] == []
+        assert pd.isna(records[2]["h_txt"])
+        assert records[2]["t_txt"] == ""
+        assert records[2]["r_txt"] == ""
+        assert records[2]["sgn"] == 1
+
+    def test_row_pipeline_select_nodes_relationships_passthrough(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "path_nodes": [["n1", "n2"], ["n3"]],
+                "path_rels": [["r1"], []],
+            }
+        )
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("ns", "nodes(path_nodes)"),
+                        ("rs", "relationships(path_rels)"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "ns": ["n1", "n2"], "rs": ["r1"]},
+            {"id": "b", "ns": ["n3"], "rs": []},
+        ]
+
+    def test_row_pipeline_select_in_operator_and_list_scalar_concat(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], [3]]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("has2", "2 IN vals"),
+                        ("has5", "5 IN vals"),
+                        ("append9", "vals + 9"),
+                        ("prepend9", "9 + vals"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {
+                "id": "a",
+                "has2": True,
+                "has5": False,
+                "append9": [1, 2, 9],
+                "prepend9": [9, 1, 2],
+            },
+            {
+                "id": "b",
+                "has2": False,
+                "has5": False,
+                "append9": [3, 9],
+                "prepend9": [9, 3],
+            },
+        ]
+
+    def test_row_pipeline_select_slice_variants(self):
+        nodes_df = pd.DataFrame({"id": ["a"], "txt": ["abcdef"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("mid", "txt[1..3]"),
+                        ("left", "txt[..2]"),
+                        ("right", "txt[2..]"),
+                        ("empty", "txt[0..0]"),
+                    ]
+                ),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {
+                "mid": "bc",
+                "left": "ab",
+                "right": "cdef",
+                "empty": "",
+            }
+        ]
+
+    def test_row_pipeline_select_slice_null_bound_returns_null(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", "ghij"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("lhs_null", "txt[null..2]"),
+                        ("rhs_null", "txt[1..null]"),
+                    ]
+                ),
+            ]
+        )
+
+        assert result._nodes["lhs_null"].tolist() == [None, None]
+        assert result._nodes["rhs_null"].tolist() == [None, None]
+
+    def test_row_pipeline_select_reverse_invalid_input_raises(self):
+        nodes_df = pd.DataFrame({"id": ["a"], "x": [1]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="reverse\\(\\) requires list/string input"):
+            g.gfql([rows(), select([("bad", "reverse(x)")])])
+
     def test_row_pipeline_select_broadcasts_list_map_literals(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
