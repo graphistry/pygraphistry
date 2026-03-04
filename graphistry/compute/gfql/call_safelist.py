@@ -116,6 +116,7 @@ def is_projection_items(v: Any) -> bool:
 
 def is_order_keys(v: Any) -> bool:
     def _is_static_order_expr_supported(expr: str) -> bool:
+        safe_funcs = {"abs", "tostring", "toboolean", "coalesce", "size"}
         txt = expr.strip()
         if txt == "":
             return False
@@ -123,7 +124,8 @@ def is_order_keys(v: Any) -> bool:
             return False
         if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
             return False
-        if re.search(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", txt):
+        func_calls = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt)
+        if any(fn.lower() not in safe_funcs for fn in func_calls):
             return False
         if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\s]+", txt) is None:
             return False

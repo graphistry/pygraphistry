@@ -343,6 +343,29 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"eq": True, "neq": False}]
 
+    def test_row_pipeline_select_nested_json_like_literal(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("eq_nested", "[1, {'k': [2, null]}] = [1, {'k': [2, null]}]")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"eq_nested": True}]
+
+    def test_row_pipeline_select_rejects_non_json_literal_shapes(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
+            g.gfql([rows(), select([("bad", "[1, (2, 3)]")])])
+
+        with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
+            g.gfql([rows(), select([("bad", "{1: 2}")])])
+
     def test_row_pipeline_select_toboolean_tostring_coalesce(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "s": ["true", "false", None]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
@@ -707,7 +730,7 @@ class TestRowPipelineSafelist:
             [(1, "asc")],
             [("a", "up")],
             [("[1, 2]", "asc")],
-            [("coalesce(score, 1)", "asc")],
+            [("unknown_fn(score)", "asc")],
         ]:
             with pytest.raises(GFQLTypeError) as exc_info:
                 validate_call_params("order_by", {"keys": bad_keys})

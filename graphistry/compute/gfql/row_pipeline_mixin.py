@@ -80,6 +80,7 @@ class RowPipelineMixin:
     _GFQL_TOBOOLEAN_RE = re.compile(r"(?is)^toBoolean\s*\((?P<inner>.+)\)$")
     _GFQL_TOSTRING_RE = re.compile(r"(?is)^toString\s*\((?P<inner>.+)\)$")
     _GFQL_COALESCE_RE = re.compile(r"(?is)^coalesce\s*\((?P<inner>.+)\)$")
+    _GFQL_ORDER_SAFE_FUNCS = {"abs", "tostring", "toboolean", "coalesce", "size"}
 
     @staticmethod
     def _gfql_is_null_scalar(value: Any) -> bool:
@@ -109,9 +110,8 @@ class RowPipelineMixin:
             return False
         if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
             return False
-        # Keep order_by deterministic and vector-safe for this cycle by
-        # rejecting function-call forms up front.
-        if re.search(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", txt):
+        func_calls = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt)
+        if any(fn.lower() not in RowPipelineMixin._GFQL_ORDER_SAFE_FUNCS for fn in func_calls):
             return False
         if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\s]+", txt) is None:
             return False
@@ -447,6 +447,46 @@ class RowPipelineMixin:
         ).astype(bool)
 
     @staticmethod
+    def _gfql_parse_structured_literal(text: str) -> Tuple[bool, Any]:
+        if re.search(r"(?i)\b(lambda|import|for|while|class|def)\b", text):
+            return False, None
+        try:
+            parsed = ast.literal_eval(text)
+        except Exception:
+            normalized = re.sub(r"(?i)\bnull\b", "None", text)
+            normalized = re.sub(r"(?i)\btrue\b", "True", normalized)
+            normalized = re.sub(r"(?i)\bfalse\b", "False", normalized)
+            try:
+                parsed = ast.literal_eval(normalized)
+            except Exception:
+                return False, None
+        return True, parsed
+
+    @staticmethod
+    def _gfql_normalize_json_like_literal(value: Any) -> Tuple[bool, Any]:
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return True, value
+        if isinstance(value, list):
+            list_out: List[Any] = []
+            for item in value:
+                ok, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(item)
+                if not ok:
+                    return False, None
+                list_out.append(normalized)
+            return True, list_out
+        if isinstance(value, dict):
+            dict_out: Dict[str, Any] = {}
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    return False, None
+                ok, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(item)
+                if not ok:
+                    return False, None
+                dict_out[key] = normalized
+            return True, dict_out
+        return False, None
+
+    @staticmethod
     def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
         txt = token.strip()
         if txt == "":
@@ -465,31 +505,21 @@ class RowPipelineMixin:
         if re.fullmatch(r"-?\d+\.\d+", txt):
             return True, float(txt)
         if txt.startswith("[") and txt.endswith("]"):
-            try:
-                parsed = ast.literal_eval(txt)
-            except Exception:
-                normalized = re.sub(r"(?i)\bnull\b", "None", txt)
-                normalized = re.sub(r"(?i)\btrue\b", "True", normalized)
-                normalized = re.sub(r"(?i)\bfalse\b", "False", normalized)
-                try:
-                    parsed = ast.literal_eval(normalized)
-                except Exception:
-                    return False, None
-            if isinstance(parsed, (list, tuple)):
-                return True, list(parsed)
+            ok, parsed = RowPipelineMixin._gfql_parse_structured_literal(txt)
+            if not ok:
+                return False, None
+            ok_norm, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(parsed)
+            if ok_norm and isinstance(normalized, list):
+                return True, normalized
+            return False, None
         if txt.startswith("{") and txt.endswith("}"):
-            try:
-                parsed = ast.literal_eval(txt)
-            except Exception:
-                normalized = re.sub(r"(?i)\bnull\b", "None", txt)
-                normalized = re.sub(r"(?i)\btrue\b", "True", normalized)
-                normalized = re.sub(r"(?i)\bfalse\b", "False", normalized)
-                try:
-                    parsed = ast.literal_eval(normalized)
-                except Exception:
-                    return False, None
-            if isinstance(parsed, dict):
-                return True, parsed
+            ok, parsed = RowPipelineMixin._gfql_parse_structured_literal(txt)
+            if not ok:
+                return False, None
+            ok_norm, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(parsed)
+            if ok_norm and isinstance(normalized, dict):
+                return True, normalized
+            return False, None
         return False, None
 
     def _gfql_resolve_token(self: _RowPipelineContext, table_df: Any, token: str) -> Any:
