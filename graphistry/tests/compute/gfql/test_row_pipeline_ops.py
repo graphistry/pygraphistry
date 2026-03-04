@@ -130,7 +130,7 @@ class TestRowPipelineExecution:
             {"vals": [3], "meta": {"k": "z"}},
         ]
 
-    def test_row_pipeline_order_by_list_values_rejected_in_vector_mode(self):
+    def test_row_pipeline_order_by_list_values_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
             "vals": [[1, 2], [1, 2], [3]],
@@ -138,8 +138,12 @@ class TestRowPipelineExecution:
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
         g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-        with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
-            g.gfql([rows(), select([("vals", "vals")]), order_by([("vals", "asc")])])
+        result = g.gfql([
+            rows(),
+            select([("vals", "vals")]),
+            order_by([("vals", "asc")]),
+        ])
+        assert result._nodes["vals"].tolist() == [[1, 2], [1, 2], [3]]
 
     def test_row_pipeline_exec_with_match_alias_source(self):
         nodes_df = pd.DataFrame({
@@ -647,6 +651,122 @@ class TestRowPipelineExecution:
                 order_by([("v", "asc")]),
                 select([("v", "v")]),
             ])
+
+    def test_row_pipeline_order_by_cypher_list_value_semantics(self):
+        nodes_df = pd.DataFrame({
+            "id": list("abcdefgh"),
+            "lists": [[], ["a"], ["a", 1], [1], [1, "a"], [1, None], [None, 1], [None, 2]],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        asc_result = g.gfql([
+            rows(),
+            select([("lists", "lists")]),
+            order_by([("lists", "asc")]),
+        ])
+        assert asc_result._nodes["lists"].tolist() == [
+            [],
+            ["a"],
+            ["a", 1],
+            [1],
+            [1, "a"],
+            [1, None],
+            [None, 1],
+            [None, 2],
+        ]
+
+        desc_result = g.gfql([
+            rows(),
+            select([("lists", "lists")]),
+            order_by([("lists", "desc")]),
+        ])
+        assert desc_result._nodes["lists"].tolist() == [
+            [None, 2],
+            [None, 1],
+            [1, None],
+            [1, "a"],
+            [1],
+            ["a", 1],
+            ["a"],
+            [],
+        ]
+
+    def test_row_pipeline_order_by_time_offsets_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": list("abcde"),
+            "times": [
+                "10:35-08:00",
+                "12:31:14.645876123+01:00",
+                "12:31:14.645876124+01:00",
+                "12:35:15+05:00",
+                "12:30:14.645876123+01:01",
+            ],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        asc_result = g.gfql([
+            rows(),
+            select([("times", "times")]),
+            order_by([("times", "asc")]),
+            limit(3),
+        ])
+        assert asc_result._nodes["times"].tolist() == [
+            "12:35:15+05:00",
+            "12:30:14.645876123+01:01",
+            "12:31:14.645876123+01:00",
+        ]
+
+        desc_result = g.gfql([
+            rows(),
+            select([("times", "times")]),
+            order_by([("times", "desc")]),
+            limit(3),
+        ])
+        assert desc_result._nodes["times"].tolist() == [
+            "10:35-08:00",
+            "12:31:14.645876124+01:00",
+            "12:31:14.645876123+01:00",
+        ]
+
+    def test_row_pipeline_order_by_datetime_offsets_vectorized(self):
+        nodes_df = pd.DataFrame({
+            "id": list("abcde"),
+            "datetimes": [
+                "1984-10-11T12:30:14.000000012+00:15",
+                "1984-10-11T12:31:14.645876123+00:17",
+                "0001-01-01T01:01:01.000000001-11:59",
+                "9999-09-09T09:59:59.999999999+11:59",
+                "1980-12-11T12:31:14-11:59",
+            ],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        asc_result = g.gfql([
+            rows(),
+            select([("datetimes", "datetimes")]),
+            order_by([("datetimes", "asc")]),
+            limit(3),
+        ])
+        assert asc_result._nodes["datetimes"].tolist() == [
+            "0001-01-01T01:01:01.000000001-11:59",
+            "1980-12-11T12:31:14-11:59",
+            "1984-10-11T12:31:14.645876123+00:17",
+        ]
+
+        desc_result = g.gfql([
+            rows(),
+            select([("datetimes", "datetimes")]),
+            order_by([("datetimes", "desc")]),
+            limit(3),
+        ])
+        assert desc_result._nodes["datetimes"].tolist() == [
+            "9999-09-09T09:59:59.999999999+11:59",
+            "1984-10-11T12:30:14.000000012+00:15",
+            "1984-10-11T12:31:14.645876123+00:17",
+        ]
 
     def test_row_pipeline_bad_source_alias_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
