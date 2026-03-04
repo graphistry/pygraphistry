@@ -405,6 +405,40 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"eq": True, "neq": False}]
 
+    def test_row_pipeline_select_dynamic_list_expression_vectorized(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("id", "id"), ("vals", "[score, score + 1, 99]")]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "vals": [2, 3, 99]},
+            {"id": "b", "vals": [5, 6, 99]},
+        ]
+
+    def test_row_pipeline_select_list_comprehension_filter_projection_vectorized(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "vals": [[1, 2, 3], [2], [], None]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([("id", "id"), ("vals2", "[x IN vals WHERE x > 1 | x + 10]")]),
+            order_by([("id", "asc")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "vals2": [12, 13]},
+            {"id": "b", "vals2": [12]},
+            {"id": "c", "vals2": []},
+            {"id": "d", "vals2": None},
+        ]
+
     def test_row_pipeline_select_nested_json_like_literal(self):
         nodes_df = pd.DataFrame({"id": ["a"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
