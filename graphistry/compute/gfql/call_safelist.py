@@ -115,6 +115,20 @@ def is_projection_items(v: Any) -> bool:
 
 
 def is_order_keys(v: Any) -> bool:
+    def _is_static_order_expr_supported(expr: str) -> bool:
+        txt = expr.strip()
+        if txt == "":
+            return False
+        if re.search(r"[\[\]{}]", txt):
+            return False
+        if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
+            return False
+        if re.search(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", txt):
+            return False
+        if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\s]+", txt) is None:
+            return False
+        return True
+
     if not isinstance(v, list):
         return False
     for item in v:
@@ -122,6 +136,8 @@ def is_order_keys(v: Any) -> bool:
             return False
         expr, direction = item
         if not is_non_empty_string(expr):
+            return False
+        if not _is_static_order_expr_supported(expr):
             return False
         if not isinstance(direction, str) or direction.lower() not in {"asc", "desc"}:
             return False

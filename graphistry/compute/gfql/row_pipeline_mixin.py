@@ -1,4 +1,5 @@
 import ast
+import datetime
 import math
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
@@ -100,30 +101,67 @@ class RowPipelineMixin:
             return False
 
     @staticmethod
-    def _gfql_cypher_sort_key(value: Any) -> Any:
-        if RowPipelineMixin._gfql_is_nan_scalar(value):
-            return (8, 0)
-        if RowPipelineMixin._gfql_is_null_scalar(value):
-            return (9, 0)
-        if isinstance(value, dict):
-            items = tuple((str(k), RowPipelineMixin._gfql_cypher_sort_key(v)) for k, v in sorted(value.items(), key=lambda kv: str(kv[0])))
-            return (0, items)
-        if isinstance(value, str):
-            if value.startswith("<(") and value.endswith(")>"):
-                return (4, value)
-            if value.startswith("(") and value.endswith(")"):
-                return (1, value)
-            if value.startswith("[") and value.endswith("]"):
-                return (2, value)
-            return (5, value)
-        if isinstance(value, (list, tuple)):
-            nested = tuple(RowPipelineMixin._gfql_cypher_sort_key(v) for v in value)
-            return (3, nested)
+    def _gfql_order_expr_static_supported(expr: str) -> bool:
+        txt = expr.strip()
+        if txt == "":
+            return False
+        if re.search(r"[\[\]{}]", txt):
+            return False
+        if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
+            return False
+        # Keep order_by deterministic and vector-safe for this cycle by
+        # rejecting function-call forms up front.
+        if re.search(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", txt):
+            return False
+        if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\s]+", txt) is None:
+            return False
+        return True
+
+    @staticmethod
+    def _gfql_order_value_family(value: Any) -> Optional[str]:
+        if RowPipelineMixin._gfql_is_null_scalar(value) or RowPipelineMixin._gfql_is_nan_scalar(value):
+            return None
         if isinstance(value, bool):
-            return (6, int(value))
+            return "bool"
+        if isinstance(value, str):
+            return "str"
         if isinstance(value, (int, float)):
-            return (7, float(value))
-        return (10, repr(value))
+            return "number"
+        if isinstance(value, (datetime.datetime, datetime.date, datetime.time, pd.Timestamp)):
+            return "datetime"
+        type_name = type(value).__name__.lower()
+        if "datetime64" in type_name or "timedelta64" in type_name:
+            return "datetime"
+        if isinstance(value, (list, tuple, dict, set)):
+            return "unsupported"
+        return "unsupported"
+
+    @staticmethod
+    def _gfql_validate_order_series_vector_safe(series: Any, expr: str) -> None:
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt != "object":
+            return
+        non_null = series.dropna()
+        sample = non_null.head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        if hasattr(sample, "tolist"):
+            values = sample.tolist()
+        else:
+            values = list(sample)
+        families = {
+            fam
+            for fam in (RowPipelineMixin._gfql_order_value_family(v) for v in values)
+            if fam is not None
+        }
+        if len(families) == 0:
+            return
+        if "unsupported" in families or len(families) > 1:
+            fams = ", ".join(sorted(families))
+            raise ValueError(
+                "unsupported order_by expression for vectorized execution; "
+                f"mixed/dynamic value families ({fams}) in {expr!r}"
+            )
 
     @staticmethod
     def _gfql_strip_outer_parens(expr: str) -> str:
@@ -950,26 +988,30 @@ class RowPipelineMixin:
                     "order_by currently supports string expressions, got "
                     f"{type(expr).__name__}"
                 )
+            if not RowPipelineMixin._gfql_order_expr_static_supported(expr):
+                raise ValueError(
+                    "unsupported order_by expression in vectorized mode; "
+                    f"use column/scalar arithmetic comparisons only: {expr!r}"
+                )
             if expr in work_df.columns:
                 sort_col = expr
             else:
                 sort_col = f"__gfql_sort_{tmp_idx}__"
                 tmp_idx += 1
                 work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})
+            RowPipelineMixin._gfql_validate_order_series_vector_safe(work_df[sort_col], expr)
             sort_cols.append(sort_col)
             ascending.append(str(direction).lower() != "desc")
 
         if sort_cols:
             try:
                 out_df = work_df.sort_values(by=sort_cols, ascending=ascending)
-            except Exception:
-                key_df = work_df
-                key_cols: List[str] = []
-                for idx, col in enumerate(sort_cols):
-                    key_col = f"__gfql_sort_key_{idx}__"
-                    key_df = key_df.assign(**{key_col: key_df[col].map(RowPipelineMixin._gfql_cypher_sort_key)})
-                    key_cols.append(key_col)
-                out_df = key_df.sort_values(by=key_cols, ascending=ascending).drop(columns=key_cols)
+            except Exception as exc:
+                raise ValueError(
+                    "unsupported order_by for vectorized execution; "
+                    f"cannot sort key set {sort_cols!r} with expression set "
+                    f"{[k[0] for k in keys]!r}: {exc}"
+                ) from exc
             drop_cols = [c for c in sort_cols if isinstance(c, str) and c.startswith("__gfql_sort_")]
             if drop_cols:
                 out_df = out_df.drop(columns=drop_cols)

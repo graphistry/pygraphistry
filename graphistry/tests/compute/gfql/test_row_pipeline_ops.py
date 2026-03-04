@@ -123,13 +123,23 @@ class TestRowPipelineExecution:
             rows(),
             select([("vals", "vals"), ("meta", "meta")]),
             distinct(),
-            order_by([("vals", "asc")]),
         ])
 
         assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [
             {"vals": [1, 2], "meta": {"k": "v"}},
             {"vals": [3], "meta": {"k": "z"}},
         ]
+
+    def test_row_pipeline_order_by_list_values_rejected_in_vector_mode(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "vals": [[1, 2], [1, 2], [3]],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
+            g.gfql([rows(), select([("vals", "vals")]), order_by([("vals", "asc")])])
 
     def test_row_pipeline_exec_with_match_alias_source(self):
         nodes_df = pd.DataFrame({
@@ -498,15 +508,12 @@ class TestRowPipelineExecution:
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
         g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-        result = g.gfql([
-            rows(),
-            order_by([("v", "asc")]),
-            select([("v", "v")]),
-        ])
-        ordered = result._nodes["v"].tolist()
-        assert ordered[:5] == [[], ["a"], [1], [1, None], [None, 1]]
-        assert pd.isna(ordered[5])
-        assert ordered[6] is None
+        with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
+            g.gfql([
+                rows(),
+                order_by([("v", "asc")]),
+                select([("v", "v")]),
+            ])
 
     def test_row_pipeline_bad_source_alias_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
@@ -691,7 +698,17 @@ class TestRowPipelineSafelist:
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
         assert params == {"keys": [("name", "asc"), ("score", "desc")]}
 
-        for bad_keys in [None, "name", [("a",)], [("a", "asc", "x")], [1], [(1, "asc")], [("a", "up")]]:
+        for bad_keys in [
+            None,
+            "name",
+            [("a",)],
+            [("a", "asc", "x")],
+            [1],
+            [(1, "asc")],
+            [("a", "up")],
+            [("[1, 2]", "asc")],
+            [("coalesce(score, 1)", "asc")],
+        ]:
             with pytest.raises(GFQLTypeError) as exc_info:
                 validate_call_params("order_by", {"keys": bad_keys})
             assert exc_info.value.code == ErrorCode.E201
