@@ -67,6 +67,26 @@ class _RowPipelineContext(Protocol):
     ) -> Any:
         ...
 
+    def _gfql_eval_slice_subscript(
+        self,
+        table_df: Any,
+        base_value: Any,
+        start_value: Any,
+        end_value: Any,
+        start_present: bool,
+        end_present: bool,
+        expr: str,
+    ) -> Any:
+        ...
+
+    def _gfql_concat_list_scalar(
+        self, table_df: Any, list_series: Any, scalar_series: Any, prepend: bool = False
+    ) -> Any:
+        ...
+
+    def _gfql_eval_in_expr(self, table_df: Any, left_expr: str, right_expr: str, expr: str) -> Any:
+        ...
+
     def _gfql_build_list_sort_columns(
         self, work_df: Any, sort_col: str, key_prefix: str
     ) -> Tuple[Any, List[str]]:
@@ -92,15 +112,27 @@ class RowPipelineMixin:
     _GFQL_QUANTIFIER_RE = re.compile(r"^(?P<fn>ANY|ALL|NONE|SINGLE)\s*\((?P<body>.*)\)$", re.IGNORECASE | re.DOTALL)
     _GFQL_SIZE_RE = re.compile(r"(?is)^size\s*\((?P<inner>.+)\)$")
     _GFQL_ABS_RE = re.compile(r"(?is)^abs\s*\((?P<inner>.+)\)$")
+    _GFQL_SIGN_RE = re.compile(r"(?is)^sign\s*\((?P<inner>.+)\)$")
     _GFQL_TOBOOLEAN_RE = re.compile(r"(?is)^toBoolean\s*\((?P<inner>.+)\)$")
     _GFQL_TOSTRING_RE = re.compile(r"(?is)^toString\s*\((?P<inner>.+)\)$")
     _GFQL_COALESCE_RE = re.compile(r"(?is)^coalesce\s*\((?P<inner>.+)\)$")
+    _GFQL_HEAD_RE = re.compile(r"(?is)^head\s*\((?P<inner>.+)\)$")
+    _GFQL_TAIL_RE = re.compile(r"(?is)^tail\s*\((?P<inner>.+)\)$")
+    _GFQL_REVERSE_RE = re.compile(r"(?is)^reverse\s*\((?P<inner>.+)\)$")
+    _GFQL_NODES_RE = re.compile(r"(?is)^nodes\s*\((?P<inner>.+)\)$")
+    _GFQL_RELATIONSHIPS_RE = re.compile(r"(?is)^relationships\s*\((?P<inner>.+)\)$")
+    _GFQL_RAND_RE = re.compile(r"(?is)^rand\s*\(\s*\)\s*$")
     _GFQL_ORDER_SAFE_FUNCS = {
         "abs",
         "tostring",
         "toboolean",
         "coalesce",
         "size",
+        "sign",
+        "reverse",
+        "head",
+        "tail",
+        "rand",
         "count",
         "sum",
         "min",
@@ -491,9 +523,11 @@ class RowPipelineMixin:
         expr: str, operators: Sequence[str]
     ) -> Optional[Tuple[str, str, str]]:
         txt = expr
+        upper = txt.upper()
         depth_paren = 0
         depth_bracket = 0
         depth_brace = 0
+        case_depth = 0
         in_single = False
         in_double = False
         idx = 0
@@ -535,6 +569,23 @@ class RowPipelineMixin:
                 idx += 1
                 continue
             if depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+                if upper.startswith("CASE", idx):
+                    left_ok = idx == 0 or not (upper[idx - 1].isalnum() or upper[idx - 1] == "_")
+                    right_idx = idx + 4
+                    right_ok = right_idx >= len(upper) or not (upper[right_idx].isalnum() or upper[right_idx] == "_")
+                    if left_ok and right_ok:
+                        case_depth += 1
+                        idx = right_idx
+                        continue
+                if case_depth > 0 and upper.startswith("END", idx):
+                    left_ok = idx == 0 or not (upper[idx - 1].isalnum() or upper[idx - 1] == "_")
+                    right_idx = idx + 3
+                    right_ok = right_idx >= len(upper) or not (upper[right_idx].isalnum() or upper[right_idx] == "_")
+                    if left_ok and right_ok:
+                        case_depth = max(0, case_depth - 1)
+                        idx = right_idx
+                        continue
+            if depth_paren == 0 and depth_bracket == 0 and depth_brace == 0 and case_depth == 0:
                 for op in operators:
                     if not txt.startswith(op, idx):
                         continue
@@ -728,6 +779,70 @@ class RowPipelineMixin:
         return var, list_expr, predicate_expr, proj_expr
 
     @staticmethod
+    def _gfql_parse_case_when_expr(expr: str) -> Optional[Tuple[str, str, str]]:
+        txt = expr.strip()
+        if not txt.upper().startswith("CASE "):
+            return None
+        if not txt.upper().endswith(" END"):
+            return None
+        body = txt[4:-3].strip()
+        if body.upper().startswith("WHEN "):
+            body = body[5:].strip()
+        then_split = RowPipelineMixin._gfql_split_top_level_keyword(body, "THEN")
+        if then_split is None:
+            return None
+        else_split = RowPipelineMixin._gfql_split_top_level_keyword(then_split[1], "ELSE")
+        if else_split is None:
+            return None
+        cond_expr = then_split[0].strip()
+        true_expr = else_split[0].strip()
+        false_expr = else_split[1].strip()
+        if cond_expr == "" or true_expr == "" or false_expr == "":
+            return None
+        return cond_expr, true_expr, false_expr
+
+    @staticmethod
+    def _gfql_series_is_list_like(series: Any) -> bool:
+        if not hasattr(series, "dropna"):
+            return False
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(isinstance(v, (list, tuple)) for v in values)
+
+    @staticmethod
+    def _gfql_series_scalar_if_constant(series: Any) -> Tuple[bool, Any]:
+        if not hasattr(series, "dropna"):
+            return True, series
+        non_null = series.dropna()
+        if len(non_null) == 0:
+            return True, None
+        sample = non_null.head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        if len(values) == 0:
+            return True, None
+        first = values[0]
+        if all(v == first for v in values):
+            return True, first
+        return False, None
+
+    @staticmethod
+    def _gfql_series_bool_like(series: Any) -> bool:
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt in {"bool", "boolean"}:
+            return True
+        if not hasattr(series, "dropna"):
+            return isinstance(series, bool)
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(isinstance(v, bool) for v in values)
+
+    @staticmethod
     def _gfql_replace_identifier(expr: str, identifier: str, replacement: str) -> str:
         return re.sub(
             rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
@@ -836,6 +951,70 @@ class RowPipelineMixin:
                 return idx
 
         return -1
+
+    @staticmethod
+    def _gfql_parse_subscript_expr(expr: str) -> Optional[Tuple[str, str]]:
+        txt = expr.strip()
+        if len(txt) < 3 or not txt.endswith("]"):
+            return None
+        depth_paren = 0
+        depth_brace = 0
+        depth_bracket = 0
+        in_single = False
+        in_double = False
+        escaped = False
+        open_idx = -1
+
+        for idx, ch in enumerate(txt):
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+
+            if ch == "'":
+                in_single = True
+                continue
+            if ch == '"':
+                in_double = True
+                continue
+            if ch == "(":
+                depth_paren += 1
+                continue
+            if ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+                continue
+            if ch == "{":
+                depth_brace += 1
+                continue
+            if ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+                continue
+            if ch == "[":
+                if depth_paren == 0 and depth_brace == 0 and depth_bracket == 0:
+                    open_idx = idx
+                depth_bracket += 1
+                continue
+            if ch == "]":
+                depth_bracket -= 1
+                if depth_bracket < 0:
+                    return None
+                continue
+
+        if open_idx <= 0:
+            return None
+        base = txt[:open_idx].strip()
+        key = txt[open_idx + 1 : -1].strip()
+        if base == "" or key == "":
+            return None
+        return base, key
 
     @staticmethod
     def _gfql_parse_cypher_literal(text: str) -> Any:
@@ -1037,6 +1216,7 @@ class RowPipelineMixin:
         # Keep outer-scope columns so nested quantifiers can reference them.
         expanded = base.explode(list_col)
         expanded = expanded.assign(**{var_col: expanded[list_col]})
+        expanded = expanded.reset_index(drop=True)
         rewritten_predicate = RowPipelineMixin._gfql_replace_identifier(
             predicate_expr, var, var_col
         )
@@ -1175,6 +1355,208 @@ class RowPipelineMixin:
         )
         return merged[base_col].reset_index(drop=True)
 
+    def _gfql_eval_slice_subscript(
+        self: _RowPipelineContext,
+        table_df: Any,
+        base_value: Any,
+        start_value: Any,
+        end_value: Any,
+        start_present: bool,
+        end_present: bool,
+        expr: str,
+    ) -> Any:
+        if not hasattr(base_value, "astype"):
+            base_value = self._gfql_broadcast_scalar(table_df, base_value)
+        if not hasattr(base_value, "str"):
+            raise ValueError(f"unsupported row expression: slice subscript requires list/string base in {expr!r}")
+
+        if hasattr(start_value, "astype"):
+            start_ok, start_scalar = RowPipelineMixin._gfql_series_scalar_if_constant(start_value)
+            if not start_ok:
+                raise ValueError(f"unsupported row expression: dynamic slice start is not supported in {expr!r}")
+            start_value = start_scalar
+        if hasattr(end_value, "astype"):
+            end_ok, end_scalar = RowPipelineMixin._gfql_series_scalar_if_constant(end_value)
+            if not end_ok:
+                raise ValueError(f"unsupported row expression: dynamic slice end is not supported in {expr!r}")
+            end_value = end_scalar
+
+        if (start_present and RowPipelineMixin._gfql_is_null_scalar(start_value)) or (
+            end_present and RowPipelineMixin._gfql_is_null_scalar(end_value)
+        ):
+            return self._gfql_broadcast_scalar(table_df, None)
+
+        def _coerce_bound(v: Any, label: str) -> Optional[int]:
+            if RowPipelineMixin._gfql_is_null_scalar(v):
+                return None
+            if isinstance(v, bool):
+                raise ValueError(f"unsupported row expression: {label} bound must be integer/null in {expr!r}")
+            if isinstance(v, int):
+                return v
+            if isinstance(v, float):
+                if not float(v).is_integer():
+                    raise ValueError(f"unsupported row expression: {label} bound must be integer/null in {expr!r}")
+                return int(v)
+            if isinstance(v, str) and re.fullmatch(r"-?\d+", v.strip()):
+                return int(v.strip())
+            raise ValueError(f"unsupported row expression: {label} bound must be integer/null in {expr!r}")
+
+        start_i = _coerce_bound(start_value, "slice start")
+        end_i = _coerce_bound(end_value, "slice end")
+
+        try:
+            return base_value.str.slice(start=start_i, stop=end_i)
+        except Exception as exc:
+            raise ValueError(
+                f"unsupported row expression: slice subscript failed for {expr!r}: {exc}"
+            ) from exc
+
+    def _gfql_concat_list_scalar(
+        self: _RowPipelineContext,
+        table_df: Any,
+        list_series: Any,
+        scalar_series: Any,
+        prepend: bool = False,
+    ) -> Any:
+        row_col = "__gfql_list_add_row__"
+        while row_col in table_df.columns:
+            row_col = f"{row_col}_x"
+        list_col = "__gfql_list_add_list__"
+        while list_col in table_df.columns:
+            list_col = f"{list_col}_x"
+        val_col = "__gfql_list_add_val__"
+        while val_col in table_df.columns:
+            val_col = f"{val_col}_x"
+        pos_col = "__gfql_list_add_pos__"
+        while pos_col in table_df.columns:
+            pos_col = f"{pos_col}_x"
+        len_col = "__gfql_list_add_len__"
+        while len_col in table_df.columns:
+            len_col = f"{len_col}_x"
+
+        base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series, val_col: scalar_series})
+        null_mask = self._gfql_null_mask(base, base[list_col])
+        if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
+            lengths = base[list_col].str.len().fillna(0)
+        else:
+            raise ValueError("unsupported row expression: list concatenation requires list/string accessor support")
+        base = base.assign(**{len_col: lengths.astype("int64")})
+
+        non_null = base.loc[~null_mask, [row_col, list_col, val_col, len_col]]
+        expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
+        if len(expanded) > 0:
+            expanded = expanded.assign(
+                **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
+            )
+            expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
+            expanded = expanded[[row_col, pos_col, list_col]].rename(columns={list_col: val_col})
+        else:
+            expanded = non_null[[row_col]].iloc[0:0].copy()
+            expanded[pos_col] = []
+            expanded[val_col] = []
+
+        append_rows = non_null[[row_col, val_col, len_col]].copy()
+        append_rows = append_rows.assign(**{pos_col: 0 if prepend else append_rows[len_col]})
+        append_rows = append_rows[[row_col, pos_col, val_col]]
+
+        if prepend:
+            if len(expanded) > 0:
+                expanded = expanded.assign(**{pos_col: expanded[pos_col] + 1})
+            combined = pd.concat([append_rows, expanded], ignore_index=True, sort=False)
+        else:
+            combined = pd.concat([expanded, append_rows], ignore_index=True, sort=False)
+        if len(combined) > 0:
+            combined = combined.sort_values(by=[row_col, pos_col], kind="mergesort")
+            grouped = combined.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
+        else:
+            grouped = non_null[[row_col]].iloc[0:0].copy()
+            grouped[val_col] = []
+
+        out = base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False)[val_col]
+        empty_mask = base[len_col] == 0
+        if hasattr(empty_mask, "any") and bool(empty_mask.any()):
+            idx = out.index[empty_mask]
+            empty_vals = pd.Series([[] for _ in range(len(idx))], index=idx, dtype="object")
+            out.loc[idx] = empty_vals
+        out = out.where(~null_mask, None)
+        return out.reset_index(drop=True)
+
+    def _gfql_eval_in_expr(
+        self: _RowPipelineContext,
+        table_df: Any,
+        left_value: Any,
+        right_value: Any,
+        expr: str,
+    ) -> Any:
+        left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
+        right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
+
+        if not hasattr(right_series, "str") or not hasattr(right_series.str, "len"):
+            raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+
+        row_col = "__gfql_in_row__"
+        while row_col in table_df.columns:
+            row_col = f"{row_col}_x"
+        rhs_col = "__gfql_in_rhs__"
+        while rhs_col in table_df.columns:
+            rhs_col = f"{rhs_col}_x"
+        lhs_col = "__gfql_in_lhs__"
+        while lhs_col in table_df.columns:
+            lhs_col = f"{lhs_col}_x"
+        len_col = "__gfql_in_len__"
+        while len_col in table_df.columns:
+            len_col = f"{len_col}_x"
+        pos_col = "__gfql_in_pos__"
+        while pos_col in table_df.columns:
+            pos_col = f"{pos_col}_x"
+
+        base = table_df.assign(**{row_col: range(len(table_df)), lhs_col: left_series, rhs_col: right_series})
+        rhs_null = self._gfql_null_mask(base, base[rhs_col])
+        rhs_len = base[rhs_col].str.len().fillna(0).astype("int64")
+        base = base.assign(**{len_col: rhs_len})
+
+        non_null = base.loc[~rhs_null, [row_col, lhs_col, rhs_col, len_col]]
+        expanded = non_null[[row_col, lhs_col, rhs_col, len_col]].explode(rhs_col)
+        if len(expanded) > 0:
+            expanded = expanded.assign(
+                **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
+            )
+            expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
+
+        if len(expanded) == 0:
+            true_counts = non_null[[row_col]].iloc[0:0].copy()
+            true_counts["__gfql_in_true__"] = []
+            unknown_counts = non_null[[row_col]].iloc[0:0].copy()
+            unknown_counts["__gfql_in_unknown__"] = []
+        else:
+            lhs = expanded[lhs_col]
+            rhs = expanded[rhs_col]
+            lhs_null = self._gfql_null_mask(expanded, lhs)
+            rhs_null_elem = self._gfql_null_mask(expanded, rhs)
+            equal = lhs == rhs
+            equal = equal.where(~(lhs_null | rhs_null_elem), False)
+            unknown = lhs_null | rhs_null_elem
+
+            eval_df = expanded.assign(
+                __gfql_in_true__=equal.astype("int64"),
+                __gfql_in_unknown__=unknown.astype("int64"),
+            )
+            true_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_true__"].sum().reset_index()
+            unknown_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_unknown__"].sum().reset_index()
+
+        summary = base[[row_col, len_col]].merge(true_counts, on=row_col, how="left", sort=False)
+        summary = summary.merge(unknown_counts, on=row_col, how="left", sort=False)
+        summary = summary.assign(
+            __gfql_in_true__=summary["__gfql_in_true__"].fillna(0),
+            __gfql_in_unknown__=summary["__gfql_in_unknown__"].fillna(0),
+        )
+
+        out = summary["__gfql_in_true__"] > 0
+        unknown_mask = (summary["__gfql_in_true__"] == 0) & (summary["__gfql_in_unknown__"] > 0)
+        out = out.where(~unknown_mask, pd.NA)
+        out = out.where(~rhs_null, pd.NA)
+        return out.reset_index(drop=True)
+
     def _gfql_eval_list_expr(self: _RowPipelineContext, table_df: Any, item_exprs: Sequence[str]) -> Any:
         if len(item_exprs) == 0:
             return self._gfql_broadcast_scalar(table_df, [])
@@ -1253,6 +1635,7 @@ class RowPipelineMixin:
         non_null = base.loc[~null_mask, [row_col, list_col, len_col]]
         expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
         if len(expanded) > 0:
+            expanded = expanded.reset_index(drop=True)
             expanded = expanded.assign(
                 **{
                     "__gfql_lc_pos__": expanded.groupby(row_col, sort=False).cumcount(),
@@ -1391,6 +1774,114 @@ class RowPipelineMixin:
                 out = out.where(~null_mask, candidate)
             return out
 
+        sign_match = RowPipelineMixin._GFQL_SIGN_RE.fullmatch(txt)
+        if sign_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, sign_match.group("inner"))
+            if hasattr(inner, "astype"):
+                null_mask = self._gfql_null_mask(table_df, inner)
+                gt = inner > 0
+                lt = inner < 0
+                out = self._gfql_broadcast_scalar(table_df, 0)
+                out = out.where(~gt, 1)
+                out = out.where(~lt, -1)
+                return out.where(~null_mask, pd.NA)
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            if inner > 0:
+                return 1
+            if inner < 0:
+                return -1
+            return 0
+
+        head_match = RowPipelineMixin._GFQL_HEAD_RE.fullmatch(txt)
+        if head_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, head_match.group("inner"))
+            if hasattr(inner, "str"):
+                try:
+                    return inner.str.get(0)
+                except Exception as exc:
+                    raise ValueError(
+                        f"unsupported row expression: head() requires list/string input in {expr!r}"
+                    ) from exc
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            try:
+                return inner[0] if len(inner) > 0 else None
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression: head() requires list/string input in {expr!r}"
+                ) from exc
+
+        tail_match = RowPipelineMixin._GFQL_TAIL_RE.fullmatch(txt)
+        if tail_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, tail_match.group("inner"))
+            if hasattr(inner, "str"):
+                try:
+                    return inner.str.slice(start=1)
+                except Exception as exc:
+                    raise ValueError(
+                        f"unsupported row expression: tail() requires list/string input in {expr!r}"
+                    ) from exc
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            try:
+                return inner[1:]
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression: tail() requires list/string input in {expr!r}"
+                ) from exc
+
+        reverse_match = RowPipelineMixin._GFQL_REVERSE_RE.fullmatch(txt)
+        if reverse_match is not None:
+            inner = self._gfql_eval_string_expr(table_df, reverse_match.group("inner"))
+            if hasattr(inner, "str"):
+                try:
+                    return inner.str[::-1]
+                except Exception as exc:
+                    raise ValueError(
+                        f"unsupported row expression: reverse() requires list/string input in {expr!r}"
+                    ) from exc
+            if RowPipelineMixin._gfql_is_null_scalar(inner):
+                return None
+            if isinstance(inner, str):
+                return inner[::-1]
+            if isinstance(inner, (list, tuple)):
+                return list(reversed(inner))
+            raise ValueError(
+                f"unsupported row expression: reverse() requires list/string input in {expr!r}"
+            )
+
+        nodes_match = RowPipelineMixin._GFQL_NODES_RE.fullmatch(txt)
+        if nodes_match is not None:
+            return self._gfql_eval_string_expr(table_df, nodes_match.group("inner"))
+
+        rel_match = RowPipelineMixin._GFQL_RELATIONSHIPS_RE.fullmatch(txt)
+        if rel_match is not None:
+            return self._gfql_eval_string_expr(table_df, rel_match.group("inner"))
+
+        if RowPipelineMixin._GFQL_RAND_RE.fullmatch(txt) is not None:
+            row_col = "__gfql_rand_row__"
+            while row_col in table_df.columns:
+                row_col = f"{row_col}_x"
+            row_ids = table_df.assign(**{row_col: range(len(table_df))})[row_col].astype("int64")
+            return ((row_ids * 1103515245 + 12345) % 2147483648) / 2147483648.0
+
+        case_parts = RowPipelineMixin._gfql_parse_case_when_expr(txt)
+        if case_parts is not None:
+            cond_expr, true_expr, false_expr = case_parts
+            cond_value = self._gfql_eval_string_expr(table_df, cond_expr)
+            cond_mask = self._gfql_bool_mask(table_df, cond_value)
+            cond_null = self._gfql_null_mask(table_df, cond_value)
+            cond_true = cond_mask & ~cond_null
+
+            true_value = self._gfql_eval_string_expr(table_df, true_expr)
+            false_value = self._gfql_eval_string_expr(table_df, false_expr)
+            if not hasattr(true_value, "astype"):
+                true_value = self._gfql_broadcast_scalar(table_df, true_value)
+            if not hasattr(false_value, "astype"):
+                false_value = self._gfql_broadcast_scalar(table_df, false_value)
+            return true_value.where(cond_true, false_value)
+
         if txt.startswith("-"):
             inner_txt = txt[1:].strip()
             if inner_txt:
@@ -1399,26 +1890,6 @@ class RowPipelineMixin:
             inner_txt = txt[1:].strip()
             if inner_txt:
                 return self._gfql_eval_string_expr(table_df, inner_txt)
-
-        subscript_match = re.fullmatch(
-            r"([A-Za-z_][A-Za-z0-9_.]*)\s*\[\s*([^\]]+)\s*\]",
-            txt,
-        )
-        if subscript_match is not None:
-            base_value = self._gfql_eval_string_expr(table_df, subscript_match.group(1))
-            key_value = self._gfql_eval_string_expr(table_df, subscript_match.group(2))
-            if hasattr(key_value, "iloc"):
-                return self._gfql_eval_dynamic_list_subscript(
-                    table_df, base_value, key_value, expr
-                )
-            if hasattr(base_value, "str"):
-                return base_value.str.get(key_value)
-            try:
-                return base_value[key_value]
-            except Exception as exc:
-                raise ValueError(
-                    f"unsupported row expression: subscript failed for {expr!r}: {exc}"
-                ) from exc
 
         is_not_null_match = RowPipelineMixin._GFQL_IS_NOT_NULL_RE.fullmatch(txt)
         if is_not_null_match is not None:
@@ -1429,6 +1900,12 @@ class RowPipelineMixin:
         if is_null_match is not None:
             base = self._gfql_eval_string_expr(table_df, is_null_match.group("value"))
             return self._gfql_null_mask(table_df, base)
+
+        in_split = self._gfql_split_top_level_keyword(txt, "IN")
+        if in_split is not None:
+            left = self._gfql_eval_string_expr(table_df, in_split[0])
+            right = self._gfql_eval_string_expr(table_df, in_split[1])
+            return self._gfql_eval_in_expr(table_df, left, right, expr)
 
         and_split = self._gfql_split_top_level_keyword(txt, "AND")
         if and_split is not None:
@@ -1483,6 +1960,22 @@ class RowPipelineMixin:
             left = self._gfql_eval_string_expr(table_df, left_txt)
             right = self._gfql_eval_string_expr(table_df, right_txt)
             if op == "+":
+                if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
+                    return list(left) + [right]
+                if isinstance(right, (list, tuple)) and not isinstance(left, (list, tuple)):
+                    return [left] + list(right)
+                if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+                    return list(left) + list(right)
+                left_is_list = hasattr(left, "astype") and RowPipelineMixin._gfql_series_is_list_like(left)
+                right_is_list = hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right)
+                if left_is_list and not right_is_list:
+                    if not hasattr(right, "astype"):
+                        right = self._gfql_broadcast_scalar(table_df, right)
+                    return self._gfql_concat_list_scalar(table_df, left, right, prepend=False)
+                if right_is_list and not left_is_list:
+                    if not hasattr(left, "astype"):
+                        left = self._gfql_broadcast_scalar(table_df, left)
+                    return self._gfql_concat_list_scalar(table_df, right, left, prepend=True)
                 return left + right
             if op == "-":
                 return left - right
@@ -1497,6 +1990,16 @@ class RowPipelineMixin:
             if op == "/":
                 return left / right
             if op == "%":
+                if (hasattr(left, "astype") and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    hasattr(right, "astype") and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    raise ValueError(
+                        f"unsupported row expression: modulo expects numeric operands in {expr!r}"
+                    )
+                if isinstance(left, bool) or isinstance(right, bool):
+                    raise ValueError(
+                        f"unsupported row expression: modulo expects numeric operands in {expr!r}"
+                    )
                 return left % right
 
         list_comp_parts = RowPipelineMixin._gfql_parse_list_comprehension_expr(txt)
@@ -1504,6 +2007,49 @@ class RowPipelineMixin:
             return RowPipelineMixin._gfql_eval_list_comprehension_expr(
                 self, table_df, *list_comp_parts
             )
+
+        subscript_parts = RowPipelineMixin._gfql_parse_subscript_expr(txt)
+        if subscript_parts is not None:
+            base_txt, key_txt = subscript_parts
+            base_value = self._gfql_eval_string_expr(table_df, base_txt)
+            slice_match = re.fullmatch(r"(?s)(.*?)\.\.(.*)", key_txt)
+            if slice_match is not None:
+                start_txt = slice_match.group(1).strip()
+                end_txt = slice_match.group(2).strip()
+                start_present = start_txt != ""
+                end_present = end_txt != ""
+                start_value = (
+                    None
+                    if start_txt in {"", "null", "NULL"}
+                    else self._gfql_eval_string_expr(table_df, start_txt)
+                )
+                end_value = (
+                    None
+                    if end_txt in {"", "null", "NULL"}
+                    else self._gfql_eval_string_expr(table_df, end_txt)
+                )
+                return self._gfql_eval_slice_subscript(
+                    table_df,
+                    base_value,
+                    start_value,
+                    end_value,
+                    start_present,
+                    end_present,
+                    expr,
+                )
+            key_value = self._gfql_eval_string_expr(table_df, key_txt)
+            if hasattr(key_value, "iloc"):
+                return self._gfql_eval_dynamic_list_subscript(
+                    table_df, base_value, key_value, expr
+                )
+            if hasattr(base_value, "str"):
+                return base_value.str.get(key_value)
+            try:
+                return base_value[key_value]
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression: subscript failed for {expr!r}: {exc}"
+                ) from exc
 
         if txt.startswith("[") and txt.endswith("]"):
             inner = txt[1:-1].strip()
