@@ -87,6 +87,16 @@ class _RowPipelineContext(Protocol):
     def _gfql_eval_in_expr(self, table_df: Any, left_expr: str, right_expr: str, expr: str) -> Any:
         ...
 
+    def _gfql_eval_string_predicate_expr(
+        self,
+        table_df: Any,
+        left: Any,
+        right: Any,
+        op_name: str,
+        expr: str,
+    ) -> Any:
+        ...
+
     def _gfql_build_list_sort_columns(
         self, work_df: Any, sort_col: str, key_prefix: str
     ) -> Tuple[Any, List[str]]:
@@ -877,6 +887,52 @@ class RowPipelineMixin:
                 f"unsupported row expression: {fn_name}() requires list/string input in {expr!r}"
             ) from exc
 
+    def _gfql_eval_string_predicate_expr(
+        self: _RowPipelineContext,
+        table_df: Any,
+        left: Any,
+        right: Any,
+        op_name: str,
+        expr: str,
+    ) -> Any:
+        if hasattr(left, "astype") or hasattr(right, "astype"):
+            left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
+            if hasattr(right, "astype"):
+                raise ValueError(
+                    f"unsupported row expression: {op_name} rhs must be scalar in vectorized mode for {expr!r}"
+                )
+
+            left_null = self._gfql_null_mask(table_df, left_series)
+            right_null = self._gfql_null_mask(table_df, right)
+            any_null = left_null | right_null
+            left_txt = left_series.astype(str)
+            needle = str(right)
+
+            if op_name == "contains":
+                out = left_txt.str.contains(needle, regex=False)
+            elif op_name == "starts_with":
+                out = left_txt.str.startswith(needle)
+            elif op_name == "ends_with":
+                out = left_txt.str.endswith(needle)
+            else:
+                raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+
+            if hasattr(out, "where"):
+                return out.where(~any_null, pd.NA)
+            return out
+
+        if RowPipelineMixin._gfql_is_null_scalar(left) or RowPipelineMixin._gfql_is_null_scalar(right):
+            return None
+        left_txt = str(left)
+        right_txt = str(right)
+        if op_name == "contains":
+            return right_txt in left_txt
+        if op_name == "starts_with":
+            return left_txt.startswith(right_txt)
+        if op_name == "ends_with":
+            return left_txt.endswith(right_txt)
+        raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+
     @staticmethod
     def _gfql_replace_identifier(expr: str, identifier: str, replacement: str) -> str:
         return re.sub(
@@ -1205,6 +1261,8 @@ class RowPipelineMixin:
                 return table_df[prop]
         is_lit, lit = self._gfql_parse_literal_token(txt)
         if is_lit:
+            if isinstance(lit, (list, tuple, dict)):
+                return self._gfql_broadcast_scalar(table_df, lit)
             return lit
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
@@ -1724,6 +1782,8 @@ class RowPipelineMixin:
 
         is_lit, lit = self._gfql_parse_literal_token(txt)
         if is_lit:
+            if isinstance(lit, (list, tuple, dict)):
+                return self._gfql_broadcast_scalar(table_df, lit)
             return lit
 
         quant_parts = RowPipelineMixin._gfql_parse_quantifier_expr(txt)
@@ -1892,6 +1952,24 @@ class RowPipelineMixin:
             left = self._gfql_eval_string_expr(table_df, in_split[0])
             right = self._gfql_eval_string_expr(table_df, in_split[1])
             return self._gfql_eval_in_expr(table_df, left, right, expr)
+
+        contains_split = self._gfql_split_top_level_keyword(txt, "CONTAINS")
+        if contains_split is not None:
+            left = self._gfql_eval_string_expr(table_df, contains_split[0])
+            right = self._gfql_eval_string_expr(table_df, contains_split[1])
+            return self._gfql_eval_string_predicate_expr(table_df, left, right, "contains", expr)
+
+        starts_with_split = self._gfql_split_top_level_keyword(txt, "STARTS WITH")
+        if starts_with_split is not None:
+            left = self._gfql_eval_string_expr(table_df, starts_with_split[0])
+            right = self._gfql_eval_string_expr(table_df, starts_with_split[1])
+            return self._gfql_eval_string_predicate_expr(table_df, left, right, "starts_with", expr)
+
+        ends_with_split = self._gfql_split_top_level_keyword(txt, "ENDS WITH")
+        if ends_with_split is not None:
+            left = self._gfql_eval_string_expr(table_df, ends_with_split[0])
+            right = self._gfql_eval_string_expr(table_df, ends_with_split[1])
+            return self._gfql_eval_string_predicate_expr(table_df, left, right, "ends_with", expr)
 
         and_split = self._gfql_split_top_level_keyword(txt, "AND")
         if and_split is not None:

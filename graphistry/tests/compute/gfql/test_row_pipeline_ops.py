@@ -1030,6 +1030,39 @@ class TestRowPipelineExecution:
             },
         ]
 
+    def test_row_pipeline_select_string_predicate_ops(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "txt": ["abcdef", "xxabyy", None],
+            }
+        )
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("has_ab", "txt CONTAINS 'ab'"),
+                        ("starts_ab", "txt STARTS WITH 'ab'"),
+                        ("ends_ef", "txt ENDS WITH 'ef'"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        records = result._nodes.to_dict(orient="records")
+        assert records[0] == {"id": "a", "has_ab": True, "starts_ab": True, "ends_ef": True}
+        assert records[1] == {"id": "b", "has_ab": True, "starts_ab": False, "ends_ef": False}
+        assert records[2]["id"] == "c"
+        assert pd.isna(records[2]["has_ab"])
+        assert pd.isna(records[2]["starts_ab"])
+        assert pd.isna(records[2]["ends_ef"])
+
     def test_row_pipeline_select_slice_variants(self):
         nodes_df = pd.DataFrame({"id": ["a"], "txt": ["abcdef"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
@@ -1101,6 +1134,16 @@ class TestRowPipelineExecution:
             {"id": "a", "lst": [1, 2], "mp": {"k": "v"}},
             {"id": "b", "lst": [1, 2], "mp": {"k": "v"}},
         ]
+
+    def test_row_pipeline_select_preserves_nested_list_literal_shape(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([rows(), select([("v", "[[1, 2, 3]]"), ("has3", "3 IN [[1, 2, 3]][0]")])])
+
+        records = result._nodes.to_dict(orient="records")
+        assert records == [{"v": [[1, 2, 3]], "has3": True}]
 
     def test_row_pipeline_invalid_rows_table_rejected(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
