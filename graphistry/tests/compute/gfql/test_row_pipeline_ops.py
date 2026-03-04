@@ -566,6 +566,74 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"nested_none": True}]
 
+    def test_row_pipeline_select_quantifier_over_map_list_literal(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("none_map_hit", "none(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+                ("any_map_hit", "any(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+                ("single_map_hit", "single(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"none_map_hit": False, "any_map_hit": True, "single_map_hit": True}
+        ]
+
+    def test_row_pipeline_select_list_comprehension_with_map_literal(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("picked", "[x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x.a]"),
+                ("picked_count", "size([x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x])"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"picked": [2], "picked_count": 1}
+        ]
+
+    def test_row_pipeline_select_quantifier_composed_expressions(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("eq_negated_any", "none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2))"),
+                ("all_and_any", "all(x IN [1, 2, 3] WHERE x < 5) AND any(x IN [1, 2, 3] WHERE x = 2)"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"eq_negated_any": True, "all_and_any": True}
+        ]
+
+    def test_row_pipeline_select_nested_quantifier_outer_var_reference(self):
+        nodes_df = pd.DataFrame({"id": ["a"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            select([
+                ("none_outer_lt", "none(x IN [1, 2, 3] WHERE all(y IN [1, 2, 3] WHERE x < y))"),
+            ]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"none_outer_lt": True}
+        ]
+
     def test_row_pipeline_select_quantifier_empty_and_null(self):
         nodes_df = pd.DataFrame({"id": ["a"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})

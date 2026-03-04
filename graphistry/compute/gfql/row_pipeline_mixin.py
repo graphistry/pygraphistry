@@ -617,12 +617,57 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_parse_quantifier_expr(expr: str) -> Optional[Tuple[str, str, str, str]]:
-        match = RowPipelineMixin._GFQL_QUANTIFIER_RE.fullmatch(expr.strip())
-        if match is None:
+        txt = expr.strip()
+        head = re.match(r"(?is)^(any|all|none|single)\s*\(", txt)
+        if head is None:
+            return None
+        fn = head.group(1).lower()
+        open_idx = txt.find("(", head.start())
+        if open_idx < 0:
             return None
 
-        fn = match.group("fn").lower()
-        body = match.group("body").strip()
+        depth = 0
+        in_single = False
+        in_double = False
+        escaped = False
+        close_idx = -1
+        for idx in range(open_idx, len(txt)):
+            ch = txt[idx]
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+            if ch == "'":
+                in_single = True
+                continue
+            if ch == '"':
+                in_double = True
+                continue
+            if ch == "(":
+                depth += 1
+                continue
+            if ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close_idx = idx
+                    break
+                if depth < 0:
+                    return None
+
+        if close_idx < 0:
+            return None
+        if txt[close_idx + 1 :].strip() != "":
+            return None
+
+        body = txt[open_idx + 1 : close_idx].strip()
         in_split = RowPipelineMixin._gfql_split_top_level_keyword(body, "IN")
         if in_split is None:
             return None
@@ -739,6 +784,133 @@ class RowPipelineMixin:
         return True, parsed
 
     @staticmethod
+    def _gfql_find_top_level_char(text: str, target: str) -> int:
+        depth_paren = 0
+        depth_brace = 0
+        depth_bracket = 0
+        in_single = False
+        in_double = False
+        escaped = False
+
+        for idx, ch in enumerate(text):
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+
+            if ch == "'":
+                in_single = True
+                continue
+            if ch == '"':
+                in_double = True
+                continue
+            if ch == "(":
+                depth_paren += 1
+                continue
+            if ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+                continue
+            if ch == "{":
+                depth_brace += 1
+                continue
+            if ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+                continue
+            if ch == "[":
+                depth_bracket += 1
+                continue
+            if ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+                continue
+            if depth_paren != 0 or depth_brace != 0 or depth_bracket != 0:
+                continue
+            if ch == target:
+                return idx
+
+        return -1
+
+    @staticmethod
+    def _gfql_parse_cypher_literal(text: str) -> Any:
+        token = text.strip()
+        if token == "":
+            raise ValueError("empty literal")
+
+        lower = token.lower()
+        if lower == "null":
+            return None
+        if lower == "true":
+            return True
+        if lower == "false":
+            return False
+
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+            try:
+                return ast.literal_eval(token)
+            except Exception:
+                return token[1:-1]
+
+        if re.fullmatch(r"-?\d+", token):
+            return int(token)
+        if re.fullmatch(r"-?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?", token):
+            return float(token)
+
+        if token.startswith("[") and token.endswith("]"):
+            inner = token[1:-1].strip()
+            if inner == "":
+                return []
+            return [
+                RowPipelineMixin._gfql_parse_cypher_literal(part)
+                for part in RowPipelineMixin._gfql_split_top_level_commas(inner)
+            ]
+
+        if token.startswith("{") and token.endswith("}"):
+            inner = token[1:-1].strip()
+            if inner == "":
+                return {}
+            out: Dict[str, Any] = {}
+            for item in RowPipelineMixin._gfql_split_top_level_commas(inner):
+                colon_idx = RowPipelineMixin._gfql_find_top_level_char(item, ":")
+                if colon_idx <= 0:
+                    raise ValueError(f"invalid map entry: {item}")
+                key_token = item[:colon_idx].strip()
+                value_token = item[colon_idx + 1 :].strip()
+                if key_token == "":
+                    raise ValueError(f"empty map key in: {item}")
+                if (
+                    len(key_token) >= 2
+                    and key_token[0] == key_token[-1]
+                    and key_token[0] in {"'", '"'}
+                ):
+                    parsed_key = RowPipelineMixin._gfql_parse_cypher_literal(key_token)
+                    if not isinstance(parsed_key, str):
+                        raise ValueError(f"map key must be string: {item}")
+                    key = parsed_key
+                elif RowPipelineMixin._GFQL_IDENT_RE.fullmatch(key_token) is not None:
+                    key = key_token
+                else:
+                    raise ValueError(f"invalid map key: {key_token}")
+                out[key] = RowPipelineMixin._gfql_parse_cypher_literal(value_token)
+            return out
+
+        raise ValueError(f"unsupported literal token: {token}")
+
+    @staticmethod
+    def _gfql_parse_cypher_structured_literal(text: str) -> Tuple[bool, Any]:
+        try:
+            parsed = RowPipelineMixin._gfql_parse_cypher_literal(text)
+        except Exception:
+            return False, None
+        return True, parsed
+
+    @staticmethod
     def _gfql_normalize_json_like_literal(value: Any) -> Tuple[bool, Any]:
         if value is None or isinstance(value, (bool, int, float, str)):
             return True, value
@@ -783,6 +955,8 @@ class RowPipelineMixin:
         if txt.startswith("[") and txt.endswith("]"):
             ok, parsed = RowPipelineMixin._gfql_parse_structured_literal(txt)
             if not ok:
+                ok, parsed = RowPipelineMixin._gfql_parse_cypher_structured_literal(txt)
+            if not ok:
                 return False, None
             ok_norm, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(parsed)
             if ok_norm and isinstance(normalized, list):
@@ -790,6 +964,8 @@ class RowPipelineMixin:
             return False, None
         if txt.startswith("{") and txt.endswith("}"):
             ok, parsed = RowPipelineMixin._gfql_parse_structured_literal(txt)
+            if not ok:
+                ok, parsed = RowPipelineMixin._gfql_parse_cypher_structured_literal(txt)
             if not ok:
                 return False, None
             ok_norm, normalized = RowPipelineMixin._gfql_normalize_json_like_literal(parsed)
@@ -858,7 +1034,8 @@ class RowPipelineMixin:
             total_series = total_series.where(~list_null_mask, pd.NA)
         base = base.assign(**{total_col: total_series})
 
-        expanded = base[[row_col, list_col, total_col]].explode(list_col)
+        # Keep outer-scope columns so nested quantifiers can reference them.
+        expanded = base.explode(list_col)
         expanded = expanded.assign(**{var_col: expanded[list_col]})
         rewritten_predicate = RowPipelineMixin._gfql_replace_identifier(
             predicate_expr, var, var_col
