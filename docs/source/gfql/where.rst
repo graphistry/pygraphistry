@@ -129,3 +129,40 @@ steps together and can be more expensive on dense graphs.
 WHERE works with pandas and cuDF; select an engine via
 `g.gfql(..., engine='cudf')`. For full JSON schema details, see
 :doc:`/gfql/spec/wire_protocol`.
+
+Row-Table Filtering with `where_rows(...)`
+------------------------------------------
+
+Use `where_rows(...)` when filtering the active row table selected by
+`rows(...)` in a `MATCH ... RETURN`-style pipeline.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward
+    from graphistry.compute import rows, where_rows, return_
+
+    filtered = g.gfql([
+        n(name="a"),
+        e_forward(name="e"),
+        n(name="b"),
+        rows(table="nodes", source="b"),
+        where_rows(expr="score >= 10 AND name CONTAINS 'alice'"),
+        return_(["id", "name", "score"]),
+    ])
+
+`where` and `where_rows` solve different problems:
+
+- `where=[...]`: same-path alias comparisons across chain steps.
+- `where_rows(...)`: row-level filtering on the active table (nodes/edges).
+
+`where_rows` accepts:
+
+- `filter_dict={...}` predicate filters.
+- `expr=\"...\"` Cypher-like scalar expressions.
+- both together (AND semantics).
+
+Validation behavior:
+
+- Expression forms outside the supported subset are rejected by validator/runtime.
+- Column references are validated against the active row table.
+- Execution stays vectorized on pandas/cuDF backends.

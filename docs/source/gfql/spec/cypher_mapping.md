@@ -13,7 +13,7 @@ This specification shows how to translate Cypher queries to both GFQL Python cod
 When translating from Cypher, you'll encounter three scenarios:
 
 **1. Direct Translation** - Most pattern matching maps cleanly to pure GFQL
-**2. Hybrid Approach** - Post-processing operations (RETURN clauses with aggregations) use df.groupby/agg
+**2. Row-Pipeline Translation** - `RETURN/WITH/ORDER BY/SKIP/LIMIT/DISTINCT/GROUP BY` map to GFQL row operators
 **3. GFQL Advantages** - Some capabilities go beyond what Cypher offers
 
 ### Direct Translations
@@ -23,11 +23,18 @@ When translating from Cypher, you'll encounter three scenarios:
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
-## When You Need DataFrames
-- Aggregations: COUNT, SUM, AVG → pandas operations
-- Projections: RETURN specific columns → DataFrame selection
-- Sorting/limiting: ORDER BY, LIMIT → DataFrame methods
-- Joins: Multiple disconnected patterns → pandas merge
+## Row-Pipeline Translation (`MATCH ... RETURN`)
+- Row source selection: `rows(table=..., source=...)`
+- Row filtering: `where_rows(filter_dict=..., expr=...)`
+- Projection: `return_(...)` / `with_(...)` / `select(...)`
+- Sorting/paging: `order_by(...)`, `skip(...)`, `limit(...)`
+- Deduplication: `distinct()`
+- Aggregation: `group_by(keys=[...], aggregations=[...])`
+
+## When You Still Need DataFrames
+- Unsupported Cypher clauses (for example `OPTIONAL MATCH`)
+- Arbitrary joins across disconnected intermediate result sets
+- Custom functions outside the current row-expression subset
 
 ## GFQL-Only Super-Powers
 - **Edge properties**: Query edges as first-class entities
@@ -112,6 +119,53 @@ g.gfql(
   "where": [
     {"gt": {"left": "n1.a", "right": "n2.b"}},
     {"eq": {"left": "e1.x", "right": "e2.y"}}
+  ]
+}
+```
+
+### `MATCH ... RETURN` Row Pipeline
+
+Use GFQL call steps after the pattern match to encode Cypher `RETURN` behavior.
+
+**Cypher:**
+```cypher
+MATCH (p:Person)-[:FOLLOWS]->(q:Person)
+WHERE q.score >= 50
+RETURN q.id AS id, q.name AS name, q.score AS score
+ORDER BY score DESC, name ASC
+LIMIT 25
+```
+
+**Python:**
+```python
+from graphistry import n, e_forward, gt
+from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+g.gfql([
+    n({"type": "Person"}),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person", "score": gt(0)}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+    order_by([("score", "desc"), ("name", "asc")]),
+    limit(25),
+])
+```
+
+**Wire Protocol:**
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "Person"}},
+    {"type": "Edge", "direction": "forward", "edge_match": {"type": "FOLLOWS"}},
+    {"type": "Node", "filter_dict": {"type": "Person", "score": {"type": "GT", "val": 0}}, "name": "q"},
+    {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "q"}},
+    {"type": "Call", "function": "where_rows", "params": {"expr": "score >= 50"}},
+    {"type": "Call", "function": "select", "params": {"items": [["id", "id"], ["name", "name"], ["score", "score"]]}},
+    {"type": "Call", "function": "order_by", "params": {"keys": [["score", "desc"], ["name", "asc"]]}},
+    {"type": "Call", "function": "limit", "params": {"value": 25}}
   ]
 }
 ```
@@ -245,44 +299,53 @@ g.gfql([
 ```cypher
 MATCH (u:User)-[t:TRANSACTION]->(m:Merchant)
 WHERE t.date > date('2024-01-01')
-RETURN m.category, count(*) as cnt, sum(t.amount) as total
+RETURN t.category AS category, count(*) as cnt, sum(t.amount) as total
 ORDER BY total DESC
 LIMIT 10
 ```
 
 **Python:**
 ```python
-# Step 1: Graph pattern
-result = g.gfql([
-    n({"type": "User"}),
-    e_forward({"type": "TRANSACTION", "date": gt(date(2024,1,1))}, name="trans"),
-    n({"type": "Merchant"})
-])
+from datetime import date
+from graphistry import n, e_forward, gt
+from graphistry.compute import rows, where_rows, group_by, return_, order_by, limit
 
-# Step 2: DataFrame operations
-trans_df = result._edges[result._edges["trans"]]
-merchant_df = result._nodes
-analysis = (trans_df
-    .merge(merchant_df, left_on=g._destination, right_on=g._node)
-    .groupby('category')
-    .agg(cnt=('amount', 'count'), total=('amount', 'sum'))
-    .nlargest(10, 'total'))
+analysis = g.gfql([
+    n({"type": "User"}),
+    e_forward({"type": "TRANSACTION", "date": gt(date(2024, 1, 1))}, name="t"),
+    rows(table="edges", source="t"),
+    where_rows(expr="amount IS NOT NULL"),
+    group_by(
+        keys=["category"],
+        aggregations=[
+            ("cnt", "count", "amount"),
+            ("total", "sum", "amount"),
+        ],
+    ),
+    return_(["category", "cnt", "total"]),
+    order_by([("total", "desc")]),
+    limit(10),
+])
 ```
 
-**Note:** Wire protocol returns the filtered graph; aggregations require client-side processing.
+**Note:** If the aggregation/function you need is outside the supported
+`group_by` subset, fall back to dataframe post-processing.
 
-## DataFrame Operations Mapping
+## Row-Pipeline Operations Mapping
 
-| Cypher Feature | Python DataFrame Operation | Notes |
+| Cypher Feature | GFQL Python Row Operation | Notes |
 |----------------|---------------------------|--------|
-| `RETURN a, b, c` | `df[['a', 'b', 'c']]` | Column selection |
-| `RETURN DISTINCT` | `df.drop_duplicates()` | Remove duplicates |
-| `ORDER BY x DESC` | `df.sort_values('x', ascending=False)` | Sort results |
-| `LIMIT 10` | `df.head(10)` | Limit rows |
-| `count(*)` | `len(df)` or `df.groupby(...).size()` | Count rows |
-| `sum(n.val)` | `df['val'].sum()` or `df.groupby(...).agg(sum)` | Aggregation |
-| `collect(n.x)` | `df.groupby(...).agg(list)` | Collect to list |
-| Named patterns | `df[df['pattern_name']]` | Boolean column filtering |
+| `RETURN a, b, c` | `return_(["a", "b", "c"])` | String item shorthand maps `a -> ("a", "a")` |
+| `WITH a, b` | `with_(["a", "b"])` | Same projection semantics as `return_` |
+| `RETURN DISTINCT` | `distinct()` | Deduplicate active row table |
+| `ORDER BY x DESC` | `order_by([("x", "desc")])` | Multi-key sorting supported |
+| `SKIP 20` | `skip(20)` | Row offset |
+| `LIMIT 10` | `limit(10)` | Row cap |
+| `WHERE <row expr>` | `where_rows(expr="...")` | Scalar expression subset |
+| `count(*)` | `group_by(keys=[...], aggregations=[("cnt", "count")])` | Grouped count |
+| `sum(n.val)` | `group_by(..., aggregations=[("total", "sum", "val")])` | Grouped sum |
+| `collect(n.x)` | `group_by(..., aggregations=[("xs", "collect", "x")])` | Nulls excluded from collection |
+| Named patterns | `rows(source="alias")` | Scope row table to a named match alias |
 
 ## Key Differences
 
@@ -296,7 +359,7 @@ analysis = (trans_df
 ## Not Supported
 - `OPTIONAL MATCH` - No equivalent (would need outer joins)
 - `CREATE`, `DELETE`, `SET` - GFQL is read-only
-- `WITH` clauses - Requires intermediate variables
+- Full Cypher expression/function surface in row expressions - subset only (validator rejects unsupported forms)
 - Multiple `MATCH` patterns - Use separate chains or joins
 
 ## Best Practices
@@ -320,8 +383,9 @@ Generate both:
 
 Rules:
 - (n:Label) → Python: n({"type": "Label"}) → JSON: {"type": "Node", "filter_dict": {"type": "Label"}}
-- WHERE → Embed as predicates in both formats
-- Aggregations → Note as requiring DataFrame post-processing
+- Cross-step WHERE → `g.gfql([...], where=[compare(col(...), op, col(...))])`
+- RETURN/WITH/ORDER BY/SKIP/LIMIT/DISTINCT/GROUP BY → row-pipeline call steps (`rows`, `where_rows`, `return_`, `order_by`, `skip`, `limit`, `distinct`, `group_by`)
+- Unsupported expressions/functions → explicitly mark as unsupported instead of silently rewriting
 ```
 
 ## See Also

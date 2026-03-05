@@ -5,6 +5,15 @@ Welcome to **GFQL**, the first dataframe-native graph query language with GPU su
 
 **GFQL bridges the gap** between traditional storage-tier graph databases and the modern compute tier, allowing you to perform your favorite high-performance graph queries directly on your dataframes. It's built to be familiar to users of Cypher, other graph query languages, and popular dataframe libraries. By being native to accelerated Python datascience dataframe technologies such as Apache Arrow, Numpy, Nvidia RAPIDS, and Graphistry, it can already do workloads like 100M+ edges in interactive time on a single machine.
 
+Row-pipeline primitives for Cypher-style `MATCH ... RETURN` workflows are
+available under `graphistry.compute`:
+`rows`, `where_rows`, `return_`, `with_`, `order_by`, `skip`, `limit`,
+`distinct`, `unwind`, `group_by`.
+See :doc:`quick`, :doc:`where`, and :doc:`spec/cypher_mapping`.
+
+Validation note: unsupported row-expression forms are rejected by GFQL
+validators/runtime instead of silently falling back to Python row loops.
+
 
 See also:
 
