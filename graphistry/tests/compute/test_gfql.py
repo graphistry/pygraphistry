@@ -9,6 +9,30 @@ from graphistry.tests.test_compute import CGFull
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
 
 
+def _mk_graph(ids, types, src, dst):
+    nodes_df = pd.DataFrame({"id": ids, "type": types})
+    edges_df = pd.DataFrame({"s": src, "d": dst})
+    return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
+def _mk_people_company_graph3():
+    return _mk_graph(
+        ids=["a", "b", "c"],
+        types=["person", "person", "company"],
+        src=["a", "b"],
+        dst=["b", "c"],
+    )
+
+
+def _mk_people_company_graph4():
+    return _mk_graph(
+        ids=["a", "b", "c", "d"],
+        types=["person", "person", "company", "company"],
+        src=["a", "b", "c"],
+        dst=["b", "c", "d"],
+    )
+
+
 class TestGFQLAPI:
     """Test unified GFQL API and migration"""
     
@@ -38,12 +62,7 @@ class TestGFQL:
     
     def test_gfql_with_list(self):
         """Test gfql with list executes as chain"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c', 'd'],
-            'type': ['person', 'person', 'company', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph4()
         
         # Execute as chain
         result = g.gfql([n({'type': 'person'})])
@@ -53,12 +72,7 @@ class TestGFQL:
     
     def test_gfql_with_chain_object(self):
         """Test gfql with Chain object"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
         
         # Execute with Chain
         chain = Chain([n({'type': 'person'}), e(), n()])
@@ -69,12 +83,7 @@ class TestGFQL:
     
     def test_gfql_with_dag(self):
         """Test gfql with ASTLet"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c', 'd'],
-            'type': ['person', 'person', 'company', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph4()
         
         # Execute as DAG - wrap n() in Chain for GraphOperation
         dag = ASTLet({
@@ -87,12 +96,7 @@ class TestGFQL:
     
     def test_gfql_with_dict_convenience(self):
         """Test gfql with dict converts to DAG"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
         
         # Dict convenience should auto-wrap ASTNode/ASTEdge in Chain
         result = g.gfql({'people': n({'type': 'person'})})
@@ -103,12 +107,7 @@ class TestGFQL:
     
     def test_gfql_output_with_dag(self):
         """Test gfql output parameter works with DAG"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c', 'd'],
-            'type': ['person', 'person', 'company', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph4()
         
         # Dict convenience with output parameter
         result = g.gfql({
@@ -129,12 +128,7 @@ class TestGFQL:
     
     def test_gfql_with_single_ast_object(self):
         """Test gfql with single ASTObject wraps in list"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
         
         # Single ASTObject should work
         result = g.gfql(n({'type': 'person'}))
@@ -154,12 +148,7 @@ class TestGFQL:
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""
         import warnings
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
         
         # chain() should show deprecation warning
         with warnings.catch_warnings(record=True) as w:
@@ -189,12 +178,7 @@ class TestGFQLDictConversion:
 
     def test_gfql_with_list_containing_raw_dicts(self):
         """Test gfql with list containing raw dict objects (main regression case)"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
 
         # This was the exact case that failed before our fix
         result = g.gfql([{"type": "Node"}])
@@ -207,12 +191,7 @@ class TestGFQLDictConversion:
 
     def test_gfql_with_mixed_list_ast_and_dicts(self):
         """Test gfql with list containing both AST objects and dicts"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
 
         # Mixed: AST object + raw dict
         result = g.gfql([n({'type': 'person'}), {"type": "Node"}])
@@ -223,12 +202,7 @@ class TestGFQLDictConversion:
 
     def test_gfql_with_multiple_dicts_in_list(self):
         """Test gfql with list containing multiple dict objects"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
 
         # Multiple dicts in sequence
         result = g.gfql([{"type": "Node"}, {"type": "Node"}])
@@ -239,12 +213,7 @@ class TestGFQLDictConversion:
 
     def test_gfql_dict_conversion_with_filter(self):
         """Test dict conversion works with actual filtering"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
 
         # Test with actual filter in dict format
         result = g.gfql([{"type": "Node", "filter": {"type": "person"}}])
@@ -264,12 +233,7 @@ class TestGFQLDictConversion:
 
     def test_gfql_single_vs_list_dict_equivalence(self):
         """Test that list dict conversion works (single dict vs list behavior may differ)"""
-        nodes_df = pd.DataFrame({
-            'id': ['a', 'b', 'c'],
-            'type': ['person', 'person', 'company']
-        })
-        edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+        g = _mk_people_company_graph3()
 
         # Test that list dict conversion works - main regression test
         result_list = g.gfql([{"type": "Node"}])

@@ -23,6 +23,9 @@ def _has_lark() -> bool:
         return False
 
 
+requires_lark = pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+
+
 def test_parse_expr_requires_lark_dependency() -> None:
     if _has_lark():
         node = parse_expr("score > 1")
@@ -59,7 +62,7 @@ def test_validate_expr_capabilities_accepts_supported_tree() -> None:
     assert errors == []
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_parse_expr_precedence_tree() -> None:
     node = parse_expr("NOT a = 1 AND b = 2 OR c = 3")
     assert isinstance(node, BinaryOp)
@@ -68,7 +71,7 @@ def test_parse_expr_precedence_tree() -> None:
     assert node.left.op == "and"
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 @pytest.mark.parametrize(
     "expr",
     [
@@ -87,7 +90,7 @@ def test_parse_expr_accepts_supported_samples(expr: str) -> None:
     assert node is not None
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 @pytest.mark.parametrize(
     "expr",
     [
@@ -106,7 +109,7 @@ def test_parse_expr_rejects_malformed_samples(expr: str) -> None:
         parse_expr(expr)
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_parse_expr_case_and_quantifier_nodes() -> None:
     case_node = parse_expr("CASE WHEN score > 1 THEN true ELSE false END")
     assert isinstance(case_node, CaseWhen)
@@ -117,7 +120,7 @@ def test_parse_expr_case_and_quantifier_nodes() -> None:
     assert quant.var == "x"
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_parse_expr_list_comprehension_node() -> None:
     node = parse_expr("[x IN vals WHERE x > 1 | x + 1]")
     assert isinstance(node, ListComprehension)
@@ -126,7 +129,7 @@ def test_parse_expr_list_comprehension_node() -> None:
     assert node.projection is not None
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_collect_identifiers_excludes_bound_vars() -> None:
     node = parse_expr("any(x IN vals WHERE x > threshold)")
     names = collect_identifiers(node)
@@ -135,14 +138,14 @@ def test_collect_identifiers_excludes_bound_vars() -> None:
     assert "x" not in names
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_find_unsupported_functions_reports_unknown() -> None:
     node = parse_expr("unknown_fn(score) > 1")
     bad = find_unsupported_functions(node)
     assert "unknown_fn" in bad
 
 
-@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@requires_lark
 def test_find_unsupported_functions_accepts_known() -> None:
     node = parse_expr("size(vals) > 1 AND toString(name) = 'x'")
     bad = find_unsupported_functions(node)

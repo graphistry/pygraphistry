@@ -194,6 +194,13 @@ class RowPipelineMixin:
         "collect",
     }
 
+    @staticmethod
+    def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
+        col = prefix
+        while col in columns:
+            col = f"{col}_x"
+        return col
+
     def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -1557,18 +1564,10 @@ class RowPipelineMixin:
         list_value = self._gfql_eval_string_expr(table_df, list_expr)
         list_series = list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
 
-        row_col = "__gfql_q_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        list_col = "__gfql_q_list__"
-        while list_col in table_df.columns:
-            list_col = f"{list_col}_x"
-        total_col = "__gfql_q_total__"
-        while total_col in table_df.columns:
-            total_col = f"{total_col}_x"
-        var_col = f"__gfql_q_{var}__"
-        while var_col in table_df.columns:
-            var_col = f"{var_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_row__")
+        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_list__")
+        total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total__")
+        var_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, f"__gfql_q_{var}__")
 
         base = table_df.assign(
             **{
@@ -1691,18 +1690,10 @@ class RowPipelineMixin:
                     f"unsupported row expression: dynamic subscript keys must be integer typed in {expr!r}"
                 )
 
-        row_col = "__gfql_dynsub_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        base_col = "__gfql_dynsub_base__"
-        while base_col in table_df.columns:
-            base_col = f"{base_col}_x"
-        key_col = "__gfql_dynsub_key__"
-        while key_col in table_df.columns:
-            key_col = f"{key_col}_x"
-        pos_col = "__gfql_dynsub_pos__"
-        while pos_col in table_df.columns:
-            pos_col = f"{pos_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_row__")
+        base_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_base__")
+        key_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_key__")
+        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_pos__")
 
         base = table_df.assign(
             **{
@@ -1791,21 +1782,11 @@ class RowPipelineMixin:
         scalar_series: Any,
         prepend: bool = False,
     ) -> Any:
-        row_col = "__gfql_list_add_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        list_col = "__gfql_list_add_list__"
-        while list_col in table_df.columns:
-            list_col = f"{list_col}_x"
-        val_col = "__gfql_list_add_val__"
-        while val_col in table_df.columns:
-            val_col = f"{val_col}_x"
-        pos_col = "__gfql_list_add_pos__"
-        while pos_col in table_df.columns:
-            pos_col = f"{pos_col}_x"
-        len_col = "__gfql_list_add_len__"
-        while len_col in table_df.columns:
-            len_col = f"{len_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_row__")
+        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_list__")
+        val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_val__")
+        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_pos__")
+        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_len__")
 
         base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series, val_col: scalar_series})
         null_mask = self._gfql_null_mask(base, base[list_col])
@@ -1867,21 +1848,11 @@ class RowPipelineMixin:
         if not hasattr(right_series, "str") or not hasattr(right_series.str, "len"):
             raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
 
-        row_col = "__gfql_in_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        rhs_col = "__gfql_in_rhs__"
-        while rhs_col in table_df.columns:
-            rhs_col = f"{rhs_col}_x"
-        lhs_col = "__gfql_in_lhs__"
-        while lhs_col in table_df.columns:
-            lhs_col = f"{lhs_col}_x"
-        len_col = "__gfql_in_len__"
-        while len_col in table_df.columns:
-            len_col = f"{len_col}_x"
-        pos_col = "__gfql_in_pos__"
-        while pos_col in table_df.columns:
-            pos_col = f"{pos_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_row__")
+        rhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_rhs__")
+        lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_lhs__")
+        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_len__")
+        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_pos__")
 
         base = table_df.assign(**{row_col: range(len(table_df)), lhs_col: left_series, rhs_col: right_series})
         rhs_null = self._gfql_null_mask(base, base[rhs_col])
@@ -1934,15 +1905,9 @@ class RowPipelineMixin:
         if len(item_exprs) == 0:
             return self._gfql_broadcast_scalar(table_df, [])
 
-        row_col = "__gfql_list_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        ord_col = "__gfql_list_ord__"
-        while ord_col in table_df.columns:
-            ord_col = f"{ord_col}_x"
-        val_col = "__gfql_list_val__"
-        while val_col in table_df.columns:
-            val_col = f"{val_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_row__")
+        ord_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_ord__")
+        val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_val__")
 
         base = table_df.assign(**{row_col: range(len(table_df))})[[row_col]]
         value_cols: List[str] = []
@@ -1950,9 +1915,7 @@ class RowPipelineMixin:
             val = self._gfql_eval_string_expr(table_df, item_expr)
             if not hasattr(val, "astype"):
                 val = self._gfql_broadcast_scalar(table_df, val)
-            col = f"__gfql_list_item_{idx}__"
-            while col in base.columns:
-                col = f"{col}_x"
+            col = RowPipelineMixin._gfql_fresh_col_name(base.columns, f"__gfql_list_item_{idx}__")
             base[col] = val
             value_cols.append(col)
 
@@ -1979,21 +1942,11 @@ class RowPipelineMixin:
         list_value = self._gfql_eval_string_expr(table_df, list_expr)
         list_series = list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
 
-        row_col = "__gfql_lc_row__"
-        while row_col in table_df.columns:
-            row_col = f"{row_col}_x"
-        list_col = "__gfql_lc_list__"
-        while list_col in table_df.columns:
-            list_col = f"{list_col}_x"
-        len_col = "__gfql_lc_len__"
-        while len_col in table_df.columns:
-            len_col = f"{len_col}_x"
-        var_col = f"__gfql_lc_{var}__"
-        while var_col in table_df.columns:
-            var_col = f"{var_col}_x"
-        out_col = "__gfql_lc_out__"
-        while out_col in table_df.columns:
-            out_col = f"{out_col}_x"
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_row__")
+        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_list__")
+        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_len__")
+        var_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, f"__gfql_lc_{var}__")
+        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out__")
 
         base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})[[row_col, list_col]]
         null_mask = self._gfql_null_mask(base, base[list_col])
