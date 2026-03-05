@@ -1630,6 +1630,12 @@ class TestRowPipelineSafelist:
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "size([x IN vals WHERE ]) > 0"})
         assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1 | ]) > 0"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x IN vals | ]) > 0"})
+        assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})

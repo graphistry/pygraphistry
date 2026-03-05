@@ -429,6 +429,61 @@ def _split_top_level_pipe(expr: str) -> Any:
     return None
 
 
+def _has_top_level_pipe(expr: str) -> bool:
+    txt = expr.strip()
+    n = len(txt)
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for i in range(n):
+        ch = txt[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "(":
+            depth_paren += 1
+            continue
+        if ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+            continue
+        if ch == "[":
+            depth_bracket += 1
+            continue
+        if ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+            continue
+        if ch == "{":
+            depth_brace += 1
+            continue
+        if ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+            continue
+
+        if ch == "|" and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            return True
+    return False
+
+
 def _where_rows_list_comprehension_segment_well_formed(segment: str) -> bool:
     txt = segment.strip()
     if not (txt.startswith("[") and txt.endswith("]")):
@@ -452,6 +507,8 @@ def _where_rows_list_comprehension_segment_well_formed(segment: str) -> bool:
     if rhs == "":
         return False
     pipe_split = _split_top_level_pipe(rhs)
+    if pipe_split is None and _has_top_level_pipe(rhs):
+        return False
     if pipe_split is not None:
         lhs = pipe_split[0].strip()
         proj_expr = pipe_split[1].strip()
