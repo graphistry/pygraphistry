@@ -812,6 +812,33 @@ def _where_rows_delimiters_balanced(expr: str) -> bool:
     return paren_depth == 0 and bracket_depth == 0 and brace_depth == 0
 
 
+def _where_rows_boolean_keyword_placement_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    if txt == "":
+        return False
+    upper = txt.upper()
+    if upper.startswith("AND ") or upper.startswith("OR "):
+        return False
+    if upper.endswith(" AND") or upper.endswith(" OR"):
+        return False
+    if re.fullmatch(r"(?is)NOT\b\s*", txt) is not None:
+        return False
+    return True
+
+
+def _where_rows_has_unsupported_tokens(expr: str) -> bool:
+    txt = expr.strip()
+    # Unsupported equality token in this grammar
+    if "==" in txt:
+        return True
+    # Comment-like syntactic tokens are unsupported in expressions
+    if "--" in txt:
+        return True
+    if "/*" in txt or "*/" in txt:
+        return True
+    return False
+
+
 # Type validators
 def is_string(v: Any) -> bool:
     return isinstance(v, str)
@@ -982,6 +1009,10 @@ def is_where_rows_expr(v: Any) -> bool:
     if not _where_rows_delimiters_balanced(txt_lex):
         return False
     if _has_top_level_pipe(txt_lex):
+        return False
+    if _where_rows_has_unsupported_tokens(txt_lex):
+        return False
+    if not _where_rows_boolean_keyword_placement_well_formed(txt_lex):
         return False
     if _where_rows_string_predicate_has_dynamic_rhs(txt):
         return False
