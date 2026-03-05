@@ -598,6 +598,54 @@ def _where_rows_quantifier_calls_well_formed(expr: str) -> bool:
     return True
 
 
+def _where_rows_quantifier_call_context_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    n = len(txt)
+    allowed_follow_keywords = {
+        "AND",
+        "OR",
+        "IN",
+        "IS",
+        "CONTAINS",
+        "STARTS",
+        "ENDS",
+        "WITH",
+        "THEN",
+        "ELSE",
+        "END",
+        "WHEN",
+    }
+    allowed_follow_punct = set(")],},+-*/%<>=!")
+
+    for match in re.finditer(r"(?is)\b(any|all|none|single)\s*\(", txt):
+        open_idx = txt.find("(", match.start())
+        if open_idx < 0:
+            return False
+        close_idx = _find_matching_paren(txt, open_idx)
+        if close_idx < 0:
+            return False
+
+        j = close_idx + 1
+        while j < n and txt[j].isspace():
+            j += 1
+        if j >= n:
+            continue
+
+        ch = txt[j]
+        if ch in allowed_follow_punct:
+            continue
+        if _is_identifier_char(ch):
+            k = j + 1
+            while k < n and _is_identifier_char(txt[k]):
+                k += 1
+            token = txt[j:k].upper()
+            if token in allowed_follow_keywords:
+                continue
+            return False
+        return False
+    return True
+
+
 def _where_rows_top_level_case_well_formed(expr: str) -> bool:
     txt = expr.strip()
     if not txt.upper().startswith("CASE "):
@@ -676,23 +724,27 @@ def _where_rows_case_calls_well_formed(expr: str) -> bool:
             if kw == "CASE":
                 frames.append({"when": False, "then": False, "else": False})
             elif kw == "WHEN":
-                if frames:
-                    frames[-1]["when"] = True
+                if not frames:
+                    return False
+                frames[-1]["when"] = True
             elif kw == "THEN":
-                if frames:
-                    if not frames[-1]["when"]:
-                        return False
-                    frames[-1]["then"] = True
+                if not frames:
+                    return False
+                if not frames[-1]["when"]:
+                    return False
+                frames[-1]["then"] = True
             elif kw == "ELSE":
-                if frames:
-                    if not frames[-1]["then"]:
-                        return False
-                    frames[-1]["else"] = True
+                if not frames:
+                    return False
+                if not frames[-1]["then"]:
+                    return False
+                frames[-1]["else"] = True
             elif kw == "END":
-                if frames:
-                    top = frames.pop()
-                    if not (top["when"] and top["then"] and top["else"]):
-                        return False
+                if not frames:
+                    return False
+                top = frames.pop()
+                if not (top["when"] and top["then"] and top["else"]):
+                    return False
             i += k
             matched = True
             break
@@ -702,6 +754,62 @@ def _where_rows_case_calls_well_formed(expr: str) -> bool:
         i += 1
 
     return len(frames) == 0
+
+
+def _where_rows_delimiters_balanced(expr: str) -> bool:
+    txt = expr.strip()
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for ch in txt:
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "(":
+            paren_depth += 1
+            continue
+        if ch == ")":
+            paren_depth -= 1
+            if paren_depth < 0:
+                return False
+            continue
+        if ch == "[":
+            bracket_depth += 1
+            continue
+        if ch == "]":
+            bracket_depth -= 1
+            if bracket_depth < 0:
+                return False
+            continue
+        if ch == "{":
+            brace_depth += 1
+            continue
+        if ch == "}":
+            brace_depth -= 1
+            if brace_depth < 0:
+                return False
+            continue
+    return paren_depth == 0 and bracket_depth == 0 and brace_depth == 0
 
 
 # Type validators
@@ -871,9 +979,15 @@ def is_where_rows_expr(v: Any) -> bool:
     ]
     if any(fn.lower() not in safe_funcs for fn in func_calls):
         return False
+    if not _where_rows_delimiters_balanced(txt_lex):
+        return False
+    if _has_top_level_pipe(txt_lex):
+        return False
     if _where_rows_string_predicate_has_dynamic_rhs(txt):
         return False
     if not _where_rows_quantifier_calls_well_formed(txt_lex):
+        return False
+    if not _where_rows_quantifier_call_context_well_formed(txt_lex):
         return False
     if not _where_rows_list_comprehension_calls_well_formed(txt_lex):
         return False
