@@ -233,6 +233,37 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
+    def test_row_pipeline_where_rows_expr_keyword_in_string_with_boolean_ops(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "name": ["a AND b", "z", "a OR b"],
+                "size": [1, 2, 3],
+            }
+        )
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="name = 'a AND b' OR (name = 'a OR b' AND size > 2)"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "c"}]
+
+    def test_row_pipeline_where_rows_expr_column_named_size(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "size": [1, 3]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([rows(), where_rows(expr="size > 1"), return_([("id", "id")])])
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
@@ -1355,6 +1386,8 @@ class TestRowPipelineSafelist:
         assert params == {"expr": "score > 1 AND name != 'bob'"}
         params = validate_call_params("where_rows", {"expr": "name = 'rand()'"})
         assert params == {"expr": "name = 'rand()'"}
+        params = validate_call_params("where_rows", {"expr": 'name = "rand()"'})
+        assert params == {"expr": 'name = "rand()"'}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
@@ -1372,6 +1405,15 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "rand() > 0.1"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt CONTAINS rhs"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt STARTS WITH rhs"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt ENDS WITH rhs"})
         assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):

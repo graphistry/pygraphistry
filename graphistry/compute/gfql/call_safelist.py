@@ -42,6 +42,92 @@ def _strip_quoted_string_literals(txt: str) -> str:
     return _QUOTED_STRING_RE.sub(" ", txt)
 
 
+def _is_identifier_char(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def _where_rows_string_predicate_has_dynamic_rhs(expr: str) -> bool:
+    """Detect dynamic column-like RHS for CONTAINS/STARTS WITH/ENDS WITH.
+
+    Runtime only supports scalar RHS for vectorized string predicates; reject
+    clearly dynamic identifier RHS at validation time.
+    """
+
+    txt = expr
+    lower = txt.lower()
+    n = len(txt)
+    i = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    def _match_keyword(start: int) -> int:
+        # Return end index (exclusive) when keyword matches, else -1.
+        for pattern in (r"contains\b", r"starts\s+with\b", r"ends\s+with\b"):
+            m = re.match(pattern, lower[start:])
+            if m is not None:
+                return start + m.end()
+        return -1
+
+    while i < n:
+        ch = txt[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if ch == "\\":
+                escaped = True
+                i += 1
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            i += 1
+            continue
+
+        kw_end = _match_keyword(i)
+        if kw_end < 0:
+            i += 1
+            continue
+
+        if i > 0 and _is_identifier_char(txt[i - 1]):
+            i += 1
+            continue
+        if kw_end < n and _is_identifier_char(txt[kw_end]):
+            i += 1
+            continue
+
+        j = kw_end
+        while j < n and txt[j].isspace():
+            j += 1
+        if j >= n:
+            return True
+
+        rhs = txt[j:]
+        if rhs.startswith("'") or rhs.startswith('"'):
+            i = j + 1
+            continue
+        if re.match(r"(?i)null\b", rhs):
+            i = j + 1
+            continue
+        if re.match(r"[A-Za-z_][A-Za-z0-9_]*", rhs):
+            return True
+        i = j + 1
+
+    return False
+
+
 # Type validators
 def is_string(v: Any) -> bool:
     return isinstance(v, str)
@@ -206,6 +292,8 @@ def is_where_rows_expr(v: Any) -> bool:
         if fn.lower() not in {"and", "or", "not"}
     ]
     if any(fn.lower() not in safe_funcs for fn in func_calls):
+        return False
+    if _where_rows_string_predicate_has_dynamic_rhs(txt):
         return False
     if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\s]+", txt) is None:
         return False
