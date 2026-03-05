@@ -1,7 +1,9 @@
 import ast
 import datetime
 import math
+import os
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import pandas as pd
@@ -9,6 +11,35 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+
+
+def _gfql_expr_runtime_parser_mode() -> str:
+    mode = str(os.getenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")).strip().lower()
+    if mode not in {"off", "shadow", "strict"}:
+        return "off"
+    return mode
+
+
+@lru_cache(maxsize=1)
+def _gfql_expr_runtime_parser_bundle() -> Any:
+    try:
+        from graphistry.compute.gfql.expr_parser import parse_expr, validate_expr_capabilities
+        return parse_expr, validate_expr_capabilities
+    except Exception:
+        return None
+
+
+def _gfql_expr_runtime_parser_ok(expr: str) -> bool:
+    parser_bundle = _gfql_expr_runtime_parser_bundle()
+    if parser_bundle is None:
+        return True
+    parser, capability_checker = parser_bundle
+    try:
+        node = parser(expr)
+        errors = capability_checker(node)
+        return len(errors) == 0
+    except Exception:
+        return False
 
 
 class _RowPipelineContext(Protocol):
@@ -1823,6 +1854,11 @@ class RowPipelineMixin:
 
     def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
         txt = self._gfql_strip_outer_parens(expr.strip())
+        parser_mode = _gfql_expr_runtime_parser_mode()
+        if parser_mode != "off":
+            parser_ok = _gfql_expr_runtime_parser_ok(txt)
+            if parser_mode == "strict" and not parser_ok:
+                raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
         if txt in table_df.columns:
             return table_df[txt]
 

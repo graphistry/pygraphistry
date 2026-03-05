@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 import graphistry.compute.gfql.call_safelist as call_safelist
+import graphistry.compute.gfql.row_pipeline_mixin as row_pipeline_mixin
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
@@ -1823,6 +1824,30 @@ class TestRowPipelineSafelist:
         assert "vals" in cols
         assert "threshold" in cols
         assert "x" not in cols
+
+    def test_row_pipeline_runtime_parser_modes(self, monkeypatch):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "score": [1, 2, 3],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_ok", lambda _expr: False)
+
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "shadow")
+        result = g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
+        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
+        result = g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
+        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "strict")
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
+        assert exc_info.value.code == ErrorCode.E303
+        assert "parser validation failed" in exc_info.value.message
 
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
