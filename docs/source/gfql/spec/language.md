@@ -86,10 +86,11 @@ g.gfql(
 
 #### Operations
 
-Act on graph entities (nodes and edges):
-- Node matchers: Filter and select nodes
-- Edge matchers: Traverse relationships
-- Operations work on the graph structure itself
+GFQL supports two operation families:
+- Graph matchers act on graph entities (nodes and edges).
+- Row-pipeline operators act on tabular outputs from matched graph entities.
+- `g.gfql([...], where=[...])` filters same-path alias relationships.
+- `where_rows(...)` filters the active row table in RETURN/WITH-style pipelines.
 
 #### Predicates
 
@@ -115,9 +116,10 @@ Type system matching modern data formats:
 query ::= chain
 
 (* Chain - path pattern expression *)
-chain ::= "[" operation ("," operation)* "]" where_clause?
+chain ::= "[" step ("," step)* "]" where_clause?
+step ::= operation | row_operation
 
-(* Operations *)
+(* Graph operations *)
 operation ::= node_matcher | edge_matcher
 
 (* Node Matcher *)
@@ -140,6 +142,27 @@ where_op ::= "eq" | "neq" | "gt" | "lt" | "ge" | "le"
 column_ref ::= alias "." column
 alias ::= identifier
 column ::= identifier
+
+(* Row operations - Cypher RETURN/WITH-style pipeline *)
+row_operation ::= rows_op | where_rows_op | select_op | with_op | return_op
+                | order_by_op | skip_op | limit_op | distinct_op
+                | unwind_op | group_by_op
+rows_op ::= "rows(" ("table=" ("'nodes'" | "'edges'"))? ("," "source=" string)? ")"
+where_rows_op ::= "where_rows(" ("filter_dict=" filter_dict)? ("," "expr=" string)? ")"
+select_op ::= "select(" "items=" projection_items ")"
+with_op ::= "with_(" "items=" projection_items ")"
+return_op ::= "return_(" "items=" projection_items ")"
+projection_items ::= "[" projection_item ("," projection_item)* "]"
+projection_item ::= string | "(" string "," value_or_expr ")"
+value_or_expr ::= value | string
+order_by_op ::= "order_by(" "keys=" order_keys ")"
+order_keys ::= "[" "(" value_or_expr "," ("'asc'" | "'desc'") ")" ("," "(" value_or_expr "," ("'asc'" | "'desc'") ")")* "]"
+skip_op ::= "skip(" "value=" integer ")"
+limit_op ::= "limit(" "value=" integer ")"
+distinct_op ::= "distinct()"
+unwind_op ::= "unwind(" "expr=" value_or_expr ("," "as_=" string)? ")"
+group_by_op ::= "group_by(" "keys=" "[" string ("," string)* "]" "," "aggregations=" "[" aggregation_spec ("," aggregation_spec)* "]" ")"
+aggregation_spec ::= "(" string "," string ")" | "(" string "," string "," value_or_expr ")"
 
 (* Parameters *)
 edge_params ::= edge_match_params ("," hop_params)? ("," node_filter_params)? ("," name_param)?
@@ -264,6 +287,21 @@ Traverses edges in both directions.
 
 **Syntax**: Same as `e_forward()`
 
+### Row-Pipeline Operations
+
+These operations are encoded as call steps in the chain and are used for
+Cypher-style `MATCH ... RETURN` processing:
+- `rows(table=..., source=...)`: select active row table (nodes/edges; optional alias scope)
+- `where_rows(filter_dict=..., expr=...)`: row-level filtering on active row table
+- `select(...)` / `with_(...)` / `return_(...)`: projection and expression shaping
+- `order_by(...)`, `skip(...)`, `limit(...)`, `distinct()`: row sorting/paging/dedup
+- `unwind(...)`: expand list-valued expressions into rows
+- `group_by(...)`: grouped vectorized aggregations
+
+`where=[...]` and `where_rows(...)` are intentionally different:
+- `where=[...]` compares values across named path aliases in the MATCH pattern.
+- `where_rows(...)` evaluates scalar expressions against the active row table.
+
 ## Predicates
 
 ### Comparison Predicates
@@ -346,6 +384,8 @@ Call operations enable:
 - Layout computations (ForceAtlas2, Graphviz)
 - Data transformations (filtering, collapsing)
 - Visual encodings (color, size, icons)
+- Row-pipeline operations (`rows`, `where_rows`, `select`, `with_`, `return_`,
+  `order_by`, `skip`, `limit`, `distinct`, `unwind`, `group_by`)
 
 ### Safelist Architecture
 
@@ -448,23 +488,31 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
    - Patterns specify *what* paths to match, not *how* to find them
    - The engine optimizes pattern matching based on data characteristics
 
-2. **Set-Based Operations**: All operations work on sets of entities
-   - No explicit iteration or traversal order
-   - Results include all matching patterns in the graph
-   - Current GFQL engines use a novel bulk-oriented execution model that is asymptotically faster than traditional iterative approaches used for Cypher, but this is not a requirement of the language itself
+2. **Row-Pipeline Transformation**: Optional call steps shape tabular outputs
+   - `rows(...)` chooses active table (`nodes` or `edges`, optionally alias-scoped)
+   - `where_rows(...)`, projections, sorting, grouping, and paging transform rows
+   - Expressions are validated before execution and unsupported forms fail fast
 
-3. **Lazy Evaluation**: Chains define pattern transformations without immediate execution
-   - Allows engines to optimize path finding and pattern matching strategies
-\
+3. **Set-Based Operations**: Graph and row operations run in bulk
+   - No explicit user-managed iteration or traversal order
+   - Results include all matching paths/rows satisfying constraints
+   - Execution is vectorized in supported engines (pandas/cuDF)
+
+4. **Lazy Evaluation**: Chains define transformations without immediate execution
+   - Allows engines to optimize path finding and row-table transformations
+
 ### Result Access
 
-Query execution returns filtered node and edge datasets. In the Python embedding:
+Query execution returns a `Plottable` with tabular outputs. In the Python embedding:
 
 ```python
 result = g.gfql([...])
 nodes_df = result._nodes  # Filtered nodes
 edges_df = result._edges  # Filtered edges
 ```
+
+For row-pipeline chains (`rows(...)`, `return_(...)`, etc.), the active row table
+is materialized in `result._nodes`. `result._edges` is an empty frame placeholder.
 
 ### Named Results
 

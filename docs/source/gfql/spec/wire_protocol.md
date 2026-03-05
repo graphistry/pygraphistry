@@ -310,6 +310,55 @@ For the complete list of safelisted layout calls—including the radial
 variants—refer to {doc}`/gfql/builtin_calls`.
 ```
 
+#### Row-Pipeline Call Serialization
+
+Row-pipeline operators use the same existing `Call` envelope. There is no
+wire-format envelope change for row pipelines; only `function`/`params` values
+vary by operator.
+
+```json
+{"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "q"}}
+{"type": "Call", "function": "where_rows", "params": {"expr": "score >= 50"}}
+{"type": "Call", "function": "select", "params": {"items": [["id", "id"], ["score", "score"]]}}
+{"type": "Call", "function": "with_", "params": {"items": [["id", "id"]]}}
+{"type": "Call", "function": "order_by", "params": {"keys": [["score", "desc"], ["name", "asc"]]}}
+{"type": "Call", "function": "skip", "params": {"value": 20}}
+{"type": "Call", "function": "limit", "params": {"value": 10}}
+{"type": "Call", "function": "distinct", "params": {}}
+{"type": "Call", "function": "unwind", "params": {"expr": "tags", "as_": "tag"}}
+{"type": "Call", "function": "group_by", "params": {"keys": ["category"], "aggregations": [["cnt", "count"], ["total", "sum", "amount"]]}}
+```
+
+`return_(...)` is serialized as `function: "select"` with equivalent `items`.
+
+#### Row-Call Validation Errors
+
+Row-call payloads are validated before execution. Invalid payloads fail fast.
+
+Invalid `rows.table` enum:
+```json
+{"type": "Call", "function": "rows", "params": {"table": "invalid"}}
+```
+Expected error: parameter validation failure (`table` must be `"nodes"` or `"edges"`).
+
+Invalid `where_rows.expr` type:
+```json
+{"type": "Call", "function": "where_rows", "params": {"expr": 123}}
+```
+Expected error: parameter validation failure (`expr` must be a non-empty string).
+
+Invalid `order_by` direction:
+```json
+{"type": "Call", "function": "order_by", "params": {"keys": [["score", "up"]]}}
+```
+Expected error: parameter validation failure (`direction` must be `"asc"` or `"desc"`).
+
+Invalid `group_by` payload shape:
+```json
+{"type": "Call", "function": "group_by", "params": {"keys": [], "aggregations": []}}
+```
+Expected error: parameter validation failure (non-empty keys and valid aggregation specs required).
+
 ## Predicate Serialization
 
 ### Comparison Predicates
@@ -438,6 +487,39 @@ null                // null
 **Note**: The `timezone` field is optional for DateTime values and defaults to "UTC" if omitted. This ensures consistent behavior across systems while allowing explicit timezone specification when needed.
 
 ## Examples
+
+### `MATCH ... RETURN` Row Pipeline
+
+**Python**:
+```python
+g.gfql([
+    n({"type": "Person"}),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+    order_by([("score", "desc"), ("name", "asc")]),
+    limit(25),
+])
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "Person"}},
+    {"type": "Edge", "direction": "forward", "edge_match": {"type": "FOLLOWS"}},
+    {"type": "Node", "filter_dict": {"type": "Person"}, "name": "q"},
+    {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "q"}},
+    {"type": "Call", "function": "where_rows", "params": {"expr": "score >= 50"}},
+    {"type": "Call", "function": "select", "params": {"items": [["id", "id"], ["name", "name"], ["score", "score"]]}},
+    {"type": "Call", "function": "order_by", "params": {"keys": [["score", "desc"], ["name", "asc"]]}},
+    {"type": "Call", "function": "limit", "params": {"value": 25}}
+  ]
+}
+```
 
 ### User 360 Query
 
