@@ -1009,13 +1009,73 @@ class RowPipelineMixin:
         return var, list_expr, predicate_expr, proj_expr
 
     @staticmethod
+    def _gfql_find_matching_case_end(expr: str) -> int:
+        txt = expr.strip()
+        n = len(txt)
+        if n < 8:
+            return -1
+
+        def _is_word_boundary(pos: int) -> bool:
+            return pos < 0 or pos >= n or not (txt[pos].isalnum() or txt[pos] == "_")
+
+        in_single = False
+        in_double = False
+        escaped = False
+        depth = 0
+        i = 0
+        while i < n:
+            ch = txt[i]
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    i += 1
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    i += 1
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                i += 1
+                continue
+
+            if ch == "'":
+                in_single = True
+                i += 1
+                continue
+            if ch == '"':
+                in_double = True
+                i += 1
+                continue
+
+            if i + 4 <= n and txt[i : i + 4].upper() == "CASE":
+                if _is_word_boundary(i - 1) and _is_word_boundary(i + 4):
+                    depth += 1
+                    i += 4
+                    continue
+            if i + 3 <= n and txt[i : i + 3].upper() == "END":
+                if _is_word_boundary(i - 1) and _is_word_boundary(i + 3):
+                    if depth <= 0:
+                        return -1
+                    depth -= 1
+                    if depth == 0:
+                        return i + 2
+                    i += 3
+                    continue
+            i += 1
+        return -1
+
+    @staticmethod
     def _gfql_parse_case_when_expr(expr: str) -> Optional[Tuple[str, str, str]]:
         txt = expr.strip()
         if not txt.upper().startswith("CASE "):
             return None
-        if not txt.upper().endswith(" END"):
+        end_idx = RowPipelineMixin._gfql_find_matching_case_end(txt)
+        if end_idx < 0 or end_idx != (len(txt) - 1):
             return None
-        body = txt[4:-3].strip()
+        body = txt[4 : end_idx - 2].strip()
         if body.upper().startswith("WHEN "):
             body = body[5:].strip()
         then_split = RowPipelineMixin._gfql_split_top_level_keyword(body, "THEN")

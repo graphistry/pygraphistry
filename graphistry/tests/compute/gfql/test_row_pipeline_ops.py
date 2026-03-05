@@ -371,6 +371,41 @@ class TestRowPipelineExecution:
 
         assert result._nodes["id"].tolist() == ["b"]
 
+    def test_row_pipeline_where_rows_expr_case_boolean_composition(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "score": [1, 2, 3, 4]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        and_result = g.gfql(
+            [
+                rows(),
+                where_rows(
+                    expr=(
+                        "CASE WHEN score > 1 THEN true ELSE false END "
+                        "AND CASE WHEN score > 2 THEN true ELSE false END"
+                    )
+                ),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+        assert and_result._nodes["id"].tolist() == ["c", "d"]
+
+        or_result = g.gfql(
+            [
+                rows(),
+                where_rows(
+                    expr=(
+                        "CASE WHEN score > 1 THEN true ELSE false END "
+                        "OR CASE WHEN score > 2 THEN true ELSE false END"
+                    )
+                ),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+        assert or_result._nodes["id"].tolist() == ["b", "c", "d"]
+
     def test_row_pipeline_where_rows_expr_quantifiers(self):
         nodes_df = pd.DataFrame(
             {
