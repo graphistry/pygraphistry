@@ -207,6 +207,32 @@ class TestRowPipelineExecution:
             {"id": "b", "vals": [1, 2], "name": "n2"},
         ]
 
+    def test_row_pipeline_where_rows_expr_quoted_function_text(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["rand()", "plain"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            where_rows(expr="name = 'rand()'"),
+            return_([("id", "id"), ("name", "name")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "a", "name": "rand()"}]
+
+    def test_row_pipeline_where_rows_expr_size_literal_with_paren(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["n1", "n2"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([
+            rows(),
+            where_rows(expr="size(['x)', 'y']) = 2 AND NOT (name = 'n2')"),
+            return_([("id", "id")]),
+        ])
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
@@ -1087,6 +1113,51 @@ class TestRowPipelineExecution:
         assert pd.isna(records[2]["starts_ab"])
         assert pd.isna(records[2]["ends_ef"])
 
+    def test_row_pipeline_select_string_predicate_keyword_in_literal(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "txt": ["abc STARTS WITH xyz", "abc xyz", None],
+            }
+        )
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select([("id", "id"), ("hit", "txt CONTAINS 'STARTS WITH'")]),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        records = result._nodes.to_dict(orient="records")
+        assert records[0] == {"id": "a", "hit": True}
+        assert records[1] == {"id": "b", "hit": False}
+        assert records[2]["id"] == "c"
+        assert pd.isna(records[2]["hit"])
+
+    def test_row_pipeline_select_string_predicates_null_rhs(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", None]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("contains_null", "txt CONTAINS null"),
+                        ("starts_null", "txt STARTS WITH null"),
+                        ("ends_null", "txt ENDS WITH null"),
+                    ]
+                ),
+            ]
+        )
+
+        for col in ["contains_null", "starts_null", "ends_null"]:
+            assert all(pd.isna(v) for v in result._nodes[col].tolist())
+
     def test_row_pipeline_select_slice_variants(self):
         nodes_df = pd.DataFrame({"id": ["a"], "txt": ["abcdef"]})
         edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
@@ -1282,6 +1353,8 @@ class TestRowPipelineSafelist:
         assert params == {"filter_dict": {"name": "alice"}}
         params = validate_call_params("where_rows", {"expr": "score > 1 AND name != 'bob'"})
         assert params == {"expr": "score > 1 AND name != 'bob'"}
+        params = validate_call_params("where_rows", {"expr": "name = 'rand()'"})
+        assert params == {"expr": "name = 'rand()'"}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}

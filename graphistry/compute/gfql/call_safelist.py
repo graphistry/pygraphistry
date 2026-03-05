@@ -35,6 +35,12 @@ import re
 from typing import Dict, Any, List
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
+_QUOTED_STRING_RE = re.compile(r"(?s)'(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"")
+
+
+def _strip_quoted_string_literals(txt: str) -> str:
+    return _QUOTED_STRING_RE.sub(" ", txt)
+
 
 # Type validators
 def is_string(v: Any) -> bool:
@@ -176,6 +182,7 @@ def is_where_rows_expr(v: Any) -> bool:
     if not is_non_empty_string(v):
         return False
     txt = str(v).strip()
+    txt_lex = _strip_quoted_string_literals(txt)
     safe_funcs = {
         "abs",
         "coalesce",
@@ -191,11 +198,11 @@ def is_where_rows_expr(v: Any) -> bool:
         "toboolean",
         "tostring",
     }
-    if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
+    if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt_lex):
         return False
     func_calls = [
         fn
-        for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt)
+        for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt_lex)
         if fn.lower() not in {"and", "or", "not"}
     ]
     if any(fn.lower() not in safe_funcs for fn in func_calls):
@@ -301,7 +308,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
 
     expr = params.get('expr')
     if isinstance(expr, str):
-        expr_clean = re.sub(r"(?s)'(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"", " ", expr)
+        expr_clean = _strip_quoted_string_literals(expr)
         ids = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean))
         reserved = {
             "and",
