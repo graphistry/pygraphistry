@@ -12,9 +12,9 @@ This specification shows how to translate Cypher queries to both GFQL Python cod
 
 When translating from Cypher, you'll encounter three scenarios:
 
-**1. Direct Translation** - Most pattern matching maps cleanly to pure GFQL
-**2. Row-Pipeline Translation** - `RETURN/WITH/ORDER BY/SKIP/LIMIT/DISTINCT/GROUP BY` map to GFQL row operators
-**3. GFQL Advantages** - Some capabilities go beyond what Cypher offers
+1. **Direct Translation**: Most pattern matching maps cleanly to pure GFQL.
+2. **Row-Pipeline Translation**: `RETURN/WITH/ORDER BY/SKIP/LIMIT/DISTINCT/GROUP BY` map to GFQL row operators.
+3. **GFQL Advantages**: Some capabilities go beyond what Cypher offers.
 
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
