@@ -1642,6 +1642,9 @@ class TestRowPipelineSafelist:
             validate_call_params("where_rows", {"expr": "any(x vals WHERE x = 2)"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "any(x IN vals | WHERE x = 2)"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "CASE WHEN score > 1 THEN true END"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
@@ -1658,6 +1661,12 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "size([x IN vals | ]) > 0"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x IN vals | WHERE x > 1]) > 0"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x IN vals | WHERE x > 1 | x + 1]) > 0"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "(id = 'a') | (id = 'b')"})

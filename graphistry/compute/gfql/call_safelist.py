@@ -519,12 +519,20 @@ def _where_rows_list_comprehension_segment_well_formed(segment: str) -> bool:
         proj_expr = var
     if lhs == "" or proj_expr == "":
         return False
+    if _split_top_level_keyword(proj_expr, "WHERE") is not None:
+        return False
+    if re.search(r"(?i)\bwhere\b", proj_expr) is not None:
+        return False
+    if _has_top_level_pipe(proj_expr):
+        return False
 
     where_split = _split_top_level_keyword(lhs, "WHERE")
     if where_split is not None:
         list_expr = where_split[0].strip()
         predicate_expr = where_split[1].strip()
         if list_expr == "" or predicate_expr == "":
+            return False
+        if _has_top_level_pipe(list_expr):
             return False
         return True
     if re.search(r"(?i)\bwhere\b", lhs) is not None:
@@ -596,6 +604,10 @@ def _where_rows_quantifier_calls_well_formed(expr: str) -> bool:
         list_expr = where_split[0].strip()
         predicate_expr = where_split[1].strip()
         if list_expr == "" or predicate_expr == "":
+            return False
+        if _has_top_level_pipe(list_expr):
+            return False
+        if _has_top_level_pipe(predicate_expr):
             return False
     return True
 
