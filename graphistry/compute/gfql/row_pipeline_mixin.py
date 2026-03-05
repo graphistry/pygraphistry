@@ -2190,16 +2190,6 @@ class RowPipelineMixin:
             if inner_txt:
                 return self._gfql_eval_string_expr(table_df, inner_txt)
 
-        is_not_null_match = RowPipelineMixin._GFQL_IS_NOT_NULL_RE.fullmatch(txt)
-        if is_not_null_match is not None:
-            base = self._gfql_eval_string_expr(table_df, is_not_null_match.group("value"))
-            return ~self._gfql_null_mask(table_df, base)
-
-        is_null_match = RowPipelineMixin._GFQL_IS_NULL_RE.fullmatch(txt)
-        if is_null_match is not None:
-            base = self._gfql_eval_string_expr(table_df, is_null_match.group("value"))
-            return self._gfql_null_mask(table_df, base)
-
         or_split = self._gfql_split_top_level_keyword(txt, "OR")
         if or_split is not None:
             left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[0]))
@@ -2216,6 +2206,16 @@ class RowPipelineMixin:
             inner = txt[4:].strip()
             inner_mask = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, inner))
             return ~inner_mask
+
+        is_not_null_match = RowPipelineMixin._GFQL_IS_NOT_NULL_RE.fullmatch(txt)
+        if is_not_null_match is not None:
+            base = self._gfql_eval_string_expr(table_df, is_not_null_match.group("value"))
+            return ~self._gfql_null_mask(table_df, base)
+
+        is_null_match = RowPipelineMixin._GFQL_IS_NULL_RE.fullmatch(txt)
+        if is_null_match is not None:
+            base = self._gfql_eval_string_expr(table_df, is_null_match.group("value"))
+            return self._gfql_null_mask(table_df, base)
 
         in_split = self._gfql_split_top_level_keyword(txt, "IN")
         if in_split is not None:

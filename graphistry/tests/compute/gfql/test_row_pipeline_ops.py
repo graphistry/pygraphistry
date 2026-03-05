@@ -427,6 +427,26 @@ class TestRowPipelineExecution:
 
         assert result._nodes["id"].tolist() == ["a", "b"]
 
+    def test_row_pipeline_where_rows_is_null_or_precedence(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "x": [1, 2, None, 4],
+            "lst": [[1, 2], [2, 3], [], None],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="NOT (x IN lst) OR x IS NULL"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["c", "d"]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
