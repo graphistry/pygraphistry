@@ -503,16 +503,16 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
 
 ### Result Access
 
-Query execution returns a `Plottable` with tabular outputs. In the Python embedding:
+Query execution returns graph and/or row-tabular outputs according to the
+embedding implementation.
 
 ```python
 result = g.gfql([...])
-nodes_df = result._nodes  # Filtered nodes
-edges_df = result._edges  # Filtered edges
+# accessors are embedding-specific
 ```
 
-For row-pipeline chains (`rows(...)`, `return_(...)`, etc.), the active row table
-is materialized in `result._nodes`. `result._edges` is an empty frame placeholder.
+For Python accessor details (including row-pipeline result materialization), see
+{ref}`gfql-spec-python-embedding`.
 
 ### Named Results
 

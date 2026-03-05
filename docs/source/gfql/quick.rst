@@ -216,7 +216,7 @@ Use row-pipeline operators to move from pattern matching to tabular Cypher-like
 
 Notes:
 
-- `rows(table="nodes"| "edges", source=<alias>)` picks the active row table.
+- `rows(table="nodes" or table="edges", source="alias")` picks the active row table.
   `source` must be an alias introduced earlier via `name="..."` on a matcher.
   In the example above, `source="p"` refers to `n(..., name="p")`, so only
   rows matched by alias `p` are used.

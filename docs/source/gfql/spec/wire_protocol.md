@@ -316,16 +316,44 @@ Row-pipeline operators use the same existing `Call` envelope. There is no
 wire-format envelope change for row pipelines; only `function`/`params` values
 vary by operator.
 
+`rows`:
 ```json
 {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "q"}}
+```
+`where_rows`:
+```json
 {"type": "Call", "function": "where_rows", "params": {"expr": "score >= 50"}}
+```
+`select`:
+```json
 {"type": "Call", "function": "select", "params": {"items": [["id", "id"], ["score", "score"]]}}
+```
+`with_`:
+```json
 {"type": "Call", "function": "with_", "params": {"items": [["id", "id"]]}}
+```
+`order_by`:
+```json
 {"type": "Call", "function": "order_by", "params": {"keys": [["score", "desc"], ["name", "asc"]]}}
+```
+`skip`:
+```json
 {"type": "Call", "function": "skip", "params": {"value": 20}}
+```
+`limit`:
+```json
 {"type": "Call", "function": "limit", "params": {"value": 10}}
+```
+`distinct`:
+```json
 {"type": "Call", "function": "distinct", "params": {}}
+```
+`unwind`:
+```json
 {"type": "Call", "function": "unwind", "params": {"expr": "tags", "as_": "tag"}}
+```
+`group_by`:
+```json
 {"type": "Call", "function": "group_by", "params": {"keys": ["category"], "aggregations": [["cnt", "count"], ["total", "sum", "amount"]]}}
 ```
 

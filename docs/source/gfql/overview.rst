@@ -110,7 +110,7 @@ Example: Match people, filter rows, project columns, then sort/limit.
         n({"type": "Person"}),
         e_forward({"type": "FOLLOWS"}),
         n({"type": "Person", "score": gt(0)}, name="p"),
-        rows(source="p"),
+        rows(table="nodes", source="p"),
         where_rows(expr="score >= 50"),
         return_(["id", "name", "score"]),
         order_by([("score", "desc"), ("name", "asc")]),
