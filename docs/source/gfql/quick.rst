@@ -245,6 +245,39 @@ Notes:
 Combined Examples
 -----------------
 
+- **MATCH with same-path WHERE constraints:**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, col, compare
+
+      g.gfql(
+          [
+              n({"type": "account"}, name="a"),
+              e_forward({"status": "active"}, name="e"),
+              n({"type": "user"}, name="u"),
+          ],
+          where=[compare(col("a", "org_id"), "==", col("u", "org_id"))],
+      )
+
+- **MATCH then RETURN (row pipeline):**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, gt
+      from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+      g.gfql([
+          n({"type": "Person"}),
+          e_forward({"type": "FOLLOWS"}),
+          n({"type": "Person", "score": gt(0)}, name="p"),
+          rows(table="nodes", source="p"),
+          where_rows(expr="score >= 50"),
+          return_(["id", "name", "score"]),
+          order_by([("score", "desc"), ("name", "asc")]),
+          limit(10),
+      ])
+
 - **Find people connected to transactions via active relationships:**
 
   .. code-block:: python
