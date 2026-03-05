@@ -42,6 +42,80 @@ def _strip_quoted_string_literals(txt: str) -> str:
     return _QUOTED_STRING_RE.sub(" ", txt)
 
 
+def _strip_map_literal_bare_keys(txt: str) -> str:
+    """Replace bare map literal keys (e.g., {k: 1}) with spaces for id scans."""
+
+    chars = list(txt)
+    n = len(chars)
+    i = 0
+    in_single = False
+    in_double = False
+    escaped = False
+    brace_depth = 0
+
+    while i < n:
+        ch = chars[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if ch == "\\":
+                escaped = True
+                i += 1
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            i += 1
+            continue
+        if ch == "{":
+            brace_depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            brace_depth = max(0, brace_depth - 1)
+            i += 1
+            continue
+
+        if brace_depth <= 0 or not (ch.isalpha() or ch == "_"):
+            i += 1
+            continue
+
+        prev = i - 1
+        while prev >= 0 and chars[prev].isspace():
+            prev -= 1
+        if prev < 0 or chars[prev] not in "{,":
+            i += 1
+            continue
+
+        j = i + 1
+        while j < n and (chars[j].isalnum() or chars[j] == "_"):
+            j += 1
+        k = j
+        while k < n and chars[k].isspace():
+            k += 1
+        if k < n and chars[k] == ":":
+            for p in range(i, j):
+                chars[p] = " "
+            i = j
+            continue
+
+        i += 1
+
+    return "".join(chars)
+
+
 def _is_identifier_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
@@ -121,8 +195,17 @@ def _where_rows_string_predicate_has_dynamic_rhs(expr: str) -> bool:
         if re.match(r"(?i)null\b", rhs):
             i = j + 1
             continue
+        if re.match(r"(?i)(?:true|false)\b", rhs):
+            i = j + 1
+            continue
+        if re.match(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?(?=$|[\s\)\],}])", rhs):
+            i = j + 1
+            continue
+        if rhs.startswith("[") or rhs.startswith("{") or rhs.startswith("("):
+            return True
         if re.match(r"[A-Za-z_][A-Za-z0-9_]*", rhs):
             return True
+        return True
         i = j + 1
 
     return False
@@ -396,7 +479,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
 
     expr = params.get('expr')
     if isinstance(expr, str):
-        expr_clean = _strip_quoted_string_literals(expr)
+        expr_clean = _strip_map_literal_bare_keys(_strip_quoted_string_literals(expr))
         ids = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean))
         reserved = {
             "and",

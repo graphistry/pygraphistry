@@ -264,6 +264,30 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
 
+    def test_row_pipeline_where_rows_expr_map_literal_bare_key(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "mp": [{"k": "v"}, {"k": "z"}]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="mp = {k: 'v'}"),
+                return_([("id", "id"), ("mp", "mp")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "a", "mp": {"k": "v"}}]
+
+    def test_row_pipeline_where_rows_expr_string_predicate_numeric_rhs(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["x5", "yy"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql([rows(), where_rows(expr="txt CONTAINS 5"), return_([("id", "id")])])
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
@@ -1388,6 +1412,10 @@ class TestRowPipelineSafelist:
         assert params == {"expr": "name = 'rand()'"}
         params = validate_call_params("where_rows", {"expr": 'name = "rand()"'})
         assert params == {"expr": 'name = "rand()"'}
+        params = validate_call_params("where_rows", {"expr": "txt CONTAINS 5"})
+        assert params == {"expr": "txt CONTAINS 5"}
+        params = validate_call_params("where_rows", {"expr": "txt CONTAINS null"})
+        assert params == {"expr": "txt CONTAINS null"}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
@@ -1414,6 +1442,12 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "txt ENDS WITH rhs"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt CONTAINS [1,2]"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt CONTAINS {k: 'v'}"})
         assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):
