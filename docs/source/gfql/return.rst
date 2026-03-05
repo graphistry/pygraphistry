@@ -10,7 +10,7 @@ Scope
 -----
 
 - This page covers row-table operations: `rows`, `where_rows`, `with_`,
-  `return_`, `select`, `order_by`, `skip`, `limit`, `distinct`, `group_by`.
+  `return_`, `select`, `order_by`, `skip`, `limit`, `distinct`, `unwind`, `group_by`.
 - For same-path MATCH constraints, use :doc:`where` (`where=[...]`).
 
 Minimal Example
@@ -35,7 +35,7 @@ Minimal Example
 Key Semantics
 -------------
 
-- `rows(table="nodes"| "edges", source="alias")` selects the active row table.
+- `rows(table="nodes" or table="edges", source="alias")` selects the active row table.
 - `source` must reference a prior matcher alias from `name="..."`.
 - `where_rows(...)` filters the active row table (not chain aliases).
 - `return_`, `with_`, and `select` use the same projection shape.

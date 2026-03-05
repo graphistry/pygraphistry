@@ -127,12 +127,16 @@ validation branches when needed.
 `where_rows(...)` and related row operations fail fast when expressions or
 payloads are unsupported:
 
+Exception class depends on validation phase:
+- expression/shape checks usually raise `GFQLTypeError`
+- schema/column checks usually raise `GFQLSchemaError`
+
 ```python
 from graphistry.compute import rows, where_rows, return_
 
 # Missing column in expression
 g.gfql([rows(), where_rows(expr="missing_col > 1"), return_(["id"])])
-# -> GFQLTypeError / schema validation error (missing required column)
+# -> Validation error for missing required column on active row table
 
 # Unsupported function in expression subset
 g.gfql([rows(), where_rows(expr="reverse(name) = 'x'"), return_(["id"])])
@@ -140,7 +144,7 @@ g.gfql([rows(), where_rows(expr="reverse(name) = 'x'"), return_(["id"])])
 
 # Invalid rows table selector
 g.gfql([rows(table="invalid_table")])
-# -> GFQLTypeError / ValueError (table must be 'nodes' or 'edges')
+# -> Validation error (table must be 'nodes' or 'edges')
 ```
 
 ## Engine Selection

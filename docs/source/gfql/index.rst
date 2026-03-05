@@ -9,6 +9,12 @@ For Cypher-style `MATCH ... RETURN` workflows, start with
 :doc:`quick` (MATCH/chain), :doc:`where` (same-path MATCH constraints),
 :doc:`return` (row pipelines), and :doc:`spec/cypher_mapping`.
 
+Recommended paths:
+
+- New to GFQL: :doc:`overview` -> :doc:`quick` -> :doc:`where` -> :doc:`return`
+- Translating Cypher: :doc:`spec/cypher_mapping`
+- Building agents/integrations: :doc:`spec/language` + :doc:`spec/python_embedding` + :doc:`spec/wire_protocol`
+
 
 See also:
 
