@@ -1859,7 +1859,7 @@ class RowPipelineMixin:
         empty_mask = base[len_col] == 0
         if hasattr(empty_mask, "any") and bool(empty_mask.any()):
             idx = out.index[empty_mask]
-            empty_vals = pd.Series([[] for _ in range(len(idx))], index=idx, dtype="object")
+            empty_vals: Any = pd.Series([[] for _ in range(len(idx))], index=idx, dtype="object")
             out.loc[idx] = empty_vals
         out = out.where(~null_mask, None)
         return out.reset_index(drop=True)
@@ -2023,7 +2023,7 @@ class RowPipelineMixin:
         empty_mask = merged[len_col] == 0
         if hasattr(empty_mask, "any") and bool(empty_mask.any()):
             empty_idx = result.index[empty_mask]
-            empty_vals = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
+            empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
             result.loc[empty_idx] = empty_vals
 
         if hasattr(null_mask, "any") and bool(null_mask.any()):
