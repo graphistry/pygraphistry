@@ -304,6 +304,54 @@ class TestRowPipelineExecution:
             )
             assert result._nodes["id"].tolist() == expected_ids
 
+    def test_row_pipeline_where_rows_expr_string_predicate_boolean_composition(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="txt CONTAINS 'a' OR txt CONTAINS 'b'"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
+    def test_row_pipeline_where_rows_expr_not_string_predicate(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="NOT txt CONTAINS 'a'"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["b", "c"]
+
+    def test_row_pipeline_where_rows_expr_and_or_precedence(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "bb"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="id = 'a' OR id = 'b' AND txt CONTAINS 'b'"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],

@@ -1999,6 +1999,23 @@ class RowPipelineMixin:
             base = self._gfql_eval_string_expr(table_df, is_null_match.group("value"))
             return self._gfql_null_mask(table_df, base)
 
+        or_split = self._gfql_split_top_level_keyword(txt, "OR")
+        if or_split is not None:
+            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[0]))
+            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[1]))
+            return left | right
+
+        and_split = self._gfql_split_top_level_keyword(txt, "AND")
+        if and_split is not None:
+            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[0]))
+            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[1]))
+            return left & right
+
+        if txt.upper().startswith("NOT "):
+            inner = txt[4:].strip()
+            inner_mask = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, inner))
+            return ~inner_mask
+
         in_split = self._gfql_split_top_level_keyword(txt, "IN")
         if in_split is not None:
             left = self._gfql_eval_string_expr(table_df, in_split[0])
@@ -2022,23 +2039,6 @@ class RowPipelineMixin:
             left = self._gfql_eval_string_expr(table_df, ends_with_split[0])
             right = self._gfql_eval_string_expr(table_df, ends_with_split[1])
             return self._gfql_eval_string_predicate_expr(table_df, left, right, "ends_with", expr)
-
-        and_split = self._gfql_split_top_level_keyword(txt, "AND")
-        if and_split is not None:
-            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[0]))
-            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, and_split[1]))
-            return left & right
-
-        or_split = self._gfql_split_top_level_keyword(txt, "OR")
-        if or_split is not None:
-            left = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[0]))
-            right = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, or_split[1]))
-            return left | right
-
-        if txt.upper().startswith("NOT "):
-            inner = txt[4:].strip()
-            inner_mask = self._gfql_bool_mask(table_df, self._gfql_eval_string_expr(table_df, inner))
-            return ~inner_mask
 
         # Comparison operators have lower precedence than arithmetic.
         comp_split = RowPipelineMixin._gfql_split_top_level_operator(
