@@ -95,6 +95,22 @@ class TestRowPipelineASTPrimitives:
             "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")],
         }
 
+    def test_row_pipeline_projection_shorthand_builds_identity_pairs(self):
+        select_step = select(["name", "age"])
+        assert isinstance(select_step, ASTCall)
+        assert select_step.function == "select"
+        assert select_step.params == {"items": [("name", "name"), ("age", "age")]}
+
+        with_step = with_(["name"])
+        assert isinstance(with_step, ASTCall)
+        assert with_step.function == "with_"
+        assert with_step.params == {"items": [("name", "name")]}
+
+        return_step = return_(["name"])
+        assert isinstance(return_step, ASTCall)
+        assert return_step.function == "select"
+        assert return_step.params == {"items": [("name", "name")]}
+
 
 class TestRowPipelineExecution:
     @staticmethod
@@ -128,6 +144,33 @@ class TestRowPipelineExecution:
         ]
         assert result._edges is not None
         assert len(result._edges) == 0
+
+    def test_row_pipeline_exec_projection_shorthand_and_mixed(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "name": ["n1", "n2", "n3"],
+            "score": [1, 2, 3],
+        })
+        g = _mk_graph(nodes_df)
+
+        result = g.gfql([
+            rows(),
+            select(["id", ("score_twice", "score * 2")]),
+            order_by([("id", "asc")]),
+        ])
+        assert list(result._nodes.columns) == ["id", "score_twice"]
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "score_twice": 2},
+            {"id": "b", "score_twice": 4},
+            {"id": "c", "score_twice": 6},
+        ]
+
+        ret = g.gfql([rows(), where_rows(expr="score >= 2"), return_(["id", "score"])])
+        assert list(ret._nodes.columns) == ["id", "score"]
+        assert ret._nodes.sort_values("id").to_dict(orient="records") == [
+            {"id": "b", "score": 2},
+            {"id": "c", "score": 3},
+        ]
 
     def test_row_pipeline_distinct_unhashable_cells(self):
         nodes_df = pd.DataFrame({
@@ -1447,8 +1490,21 @@ class TestRowPipelineSafelist:
     def test_row_pipeline_select_validation(self):
         params = validate_call_params("select", {"items": [("name", "name"), ("const", 1)]})
         assert params == {"items": [("name", "name"), ("const", 1)]}
+        params = validate_call_params("select", {"items": ["name", ("const", 1)]})
+        assert params == {"items": ["name", ("const", 1)]}
+        params = validate_call_params("with_", {"items": ["name"]})
+        assert params == {"items": ["name"]}
 
-        for bad_items in [None, "name", [("a",)], [("a", "b", "c")], [1], [(1, "name")], [("", "name")]]:
+        for bad_items in [
+            None,
+            "name",
+            [""],
+            [("a",)],
+            [("a", "b", "c")],
+            [1],
+            [(1, "name")],
+            [("", "name")],
+        ]:
             with pytest.raises(GFQLTypeError) as exc_info:
                 validate_call_params("select", {"items": bad_items})
             assert exc_info.value.code == ErrorCode.E201

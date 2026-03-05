@@ -1278,6 +1278,10 @@ def is_projection_items(v: Any) -> bool:
     if not isinstance(v, list):
         return False
     for item in v:
+        if isinstance(item, str):
+            if not is_non_empty_string(item):
+                return False
+            continue
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             return False
         alias, expr = item
@@ -1492,6 +1496,9 @@ def _rows_requires_edge_cols(params: Dict[str, Any]) -> list:
 def _select_added_node_cols(params: Dict[str, Any]) -> list:
     out: list = []
     for item in params.get('items', []):
+        if isinstance(item, str):
+            out.append(item)
+            continue
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             continue
         alias = item[0]

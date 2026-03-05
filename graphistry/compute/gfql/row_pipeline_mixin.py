@@ -2504,14 +2504,24 @@ class RowPipelineMixin:
     def select(self: _RowPipelineContext, items: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
         if items is None:
-            raise ValueError("select(items=...) requires a list/tuple of (alias, expr)")
+            raise ValueError(
+                "select(items=...) requires entries of form (alias, expr) or shorthand 'col'"
+            )
 
         projected: Dict[str, Any] = {}
         for item in items:
-            if not isinstance(item, (list, tuple)) or len(item) != 2:
-                raise ValueError(f"select expects (alias, expr) pairs, got {item!r}")
-            alias_raw, expr = item
+            if isinstance(item, str):
+                alias_raw, expr = item, item
+            else:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    raise ValueError(
+                        "select expects entries of form (alias, expr) or shorthand 'col', "
+                        f"got {item!r}"
+                    )
+                alias_raw, expr = item
             alias = str(alias_raw)
+            if alias == "":
+                raise ValueError("select alias must be non-empty")
             if isinstance(expr, str):
                 projected[alias] = self._gfql_eval_string_expr(table_df, expr)
             else:

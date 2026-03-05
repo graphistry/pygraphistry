@@ -1532,17 +1532,30 @@ def rows(table: str = "nodes", source: Optional[str] = None) -> ASTCall:
     return ASTCall("rows", params)
 
 
-def select(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+ProjectionItem = Union[str, Tuple[str, Any]]
+
+
+def _normalize_projection_items(items: Iterable[ProjectionItem]) -> List[Tuple[str, Any]]:
+    out: List[Tuple[str, Any]] = []
+    for item in items:
+        if isinstance(item, str):
+            out.append((item, item))
+        else:
+            out.append(item)
+    return out
+
+
+def select(items: Iterable[ProjectionItem]) -> ASTCall:
     """Create a row projection operation for GFQL row pipelines."""
-    return ASTCall("select", {"items": list(items)})
+    return ASTCall("select", {"items": _normalize_projection_items(items)})
 
 
-def with_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+def with_(items: Iterable[ProjectionItem]) -> ASTCall:
     """Python-safe alias for Cypher WITH row projection semantics."""
-    return ASTCall("with_", {"items": list(items)})
+    return ASTCall("with_", {"items": _normalize_projection_items(items)})
 
 
-def return_(items: Iterable[Tuple[str, Any]]) -> ASTCall:
+def return_(items: Iterable[ProjectionItem]) -> ASTCall:
     """Python-safe alias for Cypher RETURN semantics."""
     return select(items)
 

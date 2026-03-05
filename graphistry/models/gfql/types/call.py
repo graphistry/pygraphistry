@@ -413,14 +413,17 @@ class RowsParams(TypedDict, total=False):
     source: Optional[str]
 
 
+ProjectionItem = Union[str, Tuple[str, Any]]
+
+
 class SelectParams(TypedDict, total=False):
     """Parameters for select operation."""
-    items: List[Tuple[str, Any]]
+    items: List[ProjectionItem]
 
 
 class WithParams(TypedDict, total=False):
     """Parameters for with_ operation."""
-    items: List[Tuple[str, Any]]
+    items: List[ProjectionItem]
 
 
 class WhereRowsParams(TypedDict, total=False):
