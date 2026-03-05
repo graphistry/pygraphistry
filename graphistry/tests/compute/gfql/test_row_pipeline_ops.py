@@ -288,6 +288,22 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
+    def test_row_pipeline_where_rows_expr_string_predicate_parenthesized_scalar_rhs(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["abc5", "5abc", "none"]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        cases = [
+            ("txt CONTAINS (5)", ["a", "b"]),
+            ("txt STARTS WITH (5)", ["b"]),
+            ("txt ENDS WITH (5)", ["a"]),
+        ]
+        for expr, expected_ids in cases:
+            result = g.gfql(
+                [rows(), where_rows(expr=expr), order_by([("id", "asc")]), return_([("id", "id")])]
+            )
+            assert result._nodes["id"].tolist() == expected_ids
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
@@ -1416,6 +1432,12 @@ class TestRowPipelineSafelist:
         assert params == {"expr": "txt CONTAINS 5"}
         params = validate_call_params("where_rows", {"expr": "txt CONTAINS null"})
         assert params == {"expr": "txt CONTAINS null"}
+        params = validate_call_params("where_rows", {"expr": "txt CONTAINS (5)"})
+        assert params == {"expr": "txt CONTAINS (5)"}
+        params = validate_call_params("where_rows", {"expr": "txt STARTS WITH (5)"})
+        assert params == {"expr": "txt STARTS WITH (5)"}
+        params = validate_call_params("where_rows", {"expr": "txt ENDS WITH (5)"})
+        assert params == {"expr": "txt ENDS WITH (5)"}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
@@ -1448,6 +1470,9 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "txt CONTAINS {k: 'v'}"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "txt CONTAINS (rhs)"})
         assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):

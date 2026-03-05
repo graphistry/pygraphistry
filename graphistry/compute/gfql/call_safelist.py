@@ -120,6 +120,50 @@ def _is_identifier_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
 
+def _strip_matching_outer_parens(txt: str) -> str:
+    out = txt.strip()
+    while out.startswith("(") and out.endswith(")"):
+        depth = 0
+        in_single = False
+        in_double = False
+        escaped = False
+        closes_at_end = False
+        for idx, ch in enumerate(out):
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+            if ch == "'":
+                in_single = True
+                continue
+            if ch == '"':
+                in_double = True
+                continue
+            if ch == "(":
+                depth += 1
+                continue
+            if ch == ")":
+                depth -= 1
+                if depth == 0:
+                    closes_at_end = idx == len(out) - 1
+                    break
+                if depth < 0:
+                    closes_at_end = False
+                    break
+        if not closes_at_end:
+            break
+        out = out[1:-1].strip()
+    return out
+
+
 def _where_rows_string_predicate_has_dynamic_rhs(expr: str) -> bool:
     """Detect dynamic column-like RHS for CONTAINS/STARTS WITH/ENDS WITH.
 
@@ -188,7 +232,7 @@ def _where_rows_string_predicate_has_dynamic_rhs(expr: str) -> bool:
         if j >= n:
             return True
 
-        rhs = txt[j:]
+        rhs = _strip_matching_outer_parens(txt[j:])
         if rhs.startswith("'") or rhs.startswith('"'):
             i = j + 1
             continue
@@ -372,7 +416,7 @@ def is_where_rows_expr(v: Any) -> bool:
     func_calls = [
         fn
         for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt_lex)
-        if fn.lower() not in {"and", "or", "not"}
+        if fn.lower() not in {"and", "or", "not", "contains", "starts", "ends", "with", "is", "in"}
     ]
     if any(fn.lower() not in safe_funcs for fn in func_calls):
         return False
