@@ -255,6 +255,170 @@ def _where_rows_string_predicate_has_dynamic_rhs(expr: str) -> bool:
     return False
 
 
+def _find_matching_paren(expr: str, open_idx: int) -> int:
+    depth = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for idx in range(open_idx, len(expr)):
+        ch = expr[idx]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "(":
+            depth += 1
+            continue
+        if ch == ")":
+            depth -= 1
+            if depth == 0:
+                return idx
+            if depth < 0:
+                return -1
+    return -1
+
+
+def _split_top_level_keyword(expr: str, keyword: str) -> Any:
+    upper = expr.upper()
+    needle = keyword.upper()
+    n = len(expr)
+    k = len(needle)
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    i = 0
+    while i <= n - k:
+        ch = expr[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if ch == "\\":
+                escaped = True
+                i += 1
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            i += 1
+            continue
+        if ch == "(":
+            depth_paren += 1
+            i += 1
+            continue
+        if ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+            i += 1
+            continue
+        if ch == "[":
+            depth_bracket += 1
+            i += 1
+            continue
+        if ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+            i += 1
+            continue
+        if ch == "{":
+            depth_brace += 1
+            i += 1
+            continue
+        if ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+            i += 1
+            continue
+
+        if depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            if upper[i : i + k] == needle:
+                before_ok = i == 0 or not _is_identifier_char(upper[i - 1])
+                after_ok = i + k == n or not _is_identifier_char(upper[i + k])
+                if before_ok and after_ok:
+                    left = expr[:i].strip()
+                    right = expr[i + k :].strip()
+                    if left and right:
+                        return left, right
+        i += 1
+    return None
+
+
+def _where_rows_quantifier_calls_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    for match in re.finditer(r"(?is)\b(any|all|none|single)\s*\(", txt):
+        open_idx = txt.find("(", match.start())
+        if open_idx < 0:
+            return False
+        close_idx = _find_matching_paren(txt, open_idx)
+        if close_idx < 0:
+            return False
+        body = txt[open_idx + 1 : close_idx].strip()
+        in_split = _split_top_level_keyword(body, "IN")
+        if in_split is None:
+            return False
+        var = in_split[0].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", var) is None:
+            return False
+        where_split = _split_top_level_keyword(in_split[1], "WHERE")
+        if where_split is None:
+            return False
+        list_expr = where_split[0].strip()
+        predicate_expr = where_split[1].strip()
+        if list_expr == "" or predicate_expr == "":
+            return False
+    return True
+
+
+def _where_rows_top_level_case_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    if not txt.upper().startswith("CASE "):
+        return True
+    if not txt.upper().endswith(" END"):
+        return False
+    body = txt[4:-3].strip()
+    if body.upper().startswith("WHEN "):
+        body = body[5:].strip()
+    then_split = _split_top_level_keyword(body, "THEN")
+    if then_split is None:
+        return False
+    else_split = _split_top_level_keyword(then_split[1], "ELSE")
+    if else_split is None:
+        return False
+    return (
+        then_split[0].strip() != ""
+        and else_split[0].strip() != ""
+        and else_split[1].strip() != ""
+    )
+
+
 # Type validators
 def is_string(v: Any) -> bool:
     return isinstance(v, str)
@@ -406,13 +570,15 @@ def is_where_rows_expr(v: Any) -> bool:
         "reverse",
         "sign",
         "size",
+        "single",
+        "none",
+        "all",
+        "any",
         "starts_with",
         "tail",
         "toboolean",
         "tostring",
     }
-    if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt_lex):
-        return False
     func_calls = [
         fn
         for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt_lex)
@@ -421,6 +587,10 @@ def is_where_rows_expr(v: Any) -> bool:
     if any(fn.lower() not in safe_funcs for fn in func_calls):
         return False
     if _where_rows_string_predicate_has_dynamic_rhs(txt):
+        return False
+    if not _where_rows_quantifier_calls_well_formed(txt_lex):
+        return False
+    if not _where_rows_top_level_case_well_formed(txt_lex):
         return False
     if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\s]+", txt) is None:
         return False
@@ -524,7 +694,20 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
     expr = params.get('expr')
     if isinstance(expr, str):
         expr_clean = _strip_map_literal_bare_keys(_strip_quoted_string_literals(expr))
-        ids = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean))
+        quantifier_vars = set(
+            re.findall(
+                r"(?is)\b(?:any|all|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
+                expr_clean,
+            )
+        )
+        ids = set()
+        for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean):
+            name = match.group(1)
+            start = match.start(1)
+            # Property keys in expressions like `x.a` are not top-level table columns.
+            if start > 0 and expr_clean[start - 1] == ".":
+                continue
+            ids.add(name)
         reserved = {
             "and",
             "or",
@@ -532,6 +715,16 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
             "is",
             "null",
             "in",
+            "where",
+            "case",
+            "when",
+            "then",
+            "else",
+            "end",
+            "any",
+            "all",
+            "none",
+            "single",
             "contains",
             "starts",
             "with",
@@ -550,7 +743,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
             "toboolean",
             "tostring",
         }
-        out.extend([name for name in ids if name.lower() not in reserved])
+        out.extend([name for name in ids if name.lower() not in reserved and name not in quantifier_vars])
     return sorted(set(out))
 
 
