@@ -17,6 +17,7 @@ Basic Usage
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
 - **query**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances), or an equivalent GFQL chain object.
+- **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
 Node Matchers
@@ -186,6 +187,38 @@ Use `where` to relate attributes across named steps in a chain.
 WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
 equivalent explicit form.
 Multiple WHERE comparisons are ANDed.
+
+Row Pipelines (`MATCH ... RETURN` style)
+----------------------------------------
+
+Use row-pipeline operators to move from pattern matching to tabular Cypher-like
+`RETURN` processing.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, gt
+    from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+    top_people = g.gfql([
+        n({"type": "Person"}),
+        e_forward({"type": "FOLLOWS"}),
+        n({"type": "Person", "score": gt(10)}, name="p"),
+        rows(table="nodes", source="p"),
+        where_rows(expr="score >= 50 AND name STARTS WITH 'A'"),
+        return_(["id", "name", ("score_bucket", "score / 10")]),
+        order_by([("score_bucket", "desc"), ("name", "asc")]),
+        limit(25),
+    ])
+
+    top_people._nodes
+
+Notes:
+
+- `rows(table="nodes"| "edges", source=<alias>)` picks the active row table.
+- `return_(["col"])` is shorthand for `return_([("col", "col")])`.
+- `with_(...)` and `select(...)` share projection semantics with `return_(...)`.
+- `where_rows()` evaluates row expressions and filter dictionaries in a
+  vectorized dataframe execution path (pandas/cuDF engines).
 
 Combined Examples
 -----------------
