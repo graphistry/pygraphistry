@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+import graphistry.compute.gfql.call_safelist as call_safelist
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
@@ -1777,6 +1778,51 @@ class TestRowPipelineSafelist:
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "size(,vals) > 0"})
         assert exc_info.value.code == ErrorCode.E201
+
+    def test_row_pipeline_where_rows_parser_modes(self, monkeypatch):
+        monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_parse_ok", lambda _expr: False)
+
+        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "shadow")
+        params = validate_call_params("where_rows", {"expr": "score > 1"})
+        assert params == {"expr": "score > 1"}
+
+        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "off")
+        params = validate_call_params("where_rows", {"expr": "score > 1"})
+        assert params == {"expr": "score > 1"}
+
+        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "score > 1"})
+        assert exc_info.value.code == ErrorCode.E201
+
+    def test_row_pipeline_where_rows_required_cols_from_parser(self, monkeypatch):
+        def fake_parse(_expr):
+            return "node"
+
+        def fake_capabilities(_node):
+            return []
+
+        def fake_collect(_node):
+            return {"n.age", "score", "vals"}
+
+        monkeypatch.setattr(
+            call_safelist,
+            "_where_rows_expr_parser_fn",
+            lambda: (fake_parse, fake_capabilities, fake_collect),
+        )
+        cols = call_safelist._where_rows_requires_node_cols(
+            {"filter_dict": {"id": "a"}, "expr": "ignored"}
+        )
+        assert cols == ["id", "n", "score", "vals"]
+
+    def test_row_pipeline_where_rows_required_cols_fallback_scoped_vars(self, monkeypatch):
+        monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
+        cols = call_safelist._where_rows_requires_node_cols(
+            {"expr": "any(x IN vals WHERE x > threshold)"}
+        )
+        assert "vals" in cols
+        assert "threshold" in cols
+        assert "x" not in cols
 
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})

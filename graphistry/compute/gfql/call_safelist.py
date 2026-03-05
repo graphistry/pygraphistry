@@ -31,8 +31,10 @@ Usage:
     g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
+import os
 import re
-from typing import Dict, Any, List
+from functools import lru_cache
+from typing import Dict, Any, List, Set
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 _QUOTED_STRING_RE = re.compile(r"(?s)'(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"")
@@ -1107,6 +1109,60 @@ def _where_rows_function_call_args_well_formed(expr: str) -> bool:
     return True
 
 
+def _where_rows_expr_parser_mode() -> str:
+    mode = str(os.getenv("GFQL_EXPR_PARSER_MODE", "shadow")).strip().lower()
+    if mode not in {"off", "shadow", "strict"}:
+        return "shadow"
+    return mode
+
+
+@lru_cache(maxsize=1)
+def _where_rows_expr_parser_fn() -> Any:
+    try:
+        from graphistry.compute.gfql.expr_parser import (
+            collect_identifiers,
+            parse_expr,
+            validate_expr_capabilities,
+        )
+        return parse_expr, validate_expr_capabilities, collect_identifiers
+    except Exception:
+        return None
+
+
+def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        # Local envs without dependency keep current behavior.
+        return True
+    parser, capability_checker, _collect_identifiers = parser_bundle
+    try:
+        node = parser(expr)
+        capability_errors = capability_checker(node)
+        if len(capability_errors) > 0:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _where_rows_expr_required_cols(expr: str) -> List[str]:
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        return []
+    parser, _capability_checker, collect_identifiers = parser_bundle
+    try:
+        node = parser(expr)
+        names = collect_identifiers(node)
+    except Exception:
+        return []
+    cols: Set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or name == "":
+            continue
+        cols.add(name.split(".")[0])
+    return sorted(cols)
+
+
 # Type validators
 def is_string(v: Any) -> bool:
     return isinstance(v, str)
@@ -1298,6 +1354,11 @@ def is_where_rows_expr(v: Any) -> bool:
         return False
     if not _where_rows_case_calls_well_formed(txt_lex):
         return False
+    parser_mode = _where_rows_expr_parser_mode()
+    if parser_mode != "off":
+        parser_ok = _where_rows_expr_parser_parse_ok(txt)
+        if parser_mode == "strict" and not parser_ok:
+            return False
     if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\|\s]+", txt) is None:
         return False
     return True
@@ -1399,64 +1460,68 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
 
     expr = params.get('expr')
     if isinstance(expr, str):
-        expr_clean = _strip_map_literal_bare_keys(_strip_quoted_string_literals(expr))
-        quantifier_vars = set(
-            re.findall(
-                r"(?is)\b(?:any|all|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
-                expr_clean,
+        parser_cols = _where_rows_expr_required_cols(expr)
+        if len(parser_cols) > 0:
+            out.extend(parser_cols)
+        else:
+            expr_clean = _strip_map_literal_bare_keys(_strip_quoted_string_literals(expr))
+            quantifier_vars = set(
+                re.findall(
+                    r"(?is)\b(?:any|all|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
+                    expr_clean,
+                )
             )
-        )
-        list_comp_vars = set(
-            re.findall(
-                r"(?is)\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
-                expr_clean,
+            list_comp_vars = set(
+                re.findall(
+                    r"(?is)\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
+                    expr_clean,
+                )
             )
-        )
-        scoped_vars = quantifier_vars | list_comp_vars
-        ids = set()
-        for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean):
-            name = match.group(1)
-            start = match.start(1)
-            # Property keys in expressions like `x.a` are not top-level table columns.
-            if start > 0 and expr_clean[start - 1] == ".":
-                continue
-            ids.add(name)
-        reserved = {
-            "and",
-            "or",
-            "not",
-            "is",
-            "null",
-            "in",
-            "where",
-            "case",
-            "when",
-            "then",
-            "else",
-            "end",
-            "any",
-            "all",
-            "none",
-            "single",
-            "contains",
-            "starts",
-            "with",
-            "ends",
-            "true",
-            "false",
-            "abs",
-            "coalesce",
-            "head",
-            "nodes",
-            "relationships",
-            "reverse",
-            "sign",
-            "size",
-            "tail",
-            "toboolean",
-            "tostring",
-        }
-        out.extend([name for name in ids if name.lower() not in reserved and name not in scoped_vars])
+            scoped_vars = quantifier_vars | list_comp_vars
+            ids = set()
+            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean):
+                name = match.group(1)
+                start = match.start(1)
+                # Property keys in expressions like `x.a` are not top-level table columns.
+                if start > 0 and expr_clean[start - 1] == ".":
+                    continue
+                ids.add(name)
+            reserved = {
+                "and",
+                "or",
+                "not",
+                "is",
+                "null",
+                "in",
+                "where",
+                "case",
+                "when",
+                "then",
+                "else",
+                "end",
+                "any",
+                "all",
+                "none",
+                "single",
+                "contains",
+                "starts",
+                "with",
+                "ends",
+                "true",
+                "false",
+                "abs",
+                "coalesce",
+                "head",
+                "nodes",
+                "relationships",
+                "reverse",
+                "sign",
+                "size",
+                "tail",
+                "toboolean",
+                "tostring",
+            }
+            out.extend([name for name in ids if name.lower() not in reserved and name not in scoped_vars])
     return sorted(set(out))
 
 
