@@ -1,4 +1,3 @@
-import ast
 import datetime
 import math
 import os
@@ -1265,15 +1264,9 @@ class RowPipelineMixin:
     @staticmethod
     def _gfql_parse_structured_literal(text: str) -> Tuple[bool, Any]:
         try:
-            parsed = ast.literal_eval(text)
+            parsed = RowPipelineMixin._gfql_parse_cypher_literal(text)
         except Exception:
-            normalized = re.sub(r"(?i)\bnull\b", "None", text)
-            normalized = re.sub(r"(?i)\btrue\b", "True", normalized)
-            normalized = re.sub(r"(?i)\bfalse\b", "False", normalized)
-            try:
-                parsed = ast.literal_eval(normalized)
-            except Exception:
-                return False, None
+            return False, None
         return True, parsed
 
     @staticmethod
@@ -1395,6 +1388,40 @@ class RowPipelineMixin:
         return base, key
 
     @staticmethod
+    def _gfql_parse_quoted_string_literal(token: str) -> str:
+        if len(token) < 2 or token[0] != token[-1] or token[0] not in {"'", '"'}:
+            raise ValueError("invalid quoted string literal")
+        quote = token[0]
+        out: List[str] = []
+        i = 1
+        end = len(token) - 1
+        while i < end:
+            ch = token[i]
+            if ch != "\\":
+                out.append(ch)
+                i += 1
+                continue
+            if i + 1 >= end:
+                raise ValueError("invalid quoted string literal escape")
+            nxt = token[i + 1]
+            if nxt == quote or nxt == "\\":
+                out.append(nxt)
+            elif nxt == "n":
+                out.append("\n")
+            elif nxt == "r":
+                out.append("\r")
+            elif nxt == "t":
+                out.append("\t")
+            elif nxt == "b":
+                out.append("\b")
+            elif nxt == "f":
+                out.append("\f")
+            else:
+                out.append(nxt)
+            i += 2
+        return "".join(out)
+
+    @staticmethod
     def _gfql_parse_cypher_literal(text: str) -> Any:
         token = text.strip()
         if token == "":
@@ -1403,6 +1430,8 @@ class RowPipelineMixin:
         lower = token.lower()
         if lower == "null":
             return None
+        if lower == "none":
+            return None
         if lower == "true":
             return True
         if lower == "false":
@@ -1410,7 +1439,7 @@ class RowPipelineMixin:
 
         if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
             try:
-                return ast.literal_eval(token)
+                return RowPipelineMixin._gfql_parse_quoted_string_literal(token)
             except Exception:
                 return token[1:-1]
 

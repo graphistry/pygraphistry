@@ -37,11 +37,46 @@ from functools import lru_cache
 from typing import Dict, Any, List, Set
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
-_QUOTED_STRING_RE = re.compile(r"(?s)'(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"")
-
-
 def _strip_quoted_string_literals(txt: str) -> str:
-    return _QUOTED_STRING_RE.sub(" ", txt)
+    chars = list(txt)
+    n = len(chars)
+    i = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    while i < n:
+        ch = chars[i]
+        if in_single:
+            chars[i] = " "
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            chars[i] = " "
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single = True
+            chars[i] = " "
+        elif ch == '"':
+            in_double = True
+            chars[i] = " "
+        i += 1
+
+    return "".join(chars)
 
 
 def _strip_map_literal_bare_keys(txt: str) -> str:
