@@ -7,6 +7,9 @@ WHERE adds constraints between named steps in a chain. Use it to relate
 attributes across the same path (for example, start.owner_id equals
 end.owner_id).
 
+This page documents MATCH-stage `where=[...]` constraints.
+For RETURN-stage row filtering (`where_rows(...)`), see :doc:`return`.
+
 Basic Usage
 -----------
 
