@@ -20,11 +20,19 @@ def _gfql_expr_runtime_parser_mode() -> str:
     return mode
 
 
+def _gfql_expr_runtime_eval_mode() -> str:
+    mode = str(os.getenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "off")).strip().lower()
+    if mode not in {"off", "shadow", "strict"}:
+        return "off"
+    return mode
+
+
 @lru_cache(maxsize=1)
 def _gfql_expr_runtime_parser_bundle() -> Any:
     try:
+        import graphistry.compute.gfql.expr_parser as expr_parser_mod
         from graphistry.compute.gfql.expr_parser import parse_expr, validate_expr_capabilities
-        return parse_expr, validate_expr_capabilities
+        return parse_expr, validate_expr_capabilities, expr_parser_mod
     except Exception:
         return None
 
@@ -33,7 +41,7 @@ def _gfql_expr_runtime_parser_ok(expr: str) -> bool:
     parser_bundle = _gfql_expr_runtime_parser_bundle()
     if parser_bundle is None:
         return True
-    parser, capability_checker = parser_bundle
+    parser, capability_checker, _expr_parser_mod = parser_bundle
     try:
         node = parser(expr)
         errors = capability_checker(node)
@@ -118,6 +126,9 @@ class _RowPipelineContext(Protocol):
     def _gfql_eval_in_expr(self, table_df: Any, left_expr: str, right_expr: str, expr: str) -> Any:
         ...
 
+    def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
+        ...
+
     def _gfql_eval_string_predicate_expr(
         self,
         table_df: Any,
@@ -182,6 +193,132 @@ class RowPipelineMixin:
         "mean",
         "collect",
     }
+
+    def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
+        parser_bundle = _gfql_expr_runtime_parser_bundle()
+        if parser_bundle is None:
+            return False, None
+        _parse_expr, _validate_expr_capabilities, expr_parser_mod = parser_bundle
+
+        Identifier = expr_parser_mod.Identifier
+        Literal = expr_parser_mod.Literal
+        UnaryOp = expr_parser_mod.UnaryOp
+        BinaryOp = expr_parser_mod.BinaryOp
+        IsNullOp = expr_parser_mod.IsNullOp
+
+        if isinstance(node, Identifier):
+            txt = node.name
+            if txt in table_df.columns:
+                return True, table_df[txt]
+            try:
+                return True, self._gfql_resolve_token(table_df, txt)
+            except Exception:
+                return False, None
+
+        if isinstance(node, Literal):
+            value = node.value
+            if isinstance(value, (list, tuple, dict)):
+                return True, self._gfql_broadcast_scalar(table_df, value)
+            return True, value
+
+        if isinstance(node, IsNullOp):
+            ok, value = self._gfql_eval_expr_ast(table_df, node.value)
+            if not ok:
+                return False, None
+            out = self._gfql_null_mask(table_df, value)
+            if node.negated:
+                out = ~out
+            return True, out
+
+        if isinstance(node, UnaryOp):
+            ok, operand = self._gfql_eval_expr_ast(table_df, node.operand)
+            if not ok:
+                return False, None
+            if node.op == "+":
+                return True, operand
+            if node.op == "-":
+                return True, 0 - operand
+            if node.op == "not":
+                return True, ~self._gfql_bool_mask(table_df, operand)
+            return False, None
+
+        if isinstance(node, BinaryOp):
+            ok_l, left = self._gfql_eval_expr_ast(table_df, node.left)
+            ok_r, right = self._gfql_eval_expr_ast(table_df, node.right)
+            if not (ok_l and ok_r):
+                return False, None
+            op = str(node.op).lower()
+
+            if op == "or":
+                return True, self._gfql_bool_mask(table_df, left) | self._gfql_bool_mask(table_df, right)
+            if op == "and":
+                return True, self._gfql_bool_mask(table_df, left) & self._gfql_bool_mask(table_df, right)
+
+            if op in {"=", "!=", "<>", "<", "<=", ">", ">="}:
+                left_null_mask = self._gfql_null_mask(table_df, left)
+                right_null_mask = self._gfql_null_mask(table_df, right)
+                any_null_mask = left_null_mask | right_null_mask
+                if op == "=":
+                    out = left == right
+                elif op in {"!=", "<>"}:
+                    out = left != right
+                elif op == "<":
+                    out = left < right
+                elif op == "<=":
+                    out = left <= right
+                elif op == ">":
+                    out = left > right
+                else:
+                    out = left >= right
+                if hasattr(out, "where"):
+                    out = out.where(~any_null_mask, pd.NA)
+                return True, out
+
+            if op == "in":
+                return True, self._gfql_eval_in_expr(table_df, left, right, "ast IN")
+            if op == "contains":
+                return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "contains", "ast CONTAINS")
+            if op == "starts_with":
+                return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "starts_with", "ast STARTS WITH")
+            if op == "ends_with":
+                return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "ends_with", "ast ENDS WITH")
+
+            if op == "+":
+                if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
+                    return True, list(left) + [right]
+                if isinstance(right, (list, tuple)) and not isinstance(left, (list, tuple)):
+                    return True, [left] + list(right)
+                if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+                    return True, list(left) + list(right)
+                left_is_list = hasattr(left, "astype") and RowPipelineMixin._gfql_series_is_list_like(left)
+                right_is_list = hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right)
+                if left_is_list and not right_is_list:
+                    if not hasattr(right, "astype"):
+                        right = self._gfql_broadcast_scalar(table_df, right)
+                    return True, self._gfql_concat_list_scalar(table_df, left, right, prepend=False)
+                if right_is_list and not left_is_list:
+                    if not hasattr(left, "astype"):
+                        left = self._gfql_broadcast_scalar(table_df, left)
+                    return True, self._gfql_concat_list_scalar(table_df, right, left, prepend=True)
+                return True, left + right
+            if op == "-":
+                return True, left - right
+            if op == "*":
+                return True, left * right
+            if op == "/":
+                return True, left / right
+            if op == "%":
+                if (hasattr(left, "astype") and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    hasattr(right, "astype") and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    return False, None
+                if isinstance(left, bool) or isinstance(right, bool):
+                    return False, None
+                return True, left % right
+
+            return False, None
+
+        return False, None
     _GFQL_LIST_NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
     _GFQL_TIME_TEXT_RE = re.compile(
         r"^(?P<h>\d{2}):(?P<m>\d{2})"
@@ -1859,6 +1996,31 @@ class RowPipelineMixin:
             parser_ok = _gfql_expr_runtime_parser_ok(txt)
             if parser_mode == "strict" and not parser_ok:
                 raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
+
+        eval_mode = _gfql_expr_runtime_eval_mode()
+        if eval_mode != "off":
+            parser_bundle = _gfql_expr_runtime_parser_bundle()
+            if parser_bundle is None:
+                if eval_mode == "strict":
+                    raise ValueError(f"unsupported row expression: parser unavailable in {expr!r}")
+            else:
+                parser, capability_checker, _expr_parser_mod = parser_bundle
+                try:
+                    ast_node = parser(txt)
+                    capability_errors = capability_checker(ast_node)
+                except Exception:
+                    ast_node = None
+                    capability_errors = ["parse_failed"]
+
+                if ast_node is not None and len(capability_errors) == 0:
+                    ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
+                    if ast_ok and eval_mode == "strict":
+                        return ast_value
+                    if not ast_ok and eval_mode == "strict":
+                        raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
+                elif eval_mode == "strict":
+                    raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
+
         if txt in table_df.columns:
             return table_df[txt]
 

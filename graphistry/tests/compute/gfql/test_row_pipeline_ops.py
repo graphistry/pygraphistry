@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 import graphistry.compute.gfql.call_safelist as call_safelist
+import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row_pipeline_mixin as row_pipeline_mixin
 from graphistry.compute.ast import (
     ASTCall,
@@ -1848,6 +1849,129 @@ class TestRowPipelineSafelist:
             g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
         assert exc_info.value.code == ErrorCode.E303
         assert "parser validation failed" in exc_info.value.message
+
+    def test_row_pipeline_eval_expr_ast_subset_parity(self, monkeypatch):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "score": [1, 2, 3],
+            "name": ["a", "bb", "ccc"],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        table_df = g._nodes
+
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "off")
+
+        cases = [
+            (
+                expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                "score > 1",
+            ),
+            (
+                expr_parser.UnaryOp(
+                    "not",
+                    expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                ),
+                "NOT (score > 1)",
+            ),
+            (
+                expr_parser.BinaryOp(
+                    "and",
+                    expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    expr_parser.BinaryOp("<", expr_parser.Identifier("score"), expr_parser.Literal(3)),
+                ),
+                "score > 1 AND score < 3",
+            ),
+            (
+                expr_parser.BinaryOp(
+                    "contains",
+                    expr_parser.Identifier("name"),
+                    expr_parser.Literal("b"),
+                ),
+                "name CONTAINS 'b'",
+            ),
+            (
+                expr_parser.BinaryOp(
+                    ">=",
+                    expr_parser.BinaryOp("+", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    expr_parser.Literal(3),
+                ),
+                "score + 1 >= 3",
+            ),
+        ]
+
+        def _normalize(value):
+            if hasattr(value, "tolist"):
+                out = []
+                for item in value.tolist():
+                    if pd.isna(item):
+                        out.append(None)
+                    else:
+                        out.append(item)
+                return out
+            if pd.isna(value):
+                return None
+            return value
+
+        for ast_node, expr in cases:
+            ok, ast_out = g._gfql_eval_expr_ast(table_df, ast_node)
+            assert ok, expr
+            legacy_out = g._gfql_eval_string_expr(table_df, expr)
+            assert _normalize(ast_out) == _normalize(legacy_out)
+
+    def test_row_pipeline_runtime_eval_mode_strict_with_parser_bundle(self, monkeypatch):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "score": [1, 2, 3],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        def fake_parse(_expr):
+            return expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1))
+
+        def fake_capabilities(_node):
+            return []
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_expr_runtime_parser_bundle",
+            lambda: (fake_parse, fake_capabilities, expr_parser),
+        )
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
+        result = g.gfql([rows(), where_rows(expr="score > 1")])
+        assert result._nodes[["id", "score"]].reset_index(drop=True).to_dict(orient="records") == [
+            {"id": "b", "score": 2},
+            {"id": "c", "score": 3},
+        ]
+
+    def test_row_pipeline_runtime_eval_mode_strict_ast_unsupported(self, monkeypatch):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "score": [1, 2, 3],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        def fake_parse(_expr):
+            return expr_parser.FunctionCall("unknown_fn", (expr_parser.Identifier("score"),))
+
+        def fake_capabilities(_node):
+            return []
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_expr_runtime_parser_bundle",
+            lambda: (fake_parse, fake_capabilities, expr_parser),
+        )
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql([rows(), where_rows(expr="score > 1")])
+        assert exc_info.value.code == ErrorCode.E303
+        assert "AST evaluator unsupported" in exc_info.value.message
 
     def test_row_pipeline_order_by_validation(self):
         params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
