@@ -16,9 +16,11 @@ Basic Usage
 
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
-- **query**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances), or an equivalent GFQL chain object.
 - **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
+
+Use this page as a quick MATCH/chain reference.
+For row-pipeline RETURN semantics, see :doc:`return`.
 
 Node Matchers
 -------------
