@@ -1303,6 +1303,12 @@ def is_where_rows_expr(v: Any) -> bool:
     if not is_non_empty_string(v):
         return False
     txt = str(v).strip()
+    parser_mode = _where_rows_expr_parser_mode()
+    parser_bundle = _where_rows_expr_parser_fn()
+    # In strict mode with parser available, parser+capability checks are authoritative.
+    if parser_mode == "strict" and parser_bundle is not None:
+        return _where_rows_expr_parser_parse_ok(txt)
+
     txt_lex = _strip_quoted_string_literals(txt)
     safe_funcs = {
         "abs",
@@ -1354,7 +1360,6 @@ def is_where_rows_expr(v: Any) -> bool:
         return False
     if not _where_rows_case_calls_well_formed(txt_lex):
         return False
-    parser_mode = _where_rows_expr_parser_mode()
     if parser_mode != "off":
         parser_ok = _where_rows_expr_parser_parse_ok(txt)
         if parser_mode == "strict" and not parser_ok:

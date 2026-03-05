@@ -2013,7 +2013,10 @@ class RowPipelineMixin:
                     capability_errors = ["parse_failed"]
 
                 if ast_node is not None and len(capability_errors) == 0:
-                    ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
+                    try:
+                        ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
+                    except Exception:
+                        ast_ok, ast_value = False, None
                     if ast_ok and eval_mode == "strict":
                         return ast_value
                     if not ast_ok and eval_mode == "strict":

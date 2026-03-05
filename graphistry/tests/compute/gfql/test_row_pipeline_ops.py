@@ -1797,6 +1797,40 @@ class TestRowPipelineSafelist:
             validate_call_params("where_rows", {"expr": "score > 1"})
         assert exc_info.value.code == ErrorCode.E201
 
+    def test_row_pipeline_where_rows_strict_parser_authority_when_available(self, monkeypatch):
+        def fake_parse(_expr):
+            return expr_parser.Identifier("score")
+
+        def fake_capabilities(_node):
+            return []
+
+        monkeypatch.setattr(
+            call_safelist,
+            "_where_rows_expr_parser_fn",
+            lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
+        )
+        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
+        # Old lexical checks reject '==', but strict parser authority should control when parser is available.
+        params = validate_call_params("where_rows", {"expr": "score == 1"})
+        assert params == {"expr": "score == 1"}
+
+    def test_row_pipeline_where_rows_strict_parser_authority_rejects_capability_fail(self, monkeypatch):
+        def fake_parse(_expr):
+            return expr_parser.Identifier("score")
+
+        def fake_capabilities(_node):
+            return ["unsupported"]
+
+        monkeypatch.setattr(
+            call_safelist,
+            "_where_rows_expr_parser_fn",
+            lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
+        )
+        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "score > 1"})
+        assert exc_info.value.code == ErrorCode.E201
+
     def test_row_pipeline_where_rows_required_cols_from_parser(self, monkeypatch):
         def fake_parse(_expr):
             return "node"
@@ -1970,6 +2004,32 @@ class TestRowPipelineSafelist:
         monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql([rows(), where_rows(expr="score > 1")])
+        assert exc_info.value.code == ErrorCode.E303
+        assert "AST evaluator unsupported" in exc_info.value.message
+
+    def test_row_pipeline_runtime_eval_mode_strict_ast_type_error_normalized(self, monkeypatch):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "name": ["x", "y", "z"],
+        })
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        def fake_parse(_expr):
+            return expr_parser.BinaryOp("-", expr_parser.Identifier("name"), expr_parser.Literal("x"))
+
+        def fake_capabilities(_node):
+            return []
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_expr_runtime_parser_bundle",
+            lambda: (fake_parse, fake_capabilities, expr_parser),
+        )
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
+        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql([rows(), where_rows(expr="name - 'x'")])
         assert exc_info.value.code == ErrorCode.E303
         assert "AST evaluator unsupported" in exc_info.value.message
 
