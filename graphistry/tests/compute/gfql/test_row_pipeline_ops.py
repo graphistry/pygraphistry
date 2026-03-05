@@ -1664,6 +1664,15 @@ class TestRowPipelineSafelist:
             validate_call_params("where_rows", {"expr": "id = 'a' /*x*/"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "name = 'unterminated"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": 'name = "unterminated'})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "meta = {k: }"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "id = 'a' OR"})
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:

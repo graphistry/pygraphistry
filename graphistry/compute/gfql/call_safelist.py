@@ -855,6 +855,139 @@ def _where_rows_has_unsupported_tokens(expr: str) -> bool:
     return False
 
 
+def _where_rows_quotes_balanced(expr: str) -> bool:
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for ch in expr:
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+                continue
+            if in_double and ch == '"':
+                in_double = False
+                continue
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+    return not in_single and not in_double and not escaped
+
+
+def _find_top_level_colon(text: str) -> int:
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for i, ch in enumerate(text):
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "(":
+            depth_paren += 1
+            continue
+        if ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+            continue
+        if ch == "[":
+            depth_bracket += 1
+            continue
+        if ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+            continue
+        if ch == "{":
+            depth_brace += 1
+            continue
+        if ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+            continue
+
+        if ch == ":" and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            return i
+    return -1
+
+
+def _where_rows_map_literals_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    stack: List[int] = []
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for idx, ch in enumerate(txt):
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "{":
+            stack.append(idx)
+            continue
+        if ch == "}":
+            if not stack:
+                return False
+            start = stack.pop()
+            body = txt[start + 1 : idx].strip()
+            if body == "":
+                continue
+            entries = _split_top_level_commas(body)
+            for entry in entries:
+                if entry.strip() == "":
+                    return False
+                colon = _find_top_level_colon(entry)
+                if colon <= 0:
+                    continue
+                key = entry[:colon].strip()
+                value = entry[colon + 1 :].strip()
+                if key == "" or value == "":
+                    return False
+    return len(stack) == 0
+
+
 def _split_top_level_commas(text: str) -> List[str]:
     parts: List[str] = []
     current: List[str] = []
@@ -1141,7 +1274,11 @@ def is_where_rows_expr(v: Any) -> bool:
     ]
     if any(fn.lower() not in safe_funcs for fn in func_calls):
         return False
+    if not _where_rows_quotes_balanced(txt):
+        return False
     if not _where_rows_delimiters_balanced(txt_lex):
+        return False
+    if not _where_rows_map_literals_well_formed(txt):
         return False
     if _has_top_level_pipe(txt_lex):
         return False
