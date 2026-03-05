@@ -215,8 +215,28 @@ Use row-pipeline operators to move from pattern matching to tabular Cypher-like
 Notes:
 
 - `rows(table="nodes"| "edges", source=<alias>)` picks the active row table.
+  `source` must be an alias introduced earlier via `name="..."` on a matcher.
+  In the example above, `source="p"` refers to `n(..., name="p")`, so only
+  rows matched by alias `p` are used.
+- Edge example: `e_forward(..., name="e")` followed by
+  `rows(table="edges", source="e")` scopes rows to edges matched as `e`.
+- If `source` is omitted (for example, `rows(table="nodes")`), the full active
+  nodes/edges table is used.
 - `return_(["col"])` is shorthand for `return_([("col", "col")])`.
-- `with_(...)` and `select(...)` share projection semantics with `return_(...)`.
+- `with_(...)` and `select(...)` share projection semantics with `return_(...)`:
+
+  .. code-block:: python
+
+      from graphistry.compute import rows, with_, select, return_
+
+      # Equivalent projections
+      rows(table="nodes", source="p")
+      return_(["id", ("score2", "score * 2")])
+      with_(["id", ("score2", "score * 2")])
+      select([("id", "id"), ("score2", "score * 2")])
+
+  `return_(["id"])`, `with_(["id"])`, and `select([("id", "id")])` all project
+  the same `id` column.
 - `where_rows()` evaluates row expressions and filter dictionaries in a
   vectorized dataframe execution path (pandas/cuDF engines).
 
