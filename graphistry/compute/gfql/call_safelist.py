@@ -855,6 +855,125 @@ def _where_rows_has_unsupported_tokens(expr: str) -> bool:
     return False
 
 
+def _split_top_level_commas(text: str) -> List[str]:
+    parts: List[str] = []
+    current: List[str] = []
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for ch in text:
+        if in_single or in_double:
+            current.append(ch)
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            current.append(ch)
+            continue
+        if ch == '"':
+            in_double = True
+            current.append(ch)
+            continue
+
+        if ch == "(":
+            depth_paren += 1
+        elif ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == "[":
+            depth_bracket += 1
+        elif ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == "{":
+            depth_brace += 1
+        elif ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+
+        if ch == "," and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            parts.append("".join(current).strip())
+            current = []
+            continue
+        current.append(ch)
+
+    parts.append("".join(current).strip())
+    return parts
+
+
+def _where_rows_function_call_args_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    unary_funcs = {
+        "size",
+        "abs",
+        "sign",
+        "tostring",
+        "toboolean",
+        "head",
+        "tail",
+        "reverse",
+        "nodes",
+        "relationships",
+    }
+
+    for match in re.finditer(r"(?is)\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt):
+        fn = match.group(1).lower()
+        if fn not in unary_funcs and fn != "coalesce":
+            continue
+        open_idx = txt.find("(", match.start())
+        if open_idx < 0:
+            return False
+        close_idx = _find_matching_paren(txt, open_idx)
+        if close_idx < 0:
+            return False
+
+        inner = txt[open_idx + 1 : close_idx]
+        if inner.strip() == "":
+            return False
+        parts = _split_top_level_commas(inner)
+
+        if fn in unary_funcs:
+            if len(parts) != 1:
+                return False
+            arg_txt = _strip_matching_outer_parens(parts[0]).strip()
+            if arg_txt == "":
+                return False
+            continue
+
+        # coalesce(...)
+        if len(parts) == 0:
+            return False
+        for part in parts:
+            if _strip_matching_outer_parens(part).strip() == "":
+                return False
+        if len(parts) == 1:
+            single = parts[0].strip()
+            has_operator = any(ch in "+-*/%<>=!()[]{}.,"
+                               for ch in single)
+            has_keywords = re.search(
+                r"(?i)\b(?:CASE|WHEN|THEN|ELSE|END|AND|OR|NOT|IN|IS|CONTAINS|STARTS|ENDS|WITH)\b",
+                single,
+            ) is not None
+            if (
+                re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_][A-Za-z0-9_]*\b", single) is not None
+                and not has_operator
+                and not has_keywords
+            ):
+                return False
+    return True
+
+
 # Type validators
 def is_string(v: Any) -> bool:
     return isinstance(v, str)
@@ -1029,6 +1148,8 @@ def is_where_rows_expr(v: Any) -> bool:
     if _where_rows_has_unsupported_tokens(txt_lex):
         return False
     if not _where_rows_boolean_keyword_placement_well_formed(txt_lex):
+        return False
+    if not _where_rows_function_call_args_well_formed(txt_lex):
         return False
     if _where_rows_string_predicate_has_dynamic_rhs(txt):
         return False
