@@ -823,6 +823,12 @@ def _where_rows_boolean_keyword_placement_well_formed(expr: str) -> bool:
         return False
     if re.fullmatch(r"(?is)NOT\b\s*", txt) is not None:
         return False
+    if re.search(r"(?i)\b(?:AND|OR)\s+(?:AND|OR)\b", txt) is not None:
+        return False
+    if re.search(r"(?i)\b(?:AND|OR)\s+NOT\s*$", txt) is not None:
+        return False
+    if re.search(r"(?i)\(\s*(?:AND|OR)\b", txt) is not None:
+        return False
     return True
 
 
@@ -835,6 +841,16 @@ def _where_rows_has_unsupported_tokens(expr: str) -> bool:
     if "--" in txt:
         return True
     if "/*" in txt or "*/" in txt:
+        return True
+    if re.search(r"(?<![<>!])=\s*=", txt) is not None:
+        return True
+    if re.search(r"[<>!]\s+=", txt) is not None:
+        return True
+    if re.search(r"<\s*>", txt) is not None:
+        return True
+    if re.search(r"=\s*[<>]", txt) is not None:
+        return True
+    if re.search(r"\)\s+[A-Za-z_][A-Za-z0-9_]*\s*$", txt) is not None:
         return True
     return False
 
