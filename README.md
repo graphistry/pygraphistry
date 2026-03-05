@@ -146,7 +146,7 @@ g3 = g2.umap()
 assert ('x' in g3._nodes.columns) and ('y' in g3._nodes.columns)
 
 # Graph querying with GFQL
-g4 = g3.chain([
+g4 = g3.gfql([
     n(query='pagerank > 0.1'), e_forward(), n(query='pagerank > 0.1')
 ])
 assert (g4._nodes.pagerank > 0.1).all()
@@ -167,7 +167,7 @@ g2 = g1_gpu.compute_cugraph('pagerank')
 
 # Unmodified -- Automatic GPU mode for all ML, AI, GFQL queries, & visualization APIs
 g3 = g2.umap()
-g4 = g3.chain([
+g4 = g3.gfql([
     n(query='pagerank > 0.1'), e_forward(), n(query='pagerank > 0.1')
 ])
 g4.plot()
