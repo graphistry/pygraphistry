@@ -69,6 +69,44 @@ def test_parse_expr_precedence_tree() -> None:
 
 
 @pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "score > 1",
+        "NOT (score > 1 AND score < 3)",
+        "CASE WHEN score > 1 THEN true ELSE false END",
+        "any(x IN vals WHERE x = 2)",
+        "[x IN vals WHERE x > 1 | x + 1]",
+        "name CONTAINS 'a'",
+        "meta['k'] = 'v'",
+        "vals[1..3]",
+    ],
+)
+def test_parse_expr_accepts_supported_samples(expr: str) -> None:
+    node = parse_expr(expr)
+    assert node is not None
+
+
+@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "score == 1",
+        "id = 'a' -- comment",
+        "CASE WHEN score > 1 THEN true END",
+        "any(x vals WHERE x = 2)",
+        "any(x IN vals WHERE x = 2))",
+        "size() > 0",
+        "name = 'unterminated",
+        "meta = {k: }",
+    ],
+)
+def test_parse_expr_rejects_malformed_samples(expr: str) -> None:
+    with pytest.raises(Exception):
+        parse_expr(expr)
+
+
+@pytest.mark.skipif(not _has_lark(), reason="lark dependency unavailable in local env")
 def test_parse_expr_case_and_quantifier_nodes() -> None:
     case_node = parse_expr("CASE WHEN score > 1 THEN true ELSE false END")
     assert isinstance(case_node, CaseWhen)
