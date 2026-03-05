@@ -198,7 +198,7 @@ class TestRowPipelineExecution:
 
         result = g.gfql([
             rows(),
-            where_rows(expr="size(vals) > 1 AND name != 'n3'"),
+            where_rows(expr="size(vals) > 1 AND NOT (name = 'n3')"),
             order_by([("id", "asc")]),
             return_([("id", "id"), ("vals", "vals"), ("name", "name")]),
         ])

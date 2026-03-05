@@ -745,6 +745,58 @@ class RowPipelineMixin:
         return fn, var, list_expr, predicate_expr
 
     @staticmethod
+    def _gfql_parse_function_call(expr: str, fn_name: str) -> Optional[str]:
+        txt = expr.strip()
+        head = re.match(rf"(?is)^{re.escape(fn_name)}\s*\(", txt)
+        if head is None:
+            return None
+        open_idx = txt.find("(", head.start())
+        if open_idx < 0:
+            return None
+
+        depth = 0
+        in_single = False
+        in_double = False
+        escaped = False
+        close_idx = -1
+        for idx in range(open_idx, len(txt)):
+            ch = txt[idx]
+            if in_single or in_double:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if in_single and ch == "'":
+                    in_single = False
+                elif in_double and ch == '"':
+                    in_double = False
+                continue
+            if ch == "'":
+                in_single = True
+                continue
+            if ch == '"':
+                in_double = True
+                continue
+            if ch == "(":
+                depth += 1
+                continue
+            if ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close_idx = idx
+                    break
+                if depth < 0:
+                    return None
+
+        if close_idx < 0:
+            return None
+        if txt[close_idx + 1 :].strip() != "":
+            return None
+        return txt[open_idx + 1 : close_idx].strip()
+
+    @staticmethod
     def _gfql_parse_list_comprehension_expr(
         expr: str,
     ) -> Optional[Tuple[str, str, Optional[str], str]]:
@@ -1790,9 +1842,9 @@ class RowPipelineMixin:
         if quant_parts is not None:
             return RowPipelineMixin._gfql_eval_quantifier_expr(self, table_df, *quant_parts)
 
-        size_match = RowPipelineMixin._GFQL_SIZE_RE.fullmatch(txt)
-        if size_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, size_match.group("inner"))
+        size_inner = RowPipelineMixin._gfql_parse_function_call(txt, "size")
+        if size_inner is not None:
+            inner = self._gfql_eval_string_expr(table_df, size_inner)
             if hasattr(inner, "str") and hasattr(inner.str, "len"):
                 return inner.str.len()
             try:
@@ -1802,16 +1854,16 @@ class RowPipelineMixin:
                     f"unsupported row expression: size() requires list/string/map value in {expr!r}"
                 ) from exc
 
-        abs_match = RowPipelineMixin._GFQL_ABS_RE.fullmatch(txt)
-        if abs_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, abs_match.group("inner"))
+        abs_inner = RowPipelineMixin._gfql_parse_function_call(txt, "abs")
+        if abs_inner is not None:
+            inner = self._gfql_eval_string_expr(table_df, abs_inner)
             if hasattr(inner, "abs"):
                 return inner.abs()
             return abs(inner)
 
-        to_boolean_match = RowPipelineMixin._GFQL_TOBOOLEAN_RE.fullmatch(txt)
-        if to_boolean_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, to_boolean_match.group("inner"))
+        to_boolean_inner = RowPipelineMixin._gfql_parse_function_call(txt, "toBoolean")
+        if to_boolean_inner is not None:
+            inner = self._gfql_eval_string_expr(table_df, to_boolean_inner)
             if hasattr(inner, "astype"):
                 null_mask = self._gfql_null_mask(table_df, inner)
                 normalized = inner.astype(str).str.strip().str.lower()
@@ -1835,9 +1887,9 @@ class RowPipelineMixin:
                 return False
             raise ValueError(f"unsupported row expression: toBoolean() invalid input in {expr!r}")
 
-        to_string_match = RowPipelineMixin._GFQL_TOSTRING_RE.fullmatch(txt)
-        if to_string_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, to_string_match.group("inner"))
+        to_string_inner = RowPipelineMixin._gfql_parse_function_call(txt, "toString")
+        if to_string_inner is not None:
+            inner = self._gfql_eval_string_expr(table_df, to_string_inner)
             if hasattr(inner, "astype"):
                 null_mask = self._gfql_null_mask(table_df, inner)
                 out = inner.astype(str)
@@ -1851,9 +1903,9 @@ class RowPipelineMixin:
                 return "true" if inner else "false"
             return str(inner)
 
-        coalesce_match = RowPipelineMixin._GFQL_COALESCE_RE.fullmatch(txt)
-        if coalesce_match is not None:
-            arg_text = coalesce_match.group("inner").strip()
+        coalesce_inner = RowPipelineMixin._gfql_parse_function_call(txt, "coalesce")
+        if coalesce_inner is not None:
+            arg_text = coalesce_inner.strip()
             arg_parts = RowPipelineMixin._gfql_split_top_level_commas(arg_text)
             if len(arg_parts) == 0:
                 raise ValueError(f"unsupported row expression: coalesce() requires arguments in {expr!r}")
@@ -1869,9 +1921,9 @@ class RowPipelineMixin:
                 out = out.where(~null_mask, candidate)
             return out
 
-        sign_match = RowPipelineMixin._GFQL_SIGN_RE.fullmatch(txt)
-        if sign_match is not None:
-            inner = self._gfql_eval_string_expr(table_df, sign_match.group("inner"))
+        sign_inner = RowPipelineMixin._gfql_parse_function_call(txt, "sign")
+        if sign_inner is not None:
+            inner = self._gfql_eval_string_expr(table_df, sign_inner)
             if hasattr(inner, "astype"):
                 null_mask = self._gfql_null_mask(table_df, inner)
                 gt = inner > 0
@@ -1888,17 +1940,17 @@ class RowPipelineMixin:
                 return -1
             return 0
 
-        for fn_name, regex in (
-            ("head", RowPipelineMixin._GFQL_HEAD_RE),
-            ("tail", RowPipelineMixin._GFQL_TAIL_RE),
-            ("reverse", RowPipelineMixin._GFQL_REVERSE_RE),
-            ("nodes", RowPipelineMixin._GFQL_NODES_RE),
-            ("relationships", RowPipelineMixin._GFQL_RELATIONSHIPS_RE),
+        for fn_name in (
+            "head",
+            "tail",
+            "reverse",
+            "nodes",
+            "relationships",
         ):
-            fn_match = regex.fullmatch(txt)
-            if fn_match is None:
+            fn_inner = RowPipelineMixin._gfql_parse_function_call(txt, fn_name)
+            if fn_inner is None:
                 continue
-            inner = self._gfql_eval_string_expr(table_df, fn_match.group("inner"))
+            inner = self._gfql_eval_string_expr(table_df, fn_inner)
             if fn_name in {"nodes", "relationships"}:
                 return inner
             if hasattr(inner, "str"):
