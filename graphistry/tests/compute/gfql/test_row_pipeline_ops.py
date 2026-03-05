@@ -25,6 +25,12 @@ from graphistry.compute.gfql.call_safelist import validate_call_params
 from graphistry.tests.test_compute import CGFull
 
 
+def _mk_graph(nodes_df, edges_df=None):
+    if edges_df is None:
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
 class TestRowPipelineASTPrimitives:
     def test_row_pipeline_primitives_build_ast_calls(self):
         row_step = rows("nodes", source="a")
@@ -91,14 +97,20 @@ class TestRowPipelineASTPrimitives:
 
 
 class TestRowPipelineExecution:
+    @staticmethod
+    def _where_expr_ids(nodes_df, expr):
+        result = _mk_graph(nodes_df).gfql(
+            [rows(), where_rows(expr=expr), order_by([("id", "asc")]), return_([("id", "id")])]
+        )
+        return result._nodes["id"].tolist()
+
     def test_row_pipeline_exec_projection_sort_page_distinct(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c", "d"],
             "name": ["n2", "n1", "n2", "n3"],
             "score": [2, 3, 2, 1],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -123,8 +135,7 @@ class TestRowPipelineExecution:
             "vals": [[1, 2], [1, 2], [3]],
             "meta": [{"k": "v"}, {"k": "v"}, {"k": "z"}],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -142,8 +153,7 @@ class TestRowPipelineExecution:
             "id": ["a", "b", "c"],
             "vals": [[1, 2], [1, 2], [3]],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -175,8 +185,7 @@ class TestRowPipelineExecution:
             "id": ["a", "b", "c"],
             "score": [1, 3, 2],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -196,8 +205,7 @@ class TestRowPipelineExecution:
             "vals": [[1], [1, 2], [1, 2, 3]],
             "name": ["n1", "n2", "n3"],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -212,8 +220,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_where_rows_expr_quoted_function_text(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["rand()", "plain"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -225,8 +232,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_where_rows_expr_size_literal_with_paren(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["n1", "n2"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -244,33 +250,17 @@ class TestRowPipelineExecution:
                 "size": [1, 2, 3],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="name = 'a AND b' OR (name = 'a OR b' AND size > 2)"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "c"}]
+        assert self._where_expr_ids(
+            nodes_df, "name = 'a AND b' OR (name = 'a OR b' AND size > 2)"
+        ) == ["a", "c"]
 
     def test_row_pipeline_where_rows_expr_column_named_size(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "size": [1, 3]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([rows(), where_rows(expr="size > 1"), return_([("id", "id")])])
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
+        assert self._where_expr_ids(nodes_df, "size > 1") == ["b"]
 
     def test_row_pipeline_where_rows_expr_map_literal_bare_key(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "mp": [{"k": "v"}, {"k": "z"}]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -284,8 +274,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_where_rows_expr_string_predicate_numeric_rhs(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["x5", "yy"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([rows(), where_rows(expr="txt CONTAINS 5"), return_([("id", "id")])])
 
@@ -293,8 +282,6 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_where_rows_expr_string_predicate_parenthesized_scalar_rhs(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["abc5", "5abc", "none"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
         cases = [
             ("txt CONTAINS (5)", ["a", "b"]),
@@ -302,79 +289,27 @@ class TestRowPipelineExecution:
             ("txt ENDS WITH (5)", ["a"]),
         ]
         for expr, expected_ids in cases:
-            result = g.gfql(
-                [rows(), where_rows(expr=expr), order_by([("id", "asc")]), return_([("id", "id")])]
-            )
-            assert result._nodes["id"].tolist() == expected_ids
+            assert self._where_expr_ids(nodes_df, expr) == expected_ids
 
     def test_row_pipeline_where_rows_expr_string_predicate_boolean_composition(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="txt CONTAINS 'a' OR txt CONTAINS 'b'"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["a", "b"]
+        assert self._where_expr_ids(nodes_df, "txt CONTAINS 'a' OR txt CONTAINS 'b'") == ["a", "b"]
 
     def test_row_pipeline_where_rows_expr_not_string_predicate(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="NOT txt CONTAINS 'a'"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["b", "c"]
+        assert self._where_expr_ids(nodes_df, "NOT txt CONTAINS 'a'") == ["b", "c"]
 
     def test_row_pipeline_where_rows_expr_and_or_precedence(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "bb"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="id = 'a' OR id = 'b' AND txt CONTAINS 'b'"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["a", "b"]
+        assert self._where_expr_ids(nodes_df, "id = 'a' OR id = 'b' AND txt CONTAINS 'b'") == ["a", "b"]
 
     def test_row_pipeline_where_rows_expr_case_when(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="CASE WHEN score > 2 THEN true ELSE false END"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["b"]
+        assert self._where_expr_ids(nodes_df, "CASE WHEN score > 2 THEN true ELSE false END") == ["b"]
 
     def test_row_pipeline_where_rows_expr_case_boolean_composition(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "score": [1, 2, 3, 4]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         and_result = g.gfql(
             [
@@ -414,8 +349,6 @@ class TestRowPipelineExecution:
                 "maps": [[{"a": 1}, {"a": 2}], [{"a": 0}], []],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
         cases = [
             ("any(x IN vals WHERE x = 2)", ["a", "b"]),
@@ -425,42 +358,15 @@ class TestRowPipelineExecution:
             ("any(x IN maps WHERE x.a = 2)", ["a"]),
         ]
         for expr, expected_ids in cases:
-            result = g.gfql(
-                [rows(), where_rows(expr=expr), order_by([("id", "asc")]), return_([("id", "id")])]
-            )
-            assert result._nodes["id"].tolist() == expected_ids
+            assert self._where_expr_ids(nodes_df, expr) == expected_ids
 
     def test_row_pipeline_where_rows_expr_list_comprehension_bound_var(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="size([x IN vals WHERE x > 1]) > 0"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["a", "b"]
+        assert self._where_expr_ids(nodes_df, "size([x IN vals WHERE x > 1]) > 0") == ["a", "b"]
 
     def test_row_pipeline_where_rows_expr_list_comprehension_projection(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="size([x IN vals WHERE x > 1 | x + 1]) > 0"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["a", "b"]
+        assert self._where_expr_ids(nodes_df, "size([x IN vals WHERE x > 1 | x + 1]) > 0") == ["a", "b"]
 
     def test_row_pipeline_where_rows_is_null_or_precedence(self):
         nodes_df = pd.DataFrame({
@@ -468,27 +374,14 @@ class TestRowPipelineExecution:
             "x": [1, 2, None, 4],
             "lst": [[1, 2], [2, 3], [], None],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="NOT (x IN lst) OR x IS NULL"),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-
-        assert result._nodes["id"].tolist() == ["c", "d"]
+        assert self._where_expr_ids(nodes_df, "NOT (x IN lst) OR x IS NULL") == ["c", "d"]
 
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
             "vals": [[1, 2], [3]],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -508,8 +401,7 @@ class TestRowPipelineExecution:
             "first": [[1, 2], [3]],
             "second": [[4], [5, 6]],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -532,8 +424,7 @@ class TestRowPipelineExecution:
             "id": ["a", "b"],
             "qrows": [[[2], [3, 4]], [[5], [6, 7]]],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -575,8 +466,7 @@ class TestRowPipelineExecution:
             "grp": ["x", "x", "y"],
             "score": [1, 2, 5],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -597,8 +487,7 @@ class TestRowPipelineExecution:
             "grp": ["x", "x", "y", "y"],
             "score": [1, None, 5, 6],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -620,8 +509,7 @@ class TestRowPipelineExecution:
             "grp": ["x", "x", "x", "y"],
             "score": [1, 1, 2, 3],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -640,8 +528,7 @@ class TestRowPipelineExecution:
             "grp": ["x", "x", "y"],
             "score": [1, 2, 5],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -656,8 +543,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_with_alias(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 1]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -671,8 +557,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_string_arithmetic_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -710,8 +595,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_dynamic_list_expression_vectorized(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -726,8 +610,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_list_comprehension_filter_projection_vectorized(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "vals": [[1, 2, 3], [2], [], None]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -767,8 +650,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_toboolean_tostring_coalesce(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "s": ["true", "false", None]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -787,8 +669,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_alias_property_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "a": [True, True], "num": [2, 5]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -803,8 +684,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_boolean_null_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [2, None, 7]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -968,8 +848,7 @@ class TestRowPipelineExecution:
             "vals": [[1, 2, 3], [2], []],
             "maps": [[{"a": 1}, {"a": 2}], [{"a": 0}], []],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -990,8 +869,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_order_by_string_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -1009,8 +887,7 @@ class TestRowPipelineExecution:
             "id": ["a", "b", "c", "d", "e", "f", "g"],
             "v": [[], ["a"], [1], [None, 1], [1, None], float("nan"), None],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
             g.gfql([
@@ -1024,8 +901,7 @@ class TestRowPipelineExecution:
             "id": list("abcdefgh"),
             "lists": [[], ["a"], ["a", 1], [1], [1, "a"], [1, None], [None, 1], [None, 2]],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         asc_result = g.gfql([
             rows(),
@@ -1070,8 +946,7 @@ class TestRowPipelineExecution:
                 "12:30:14.645876123+01:01",
             ],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         asc_result = g.gfql([
             rows(),
@@ -1108,8 +983,7 @@ class TestRowPipelineExecution:
                 "1980-12-11T12:31:14-11:59",
             ],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         asc_result = g.gfql([
             rows(),
@@ -1137,8 +1011,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_bad_source_alias_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="requires node column|alias column not found"):
             g.gfql([rows(source="missing")])
@@ -1163,8 +1036,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_allows_literal_expressions(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -1178,8 +1050,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_case_when_expression(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -1207,8 +1078,7 @@ class TestRowPipelineExecution:
                 "score": [-2, 0, 3],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1269,8 +1139,7 @@ class TestRowPipelineExecution:
                 "path_rels": [["r1"], []],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1293,8 +1162,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_in_operator_and_list_scalar_concat(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], [3]]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1336,8 +1204,7 @@ class TestRowPipelineExecution:
                 "txt": ["abcdef", "xxabyy", None],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1369,8 +1236,7 @@ class TestRowPipelineExecution:
                 "txt": ["abc STARTS WITH xyz", "abc xyz", None],
             }
         )
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1388,8 +1254,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_string_predicates_null_rhs(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", None]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1437,8 +1302,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_slice_null_bound_returns_null(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", "ghij"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql(
             [
@@ -1465,8 +1329,7 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_select_broadcasts_list_map_literals(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
@@ -1491,24 +1354,21 @@ class TestRowPipelineExecution:
 
     def test_row_pipeline_invalid_rows_table_rejected(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="table"):
             g.gfql([rows("bad_table")])
 
     def test_row_pipeline_select_missing_column_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
             g.gfql([rows(), select([("x", "missing_col")])])
 
     def test_row_pipeline_order_by_missing_column_raises(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="order_by column not found|unsupported token in row expression|unsupported row expression"):
             g.gfql([rows(), order_by([("missing_col", "asc")])])
@@ -1516,8 +1376,7 @@ class TestRowPipelineExecution:
     @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
     def test_row_pipeline_skip_invalid_values_rejected(self, value):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
             g.gfql([rows(), skip(value)])
@@ -1525,8 +1384,7 @@ class TestRowPipelineExecution:
     @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
     def test_row_pipeline_limit_invalid_values_rejected(self, value):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
             g.gfql([rows(), limit(value)])
@@ -1929,8 +1787,7 @@ class TestRowPipelineSafelist:
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_ok", lambda _expr: False)
 
@@ -1954,8 +1811,7 @@ class TestRowPipelineSafelist:
             "score": [1, 2, 3],
             "name": ["a", "bb", "ccc"],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
         table_df = g._nodes
 
         monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
@@ -2023,8 +1879,7 @@ class TestRowPipelineSafelist:
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         def fake_parse(_expr):
             return expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1))
@@ -2050,8 +1905,7 @@ class TestRowPipelineSafelist:
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         def fake_parse(_expr):
             return expr_parser.FunctionCall("unknown_fn", (expr_parser.Identifier("score"),))
@@ -2076,8 +1930,7 @@ class TestRowPipelineSafelist:
             "id": ["a", "b", "c"],
             "name": ["x", "y", "z"],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         def fake_parse(_expr):
             return expr_parser.BinaryOp("-", expr_parser.Identifier("name"), expr_parser.Literal("x"))
@@ -2124,8 +1977,7 @@ class TestRowPipelineSafelist:
             "division": ["x", "x", "y"],
             "age": [3, 7, 4],
         })
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+        g = _mk_graph(nodes_df)
 
         result = g.gfql([
             rows(),
