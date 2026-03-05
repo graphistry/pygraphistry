@@ -2599,31 +2599,30 @@ class RowPipelineMixin:
                 work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})
             direction_is_asc = str(direction).lower() != "desc"
             series = work_df[sort_col]
-            if str(getattr(series, "dtype", "")).lower() == "object":
-                list_candidate = RowPipelineMixin._gfql_order_detect_list_series(series)
-                if list_candidate:
-                    top_null_mask = self._gfql_null_mask(work_df, series)
-                    if hasattr(top_null_mask, "any") and bool(top_null_mask.any()):
-                        list_candidate = False
-                if list_candidate:
-                    key_prefix = f"__gfql_sort_list_{tmp_idx}__"
-                    tmp_idx += 1
-                    work_df, list_key_cols = self._gfql_build_list_sort_columns(
-                        work_df, sort_col, key_prefix
-                    )
-                    sort_cols.extend(list_key_cols)
-                    ascending.extend([direction_is_asc] * len(list_key_cols))
-                    continue
-                temporal_mode = RowPipelineMixin._gfql_order_detect_temporal_mode(series)
-                if temporal_mode is not None:
-                    key_prefix = f"__gfql_sort_temporal_{tmp_idx}__"
-                    tmp_idx += 1
-                    work_df, temporal_key_cols = self._gfql_build_temporal_sort_columns(
-                        work_df, sort_col, key_prefix, temporal_mode
-                    )
-                    sort_cols.extend(temporal_key_cols)
-                    ascending.extend([direction_is_asc] * len(temporal_key_cols))
-                    continue
+            list_candidate = RowPipelineMixin._gfql_order_detect_list_series(series)
+            if list_candidate:
+                top_null_mask = self._gfql_null_mask(work_df, series)
+                if hasattr(top_null_mask, "any") and bool(top_null_mask.any()):
+                    list_candidate = False
+            if list_candidate:
+                key_prefix = f"__gfql_sort_list_{tmp_idx}__"
+                tmp_idx += 1
+                work_df, list_key_cols = self._gfql_build_list_sort_columns(
+                    work_df, sort_col, key_prefix
+                )
+                sort_cols.extend(list_key_cols)
+                ascending.extend([direction_is_asc] * len(list_key_cols))
+                continue
+            temporal_mode = RowPipelineMixin._gfql_order_detect_temporal_mode(series)
+            if temporal_mode is not None:
+                key_prefix = f"__gfql_sort_temporal_{tmp_idx}__"
+                tmp_idx += 1
+                work_df, temporal_key_cols = self._gfql_build_temporal_sort_columns(
+                    work_df, sort_col, key_prefix, temporal_mode
+                )
+                sort_cols.extend(temporal_key_cols)
+                ascending.extend([direction_is_asc] * len(temporal_key_cols))
+                continue
             RowPipelineMixin._gfql_validate_order_series_vector_safe(series, expr)
             sort_cols.append(sort_col)
             ascending.append(direction_is_asc)

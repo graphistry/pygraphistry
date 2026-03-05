@@ -167,22 +167,22 @@ _GRAMMAR = r"""
 ?expr: or_expr
 
 ?or_expr: and_expr
-        | or_expr OR and_expr            -> or_op
+        | or_expr "OR"i and_expr            -> or_op
 
 ?and_expr: not_expr
-         | and_expr AND not_expr         -> and_op
+         | and_expr "AND"i not_expr         -> and_op
 
-?not_expr: NOT not_expr                  -> not_op
+?not_expr: "NOT"i not_expr                  -> not_op
          | predicate
 
 ?predicate: additive
           | additive COMP_OP additive    -> cmp_op
-          | additive IS NULL             -> is_null
-          | additive IS NOT NULL         -> is_not_null
-          | additive IN additive         -> in_op
-          | additive CONTAINS additive   -> contains_op
-          | additive STARTS WITH additive -> starts_with_op
-          | additive ENDS WITH additive  -> ends_with_op
+          | additive "IS"i "NULL"i             -> is_null
+          | additive "IS"i "NOT"i "NULL"i      -> is_not_null
+          | additive "IN"i additive            -> in_op
+          | additive "CONTAINS"i additive      -> contains_op
+          | additive "STARTS"i "WITH"i additive -> starts_with_op
+          | additive "ENDS"i "WITH"i additive  -> ends_with_op
 
 ?additive: multiplicative
          | additive "+" multiplicative   -> add_op
@@ -225,44 +225,27 @@ map_key: NAME                            -> map_key_name
 function_call: NAME "(" [expr_list] ")"
 identifier: NAME ("." NAME)*
 
-case_expr: CASE WHEN expr THEN expr ELSE expr END
+case_expr: "CASE"i "WHEN"i expr "THEN"i expr "ELSE"i expr "END"i
 
-var_name: NAME
+quantifier_expr: "ANY"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> any_quant
+               | "ALL"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> all_quant
+               | "NONE"i "(" NAME "IN"i expr "WHERE"i expr ")"      -> none_quant
+               | "SINGLE"i "(" NAME "IN"i expr "WHERE"i expr ")"    -> single_quant
 
-quantifier_expr: QUANTIFIER "(" var_name IN expr WHERE expr ")"
+list_comprehension: "[" NAME "IN"i expr "]"                                 -> lc_source
+                  | "[" NAME "IN"i expr "|" expr "]"                        -> lc_projection
+                  | "[" NAME "IN"i expr "WHERE"i expr "]"                   -> lc_where
+                  | "[" NAME "IN"i expr "WHERE"i expr "|" expr "]"          -> lc_where_projection
 
-list_comprehension: "[" var_name IN expr [WHERE expr] ["|" expr] "]"
-
-literal: NULL                            -> null_lit
-       | TRUE                            -> true_lit
-       | FALSE                           -> false_lit
+literal: "NULL"i                            -> null_lit
+       | "TRUE"i                            -> true_lit
+       | "FALSE"i                           -> false_lit
        | NUMBER                          -> number_lit
        | STRING                          -> string_lit
 
 COMP_OP: "<=" | ">=" | "<>" | "!=" | "=" | "<" | ">"
-
-AND: /(?i:AND)/
-OR: /(?i:OR)/
-NOT: /(?i:NOT)/
-IS: /(?i:IS)/
-NULL: /(?i:NULL)/
-IN: /(?i:IN)/
-CONTAINS: /(?i:CONTAINS)/
-STARTS: /(?i:STARTS)/
-ENDS: /(?i:ENDS)/
-WITH: /(?i:WITH)/
-CASE: /(?i:CASE)/
-WHEN: /(?i:WHEN)/
-THEN: /(?i:THEN)/
-ELSE: /(?i:ELSE)/
-END: /(?i:END)/
-WHERE: /(?i:WHERE)/
-QUANTIFIER: /(?i:ANY|ALL|NONE|SINGLE)/
-TRUE: /(?i:TRUE)/
-FALSE: /(?i:FALSE)/
-
-%import common.CNAME -> NAME
-%import common.SIGNED_NUMBER -> NUMBER
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 %import common.WS
 %ignore WS
@@ -327,6 +310,92 @@ def _parse_number_token(token: str) -> Union[int, float]:
     return int(token)
 
 
+def _contains_unquoted_comment_marker(expr: str) -> bool:
+    in_single = False
+    in_double = False
+    escaped = False
+    i = 0
+    while i < len(expr):
+        ch = expr[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\" and (in_single or in_double):
+            escaped = True
+            i += 1
+            continue
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if not in_single and not in_double:
+            if ch == "-" and i + 1 < len(expr) and expr[i + 1] == "-":
+                return True
+            if ch == "/" and i + 1 < len(expr) and expr[i + 1] == "*":
+                return True
+        i += 1
+    return False
+
+
+def _validate_parsed_ast(node: ExprNode) -> None:
+    if isinstance(node, FunctionCall):
+        if len(node.args) == 0:
+            raise GFQLExprParseError(f"Function '{node.name}' requires at least one argument")
+        for arg in node.args:
+            _validate_parsed_ast(arg)
+        return
+    if isinstance(node, UnaryOp):
+        _validate_parsed_ast(node.operand)
+        return
+    if isinstance(node, BinaryOp):
+        _validate_parsed_ast(node.left)
+        _validate_parsed_ast(node.right)
+        return
+    if isinstance(node, IsNullOp):
+        _validate_parsed_ast(node.value)
+        return
+    if isinstance(node, CaseWhen):
+        _validate_parsed_ast(node.condition)
+        _validate_parsed_ast(node.when_true)
+        _validate_parsed_ast(node.when_false)
+        return
+    if isinstance(node, QuantifierExpr):
+        _validate_parsed_ast(node.source)
+        _validate_parsed_ast(node.predicate)
+        return
+    if isinstance(node, ListComprehension):
+        _validate_parsed_ast(node.source)
+        if node.predicate is not None:
+            _validate_parsed_ast(node.predicate)
+        if node.projection is not None:
+            _validate_parsed_ast(node.projection)
+        return
+    if isinstance(node, ListLiteral):
+        for item in node.items:
+            _validate_parsed_ast(item)
+        return
+    if isinstance(node, MapLiteral):
+        for _, value in node.items:
+            _validate_parsed_ast(value)
+        return
+    if isinstance(node, SubscriptExpr):
+        _validate_parsed_ast(node.value)
+        _validate_parsed_ast(node.key)
+        return
+    if isinstance(node, SliceExpr):
+        _validate_parsed_ast(node.value)
+        if node.start is not None:
+            _validate_parsed_ast(node.start)
+        if node.stop is not None:
+            _validate_parsed_ast(node.stop)
+        return
+
+
 def _build_transformer() -> Any:
     _, Transformer, _ = _lark_imports()
 
@@ -339,9 +408,6 @@ def _build_transformer() -> Any:
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def __init__(self) -> None:
             super().__init__(visit_tokens=True)
-
-        def var_name(self, items: Sequence[Any]) -> str:
-            return str(items[0])
 
         def grouped(self, items: Sequence[Any]) -> ExprNode:
             return cast(ExprNode, _strip_tokens(items)[0])
@@ -359,21 +425,35 @@ def _build_transformer() -> Any:
             return Literal(False)
 
         def number_lit(self, items: Sequence[Any]) -> Literal:
-            return Literal(_parse_number_token(str(_strip_tokens(items)[0])))
+            if len(items) != 1:
+                raise GFQLExprParseError("Invalid numeric literal")
+            return Literal(_parse_number_token(str(items[0])))
 
         def string_lit(self, items: Sequence[Any]) -> Literal:
-            return Literal(_parse_string_token(str(_strip_tokens(items)[0])))
+            if len(items) != 1:
+                raise GFQLExprParseError("Invalid string literal")
+            return Literal(_parse_string_token(str(items[0])))
 
         def identifier(self, items: Sequence[Any]) -> Identifier:
-            names = [str(i) for i in _strip_tokens(items)]
+            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
+            if len(names) == 0:
+                raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
 
         def function_call(self, items: Sequence[Any]) -> FunctionCall:
-            stripped = _strip_tokens(items)
-            fn = str(stripped[0]).lower()
+            fn = ""
             args: Tuple[ExprNode, ...] = ()
-            if len(stripped) > 1:
-                args = tuple(cast(List[ExprNode], stripped[1]))
+            for item in items:
+                if _is_token(item):
+                    if str(getattr(item, "type", "")) == "NAME" and fn == "":
+                        fn = str(item).lower()
+                    continue
+                if isinstance(item, list):
+                    args = tuple(cast(List[ExprNode], item))
+                else:
+                    args = (cast(ExprNode, item),)
+            if fn == "":
+                raise GFQLExprParseError("Invalid function call")
             return FunctionCall(fn, args)
 
         def case_expr(self, items: Sequence[Any]) -> CaseWhen:
@@ -384,31 +464,61 @@ def _build_transformer() -> Any:
                 when_false=cast(ExprNode, stripped[2]),
             )
 
-        def quantifier_expr(self, items: Sequence[Any]) -> QuantifierExpr:
-            stripped = _strip_tokens(items)
-            fn = str(stripped[0]).lower()
-            var = str(stripped[1])
-            source = cast(ExprNode, stripped[2])
-            predicate = cast(ExprNode, stripped[3])
+        def _quantifier_expr(self, fn: str, items: Sequence[Any]) -> QuantifierExpr:
+            var = ""
+            expr_nodes: List[ExprNode] = []
+            for item in items:
+                if _is_token(item):
+                    if str(getattr(item, "type", "")) == "NAME" and var == "":
+                        var = str(item)
+                    continue
+                expr_nodes.append(cast(ExprNode, item))
+            if var == "" or len(expr_nodes) != 2:
+                raise GFQLExprParseError("Invalid quantifier expression")
+            source = expr_nodes[0]
+            predicate = expr_nodes[1]
             return QuantifierExpr(fn=fn, var=var, source=source, predicate=predicate)
 
-        def list_comprehension(self, items: Sequence[Any]) -> ListComprehension:
-            stripped = _strip_tokens(items)
-            if len(stripped) < 2:
+        def any_quant(self, items: Sequence[Any]) -> QuantifierExpr:
+            return self._quantifier_expr("any", items)
+
+        def all_quant(self, items: Sequence[Any]) -> QuantifierExpr:
+            return self._quantifier_expr("all", items)
+
+        def none_quant(self, items: Sequence[Any]) -> QuantifierExpr:
+            return self._quantifier_expr("none", items)
+
+        def single_quant(self, items: Sequence[Any]) -> QuantifierExpr:
+            return self._quantifier_expr("single", items)
+
+        def _list_comprehension(
+            self, items: Sequence[Any], *, has_where: bool, has_projection: bool
+        ) -> ListComprehension:
+            var_name = ""
+            expr_nodes: List[ExprNode] = []
+            for item in items:
+                if _is_token(item):
+                    if str(getattr(item, "type", "")) == "NAME" and var_name == "":
+                        var_name = str(item)
+                    continue
+                expr_nodes.append(cast(ExprNode, item))
+
+            if var_name == "" or len(expr_nodes) < 1:
                 raise GFQLExprParseError("Invalid list comprehension")
-            var_name = str(stripped[0])
-            source = cast(ExprNode, stripped[1])
+            source = expr_nodes[0]
             predicate: Optional[ExprNode] = None
             projection: Optional[ExprNode] = None
 
-            has_where = any(str(item).upper() == "WHERE" for item in items if _is_token(item))
+            idx = 1
             if has_where:
-                if len(stripped) >= 3:
-                    predicate = cast(ExprNode, stripped[2])
-                if len(stripped) >= 4:
-                    projection = cast(ExprNode, stripped[3])
-            elif len(stripped) >= 3:
-                projection = cast(ExprNode, stripped[2])
+                if len(expr_nodes) < 2:
+                    raise GFQLExprParseError("Invalid list comprehension WHERE clause")
+                predicate = expr_nodes[idx]
+                idx += 1
+            if has_projection:
+                if len(expr_nodes) <= idx:
+                    raise GFQLExprParseError("Invalid list comprehension projection")
+                projection = expr_nodes[idx]
 
             return ListComprehension(
                 var=var_name,
@@ -417,16 +527,32 @@ def _build_transformer() -> Any:
                 projection=projection,
             )
 
+        def lc_source(self, items: Sequence[Any]) -> ListComprehension:
+            return self._list_comprehension(items, has_where=False, has_projection=False)
+
+        def lc_projection(self, items: Sequence[Any]) -> ListComprehension:
+            return self._list_comprehension(items, has_where=False, has_projection=True)
+
+        def lc_where(self, items: Sequence[Any]) -> ListComprehension:
+            return self._list_comprehension(items, has_where=True, has_projection=False)
+
+        def lc_where_projection(self, items: Sequence[Any]) -> ListComprehension:
+            return self._list_comprehension(items, has_where=True, has_projection=True)
+
         def list_literal(self, items: Sequence[Any]) -> ListLiteral:
             if len(items) == 0:
                 return ListLiteral(())
             return ListLiteral(tuple(cast(List[ExprNode], items[0])))
 
         def map_key_name(self, items: Sequence[Any]) -> str:
-            return str(_strip_tokens(items)[0])
+            if len(items) != 1:
+                raise GFQLExprParseError("Invalid map key")
+            return str(items[0])
 
         def map_key_string(self, items: Sequence[Any]) -> str:
-            return _parse_string_token(str(_strip_tokens(items)[0]))
+            if len(items) != 1:
+                raise GFQLExprParseError("Invalid map key")
+            return _parse_string_token(str(items[0]))
 
         def map_entry(self, items: Sequence[Any]) -> Tuple[str, ExprNode]:
             stripped = _strip_tokens(items)
@@ -535,6 +661,8 @@ def _build_transformer() -> Any:
 def parse_expr(expr: str) -> ExprNode:
     if not isinstance(expr, str) or expr.strip() == "":
         raise GFQLExprParseError("Expression must be a non-empty string")
+    if _contains_unquoted_comment_marker(expr):
+        raise GFQLExprParseError("Invalid GFQL expression")
 
     parser = _parser()
     transformer = _build_transformer()
@@ -570,7 +698,9 @@ def parse_expr(expr: str) -> ExprNode:
         ),
     ):
         raise GFQLExprParseError("Invalid GFQL expression AST")
-    return cast(ExprNode, node)
+    parsed_node = cast(ExprNode, node)
+    _validate_parsed_ast(parsed_node)
+    return parsed_node
 
 
 def collect_identifiers(node: ExprNode) -> Set[str]:
@@ -604,7 +734,10 @@ def collect_identifiers(node: ExprNode) -> Set[str]:
         if isinstance(n, QuantifierExpr):
             _walk(n.source)
             _walk(n.predicate)
-            out.discard(n.var)
+            bound_prefix = f"{n.var}."
+            out.difference_update(
+                {name for name in out if name == n.var or name.startswith(bound_prefix)}
+            )
             return
         if isinstance(n, ListComprehension):
             _walk(n.source)
@@ -612,7 +745,10 @@ def collect_identifiers(node: ExprNode) -> Set[str]:
                 _walk(n.predicate)
             if n.projection is not None:
                 _walk(n.projection)
-            out.discard(n.var)
+            bound_prefix = f"{n.var}."
+            out.difference_update(
+                {name for name in out if name == n.var or name.startswith(bound_prefix)}
+            )
             return
         if isinstance(n, ListLiteral):
             for i in n.items:
