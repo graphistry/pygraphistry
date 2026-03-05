@@ -392,6 +392,38 @@ class TestRowPipelineExecution:
             )
             assert result._nodes["id"].tolist() == expected_ids
 
+    def test_row_pipeline_where_rows_expr_list_comprehension_bound_var(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="size([x IN vals WHERE x > 1]) > 0"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
+    def test_row_pipeline_where_rows_expr_list_comprehension_projection(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
+        edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                where_rows(expr="size([x IN vals WHERE x > 1 | x + 1]) > 0"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({
             "id": ["a", "b"],
@@ -1536,6 +1568,14 @@ class TestRowPipelineSafelist:
         assert params == {"expr": "none(x IN vals WHERE x < 0)"}
         params = validate_call_params("where_rows", {"expr": "single(x IN vals WHERE x = 2)"})
         assert params == {"expr": "single(x IN vals WHERE x = 2)"}
+        params = validate_call_params(
+            "where_rows", {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END"}
+        )
+        assert params == {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END"}
+        params = validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1]) > 0"})
+        assert params == {"expr": "size([x IN vals WHERE x > 1]) > 0"}
+        params = validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1 | x]) > 0"})
+        assert params == {"expr": "size([x IN vals WHERE x > 1 | x]) > 0"}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
@@ -1580,6 +1620,15 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E201
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "CASE WHEN score > 1 THEN true END"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true END"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x vals WHERE x > 1]) > 0"})
+        assert exc_info.value.code == ErrorCode.E201
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "size([x IN vals WHERE ]) > 0"})
         assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_order_by_validation(self):

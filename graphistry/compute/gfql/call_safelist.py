@@ -371,6 +371,150 @@ def _split_top_level_keyword(expr: str, keyword: str) -> Any:
     return None
 
 
+def _split_top_level_pipe(expr: str) -> Any:
+    txt = expr.strip()
+    n = len(txt)
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for i in range(n):
+        ch = txt[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "(":
+            depth_paren += 1
+            continue
+        if ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+            continue
+        if ch == "[":
+            depth_bracket += 1
+            continue
+        if ch == "]":
+            depth_bracket = max(0, depth_bracket - 1)
+            continue
+        if ch == "{":
+            depth_brace += 1
+            continue
+        if ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+            continue
+
+        if ch == "|" and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            left = txt[:i].strip()
+            right = txt[i + 1 :].strip()
+            if left and right:
+                return left, right
+    return None
+
+
+def _where_rows_list_comprehension_segment_well_formed(segment: str) -> bool:
+    txt = segment.strip()
+    if not (txt.startswith("[") and txt.endswith("]")):
+        return True
+    body = txt[1:-1].strip()
+    if body == "":
+        return True
+    in_split = _split_top_level_keyword(body, "IN")
+    if in_split is None:
+        if re.search(r"(?i)\bwhere\b", body) is not None:
+            return False
+        if _split_top_level_pipe(body) is not None:
+            return False
+        return True
+
+    var = in_split[0].strip()
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", var) is None:
+        return False
+
+    rhs = in_split[1].strip()
+    if rhs == "":
+        return False
+    pipe_split = _split_top_level_pipe(rhs)
+    if pipe_split is not None:
+        lhs = pipe_split[0].strip()
+        proj_expr = pipe_split[1].strip()
+    else:
+        lhs = rhs
+        proj_expr = var
+    if lhs == "" or proj_expr == "":
+        return False
+
+    where_split = _split_top_level_keyword(lhs, "WHERE")
+    if where_split is not None:
+        list_expr = where_split[0].strip()
+        predicate_expr = where_split[1].strip()
+        if list_expr == "" or predicate_expr == "":
+            return False
+        return True
+    if re.search(r"(?i)\bwhere\b", lhs) is not None:
+        return False
+    return lhs != ""
+
+
+def _where_rows_list_comprehension_calls_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    if txt == "":
+        return False
+
+    stack: List[int] = []
+    in_single = False
+    in_double = False
+    escaped = False
+
+    for idx, ch in enumerate(txt):
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            continue
+
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "[":
+            stack.append(idx)
+            continue
+        if ch == "]":
+            if not stack:
+                return False
+            start = stack.pop()
+            if not _where_rows_list_comprehension_segment_well_formed(txt[start : idx + 1]):
+                return False
+    return len(stack) == 0
+
+
 def _where_rows_quantifier_calls_well_formed(expr: str) -> bool:
     txt = expr.strip()
     for match in re.finditer(r"(?is)\b(any|all|none|single)\s*\(", txt):
@@ -417,6 +561,90 @@ def _where_rows_top_level_case_well_formed(expr: str) -> bool:
         and else_split[0].strip() != ""
         and else_split[1].strip() != ""
     )
+
+
+def _where_rows_case_calls_well_formed(expr: str) -> bool:
+    txt = expr.strip()
+    if txt == "":
+        return False
+
+    upper = txt.upper()
+    n = len(txt)
+    i = 0
+    in_single = False
+    in_double = False
+    escaped = False
+    frames: List[Dict[str, bool]] = []
+
+    def _is_word_boundary(pos: int) -> bool:
+        return pos < 0 or pos >= n or not _is_identifier_char(upper[pos])
+
+    while i < n:
+        ch = txt[i]
+        if in_single or in_double:
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if ch == "\\":
+                escaped = True
+                i += 1
+                continue
+            if in_single and ch == "'":
+                in_single = False
+            elif in_double and ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            i += 1
+            continue
+
+        matched = False
+        for kw in ("CASE", "WHEN", "THEN", "ELSE", "END"):
+            k = len(kw)
+            if i + k > n:
+                continue
+            if upper[i : i + k] != kw:
+                continue
+            if not (_is_word_boundary(i - 1) and _is_word_boundary(i + k)):
+                continue
+
+            if kw == "CASE":
+                frames.append({"when": False, "then": False, "else": False})
+            elif kw == "WHEN":
+                if frames:
+                    frames[-1]["when"] = True
+            elif kw == "THEN":
+                if frames:
+                    if not frames[-1]["when"]:
+                        return False
+                    frames[-1]["then"] = True
+            elif kw == "ELSE":
+                if frames:
+                    if not frames[-1]["then"]:
+                        return False
+                    frames[-1]["else"] = True
+            elif kw == "END":
+                if frames:
+                    top = frames.pop()
+                    if not (top["when"] and top["then"] and top["else"]):
+                        return False
+            i += k
+            matched = True
+            break
+
+        if matched:
+            continue
+        i += 1
+
+    return len(frames) == 0
 
 
 # Type validators
@@ -590,9 +818,11 @@ def is_where_rows_expr(v: Any) -> bool:
         return False
     if not _where_rows_quantifier_calls_well_formed(txt_lex):
         return False
-    if not _where_rows_top_level_case_well_formed(txt_lex):
+    if not _where_rows_list_comprehension_calls_well_formed(txt_lex):
         return False
-    if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\s]+", txt) is None:
+    if not _where_rows_case_calls_well_formed(txt_lex):
+        return False
+    if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\|\s]+", txt) is None:
         return False
     return True
 
@@ -700,6 +930,13 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
                 expr_clean,
             )
         )
+        list_comp_vars = set(
+            re.findall(
+                r"(?is)\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
+                expr_clean,
+            )
+        )
+        scoped_vars = quantifier_vars | list_comp_vars
         ids = set()
         for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean):
             name = match.group(1)
@@ -743,7 +980,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
             "toboolean",
             "tostring",
         }
-        out.extend([name for name in ids if name.lower() not in reserved and name not in quantifier_vars])
+        out.extend([name for name in ids if name.lower() not in reserved and name not in scoped_vars])
     return sorted(set(out))
 
 
