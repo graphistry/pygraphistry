@@ -1,6 +1,6 @@
 import graphistry, IPython
 from common import NoAuthTestCase
-from mock import patch
+from unittest.mock import patch
 from graphistry.render.resolve_render_mode import resolve_cascaded
 from graphistry.tests.test_plotter import Fake_Response, triangleEdges
 
