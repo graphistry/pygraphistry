@@ -1759,18 +1759,14 @@ class TestRowPipelineSafelist:
             validate_call_params("where_rows", {"expr": "size(,vals) > 0"})
         assert exc_info.value.code == ErrorCode.E201
 
-    def test_row_pipeline_where_rows_parser_modes(self, monkeypatch):
+    def test_row_pipeline_where_rows_parser_authority(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_parse_ok", lambda _expr: False)
+        monkeypatch.setattr(
+            call_safelist,
+            "_where_rows_expr_parser_fn",
+            lambda: (lambda _expr: object(), lambda _node: [], lambda _node: set()),
+        )
 
-        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "shadow")
-        params = validate_call_params("where_rows", {"expr": "score > 1"})
-        assert params == {"expr": "score > 1"}
-
-        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "off")
-        params = validate_call_params("where_rows", {"expr": "score > 1"})
-        assert params == {"expr": "score > 1"}
-
-        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "score > 1"})
         assert exc_info.value.code == ErrorCode.E201
@@ -1787,7 +1783,6 @@ class TestRowPipelineSafelist:
             "_where_rows_expr_parser_fn",
             lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
         )
-        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
         # Old lexical checks reject '==', but strict parser authority should control when parser is available.
         params = validate_call_params("where_rows", {"expr": "score == 1"})
         assert params == {"expr": "score == 1"}
@@ -1804,7 +1799,6 @@ class TestRowPipelineSafelist:
             "_where_rows_expr_parser_fn",
             lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
         )
-        monkeypatch.setenv("GFQL_EXPR_PARSER_MODE", "strict")
         with pytest.raises(GFQLTypeError) as exc_info:
             validate_call_params("where_rows", {"expr": "score > 1"})
         assert exc_info.value.code == ErrorCode.E201

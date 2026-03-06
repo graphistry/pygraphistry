@@ -31,7 +31,6 @@ Usage:
     g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
-import os
 import re
 from functools import lru_cache
 from typing import Dict, Any, List, Set
@@ -1092,13 +1091,6 @@ def _where_rows_function_call_args_well_formed(expr: str) -> bool:
     return True
 
 
-def _where_rows_expr_parser_mode() -> str:
-    mode = str(os.getenv("GFQL_EXPR_PARSER_MODE", "shadow")).strip().lower()
-    if mode not in {"off", "shadow", "strict"}:
-        return "shadow"
-    return mode
-
-
 @lru_cache(maxsize=1)
 def _where_rows_expr_parser_fn() -> Any:
     try:
@@ -1107,6 +1099,11 @@ def _where_rows_expr_parser_fn() -> Any:
             parse_expr,
             validate_expr_capabilities,
         )
+        # Ensure parser backend dependencies are available at runtime (e.g., lark).
+        try:
+            parse_expr("1 = 1")
+        except ImportError:
+            return None
         return parse_expr, validate_expr_capabilities, collect_identifiers
     except Exception:
         return None
@@ -1282,12 +1279,12 @@ def is_where_rows_expr(v: Any) -> bool:
     if not is_non_empty_string(v):
         return False
     txt = str(v).strip()
-    parser_mode = _where_rows_expr_parser_mode()
     parser_bundle = _where_rows_expr_parser_fn()
-    # In strict mode with parser available, parser+capability checks are authoritative.
-    if parser_mode == "strict" and parser_bundle is not None:
+    # Parser + capability checker are authoritative whenever parser is available.
+    if parser_bundle is not None:
         return _where_rows_expr_parser_parse_ok(txt)
 
+    # Fallback path for parser-unavailable environments.
     txt_lex = _strip_quoted_string_literals(txt)
     safe_funcs = {
         "abs",
@@ -1339,10 +1336,6 @@ def is_where_rows_expr(v: Any) -> bool:
         return False
     if not _where_rows_case_calls_well_formed(txt_lex):
         return False
-    if parser_mode != "off":
-        parser_ok = _where_rows_expr_parser_parse_ok(txt)
-        if parser_mode == "strict" and not parser_ok:
-            return False
     if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\|\s]+", txt) is None:
         return False
     return True
