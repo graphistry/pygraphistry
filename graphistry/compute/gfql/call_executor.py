@@ -157,7 +157,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Ensure result matches requested engine (defensive coercion)
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
-            result = ensure_engine_match(result, engine)
+            result = ensure_engine_match(cast(Plottable, result), engine)
 
         # Mark as successful
         success = True
