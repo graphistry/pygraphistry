@@ -55,14 +55,16 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
      - ``n({ "age": between(18, 65) })``
 
 .. note::
-   For null-safe comparisons, use ``isna()``/``notna()`` in per-step
-   predicates. All numeric comparison operators (``gt``, ``lt``, ``ge``,
-   ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
-   
-   - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
-   - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
-   - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
-   
+   Null handling and temporal comparisons are separate:
+
+   - Use ``isna()`` / ``notna()`` for null-safe checks:
+     - ``n({ "closed_at": isna() })``
+     - ``n({ "created_at": notna() })``
+   - Use comparison operators for non-null values (including temporal columns):
+     - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
+     - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
+     - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
+
    See :doc:`/gfql/datetime_filtering` for datetime filtering examples.
 
 **Categorical Operators**
