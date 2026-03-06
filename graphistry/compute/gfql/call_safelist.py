@@ -56,13 +56,23 @@ def _where_rows_expr_parser_fn() -> Any:
         return None
 
 
-def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
+def _where_rows_expr_parse(expr: str) -> Any:
     parser_bundle = _where_rows_expr_parser_fn()
     if parser_bundle is None:
-        return False
-    parser, capability_checker, _collect_identifiers = parser_bundle
+        return None
+    parser, capability_checker, collect_identifiers = parser_bundle
     try:
-        node = parser(expr)
+        return parser(expr), capability_checker, collect_identifiers
+    except Exception:
+        return None
+
+
+def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
+        return False
+    node, capability_checker, _collect_identifiers = parsed
+    try:
         capability_errors = capability_checker(node)
         if len(capability_errors) > 0:
             return False
@@ -72,12 +82,11 @@ def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
 
 
 def _where_rows_expr_required_cols(expr: str) -> List[str]:
-    parser_bundle = _where_rows_expr_parser_fn()
-    if parser_bundle is None:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
         return []
-    parser, _capability_checker, collect_identifiers = parser_bundle
+    node, _capability_checker, collect_identifiers = parsed
     try:
-        node = parser(expr)
         names = collect_identifiers(node)
     except Exception:
         return []

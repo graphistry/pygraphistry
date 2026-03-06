@@ -33,6 +33,23 @@ def _mk_graph(nodes_df, edges_df=None):
     return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
 
+def _normalize_expr_eval_output(value):
+    if hasattr(value, "tolist"):
+        out = []
+        for item in value.tolist():
+            if isinstance(item, (list, tuple, dict)):
+                out.append(item)
+                continue
+            if pd.isna(item):
+                out.append(None)
+            else:
+                out.append(item)
+        return out
+    if pd.isna(value):
+        return None
+    return value
+
+
 class TestRowPipelineASTPrimitives:
     def test_row_pipeline_primitives_build_ast_calls(self):
         row_step = rows("nodes", source="a")
@@ -1804,28 +1821,12 @@ class TestRowPipelineSafelist:
             ),
         ]
 
-        def _normalize(value):
-            if hasattr(value, "tolist"):
-                out = []
-                for item in value.tolist():
-                    if isinstance(item, (list, tuple, dict)):
-                        out.append(item)
-                        continue
-                    if pd.isna(item):
-                        out.append(None)
-                    else:
-                        out.append(item)
-                return out
-            if pd.isna(value):
-                return None
-            return value
-
         for ast_node, expr in cases:
             ctx = row_pipeline_mixin._RowPipelineAdapter(g)
             ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
             assert ok, expr
             legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
-            assert _normalize(ast_out) == _normalize(legacy_out)
+            assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
 
     def test_row_pipeline_eval_expr_ast_advanced_parity(self, monkeypatch):
         nodes_df = pd.DataFrame(
@@ -1882,28 +1883,12 @@ class TestRowPipelineSafelist:
             ),
         ]
 
-        def _normalize(value):
-            if hasattr(value, "tolist"):
-                out = []
-                for item in value.tolist():
-                    if isinstance(item, (list, tuple, dict)):
-                        out.append(item)
-                        continue
-                    if pd.isna(item):
-                        out.append(None)
-                    else:
-                        out.append(item)
-                return out
-            if pd.isna(value):
-                return None
-            return value
-
         for ast_node, expr in cases:
             ctx = row_pipeline_mixin._RowPipelineAdapter(g)
             ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
             assert ok, expr
             legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
-            assert _normalize(ast_out) == _normalize(legacy_out)
+            assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
 
     def test_row_pipeline_runtime_ast_path_with_parser_bundle(self, monkeypatch):
         nodes_df = pd.DataFrame({
