@@ -19,6 +19,14 @@ pred2 = gt(pd.Timestamp("2023-01-01"))
 pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
 ```
 
+## Comparator / Operator Mapping
+
+- Python predicate helpers: `gt`, `ge`, `lt`, `le`, `eq`, `ne`
+- Wire predicate types: `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`
+- Same-path chain `where` JSON operators: `gt`, `ge`, `lt`, `le`, `eq`, `neq`
+- Row-expression comparators (`where_rows(expr="...")`):
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
+
 ## 1. DateTime Comparisons
 
 ### Python API

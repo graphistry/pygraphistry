@@ -163,6 +163,10 @@ Use `where_rows(...)` when filtering the active row table selected by
 - `filter_dict={...}` predicate filters.
 - `expr=\"...\"` Cypher-like scalar expressions.
 - both together (AND semantics).
+- In `expr=\"...\"`, comparison operators are `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+- For temporal/date-time row filtering, `filter_dict` uses the same predicate
+  operators as MATCH filters (for example, `gt`, `ge`, `lt`, `le`, `eq`, `ne`,
+  `between`).
 
 Validation behavior:
 
