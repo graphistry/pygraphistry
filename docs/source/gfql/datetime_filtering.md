@@ -121,6 +121,45 @@ See also:
 - {doc}`GFQL WHERE (Same-Path Constraints) <where>`
 - {doc}`GFQL RETURN (Row Pipelines) <return>`
 
+### Temporal WHERE Examples (Valid vs Invalid)
+
+```python
+import pandas as pd
+from datetime import datetime
+
+from graphistry import n, e_forward, col, compare
+from graphistry.compute import rows, where_rows, return_, lt
+
+# 1) Same-path WHERE (MATCH-stage): use compare(..., op, ...)
+g.gfql(
+    [
+        n({"type": "event"}, name="a"),
+        e_forward(name="e"),
+        n({"type": "event"}, name="b"),
+    ],
+    where=[compare(col("a", "created_at"), "<", col("b", "created_at"))],
+)
+
+# 2) Row-pipeline WHERE with predicate helpers: where_rows(filter_dict=...)
+g.gfql([
+    n({"type": "event"}, name="evt"),
+    rows(table="nodes", source="evt"),
+    where_rows(filter_dict={"created_at": lt(pd.Timestamp("2024-01-01T00:00:00Z"))}),
+    return_(["id", "created_at"]),
+])
+
+# 3) Row-pipeline WHERE with expression comparators: where_rows(expr="...")
+g.gfql([
+    n({"type": "event"}, name="evt"),
+    rows(table="nodes", source="evt"),
+    where_rows(expr="created_at < cutoff_ts"),
+    return_(["id", "created_at", "cutoff_ts"]),
+])
+
+# INVALID for same-path WHERE:
+# where=[lt(col("a", "created_at"))]  # predicate helper form is not valid here
+```
+
 ### Date-Only Filtering
 
 For date comparisons (ignoring time):
