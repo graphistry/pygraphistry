@@ -6,7 +6,7 @@ Translate existing Cypher workloads to GPU-accelerated GFQL with minimal code ch
 
 ## Introduction
 
-This specification shows how to translate Cypher queries to both GFQL Python code and :ref:`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
+This specification shows how to translate Cypher queries to both GFQL Python code and {ref}`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
 
 ## What Maps 1-to-1
 
@@ -30,6 +30,39 @@ When translating from Cypher, you'll encounter three scenarios:
 - Sorting/paging: `order_by(...)`, `skip(...)`, `limit(...)`
 - Deduplication: `distinct()`
 - Aggregation: `group_by(keys=[...], aggregations=[...])`
+
+These row-pipeline operators are call steps inside the same chain list passed to
+`g.gfql([...])` (or to `Chain([...])`), not top-level `g.gfql()` keyword args:
+
+```python
+from graphistry import n, e_forward
+from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+g.gfql([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_([("id", "id"), ("name", "name"), ("score", "score")]),
+    order_by([("score", "desc")]),
+    limit(25),
+])
+```
+
+```python
+from graphistry.compute.chain import Chain
+
+query = Chain([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+])
+g.gfql(query)
+```
 
 ## When You Still Need DataFrames
 - Unsupported Cypher clauses (for example `OPTIONAL MATCH`)
@@ -81,6 +114,24 @@ g.gfql([
 | `(n {prop: val})` | `n({"prop": val})` | `{"type": "Node", "filter_dict": {"prop": val}}` |
 | `(n) WHERE n.a > 10` | `n({"a": gt(10)})` | `{"type": "Node", "filter_dict": {"a": {"type": "GT", "val": 10}}}` |
 | `(n:Person) WHERE n.age > 30` | `n({"type": "Person", "age": gt(30)})` | `{"type": "Node", "filter_dict": {"type": "Person", "age": {"type": "GT", "val": 30}}}` |
+
+### Row-Pipeline Translation Tables
+
+Use these as chain steps inside `g.gfql([...])` / `Chain([...])`.
+
+| Cypher | Python chain step | Wire Protocol call (compact) |
+|--------|-------------------|-------------------------------|
+| `RETURN q.id, q.name` | `return_(["id", "name"])` | `{"type":"Call","function":"select","params":{"items":[["id","id"],["name","name"]]}}` |
+| `RETURN q.id AS person_id` | `return_([("person_id", "id")])` | `{"type":"Call","function":"select","params":{"items":[["person_id","id"]]}}` |
+| `WITH q.id AS id, q.score AS s` | `with_([("id", "id"), ("s", "score")])` | `{"type":"Call","function":"with_","params":{"items":[["id","id"],["s","score"]]}}` |
+| `WHERE <row expr>` after `MATCH` | `where_rows(expr="score >= 50")` | `{"type":"Call","function":"where_rows","params":{"expr":"score >= 50"}}` |
+| `WHERE` with predicate helpers in row stage | `where_rows(filter_dict={"created_at": gt(ts)})` | `{"type":"Call","function":"where_rows","params":{"filter_dict":{"created_at":{"type":"GT","val":...}}}}` |
+| `ORDER BY score DESC, name ASC` | `order_by([("score", "desc"), ("name", "asc")])` | `{"type":"Call","function":"order_by","params":{"keys":[["score","desc"],["name","asc"]]}}` |
+| `SKIP 20` | `skip(20)` | `{"type":"Call","function":"skip","params":{"value":20}}` |
+| `LIMIT 10` | `limit(10)` | `{"type":"Call","function":"limit","params":{"value":10}}` |
+| `RETURN DISTINCT ...` | `distinct()` | `{"type":"Call","function":"distinct","params":{}}` |
+| `GROUP BY category` with `count(*)` | `group_by(keys=["category"], aggregations=[("cnt","count")])` | `{"type":"Call","function":"group_by","params":{"keys":["category"],"aggregations":[["cnt","count"]]}}` |
+| Scope rows to alias `q` | `rows(table="nodes", source="q")` | `{"type":"Call","function":"rows","params":{"table":"nodes","source":"q"}}` |
 
 ### Same-Path WHERE Predicates
 
@@ -357,10 +408,13 @@ analysis = g.gfql([
 | **Collections** | `is_in([...])` | `{"type": "IsIn", "options": [...]}` |
 
 ## Not Supported
-- `OPTIONAL MATCH` - No equivalent (would need outer joins)
-- `CREATE`, `DELETE`, `SET` - GFQL is read-only
-- Full Cypher expression/function surface in row expressions - subset only (validator rejects unsupported forms)
-- Multiple `MATCH` patterns - Use separate chains or joins
+- `CREATE`, `DELETE`, `SET`: GFQL is read-only.
+- `OPTIONAL MATCH`: no direct equivalent yet (requires outer-join semantics).
+- Full Cypher expression/function surface in row expressions: current vectorized subset only.
+- Multiple disconnected `MATCH` patterns in one query: use separate GFQL chains and explicit dataframe joins.
+
+Practical fallback: keep pattern traversal and row-pipeline stages in GFQL, then
+apply final custom dataframe logic in pandas/cuDF when needed.
 
 ## Best Practices
 

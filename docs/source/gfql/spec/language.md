@@ -313,6 +313,41 @@ Cypher-style `MATCH ... RETURN` processing:
 - `unwind(...)`: expand list-valued expressions into rows
 - `group_by(...)`: grouped vectorized aggregations
 
+Row-pipeline operators are part of the chain list itself (not top-level
+`g.gfql()` keyword arguments):
+
+```python
+from graphistry import n, e_forward
+from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+g.gfql([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_([("id", "id"), ("name", "name"), ("score", "score")]),
+    order_by([("score", "desc"), ("name", "asc")]),
+    limit(25),
+])
+```
+
+Equivalent explicit `Chain` form:
+
+```python
+from graphistry.compute.chain import Chain
+
+query = Chain([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+])
+g.gfql(query)
+```
+
 `where=[...]` and `where_rows(...)` are intentionally different:
 - `where=[...]` compares values across named path aliases in the MATCH pattern.
 - `where_rows(...)` evaluates scalar expressions against the active row table.
