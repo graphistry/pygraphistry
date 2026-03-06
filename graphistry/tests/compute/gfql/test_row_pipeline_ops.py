@@ -1832,24 +1832,30 @@ class TestRowPipelineSafelist:
         assert "threshold" in cols
         assert "x" not in cols
 
-    def test_row_pipeline_runtime_parser_modes(self, monkeypatch):
+    def test_row_pipeline_runtime_parser_authority(self, monkeypatch):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
         })
         g = _mk_graph(nodes_df)
 
-        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_ok", lambda _expr: False)
-
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "shadow")
+        # Parser unavailable -> runtime falls back to legacy evaluator.
+        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: None)
         result = g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
         assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
 
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
-        result = g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
-        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+        # Parser available + parse failure -> runtime failfast.
+        def fake_parse(_expr):
+            raise ValueError("bad parse")
 
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "strict")
+        def fake_capabilities(_node):
+            return []
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_expr_runtime_parser_bundle",
+            lambda: (fake_parse, fake_capabilities, expr_parser),
+        )
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
         assert exc_info.value.code == ErrorCode.E303

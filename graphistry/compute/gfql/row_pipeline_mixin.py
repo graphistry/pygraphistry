@@ -52,6 +52,11 @@ def _gfql_expr_runtime_parser_bundle() -> Any:
     try:
         import graphistry.compute.gfql.expr_parser as expr_parser_mod
         from graphistry.compute.gfql.expr_parser import parse_expr, validate_expr_capabilities
+        # Ensure parser backend dependency is present (e.g., lark).
+        try:
+            parse_expr("1 = 1")
+        except ImportError:
+            return None
         return parse_expr, validate_expr_capabilities, expr_parser_mod
     except Exception:
         return None
@@ -243,16 +248,20 @@ class RowPipelineMixin:
         return col
 
     def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
-        parser_bundle = _gfql_expr_runtime_parser_bundle()
-        if parser_bundle is None:
+        try:
+            import graphistry.compute.gfql.expr_parser as expr_parser_mod
+        except Exception:
             return False, None
-        _parse_expr, _validate_expr_capabilities, expr_parser_mod = parser_bundle
 
         Identifier = expr_parser_mod.Identifier
         Literal = expr_parser_mod.Literal
         UnaryOp = expr_parser_mod.UnaryOp
         BinaryOp = expr_parser_mod.BinaryOp
         IsNullOp = expr_parser_mod.IsNullOp
+        FunctionCall = expr_parser_mod.FunctionCall
+        CaseWhen = expr_parser_mod.CaseWhen
+        ListLiteral = expr_parser_mod.ListLiteral
+        MapLiteral = expr_parser_mod.MapLiteral
 
         if isinstance(node, Identifier):
             txt = node.name
@@ -268,6 +277,53 @@ class RowPipelineMixin:
             if isinstance(value, (list, tuple, dict)):
                 return True, self._gfql_broadcast_scalar(table_df, value)
             return True, value
+
+        if isinstance(node, ListLiteral):
+            item_values: List[Any] = []
+            for item in node.items:
+                ok, val = self._gfql_eval_expr_ast(table_df, item)
+                if not ok:
+                    return False, None
+                item_values.append(val)
+            if not any(hasattr(val, "astype") for val in item_values):
+                return True, list(item_values)
+
+            row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_row__")
+            ord_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_ord__")
+            val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_val__")
+
+            base = table_df.assign(**{row_col: range(len(table_df))})[[row_col]]
+            value_cols: List[str] = []
+            for idx, val in enumerate(item_values):
+                if not hasattr(val, "astype"):
+                    val = self._gfql_broadcast_scalar(table_df, val)
+                col = RowPipelineMixin._gfql_fresh_col_name(base.columns, f"__gfql_ast_item_{idx}__")
+                base[col] = val
+                value_cols.append(col)
+
+            melted = base.melt(id_vars=[row_col], value_vars=value_cols, var_name=ord_col, value_name=val_col)
+            order_map = {col: idx for idx, col in enumerate(value_cols)}
+            if hasattr(melted[ord_col], "map"):
+                melted[ord_col] = melted[ord_col].map(order_map)
+            else:
+                melted[ord_col] = melted[ord_col].replace(order_map)
+            melted[ord_col] = melted[ord_col].astype("int64")
+            melted = melted.sort_values(by=[row_col, ord_col], kind="mergesort")
+            grouped = melted.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
+            out = base[[row_col]].merge(grouped, on=row_col, how="left", sort=False)[val_col]
+            return True, out.reset_index(drop=True)
+
+        if isinstance(node, MapLiteral):
+            out_map: Dict[str, Any] = {}
+            for key, value_node in node.items:
+                ok, value = self._gfql_eval_expr_ast(table_df, value_node)
+                if not ok:
+                    return False, None
+                if hasattr(value, "astype"):
+                    # Vector map values are deferred to legacy evaluator for now.
+                    return False, None
+                out_map[str(key)] = value
+            return True, out_map
 
         if isinstance(node, IsNullOp):
             ok, value = self._gfql_eval_expr_ast(table_df, node.value)
@@ -365,6 +421,126 @@ class RowPipelineMixin:
                 return True, left % right
 
             return False, None
+
+        if isinstance(node, FunctionCall):
+            fn = str(node.name).lower()
+            values: List[Any] = []
+            for arg in node.args:
+                ok, val = self._gfql_eval_expr_ast(table_df, arg)
+                if not ok:
+                    return False, None
+                values.append(val)
+
+            if fn == "size" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "str") and hasattr(inner.str, "len"):
+                    return True, inner.str.len()
+                try:
+                    return True, len(inner)
+                except Exception:
+                    return False, None
+
+            if fn == "abs" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "abs"):
+                    return True, inner.abs()
+                return True, abs(inner)
+
+            if fn == "toboolean" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    normalized = inner.astype(str).str.strip().str.lower()
+                    true_mask = normalized.isin(["true", "t", "1", "yes"])
+                    false_mask = normalized.isin(["false", "f", "0", "no"])
+                    unsupported_mask = ~(true_mask | false_mask | null_mask)
+                    if hasattr(unsupported_mask, "any") and bool(unsupported_mask.any()):
+                        return False, None
+                    out = true_mask.where(~false_mask, False)
+                    return True, out.where(~null_mask, pd.NA)
+                if RowPipelineMixin._gfql_is_null_scalar(inner):
+                    return True, None
+                if isinstance(inner, bool):
+                    return True, inner
+                if isinstance(inner, (int, float)):
+                    return True, inner != 0
+                txt_inner = str(inner).strip().lower()
+                if txt_inner in {"true", "t", "1", "yes"}:
+                    return True, True
+                if txt_inner in {"false", "f", "0", "no"}:
+                    return True, False
+                return False, None
+
+            if fn == "tostring" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.astype(str)
+                    if hasattr(out, "str"):
+                        out = out.str.replace(r"^True$", "true", regex=True)
+                        out = out.str.replace(r"^False$", "false", regex=True)
+                    return True, out.where(~null_mask, None)
+                if RowPipelineMixin._gfql_is_null_scalar(inner):
+                    return True, None
+                if isinstance(inner, bool):
+                    return True, ("true" if inner else "false")
+                return True, str(inner)
+
+            if fn == "coalesce" and len(values) >= 1:
+                out = values[0]
+                if not hasattr(out, "astype"):
+                    out = self._gfql_broadcast_scalar(table_df, out)
+                for candidate in values[1:]:
+                    if not hasattr(candidate, "astype"):
+                        candidate = self._gfql_broadcast_scalar(table_df, candidate)
+                    null_mask = self._gfql_null_mask(table_df, out)
+                    out = out.where(~null_mask, candidate)
+                return True, out
+
+            if fn == "sign" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    gt = inner > 0
+                    lt = inner < 0
+                    out = self._gfql_broadcast_scalar(table_df, 0)
+                    out = out.where(~gt, 1)
+                    out = out.where(~lt, -1)
+                    return True, out.where(~null_mask, pd.NA)
+                if RowPipelineMixin._gfql_is_null_scalar(inner):
+                    return True, None
+                if inner > 0:
+                    return True, 1
+                if inner < 0:
+                    return True, -1
+                return True, 0
+
+            if fn in {"head", "tail", "reverse", "nodes", "relationships"} and len(values) == 1:
+                inner = values[0]
+                if fn in {"nodes", "relationships"}:
+                    return True, inner
+                if hasattr(inner, "str"):
+                    return True, RowPipelineMixin._gfql_eval_sequence_fn_series(inner, fn, f"ast {fn}")
+                return True, RowPipelineMixin._gfql_eval_sequence_fn_scalar(inner, fn, f"ast {fn}")
+
+            return False, None
+
+        if isinstance(node, CaseWhen):
+            ok_cond, cond_value = self._gfql_eval_expr_ast(table_df, node.condition)
+            if not ok_cond:
+                return False, None
+            ok_true, true_value = self._gfql_eval_expr_ast(table_df, node.when_true)
+            ok_false, false_value = self._gfql_eval_expr_ast(table_df, node.when_false)
+            if not (ok_true and ok_false):
+                return False, None
+            if not hasattr(true_value, "astype"):
+                true_value = self._gfql_broadcast_scalar(table_df, true_value)
+            if not hasattr(false_value, "astype"):
+                false_value = self._gfql_broadcast_scalar(table_df, false_value)
+            cond_mask = self._gfql_bool_mask(table_df, cond_value)
+            cond_null = self._gfql_null_mask(table_df, cond_value)
+            cond_true = cond_mask & ~cond_null
+            return True, true_value.where(cond_true, false_value)
 
         return False, None
     _GFQL_LIST_NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
@@ -1358,40 +1534,38 @@ class RowPipelineMixin:
 
         return result.reset_index(drop=True)
 
+    @staticmethod
+    def _gfql_ast_fallback_allowed(node: Any, expr_parser_mod: Any) -> bool:
+        fallback_types = (
+            expr_parser_mod.QuantifierExpr,
+            expr_parser_mod.ListComprehension,
+            expr_parser_mod.SubscriptExpr,
+            expr_parser_mod.SliceExpr,
+        )
+        return isinstance(node, fallback_types)
+
     def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
         txt = self._gfql_strip_outer_parens(expr.strip())
-        parser_mode = _gfql_expr_runtime_parser_mode()
-        if parser_mode != "off":
-            parser_ok = _gfql_expr_runtime_parser_ok(txt)
-            if parser_mode == "strict" and not parser_ok:
+        parser_bundle = _gfql_expr_runtime_parser_bundle()
+        if parser_bundle is not None:
+            parser, capability_checker, expr_parser_mod = parser_bundle
+            try:
+                ast_node = parser(txt)
+                capability_errors = capability_checker(ast_node)
+            except Exception as exc:
+                raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}") from exc
+
+            if len(capability_errors) > 0:
                 raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
 
-        eval_mode = _gfql_expr_runtime_eval_mode()
-        if eval_mode != "off":
-            parser_bundle = _gfql_expr_runtime_parser_bundle()
-            if parser_bundle is None:
-                if eval_mode == "strict":
-                    raise ValueError(f"unsupported row expression: parser unavailable in {expr!r}")
-            else:
-                parser, capability_checker, _expr_parser_mod = parser_bundle
-                try:
-                    ast_node = parser(txt)
-                    capability_errors = capability_checker(ast_node)
-                except Exception:
-                    ast_node = None
-                    capability_errors = ["parse_failed"]
-
-                if ast_node is not None and len(capability_errors) == 0:
-                    try:
-                        ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
-                    except Exception:
-                        ast_ok, ast_value = False, None
-                    if ast_ok and eval_mode == "strict":
-                        return ast_value
-                    if not ast_ok and eval_mode == "strict":
-                        raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
-                elif eval_mode == "strict":
-                    raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
+            try:
+                ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
+            except Exception:
+                ast_ok, ast_value = False, None
+            if ast_ok:
+                return ast_value
+            if not RowPipelineMixin._gfql_ast_fallback_allowed(ast_node, expr_parser_mod):
+                raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
 
         if txt in table_df.columns:
             return table_df[txt]
