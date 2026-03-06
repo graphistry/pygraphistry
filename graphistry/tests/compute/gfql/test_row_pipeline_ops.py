@@ -1867,10 +1867,12 @@ class TestRowPipelineSafelist:
         })
         g = _mk_graph(nodes_df)
 
-        # Parser unavailable -> runtime falls back to legacy evaluator.
+        # Parser unavailable -> runtime fails fast.
         monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: None)
-        result = g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
-        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
+        assert exc_info.value.code == ErrorCode.E303
+        assert "parser backend unavailable" in exc_info.value.message
 
         # Parser available + parse failure -> runtime failfast.
         def fake_parse(_expr):
@@ -1969,9 +1971,6 @@ class TestRowPipelineSafelist:
         )
         g = _mk_graph(nodes_df)
         table_df = g._nodes
-
-        # Force string-path comparisons through legacy evaluator to verify AST parity.
-        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: None)
 
         cases = [
             (
