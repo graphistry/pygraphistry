@@ -75,6 +75,7 @@ g.gfql(
 
 ```json
 {
+  "type": "Chain",
   "chain": [
     {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
     {"type": "Edge", "direction": "forward"},
@@ -83,6 +84,16 @@ g.gfql(
   "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
 }
 ```
+
+WHERE context boundaries:
+- Same-path `where=[...]` uses `compare(col(...), op, col(...))` with
+  `op` in `==`, `!=`, `<`, `<=`, `>`, `>=`.
+- Predicate helper calls (for example, `gt(...)`, `between(...)`) are not used
+  inside same-path `where=[...]`.
+- Row-table filtering after `rows(...)` uses `where_rows(...)`:
+  - `where_rows(filter_dict=...)` supports predicate helpers.
+  - `where_rows(expr="...")` uses expression comparators
+    `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
 
 #### Operations
 
@@ -109,15 +120,15 @@ Type system matching modern data formats:
 
 ## Formal Grammar
 
-```{code-block} ebnf
+```{code-block} text
 :caption: GFQL Grammar in Extended Backus-Naur Form
 
 (* Entry point *)
 query ::= chain
 
 (* Chain - path pattern expression *)
-chain ::= "[" step ("," step)* "]" where_clause?
-step ::= operation | row_operation
+chain ::= "[" step ("," step)* "]"
+step ::= operation | row_operation | call_operation
 
 (* Graph operations *)
 operation ::= node_matcher | edge_matcher
@@ -135,10 +146,10 @@ edge_reverse ::= "e_reverse(" edge_params? ")"
 edge_undirected ::= ("e" | "e_undirected") "(" edge_params? ")"
 
 (* WHERE (same-path constraints) *)
-where_clause ::= ", where=" where_list
+where_clause ::= "where=" where_list
 where_list ::= "[" where_expr ("," where_expr)* "]"
-where_expr ::= where_op "(" column_ref "," column_ref ")"
-where_op ::= "eq" | "neq" | "gt" | "lt" | "ge" | "le"
+where_expr ::= "compare(" column_ref "," compare_op "," column_ref ")"
+compare_op ::= "'=='" | "'!='" | "'<'" | "'<='" | "'>'" | "'>='"
 column_ref ::= alias "." column
 alias ::= identifier
 column ::= identifier
@@ -147,18 +158,22 @@ column ::= identifier
 row_operation ::= rows_op | where_rows_op | select_op | with_op | return_op
                 | order_by_op | skip_op | limit_op | distinct_op
                 | unwind_op | group_by_op
-rows_op ::= "rows(" ("table=" ("'nodes'" | "'edges'"))? ("," "source=" string)? ")"
-where_rows_op ::= "where_rows(" ("filter_dict=" filter_dict)? ("," "expr=" string)? ")"
-select_op ::= "select(" "items=" projection_items ")"
-with_op ::= "with_(" "items=" projection_items ")"
-return_op ::= "return_(" "items=" projection_items ")"
+call_operation ::= "call(" string ("," params_object)? ")"
+params_object ::= "{" (string ":" value_or_expr ("," string ":" value_or_expr)*)? "}"
+rows_op ::= "rows(" (rows_arg ("," rows_arg)*)? ")"
+rows_arg ::= "table=" ("'nodes'" | "'edges'") | "source=" string
+where_rows_op ::= "where_rows(" (where_rows_arg ("," where_rows_arg)*)? ")"
+where_rows_arg ::= "filter_dict=" filter_dict | "expr=" string
+select_op ::= "select(" (projection_items | "items=" projection_items) ")"
+with_op ::= "with_(" (projection_items | "items=" projection_items) ")"
+return_op ::= "return_(" (projection_items | "items=" projection_items) ")"
 projection_items ::= "[" projection_item ("," projection_item)* "]"
 projection_item ::= string | "(" string "," value_or_expr ")"
 value_or_expr ::= value | string
-order_by_op ::= "order_by(" "keys=" order_keys ")"
+order_by_op ::= "order_by(" (order_keys | "keys=" order_keys) ")"
 order_keys ::= "[" "(" value_or_expr "," ("'asc'" | "'desc'") ")" ("," "(" value_or_expr "," ("'asc'" | "'desc'") ")")* "]"
-skip_op ::= "skip(" "value=" integer ")"
-limit_op ::= "limit(" "value=" integer ")"
+skip_op ::= "skip(" (integer | "value=" integer) ")"
+limit_op ::= "limit(" (integer | "value=" integer) ")"
 distinct_op ::= "distinct()"
 unwind_op ::= "unwind(" "expr=" value_or_expr ("," "as_=" string)? ")"
 group_by_op ::= "group_by(" "keys=" "[" string ("," string)* "]" "," "aggregations=" "[" aggregation_spec ("," aggregation_spec)* "]" ")"

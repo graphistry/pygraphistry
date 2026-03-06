@@ -25,7 +25,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 ```json
 {
   "type": "MessageType",
-  ...additional fields...
+  "payload": {}
 }
 ```
 
@@ -333,6 +333,16 @@ vary by operator.
 ```
 `where_rows.expr` supports comparison operators:
 `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+`where_rows` can also use predicate dictionaries on the active row table:
+```json
+{"type": "Call", "function": "where_rows", "params": {"filter_dict": {"score": {"type": "GE", "val": 50}}}}
+```
+
+WHERE context summary:
+- Chain-level same-path `where` uses lower-case operator keys (`eq`, `neq`,
+  `lt`, `le`, `gt`, `ge`) with `left`/`right` alias-column references.
+- Row-level `where_rows(filter_dict=...)` uses predicate envelopes like
+  `GT`, `GE`, `LT`, `LE`, `EQ`, `NE` on active row-table columns.
 
 `select`:
 ```json
