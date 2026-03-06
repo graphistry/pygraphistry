@@ -6,28 +6,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 
 import pandas as pd
 
-from graphistry.compute.gfql.row_expr_text import (
-    gfql_find_matching_case_end,
-    gfql_find_top_level_char,
-    gfql_normalize_json_like_literal,
-    gfql_parse_case_when_expr,
-    gfql_parse_cypher_literal,
-    gfql_parse_cypher_structured_literal,
-    gfql_parse_function_call,
-    gfql_parse_list_comprehension_expr,
-    gfql_parse_literal_token,
-    gfql_parse_quantifier_expr,
-    gfql_parse_quoted_string_literal,
-    gfql_parse_structured_literal,
-    gfql_parse_subscript_expr,
-    gfql_replace_identifier,
-    gfql_split_top_level_commas,
-    gfql_split_top_level_keyword,
-    gfql_split_top_level_operator,
-    gfql_strip_outer_parens,
-)
-
-
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
@@ -90,18 +68,6 @@ class _RowPipelineContext(Protocol):
         ...
 
     def select(self, items: List[Any]) -> "Plottable":
-        ...
-
-    @staticmethod
-    def _gfql_strip_outer_parens(expr: str) -> str:
-        ...
-
-    @staticmethod
-    def _gfql_split_top_level_keyword(expr: str, keyword: str) -> Optional[Tuple[str, str]]:
-        ...
-
-    @staticmethod
-    def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
         ...
 
     def _gfql_broadcast_scalar(self, table_df: Any, value: Any) -> Any:
@@ -1007,46 +973,6 @@ class RowPipelineMixin:
         return out, [day_col, nanos_col]
 
     @staticmethod
-    def _gfql_strip_outer_parens(expr: str) -> str:
-        return gfql_strip_outer_parens(expr)
-
-    @staticmethod
-    def _gfql_split_top_level_keyword(expr: str, keyword: str) -> Optional[Tuple[str, str]]:
-        return gfql_split_top_level_keyword(expr, keyword)
-
-    @staticmethod
-    def _gfql_split_top_level_operator(
-        expr: str, operators: Sequence[str]
-    ) -> Optional[Tuple[str, str, str]]:
-        return gfql_split_top_level_operator(expr, operators)
-
-    @staticmethod
-    def _gfql_split_top_level_commas(expr: str) -> List[str]:
-        return gfql_split_top_level_commas(expr)
-
-    @staticmethod
-    def _gfql_parse_quantifier_expr(expr: str) -> Optional[Tuple[str, str, str, str]]:
-        return gfql_parse_quantifier_expr(expr)
-
-    @staticmethod
-    def _gfql_parse_function_call(expr: str, fn_name: str) -> Optional[str]:
-        return gfql_parse_function_call(expr, fn_name)
-
-    @staticmethod
-    def _gfql_parse_list_comprehension_expr(
-        expr: str,
-    ) -> Optional[Tuple[str, str, Optional[str], str]]:
-        return gfql_parse_list_comprehension_expr(expr)
-
-    @staticmethod
-    def _gfql_find_matching_case_end(expr: str) -> int:
-        return gfql_find_matching_case_end(expr)
-
-    @staticmethod
-    def _gfql_parse_case_when_expr(expr: str) -> Optional[Tuple[str, str, str]]:
-        return gfql_parse_case_when_expr(expr)
-
-    @staticmethod
     def _gfql_series_is_list_like(series: Any) -> bool:
         if not hasattr(series, "dropna"):
             return False
@@ -1168,10 +1094,6 @@ class RowPipelineMixin:
             return left_txt.endswith(right_txt)
         raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
 
-    @staticmethod
-    def _gfql_replace_identifier(expr: str, identifier: str, replacement: str) -> str:
-        return gfql_replace_identifier(expr, identifier, replacement)
-
     def _gfql_broadcast_scalar(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
         tmp_col = "__gfql_tmp_scalar__"
         while tmp_col in table_df.columns:
@@ -1210,38 +1132,6 @@ class RowPipelineMixin:
             RowPipelineMixin._gfql_is_null_scalar(value),
         ).astype(bool)
 
-    @staticmethod
-    def _gfql_parse_structured_literal(text: str) -> Tuple[bool, Any]:
-        return gfql_parse_structured_literal(text)
-
-    @staticmethod
-    def _gfql_find_top_level_char(text: str, target: str) -> int:
-        return gfql_find_top_level_char(text, target)
-
-    @staticmethod
-    def _gfql_parse_subscript_expr(expr: str) -> Optional[Tuple[str, str]]:
-        return gfql_parse_subscript_expr(expr)
-
-    @staticmethod
-    def _gfql_parse_quoted_string_literal(token: str) -> str:
-        return gfql_parse_quoted_string_literal(token)
-
-    @staticmethod
-    def _gfql_parse_cypher_literal(text: str) -> Any:
-        return gfql_parse_cypher_literal(text)
-
-    @staticmethod
-    def _gfql_parse_cypher_structured_literal(text: str) -> Tuple[bool, Any]:
-        return gfql_parse_cypher_structured_literal(text)
-
-    @staticmethod
-    def _gfql_normalize_json_like_literal(value: Any) -> Tuple[bool, Any]:
-        return gfql_normalize_json_like_literal(value)
-
-    @staticmethod
-    def _gfql_parse_literal_token(token: str) -> Tuple[bool, Any]:
-        return gfql_parse_literal_token(token)
-
     def _gfql_resolve_token(self: _RowPipelineContext, table_df: Any, token: str) -> Any:
         txt = token.strip()
         if txt in table_df.columns:
@@ -1257,106 +1147,7 @@ class RowPipelineMixin:
                     pass
             if prop in table_df.columns:
                 return table_df[prop]
-        is_lit, lit = self._gfql_parse_literal_token(txt)
-        if is_lit:
-            if isinstance(lit, (list, tuple, dict)):
-                return self._gfql_broadcast_scalar(table_df, lit)
-            return lit
         raise ValueError(f"unsupported token in row expression: {token!r}")
-
-    def _gfql_eval_quantifier_expr(
-        self: _RowPipelineContext,
-        table_df: Any,
-        fn: str,
-        var: str,
-        list_expr: str,
-        predicate_expr: str,
-    ) -> Any:
-        list_value = self._gfql_eval_string_expr(table_df, list_expr)
-        list_series = list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
-
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_row__")
-        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_list__")
-        total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total__")
-        var_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, f"__gfql_q_{var}__")
-
-        base = table_df.assign(
-            **{
-                row_col: range(len(table_df)),
-                list_col: list_series,
-            }
-        )
-        list_null_mask = self._gfql_null_mask(base, base[list_col])
-        if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
-            total_series = base[list_col].str.len()
-        else:
-            total_series = self._gfql_broadcast_scalar(base, pd.NA)
-        if hasattr(total_series, "where"):
-            total_series = total_series.where(~total_series.isna(), 1)
-            total_series = total_series.where(~list_null_mask, pd.NA)
-        base = base.assign(**{total_col: total_series})
-
-        # Keep outer-scope columns so nested quantifiers can reference them.
-        expanded = base.explode(list_col)
-        expanded = expanded.assign(**{var_col: expanded[list_col]})
-        expanded = expanded.reset_index(drop=True)
-        rewritten_predicate = RowPipelineMixin._gfql_replace_identifier(
-            predicate_expr, var, var_col
-        )
-        predicate_value = self._gfql_eval_string_expr(expanded, rewritten_predicate)
-        if not hasattr(predicate_value, "astype"):
-            predicate_value = self._gfql_broadcast_scalar(expanded, predicate_value)
-
-        predicate_null = self._gfql_null_mask(expanded, predicate_value)
-        predicate_bool = self._gfql_bool_mask(expanded, predicate_value)
-        predicate_true = predicate_bool & ~predicate_null
-        predicate_false = (~predicate_bool) & ~predicate_null
-
-        agg = (
-            expanded.assign(
-                __gfql_q_true=predicate_true.astype("int64"),
-                __gfql_q_false=predicate_false.astype("int64"),
-                __gfql_q_null=predicate_null.astype("int64"),
-            )
-            .groupby(row_col, sort=False)[["__gfql_q_true", "__gfql_q_false", "__gfql_q_null"]]
-            .sum()
-            .reset_index()
-        )
-        summary = base[[row_col, total_col]].merge(agg, on=row_col, how="left")
-        summary = summary.assign(
-            __gfql_q_true=summary["__gfql_q_true"].fillna(0),
-            __gfql_q_false=summary["__gfql_q_false"].fillna(0),
-            __gfql_q_null=summary["__gfql_q_null"].fillna(0),
-        )
-        empty_mask = summary[total_col] == 0
-        summary.loc[empty_mask, "__gfql_q_true"] = 0
-        summary.loc[empty_mask, "__gfql_q_false"] = 0
-        summary.loc[empty_mask, "__gfql_q_null"] = 0
-
-        true_count = summary["__gfql_q_true"]
-        false_count = summary["__gfql_q_false"]
-        null_count = summary["__gfql_q_null"]
-        total_count = summary[total_col]
-        has_null_list = self._gfql_null_mask(summary, total_count)
-
-        if fn == "any":
-            out = true_count > 0
-            unknown = (true_count == 0) & (null_count > 0)
-        elif fn == "all":
-            out = false_count == 0
-            unknown = (false_count == 0) & (null_count > 0) & (total_count > 0)
-        elif fn == "none":
-            out = true_count == 0
-            unknown = (true_count == 0) & (null_count > 0) & (total_count > 0)
-        elif fn == "single":
-            out = true_count == 1
-            unknown = (true_count <= 1) & (null_count > 0) & (total_count > 0)
-        else:
-            raise ValueError(f"unsupported quantifier function: {fn!r}")
-
-        out = out.where(~unknown, pd.NA)
-        out = out.where(~has_null_list, pd.NA)
-        return out.reset_index(drop=True)
 
     def _gfql_eval_dynamic_list_subscript(
         self: _RowPipelineContext,
@@ -1612,109 +1403,8 @@ class RowPipelineMixin:
         out = out.where(~rhs_null, pd.NA)
         return out.reset_index(drop=True)
 
-    def _gfql_eval_list_expr(self: _RowPipelineContext, table_df: Any, item_exprs: Sequence[str]) -> Any:
-        if len(item_exprs) == 0:
-            return self._gfql_broadcast_scalar(table_df, [])
-
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_row__")
-        ord_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_ord__")
-        val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_val__")
-
-        base = table_df.assign(**{row_col: range(len(table_df))})[[row_col]]
-        value_cols: List[str] = []
-        for idx, item_expr in enumerate(item_exprs):
-            val = self._gfql_eval_string_expr(table_df, item_expr)
-            if not hasattr(val, "astype"):
-                val = self._gfql_broadcast_scalar(table_df, val)
-            col = RowPipelineMixin._gfql_fresh_col_name(base.columns, f"__gfql_list_item_{idx}__")
-            base[col] = val
-            value_cols.append(col)
-
-        melted = base.melt(id_vars=[row_col], value_vars=value_cols, var_name=ord_col, value_name=val_col)
-        order_map = {col: idx for idx, col in enumerate(value_cols)}
-        if hasattr(melted[ord_col], "map"):
-            melted[ord_col] = melted[ord_col].map(order_map)
-        else:
-            melted[ord_col] = melted[ord_col].replace(order_map)
-        melted[ord_col] = melted[ord_col].astype("int64")
-        melted = melted.sort_values(by=[row_col, ord_col], kind="mergesort")
-        grouped = melted.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
-        out = base[[row_col]].merge(grouped, on=row_col, how="left", sort=False)[val_col]
-        return out.reset_index(drop=True)
-
-    def _gfql_eval_list_comprehension_expr(
-        self: _RowPipelineContext,
-        table_df: Any,
-        var: str,
-        list_expr: str,
-        predicate_expr: Optional[str],
-        projection_expr: str,
-    ) -> Any:
-        list_value = self._gfql_eval_string_expr(table_df, list_expr)
-        list_series = list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
-
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_row__")
-        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_list__")
-        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_len__")
-        var_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, f"__gfql_lc_{var}__")
-        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out__")
-
-        base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})[[row_col, list_col]]
-        null_mask = self._gfql_null_mask(base, base[list_col])
-        if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
-            lengths = base[list_col].str.len()
-        else:
-            lengths = self._gfql_broadcast_scalar(base, pd.NA)
-        if hasattr(lengths, "fillna"):
-            lengths = lengths.fillna(0)
-        base = base.assign(**{len_col: lengths})
-
-        non_null = base.loc[~null_mask, [row_col, list_col, len_col]]
-        expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
-        if len(expanded) > 0:
-            expanded = expanded.reset_index(drop=True)
-            expanded = expanded.assign(
-                **{
-                    "__gfql_lc_pos__": expanded.groupby(row_col, sort=False).cumcount(),
-                    var_col: expanded[list_col],
-                }
-            )
-            expanded = expanded.loc[expanded["__gfql_lc_pos__"] < expanded[len_col]]
-
-            if predicate_expr is not None:
-                pred_text = RowPipelineMixin._gfql_replace_identifier(predicate_expr, var, var_col)
-                pred_value = self._gfql_eval_string_expr(expanded, pred_text)
-                if not hasattr(pred_value, "astype"):
-                    pred_value = self._gfql_broadcast_scalar(expanded, pred_value)
-                pred_mask = self._gfql_bool_mask(expanded, pred_value)
-                expanded = expanded.loc[pred_mask]
-
-            proj_text = RowPipelineMixin._gfql_replace_identifier(projection_expr, var, var_col)
-            projected = self._gfql_eval_string_expr(expanded, proj_text)
-            if not hasattr(projected, "astype"):
-                projected = self._gfql_broadcast_scalar(expanded, projected)
-            expanded = expanded.assign(**{out_col: projected})
-            grouped = expanded.groupby(row_col, sort=False)[out_col].agg(list).reset_index()
-        else:
-            grouped = non_null[[row_col]].iloc[0:0].copy()
-            grouped[out_col] = []
-
-        merged = base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False)
-        result = merged[out_col].copy() if out_col in merged.columns else self._gfql_broadcast_scalar(merged, None)
-
-        empty_mask = merged[len_col] == 0
-        if hasattr(empty_mask, "any") and bool(empty_mask.any()):
-            empty_idx = result.index[empty_mask]
-            empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
-            result.loc[empty_idx] = empty_vals
-
-        if hasattr(null_mask, "any") and bool(null_mask.any()):
-            result.loc[result.index[null_mask]] = None
-
-        return result.reset_index(drop=True)
-
     def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
-        txt = self._gfql_strip_outer_parens(expr.strip())
+        txt = expr.strip()
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
             raise ValueError(
