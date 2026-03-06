@@ -1,6 +1,5 @@
 import datetime
 import math
-import os
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
@@ -33,20 +32,6 @@ if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 
-def _gfql_expr_runtime_parser_mode() -> str:
-    mode = str(os.getenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")).strip().lower()
-    if mode not in {"off", "shadow", "strict"}:
-        return "off"
-    return mode
-
-
-def _gfql_expr_runtime_eval_mode() -> str:
-    mode = str(os.getenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "off")).strip().lower()
-    if mode not in {"off", "shadow", "strict"}:
-        return "off"
-    return mode
-
-
 @lru_cache(maxsize=1)
 def _gfql_expr_runtime_parser_bundle() -> Any:
     try:
@@ -60,19 +45,6 @@ def _gfql_expr_runtime_parser_bundle() -> Any:
         return parse_expr, validate_expr_capabilities, expr_parser_mod
     except Exception:
         return None
-
-
-def _gfql_expr_runtime_parser_ok(expr: str) -> bool:
-    parser_bundle = _gfql_expr_runtime_parser_bundle()
-    if parser_bundle is None:
-        return True
-    parser, capability_checker, _expr_parser_mod = parser_bundle
-    try:
-        node = parser(expr)
-        errors = capability_checker(node)
-        return len(errors) == 0
-    except Exception:
-        return False
 
 
 ROW_PIPELINE_CALLS = frozenset(

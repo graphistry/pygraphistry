@@ -1870,9 +1870,6 @@ class TestRowPipelineSafelist:
         g = _mk_graph(nodes_df)
         table_df = g._nodes
 
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "off")
-
         cases = [
             (
                 expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
@@ -2015,7 +2012,7 @@ class TestRowPipelineSafelist:
             legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
             assert _normalize(ast_out) == _normalize(legacy_out)
 
-    def test_row_pipeline_runtime_eval_mode_strict_with_parser_bundle(self, monkeypatch):
+    def test_row_pipeline_runtime_ast_path_with_parser_bundle(self, monkeypatch):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
@@ -2033,15 +2030,13 @@ class TestRowPipelineSafelist:
             "_gfql_expr_runtime_parser_bundle",
             lambda: (fake_parse, fake_capabilities, expr_parser),
         )
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
         result = g.gfql([rows(), where_rows(expr="score > 1")])
         assert result._nodes[["id", "score"]].reset_index(drop=True).to_dict(orient="records") == [
             {"id": "b", "score": 2},
             {"id": "c", "score": 3},
         ]
 
-    def test_row_pipeline_runtime_eval_mode_strict_ast_unsupported(self, monkeypatch):
+    def test_row_pipeline_runtime_ast_unsupported(self, monkeypatch):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
             "score": [1, 2, 3],
@@ -2059,14 +2054,12 @@ class TestRowPipelineSafelist:
             "_gfql_expr_runtime_parser_bundle",
             lambda: (fake_parse, fake_capabilities, expr_parser),
         )
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql([rows(), where_rows(expr="score > 1")])
         assert exc_info.value.code == ErrorCode.E303
         assert "AST evaluator unsupported" in exc_info.value.message
 
-    def test_row_pipeline_runtime_eval_mode_strict_ast_type_error_normalized(self, monkeypatch):
+    def test_row_pipeline_runtime_ast_type_error_normalized(self, monkeypatch):
         nodes_df = pd.DataFrame({
             "id": ["a", "b", "c"],
             "name": ["x", "y", "z"],
@@ -2084,8 +2077,6 @@ class TestRowPipelineSafelist:
             "_gfql_expr_runtime_parser_bundle",
             lambda: (fake_parse, fake_capabilities, expr_parser),
         )
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_PARSER_MODE", "off")
-        monkeypatch.setenv("GFQL_EXPR_RUNTIME_EVAL_MODE", "strict")
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql([rows(), where_rows(expr="name - 'x'")])
         assert exc_info.value.code == ErrorCode.E303
