@@ -10,6 +10,20 @@ Operators
 
 The following table lists the available operators, their descriptions, and examples of how to use them in GFQL.
 
+WHERE Operators (Cross-Reference)
+---------------------------------
+
+This page covers predicate functions used inside step filters like
+``n({...})`` and ``e_forward({...})``. WHERE operators are documented separately:
+
+- Same-path MATCH WHERE uses ``compare(col(...), op, col(...))`` with
+  ``op`` in ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
+- Row-pipeline WHERE uses ``where_rows(expr="...")`` with comparators
+  ``=``, ``!=``, ``<>``, ``<``, ``<=``, ``>``, ``>=``.
+
+See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
+(``MATCH ... RETURN`` row pipelines).
+
 **Numeric and Comparison Operators**
 
 .. list-table::
