@@ -153,6 +153,13 @@ g.gfql([
 Optional fields:
 - `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
   with `left`/`right` as `alias.column` strings. Multiple entries are ANDed.
+  Operator mapping:
+  - `eq` ↔ `==`
+  - `neq` ↔ `!=`
+  - `lt` ↔ `<`
+  - `le` ↔ `<=`
+  - `gt` ↔ `>`
+  - `ge` ↔ `>=`
 
 **Chain with WHERE (wire format):**
 ```json
@@ -324,6 +331,9 @@ vary by operator.
 ```json
 {"type": "Call", "function": "where_rows", "params": {"expr": "score >= 50"}}
 ```
+`where_rows.expr` supports comparison operators:
+`=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+
 `select`:
 ```json
 {"type": "Call", "function": "select", "params": {"items": [["id", "id"], ["score", "score"]]}}
@@ -509,6 +519,21 @@ null                // null
 {
   "type": "time",
   "value": "14:30:00.123456"
+}
+```
+
+Temporal comparisons use standard predicate envelopes over these typed temporal
+values:
+- `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`
+
+Example:
+```json
+{
+  "type": "GE",
+  "val": {
+    "type": "date",
+    "value": "2024-01-01"
+  }
 }
 ```
 

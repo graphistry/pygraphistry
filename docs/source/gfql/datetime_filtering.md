@@ -92,6 +92,20 @@ date_range_edges = g.gfql([
 ])
 ```
 
+### Comparison Operators (Python, Row Expressions, Wire)
+
+Temporal comparisons use the same core operators across APIs:
+
+- Python predicate helpers: `gt`, `ge`, `lt`, `le`, `eq`, `ne`
+- Wire protocol predicate types: `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`
+- `where_rows(expr="...")` comparators: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
+
+Example mapping:
+
+- Python: `gt(pd.Timestamp("2024-01-01"))`
+- Wire: `{"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}}`
+- Row expression: `where_rows(expr="created_at > created_cutoff")`
+
 ### Date-Only Filtering
 
 For date comparisons (ignoring time):

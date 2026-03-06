@@ -56,6 +56,11 @@ Notes
 - `return_(["id"])` is shorthand for `return_([("id", "id")])`.
 - `order_by([("col", "asc" | "desc")])` sorts by one or more keys.
 - `skip(n)` and `limit(n)` are row offsets/caps.
+- In `where_rows(expr="...")`, comparison operators are
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+- For temporal/date-time row filtering, `where_rows(filter_dict=...)` uses the
+  same predicate operators as MATCH filters (`gt`, `ge`, `lt`, `le`, `eq`,
+  `ne`, `between`).
 - Unsupported row expressions are rejected by validator/runtime.
 
 See also: :doc:`quick`, :doc:`where`, :doc:`spec/cypher_mapping`.
