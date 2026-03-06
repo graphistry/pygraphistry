@@ -1542,40 +1542,26 @@ class TestRowPipelineSafelist:
         assert params == {"items": [("name", "name")]}
         params = validate_call_params("where_rows", {"filter_dict": {"name": "alice"}})
         assert params == {"filter_dict": {"name": "alice"}}
-        params = validate_call_params("where_rows", {"expr": "score > 1 AND name != 'bob'"})
-        assert params == {"expr": "score > 1 AND name != 'bob'"}
-        params = validate_call_params("where_rows", {"expr": "name = 'rand()'"})
-        assert params == {"expr": "name = 'rand()'"}
-        params = validate_call_params("where_rows", {"expr": 'name = "rand()"'})
-        assert params == {"expr": 'name = "rand()"'}
-        params = validate_call_params("where_rows", {"expr": "txt CONTAINS 5"})
-        assert params == {"expr": "txt CONTAINS 5"}
-        params = validate_call_params("where_rows", {"expr": "txt CONTAINS null"})
-        assert params == {"expr": "txt CONTAINS null"}
-        params = validate_call_params("where_rows", {"expr": "txt CONTAINS (5)"})
-        assert params == {"expr": "txt CONTAINS (5)"}
-        params = validate_call_params("where_rows", {"expr": "txt STARTS WITH (5)"})
-        assert params == {"expr": "txt STARTS WITH (5)"}
-        params = validate_call_params("where_rows", {"expr": "txt ENDS WITH (5)"})
-        assert params == {"expr": "txt ENDS WITH (5)"}
-        params = validate_call_params("where_rows", {"expr": "CASE WHEN score > 1 THEN true ELSE false END"})
-        assert params == {"expr": "CASE WHEN score > 1 THEN true ELSE false END"}
-        params = validate_call_params("where_rows", {"expr": "any(x IN vals WHERE x = 2)"})
-        assert params == {"expr": "any(x IN vals WHERE x = 2)"}
-        params = validate_call_params("where_rows", {"expr": "all(x IN vals WHERE x > 1)"})
-        assert params == {"expr": "all(x IN vals WHERE x > 1)"}
-        params = validate_call_params("where_rows", {"expr": "none(x IN vals WHERE x < 0)"})
-        assert params == {"expr": "none(x IN vals WHERE x < 0)"}
-        params = validate_call_params("where_rows", {"expr": "single(x IN vals WHERE x = 2)"})
-        assert params == {"expr": "single(x IN vals WHERE x = 2)"}
-        params = validate_call_params(
-            "where_rows", {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END"}
-        )
-        assert params == {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END"}
-        params = validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1]) > 0"})
-        assert params == {"expr": "size([x IN vals WHERE x > 1]) > 0"}
-        params = validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1 | x]) > 0"})
-        assert params == {"expr": "size([x IN vals WHERE x > 1 | x]) > 0"}
+        valid_exprs = [
+            "score > 1 AND name != 'bob'",
+            "name = 'rand()'",
+            'name = "rand()"',
+            "txt CONTAINS 5",
+            "txt CONTAINS null",
+            "txt CONTAINS (5)",
+            "txt STARTS WITH (5)",
+            "txt ENDS WITH (5)",
+            "CASE WHEN score > 1 THEN true ELSE false END",
+            "any(x IN vals WHERE x = 2)",
+            "all(x IN vals WHERE x > 1)",
+            "none(x IN vals WHERE x < 0)",
+            "single(x IN vals WHERE x = 2)",
+            "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END",
+            "size([x IN vals WHERE x > 1]) > 0",
+            "size([x IN vals WHERE x > 1 | x]) > 0",
+        ]
+        for expr in valid_exprs:
+            assert validate_call_params("where_rows", {"expr": expr}) == {"expr": expr}
         pred = gt(1)
         params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
         assert params == {"filter_dict": {"score": pred}}
@@ -1585,207 +1571,83 @@ class TestRowPipelineSafelist:
         )
         assert params == {"filter_dict": {"score": pred}, "expr": "score > 1"}
 
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"filter_dict": "bad"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"filter_dict": {1: "x"}})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "rand() > 0.1"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt CONTAINS rhs"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt STARTS WITH rhs"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt ENDS WITH rhs"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt CONTAINS [1,2]"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt CONTAINS {k: 'v'}"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "txt CONTAINS (rhs)"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x IN vals WHERE x = 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x vals WHERE x = 2)"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x IN vals | WHERE x = 2)"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "CASE WHEN score > 1 THEN true END"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > 1 AND CASE WHEN id = 'a' THEN true END"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x vals WHERE x > 1]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x IN vals WHERE ]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x IN vals WHERE x > 1 | ]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x IN vals | ]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x IN vals | WHERE x > 1]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size([x IN vals | WHERE x > 1 | x + 1]) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "(id = 'a') | (id = 'b')"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > 1 THEN true"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "END"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "CASE WHEN score > 1 THEN true ELSE false END END"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x IN vals WHERE x = 2))"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x IN vals WHERE x = 2) foo"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id == 'a'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' -- comment"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' /*x*/"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "name = 'unterminated"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": 'name = "unterminated'})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "meta = {k: }"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' OR"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "OR id = 'a'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "NOT"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' AND OR id = 'b'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' OR AND id = 'b'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' AND NOT"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' OR NOT"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' AND (OR id = 'b')"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = 'a' OR (AND id = 'b')"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "id = = 'a'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > = 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score < = 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score ! = 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score < > 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score =< 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score => 2"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "coalesce(id, 'x') y"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size(vals) z"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "any(x IN vals WHERE x = 2) OR OR id = 'a'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size() > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size( ) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size(,) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "coalesce() = id"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "toString() = 'x'"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "toBoolean()"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "abs() = 1"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "sign() = 1"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "head() = 1"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "tail() = []"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "reverse() = []"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size(( )) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "coalesce(( )) = id"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "coalesce(id score) = id"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size(vals,) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "size(,vals) > 0"})
-        assert exc_info.value.code == ErrorCode.E201
+        bad_filter_dict_inputs = [{"filter_dict": "bad"}, {"filter_dict": {1: "x"}}]
+        for bad_params in bad_filter_dict_inputs:
+            with pytest.raises(GFQLTypeError) as exc_info:
+                validate_call_params("where_rows", bad_params)
+            assert exc_info.value.code == ErrorCode.E201
+
+        invalid_exprs = [
+            "rand() > 0.1",
+            "txt CONTAINS rhs",
+            "txt STARTS WITH rhs",
+            "txt ENDS WITH rhs",
+            "txt CONTAINS [1,2]",
+            "txt CONTAINS {k: 'v'}",
+            "txt CONTAINS (rhs)",
+            "any(x IN vals WHERE x = 2",
+            "any(x vals WHERE x = 2)",
+            "any(x IN vals | WHERE x = 2)",
+            "CASE WHEN score > 1 THEN true END",
+            "score > 1 AND CASE WHEN id = 'a' THEN true END",
+            "size([x vals WHERE x > 1]) > 0",
+            "size([x IN vals WHERE ]) > 0",
+            "size([x IN vals WHERE x > 1 | ]) > 0",
+            "size([x IN vals | ]) > 0",
+            "size([x IN vals | WHERE x > 1]) > 0",
+            "size([x IN vals | WHERE x > 1 | x + 1]) > 0",
+            "(id = 'a') | (id = 'b')",
+            "score > 1 THEN true",
+            "END",
+            "CASE WHEN score > 1 THEN true ELSE false END END",
+            "any(x IN vals WHERE x = 2))",
+            "any(x IN vals WHERE x = 2) foo",
+            "id == 'a'",
+            "id = 'a' -- comment",
+            "id = 'a' /*x*/",
+            "name = 'unterminated",
+            'name = "unterminated',
+            "meta = {k: }",
+            "id = 'a' OR",
+            "OR id = 'a'",
+            "NOT",
+            "id = 'a' AND OR id = 'b'",
+            "id = 'a' OR AND id = 'b'",
+            "id = 'a' AND NOT",
+            "id = 'a' OR NOT",
+            "id = 'a' AND (OR id = 'b')",
+            "id = 'a' OR (AND id = 'b')",
+            "id = = 'a'",
+            "score > = 2",
+            "score < = 2",
+            "score ! = 2",
+            "score < > 2",
+            "score =< 2",
+            "score => 2",
+            "coalesce(id, 'x') y",
+            "size(vals) z",
+            "any(x IN vals WHERE x = 2) OR OR id = 'a'",
+            "size() > 0",
+            "size( ) > 0",
+            "size(,) > 0",
+            "coalesce() = id",
+            "toString() = 'x'",
+            "toBoolean()",
+            "abs() = 1",
+            "sign() = 1",
+            "head() = 1",
+            "tail() = []",
+            "reverse() = []",
+            "size(( )) > 0",
+            "coalesce(( )) = id",
+            "coalesce(id score) = id",
+            "size(vals,) > 0",
+            "size(,vals) > 0",
+        ]
+        for expr in invalid_exprs:
+            with pytest.raises(GFQLTypeError) as exc_info:
+                validate_call_params("where_rows", {"expr": expr})
+            assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_where_rows_parser_authority(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_parse_ok", lambda _expr: False)
