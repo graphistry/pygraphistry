@@ -27,6 +27,60 @@ pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC
 - Row-expression comparators (`where_rows(expr="...")`):
   `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
 
+## WHERE Contexts in Wire JSON
+
+`WHERE`-style filtering appears in three distinct wire shapes:
+
+1. **Same-path chain WHERE (`where=[...]`)** uses lower-case operator keys and
+   alias-column references:
+
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "name": "a"},
+    {"type": "Node", "name": "b"}
+  ],
+  "where": [
+    {"ge": {"left": "a.created_at", "right": "b.created_at"}}
+  ]
+}
+```
+
+2. **Matcher predicates (`filter_dict` / `edge_match`)** use predicate envelopes
+   (`GT/GE/LT/LE/EQ/NE/...`) and can carry typed temporal values:
+
+```json
+{
+  "type": "Node",
+  "filter_dict": {
+    "created_at": {
+      "type": "GT",
+      "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}
+    }
+  }
+}
+```
+
+3. **Row-pipeline WHERE** after `rows(...)` supports either:
+   - expression string: `{"function": "where_rows", "params": {"expr": "..."} }`
+   - predicate dict: `{"function": "where_rows", "params": {"filter_dict": {...}} }`
+
+```json
+{
+  "type": "Call",
+  "function": "where_rows",
+  "params": {
+    "filter_dict": {
+      "created_at": {
+        "type": "GE",
+        "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}
+      }
+    }
+  }
+}
+```
+
 ## 1. DateTime Comparisons
 
 ### Python API

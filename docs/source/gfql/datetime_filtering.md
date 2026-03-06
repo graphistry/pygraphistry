@@ -106,6 +106,21 @@ Example mapping:
 - Wire: `{"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}}`
 - Row expression: `where_rows(expr="created_at > created_cutoff")`
 
+### WHERE Context (What Works Where)
+
+Temporal filters work in different forms depending on GFQL context:
+
+| Context | Temporal form | Notes |
+| --- | --- | --- |
+| Matcher filters (`n(filter_dict=...)`, `e_forward(edge_match=...)`) | Predicate helpers (`gt`, `ge`, `lt`, `le`, `eq`, `ne`, `between`, `is_in`) | Primary place for temporal predicates |
+| Same-path `where=[...]` | `compare(col(...), op, col(...))` with `op` in `==`, `!=`, `<`, `<=`, `>`, `>=` | Alias-column comparisons; predicate helpers are not used here |
+| Row pipeline `where_rows(filter_dict=...)` | Same predicate helpers as matcher filters | Useful after `rows(...)` in `MATCH ... RETURN` flows |
+| Row pipeline `where_rows(expr="...")` | Expression comparators `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=` | Expression parser syntax; no predicate helper function calls inside `expr` |
+
+See also:
+- {doc}`GFQL WHERE (Same-Path Constraints) <where>`
+- {doc}`GFQL RETURN (Row Pipelines) <return>`
+
 ### Date-Only Filtering
 
 For date comparisons (ignoring time):
