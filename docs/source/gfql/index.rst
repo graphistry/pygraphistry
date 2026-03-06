@@ -6,12 +6,15 @@ Welcome to **GFQL**, the first dataframe-native graph query language with GPU su
 **GFQL bridges the gap** between traditional storage-tier graph databases and the modern compute tier, allowing you to perform your favorite high-performance graph queries directly on your dataframes. It's built to be familiar to users of Cypher, other graph query languages, and popular dataframe libraries. By being native to accelerated Python datascience dataframe technologies such as Apache Arrow, Numpy, Nvidia RAPIDS, and Graphistry, it can already do workloads like 100M+ edges in interactive time on a single machine.
 
 For Cypher-style `MATCH ... RETURN` workflows, start with
-:doc:`quick` (MATCH/chain), :doc:`where` (same-path MATCH constraints),
-:doc:`return` (row pipelines), and :doc:`spec/cypher_mapping`.
+:doc:`GFQL Quick Reference <quick>`,
+:doc:`GFQL WHERE <where>`,
+:doc:`GFQL RETURN <return>`,
+and :doc:`Cypher to GFQL Mapping <spec/cypher_mapping>`.
 
 Recommended paths:
 
 - New to GFQL: :doc:`overview` -> :doc:`quick` -> :doc:`where` -> :doc:`return`
+- Performance path (intro -> GPU -> remote GPU): :doc:`about` -> :doc:`performance` -> :doc:`remote`
 - Translating Cypher: :doc:`spec/cypher_mapping`
 - Building agents/integrations: :doc:`spec/language` + :doc:`spec/python_embedding` + :doc:`spec/wire_protocol`
 
