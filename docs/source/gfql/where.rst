@@ -37,6 +37,69 @@ All WHERE comparisons are ANDed (all must match).
 
 Aliases come from `name=`. Column references use `alias.column`.
 
+Boolean Semantics (`where=[...]`)
+---------------------------------
+
+`where` is a Python list of comparison clauses. Commas in that list mean
+logical AND.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g.gfql(
+        [n(name="a"), e_forward(name="e"), n(name="b")],
+        where=[
+            compare(col("a", "org_id"), "==", col("b", "org_id")),  # AND
+            compare(col("e", "risk"), ">=", col("a", "min_risk")),  # AND
+        ],
+    )
+
+- Supported now: conjunction (AND) across entries.
+- Not supported yet in same-path WHERE: `OR`, `NOT`, grouping parentheses.
+
+Comparator Surface (Same-Path WHERE)
+------------------------------------
+
+`compare(col(...), op, col(...))` supports these operators:
+
+- `==`, `!=`, `<`, `<=`, `>`, `>=`
+
+JSON wire format uses these names:
+
+- `eq`, `neq`, `lt`, `le`, `gt`, `ge`
+
+Why predicate helpers are not used in same-path `where`
+-------------------------------------------------------
+
+Predicate helpers (for example `gt(10)`, `between(...)`, `isna()`) are
+single-column filters, and belong in `n({...})` / `e_forward({...})`
+`filter_dict`s or in `where_rows(filter_dict=...)`.
+
+Same-path `where=[...]` is currently restricted to column-vs-column
+comparisons across aliases so the validator can statically verify aliases and
+columns before execution in both pandas and cuDF vectorized paths.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare, gt
+
+    # Good: single-step predicate helper
+    g.gfql([n({"score": gt(10)}, name="a"), e_forward(), n(name="b")])
+
+    # Good: cross-step column-vs-column comparison
+    g.gfql(
+        [n(name="a"), e_forward(name="e"), n(name="b")],
+        where=[compare(col("a", "score"), ">", col("b", "score"))],
+    )
+
+    # Not supported in same-path WHERE (predicate helper inside compare)
+    g.gfql(
+        [n(name="a"), e_forward(name="e"), n(name="b")],
+        where=[compare(col("a", "score"), ">", gt(10))],
+    )
+    # ValueError: where[...] must use StepColumnRef for left/right ...
+
 When to use predicates vs WHERE
 -------------------------------
 
