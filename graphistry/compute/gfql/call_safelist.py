@@ -408,7 +408,7 @@ def _split_top_level_keyword(expr: str, keyword: str) -> Any:
     return None
 
 
-def _split_top_level_pipe(expr: str) -> Any:
+def _find_top_level_pipe_index(expr: str) -> int:
     txt = expr.strip()
     n = len(txt)
     depth_paren = 0
@@ -459,66 +459,24 @@ def _split_top_level_pipe(expr: str) -> Any:
             continue
 
         if ch == "|" and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
-            left = txt[:i].strip()
-            right = txt[i + 1 :].strip()
-            if left and right:
-                return left, right
+            return i
+    return -1
+
+
+def _split_top_level_pipe(expr: str) -> Any:
+    txt = expr.strip()
+    pipe_idx = _find_top_level_pipe_index(txt)
+    if pipe_idx < 0:
+        return None
+    left = txt[:pipe_idx].strip()
+    right = txt[pipe_idx + 1 :].strip()
+    if left and right:
+        return left, right
     return None
 
 
 def _has_top_level_pipe(expr: str) -> bool:
-    txt = expr.strip()
-    n = len(txt)
-    depth_paren = 0
-    depth_bracket = 0
-    depth_brace = 0
-    in_single = False
-    in_double = False
-    escaped = False
-
-    for i in range(n):
-        ch = txt[i]
-        if in_single or in_double:
-            if escaped:
-                escaped = False
-                continue
-            if ch == "\\":
-                escaped = True
-                continue
-            if in_single and ch == "'":
-                in_single = False
-            elif in_double and ch == '"':
-                in_double = False
-            continue
-
-        if ch == "'":
-            in_single = True
-            continue
-        if ch == '"':
-            in_double = True
-            continue
-        if ch == "(":
-            depth_paren += 1
-            continue
-        if ch == ")":
-            depth_paren = max(0, depth_paren - 1)
-            continue
-        if ch == "[":
-            depth_bracket += 1
-            continue
-        if ch == "]":
-            depth_bracket = max(0, depth_bracket - 1)
-            continue
-        if ch == "{":
-            depth_brace += 1
-            continue
-        if ch == "}":
-            depth_brace = max(0, depth_brace - 1)
-            continue
-
-        if ch == "|" and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
-            return True
-    return False
+    return _find_top_level_pipe_index(expr) >= 0
 
 
 def _where_rows_list_comprehension_segment_well_formed(segment: str) -> bool:
@@ -693,28 +651,6 @@ def _where_rows_quantifier_call_context_well_formed(expr: str) -> bool:
             return False
         return False
     return True
-
-
-def _where_rows_top_level_case_well_formed(expr: str) -> bool:
-    txt = expr.strip()
-    if not txt.upper().startswith("CASE "):
-        return True
-    if not txt.upper().endswith(" END"):
-        return False
-    body = txt[4:-3].strip()
-    if body.upper().startswith("WHEN "):
-        body = body[5:].strip()
-    then_split = _split_top_level_keyword(body, "THEN")
-    if then_split is None:
-        return False
-    else_split = _split_top_level_keyword(then_split[1], "ELSE")
-    if else_split is None:
-        return False
-    return (
-        then_split[0].strip() != ""
-        and else_split[0].strip() != ""
-        and else_split[1].strip() != ""
-    )
 
 
 def _where_rows_case_calls_well_formed(expr: str) -> bool:
@@ -1238,10 +1174,6 @@ def is_string_or_none(v: Any) -> bool:
     return v is None or isinstance(v, str)
 
 
-def is_float(v: Any) -> bool:
-    return isinstance(v, float)
-
-
 def is_int_or_float(v: Any) -> bool:
     return isinstance(v, (int, float))
 
@@ -1256,10 +1188,6 @@ def is_list(v: Any) -> bool:
 
 def is_list_or_dict(v: Any) -> bool:
     return isinstance(v, (list, dict))
-
-
-def is_list_of_pairs(v: Any) -> bool:
-    return isinstance(v, list) and all(isinstance(item, (list, tuple)) and len(item) == 2 for item in v)
 
 
 def _is_json_compatible_value(v: Any) -> bool:
