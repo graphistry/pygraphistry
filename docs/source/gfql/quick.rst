@@ -186,6 +186,7 @@ Use `where` to relate attributes across named steps in a chain.
     )
 
 `compare()` can relate node and edge columns when the column types align.
+Supported `compare(..., op, ...)` operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
 equivalent explicit form.
 Multiple WHERE comparisons are ANDed.
@@ -241,6 +242,8 @@ Notes:
   the same `id` column.
 - `where_rows()` evaluates row expressions and filter dictionaries in a
   vectorized dataframe execution path (pandas/cuDF engines).
+- In `where_rows(expr="...")`, supported comparison operators are
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
 
 Combined Examples
 -----------------
