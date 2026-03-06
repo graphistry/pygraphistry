@@ -1521,6 +1521,18 @@ class TestRowPipelineExecution:
 
 
 class TestRowPipelineSafelist:
+    @staticmethod
+    def _assert_e201(function, params):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+        assert exc_info.value.code == ErrorCode.E201
+
+    @staticmethod
+    def _assert_e303(function, params):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+        assert exc_info.value.code == ErrorCode.E303
+
     def test_row_pipeline_rows_validation(self):
         params = validate_call_params("rows", {})
         assert params == {}
@@ -1528,9 +1540,7 @@ class TestRowPipelineSafelist:
         params = validate_call_params("rows", {"table": "edges", "source": "rel"})
         assert params == {"table": "edges", "source": "rel"}
 
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("rows", {"table": "bad"})
-        assert exc_info.value.code == ErrorCode.E201
+        self._assert_e201("rows", {"table": "bad"})
 
     def test_row_pipeline_select_validation(self):
         params = validate_call_params("select", {"items": [("name", "name"), ("const", 1)]})
@@ -1550,9 +1560,7 @@ class TestRowPipelineSafelist:
             [(1, "name")],
             [("", "name")],
         ]:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params("select", {"items": bad_items})
-            assert exc_info.value.code == ErrorCode.E201
+            self._assert_e201("select", {"items": bad_items})
 
     def test_row_pipeline_with_where_rows_validation(self):
         params = validate_call_params("with_", {"items": [("name", "name")]})
@@ -1590,9 +1598,7 @@ class TestRowPipelineSafelist:
 
         bad_filter_dict_inputs = [{"filter_dict": "bad"}, {"filter_dict": {1: "x"}}]
         for bad_params in bad_filter_dict_inputs:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params("where_rows", bad_params)
-            assert exc_info.value.code == ErrorCode.E201
+            self._assert_e201("where_rows", bad_params)
 
         invalid_exprs = [
             "rand() > 0.1",
@@ -1662,9 +1668,7 @@ class TestRowPipelineSafelist:
             "size(,vals) > 0",
         ]
         for expr in invalid_exprs:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params("where_rows", {"expr": expr})
-            assert exc_info.value.code == ErrorCode.E201
+            self._assert_e201("where_rows", {"expr": expr})
 
     def test_row_pipeline_where_rows_parser_authority(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_parse_ok", lambda _expr: False)
@@ -1674,9 +1678,7 @@ class TestRowPipelineSafelist:
             lambda: (lambda _expr: object(), lambda _node: [], lambda _node: set()),
         )
 
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > 1"})
-        assert exc_info.value.code == ErrorCode.E201
+        self._assert_e201("where_rows", {"expr": "score > 1"})
 
     def test_row_pipeline_where_rows_strict_parser_authority_when_available(self, monkeypatch):
         def fake_parse(_expr):
@@ -1739,9 +1741,7 @@ class TestRowPipelineSafelist:
 
     def test_row_pipeline_where_rows_validator_rejects_without_parser(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > 1"})
-        assert exc_info.value.code == ErrorCode.E201
+        self._assert_e201("where_rows", {"expr": "score > 1"})
 
     def test_row_pipeline_runtime_parser_authority(self, monkeypatch):
         nodes_df = pd.DataFrame({
@@ -1977,9 +1977,7 @@ class TestRowPipelineSafelist:
             [("[1, 2]", "asc")],
             [("unknown_fn(score)", "asc")],
         ]:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params("order_by", {"keys": bad_keys})
-            assert exc_info.value.code == ErrorCode.E201
+            self._assert_e201("order_by", {"keys": bad_keys})
 
     def test_row_pipeline_order_by_aggregate_alias_columns(self):
         nodes_df = pd.DataFrame({
@@ -2007,17 +2005,13 @@ class TestRowPipelineSafelist:
             assert params == {"value": value}
 
         for bad_value in [True, -1, -1.0, "-1", "1.5", "abc"]:
-            with pytest.raises(GFQLTypeError) as exc_info:
-                validate_call_params(function, {"value": bad_value})
-            assert exc_info.value.code == ErrorCode.E201
+            self._assert_e201(function, {"value": bad_value})
 
     def test_row_pipeline_distinct_validation(self):
         params = validate_call_params("distinct", {})
         assert params == {}
 
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("distinct", {"extra": True})
-        assert exc_info.value.code == ErrorCode.E303
+        self._assert_e303("distinct", {"extra": True})
 
     def test_row_pipeline_unwind_group_by_validation(self):
         params = validate_call_params("unwind", {"expr": "vals", "as_": "v"})
@@ -2049,25 +2043,8 @@ class TestRowPipelineSafelist:
             "aggregations": [("vals", "collect", "v + 1")],
         }
 
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("unwind", {"expr": 1})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("unwind", {"expr": "vals", "as_": ""})
-        assert exc_info.value.code == ErrorCode.E201
-
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params(
-                "group_by",
-                {"keys": ["grp"], "aggregations": [("x", "median", "score")]},
-            )
-        assert exc_info.value.code == ErrorCode.E201
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params(
-                "group_by",
-                {"keys": [], "aggregations": [("x", "count")]},
-            )
-        assert exc_info.value.code == ErrorCode.E201
+        self._assert_e201("unwind", {"expr": 1})
+        self._assert_e201("unwind", {"expr": "vals", "as_": ""})
+        self._assert_e201("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
+        self._assert_e201("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]})
+        self._assert_e201("group_by", {"keys": [], "aggregations": [("x", "count")]})
