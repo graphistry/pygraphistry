@@ -1925,9 +1925,10 @@ class TestRowPipelineSafelist:
             return value
 
         for ast_node, expr in cases:
-            ok, ast_out = g._gfql_eval_expr_ast(table_df, ast_node)
+            ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+            ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
             assert ok, expr
-            legacy_out = g._gfql_eval_string_expr(table_df, expr)
+            legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
             assert _normalize(ast_out) == _normalize(legacy_out)
 
     def test_row_pipeline_runtime_eval_mode_strict_with_parser_bundle(self, monkeypatch):

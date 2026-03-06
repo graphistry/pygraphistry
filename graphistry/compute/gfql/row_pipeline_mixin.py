@@ -70,6 +70,27 @@ def _gfql_expr_runtime_parser_ok(expr: str) -> bool:
         return False
 
 
+ROW_PIPELINE_CALLS = frozenset(
+    {
+        "rows",
+        "where_rows",
+        "select",
+        "with_",
+        "return_",
+        "order_by",
+        "skip",
+        "limit",
+        "distinct",
+        "unwind",
+        "group_by",
+    }
+)
+
+
+def is_row_pipeline_call(function: str) -> bool:
+    return function in ROW_PIPELINE_CALLS
+
+
 class _RowPipelineContext(Protocol):
     _nodes: Any
     _edges: Any
@@ -2109,3 +2130,30 @@ class RowPipelineMixin:
                 out_df[alias] = out_df[alias].where(~out_df[alias].isna(), [[] for _ in range(len(out_df))])
 
         return self._gfql_row_table(out_df)
+
+
+class _RowPipelineAdapter(RowPipelineMixin):
+    """Adapter for row-pipeline calls without requiring global ComputeMixin inheritance."""
+
+    def __init__(self, g: "Plottable") -> None:
+        self._g = g
+        self._nodes = getattr(g, "_nodes", None)
+        self._edges = getattr(g, "_edges", None)
+        self._node = getattr(g, "_node", None)
+        self._source = getattr(g, "_source", None)
+        self._destination = getattr(g, "_destination", None)
+        self._edge = getattr(g, "_edge", None)
+
+    def bind(self) -> "Plottable":
+        return self._g.bind()
+
+
+def execute_row_pipeline_call(
+    g: "Plottable", function: str, params: Dict[str, Any]
+) -> "Plottable":
+    if function not in ROW_PIPELINE_CALLS:
+        raise ValueError(f"not a row-pipeline call: {function!r}")
+    adapter = _RowPipelineAdapter(g)
+    method = getattr(adapter, function)
+    out = method(**params)
+    return out

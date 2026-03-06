@@ -29,7 +29,6 @@ from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
     filter_nodes_by_dict as filter_nodes_by_dict_base
 )
-from .gfql.row_pipeline_mixin import RowPipelineMixin
 
 logger = setup_logger(__name__)
 
@@ -70,7 +69,7 @@ def _safe_len(df: Any) -> int:
     return len(df)
 
 
-class ComputeMixin(RowPipelineMixin, Plottable):
+class ComputeMixin(Plottable):
     
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
