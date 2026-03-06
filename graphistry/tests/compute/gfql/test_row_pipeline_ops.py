@@ -1,3 +1,5 @@
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -418,6 +420,32 @@ class TestRowPipelineExecution:
             "lst": [[1, 2], [2, 3], [], None],
         })
         assert self._where_expr_ids(nodes_df, "NOT (x IN lst) OR x IS NULL") == ["c", "d"]
+
+    def test_row_pipeline_where_rows_expr_avoids_fillna_downcast_futurewarning(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "x": [1, None, 3],
+            "lst": [[1], [2], None],
+        })
+        g = _mk_graph(nodes_df)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = g.gfql(
+                [
+                    rows(),
+                    where_rows(expr="x IN lst OR x IS NULL"),
+                    order_by([("id", "asc")]),
+                    return_([("id", "id")]),
+                ]
+            )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+        assert not any(
+            "Downcasting object dtype arrays on .fillna" in str(w.message)
+            for w in caught
+            if issubclass(w.category, FutureWarning)
+        )
 
     def test_row_pipeline_unwind_column_vectorized(self):
         nodes_df = pd.DataFrame({

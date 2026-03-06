@@ -1187,7 +1187,11 @@ class RowPipelineMixin:
     def _gfql_bool_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):
             mask = value
-            if hasattr(mask, "fillna"):
+            # Avoid pandas object-dtype fillna() downcast FutureWarning while
+            # keeping NA -> False semantics in a vectorized backend-agnostic way.
+            if hasattr(mask, "isna") and hasattr(mask, "where"):
+                mask = mask.where(~mask.isna(), False)
+            elif hasattr(mask, "fillna"):
                 mask = mask.fillna(False)
             return mask.astype(bool)
         return self._gfql_broadcast_scalar(table_df, bool(value)).astype(bool)
