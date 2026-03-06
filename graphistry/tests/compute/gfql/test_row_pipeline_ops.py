@@ -1915,6 +1915,90 @@ class TestRowPipelineSafelist:
             if hasattr(value, "tolist"):
                 out = []
                 for item in value.tolist():
+                    if isinstance(item, (list, tuple, dict)):
+                        out.append(item)
+                        continue
+                    if pd.isna(item):
+                        out.append(None)
+                    else:
+                        out.append(item)
+                return out
+            if pd.isna(value):
+                return None
+            return value
+
+        for ast_node, expr in cases:
+            ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+            ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
+            assert ok, expr
+            legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
+            assert _normalize(ast_out) == _normalize(legacy_out)
+
+    def test_row_pipeline_eval_expr_ast_advanced_parity(self, monkeypatch):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "score": [1, 3, 2],
+                "vals": [[1], [1, 2], [2, 3]],
+            }
+        )
+        g = _mk_graph(nodes_df)
+        table_df = g._nodes
+
+        # Force string-path comparisons through legacy evaluator to verify AST parity.
+        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: None)
+
+        cases = [
+            (
+                expr_parser.CaseWhen(
+                    condition=expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(2)),
+                    when_true=expr_parser.Literal(True),
+                    when_false=expr_parser.Literal(False),
+                ),
+                "CASE WHEN score > 2 THEN true ELSE false END",
+            ),
+            (
+                expr_parser.QuantifierExpr(
+                    fn="any",
+                    var="x",
+                    source=expr_parser.Identifier("vals"),
+                    predicate=expr_parser.BinaryOp(">", expr_parser.Identifier("x"), expr_parser.Literal(1)),
+                ),
+                "any(x IN vals WHERE x > 1)",
+            ),
+            (
+                expr_parser.ListComprehension(
+                    var="x",
+                    source=expr_parser.Identifier("vals"),
+                    predicate=expr_parser.BinaryOp(">", expr_parser.Identifier("x"), expr_parser.Literal(1)),
+                    projection=expr_parser.BinaryOp("+", expr_parser.Identifier("x"), expr_parser.Literal(1)),
+                ),
+                "[x IN vals WHERE x > 1 | x + 1]",
+            ),
+            (
+                expr_parser.SubscriptExpr(
+                    value=expr_parser.Identifier("vals"),
+                    key=expr_parser.Literal(1),
+                ),
+                "vals[1]",
+            ),
+            (
+                expr_parser.SliceExpr(
+                    value=expr_parser.Identifier("vals"),
+                    start=expr_parser.Literal(0),
+                    stop=expr_parser.Literal(2),
+                ),
+                "vals[0..2]",
+            ),
+        ]
+
+        def _normalize(value):
+            if hasattr(value, "tolist"):
+                out = []
+                for item in value.tolist():
+                    if isinstance(item, (list, tuple, dict)):
+                        out.append(item)
+                        continue
                     if pd.isna(item):
                         out.append(None)
                     else:

@@ -260,8 +260,12 @@ class RowPipelineMixin:
         IsNullOp = expr_parser_mod.IsNullOp
         FunctionCall = expr_parser_mod.FunctionCall
         CaseWhen = expr_parser_mod.CaseWhen
+        QuantifierExpr = expr_parser_mod.QuantifierExpr
+        ListComprehension = expr_parser_mod.ListComprehension
         ListLiteral = expr_parser_mod.ListLiteral
         MapLiteral = expr_parser_mod.MapLiteral
+        SubscriptExpr = expr_parser_mod.SubscriptExpr
+        SliceExpr = expr_parser_mod.SliceExpr
 
         if isinstance(node, Identifier):
             txt = node.name
@@ -541,6 +545,202 @@ class RowPipelineMixin:
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
             return True, true_value.where(cond_true, false_value)
+
+        if isinstance(node, QuantifierExpr):
+            source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
+            if not source_ok:
+                return False, None
+            list_series = (
+                list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
+            )
+
+            row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_row_ast__")
+            list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_list_ast__")
+            total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total_ast__")
+
+            base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})
+            list_null_mask = self._gfql_null_mask(base, base[list_col])
+            if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
+                total_series = base[list_col].str.len()
+            else:
+                total_series = self._gfql_broadcast_scalar(base, pd.NA)
+            if hasattr(total_series, "where"):
+                total_series = total_series.where(~list_null_mask, 0).fillna(0)
+            base = base.assign(**{total_col: total_series})
+
+            non_null = base.loc[~list_null_mask, [row_col, list_col, total_col]]
+            expanded = non_null[[row_col, list_col, total_col]].explode(list_col)
+            if len(expanded) > 0:
+                expanded = expanded.assign(
+                    **{"__gfql_q_pos_ast__": expanded.groupby(row_col, sort=False).cumcount()}
+                )
+                expanded = expanded.loc[expanded["__gfql_q_pos_ast__"] < expanded[total_col]]
+                expanded = expanded.assign(**{node.var: expanded[list_col]})
+                pred_ok, pred_value = self._gfql_eval_expr_ast(expanded, node.predicate)
+                if not pred_ok:
+                    return False, None
+                if not hasattr(pred_value, "astype"):
+                    pred_value = self._gfql_broadcast_scalar(expanded, pred_value)
+                pred_mask = self._gfql_bool_mask(expanded, pred_value)
+                pred_null = self._gfql_null_mask(expanded, pred_value)
+                stats = expanded.assign(
+                    __gfql_q_true_ast__=(pred_mask & ~pred_null).astype("int64"),
+                    __gfql_q_null_ast__=pred_null.astype("int64"),
+                )
+                grouped = stats.groupby(row_col, sort=False).agg(
+                    true_count=("__gfql_q_true_ast__", "sum"),
+                    null_count=("__gfql_q_null_ast__", "sum"),
+                )
+                grouped = grouped.reset_index()
+            else:
+                grouped = non_null[[row_col]].iloc[0:0].copy()
+                grouped["true_count"] = []
+                grouped["null_count"] = []
+
+            summary = base[[row_col, total_col]].merge(grouped, on=row_col, how="left", sort=False)
+            summary = summary.assign(
+                true_count=summary["true_count"].fillna(0),
+                null_count=summary["null_count"].fillna(0),
+            )
+            total = summary[total_col]
+            true_count = summary["true_count"]
+            null_count = summary["null_count"]
+            false_count = total - true_count - null_count
+
+            fn = str(node.fn).lower()
+            if fn == "any":
+                out = true_count > 0
+                unknown = (true_count == 0) & (null_count > 0)
+            elif fn == "all":
+                out = false_count == 0
+                unknown = (false_count == 0) & (null_count > 0)
+            elif fn == "none":
+                out = true_count == 0
+                unknown = (true_count == 0) & (null_count > 0)
+            elif fn == "single":
+                out = true_count == 1
+                unknown = (true_count == 0) & (null_count > 0)
+            else:
+                return False, None
+            out = out.where(~unknown, pd.NA)
+            out = out.where(~list_null_mask, pd.NA)
+            return True, out.reset_index(drop=True)
+
+        if isinstance(node, ListComprehension):
+            source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
+            if not source_ok:
+                return False, None
+            list_series = (
+                list_value if hasattr(list_value, "astype") else self._gfql_broadcast_scalar(table_df, list_value)
+            )
+
+            row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_row_ast__")
+            list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_list_ast__")
+            len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_len_ast__")
+            out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out_ast__")
+
+            base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})[[row_col, list_col]]
+            null_mask = self._gfql_null_mask(base, base[list_col])
+            if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
+                lengths = base[list_col].str.len()
+            else:
+                lengths = self._gfql_broadcast_scalar(base, pd.NA)
+            if hasattr(lengths, "fillna"):
+                lengths = lengths.fillna(0)
+            base = base.assign(**{len_col: lengths})
+
+            non_null = base.loc[~null_mask, [row_col, list_col, len_col]]
+            expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
+            if len(expanded) > 0:
+                expanded = expanded.reset_index(drop=True)
+                expanded = expanded.assign(
+                    **{
+                        "__gfql_lc_pos_ast__": expanded.groupby(row_col, sort=False).cumcount(),
+                        node.var: expanded[list_col],
+                    }
+                )
+                expanded = expanded.loc[expanded["__gfql_lc_pos_ast__"] < expanded[len_col]]
+
+                if node.predicate is not None:
+                    pred_ok, pred_value = self._gfql_eval_expr_ast(expanded, node.predicate)
+                    if not pred_ok:
+                        return False, None
+                    if not hasattr(pred_value, "astype"):
+                        pred_value = self._gfql_broadcast_scalar(expanded, pred_value)
+                    pred_mask = self._gfql_bool_mask(expanded, pred_value)
+                    expanded = expanded.loc[pred_mask]
+
+                proj_node = node.projection if node.projection is not None else Identifier(node.var)
+                proj_ok, projected = self._gfql_eval_expr_ast(expanded, proj_node)
+                if not proj_ok:
+                    return False, None
+                if not hasattr(projected, "astype"):
+                    projected = self._gfql_broadcast_scalar(expanded, projected)
+                expanded = expanded.assign(**{out_col: projected})
+                grouped = expanded.groupby(row_col, sort=False)[out_col].agg(list).reset_index()
+            else:
+                grouped = non_null[[row_col]].iloc[0:0].copy()
+                grouped[out_col] = []
+
+            merged = base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False)
+            result = (
+                merged[out_col].copy()
+                if out_col in merged.columns
+                else self._gfql_broadcast_scalar(merged, None)
+            )
+
+            empty_mask = merged[len_col] == 0
+            if hasattr(empty_mask, "any") and bool(empty_mask.any()):
+                empty_idx = result.index[empty_mask]
+                empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
+                result.loc[empty_idx] = empty_vals
+
+            if hasattr(null_mask, "any") and bool(null_mask.any()):
+                result.loc[result.index[null_mask]] = None
+
+            return True, result.reset_index(drop=True)
+
+        if isinstance(node, SubscriptExpr):
+            ok_base, base_value = self._gfql_eval_expr_ast(table_df, node.value)
+            ok_key, key_value = self._gfql_eval_expr_ast(table_df, node.key)
+            if not (ok_base and ok_key):
+                return False, None
+            if hasattr(key_value, "iloc"):
+                return True, self._gfql_eval_dynamic_list_subscript(
+                    table_df, base_value, key_value, "ast subscript"
+                )
+            if hasattr(base_value, "str"):
+                return True, base_value.str.get(key_value)
+            try:
+                return True, base_value[key_value]
+            except Exception:
+                return False, None
+
+        if isinstance(node, SliceExpr):
+            ok_base, base_value = self._gfql_eval_expr_ast(table_df, node.value)
+            if not ok_base:
+                return False, None
+            start_present = node.start is not None
+            end_present = node.stop is not None
+            start_value = None
+            end_value = None
+            if node.start is not None:
+                ok_start, start_value = self._gfql_eval_expr_ast(table_df, node.start)
+                if not ok_start:
+                    return False, None
+            if node.stop is not None:
+                ok_end, end_value = self._gfql_eval_expr_ast(table_df, node.stop)
+                if not ok_end:
+                    return False, None
+            return True, self._gfql_eval_slice_subscript(
+                table_df,
+                base_value,
+                start_value,
+                end_value,
+                start_present,
+                end_present,
+                "ast slice",
+            )
 
         return False, None
     _GFQL_LIST_NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
@@ -1536,12 +1736,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_ast_fallback_allowed(node: Any, expr_parser_mod: Any) -> bool:
-        fallback_types = (
-            expr_parser_mod.QuantifierExpr,
-            expr_parser_mod.ListComprehension,
-            expr_parser_mod.SubscriptExpr,
-            expr_parser_mod.SliceExpr,
-        )
+        fallback_types = (expr_parser_mod.MapLiteral,)
         return isinstance(node, fallback_types)
 
     def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
