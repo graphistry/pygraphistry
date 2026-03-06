@@ -1112,8 +1112,7 @@ def _where_rows_expr_parser_fn() -> Any:
 def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
     parser_bundle = _where_rows_expr_parser_fn()
     if parser_bundle is None:
-        # Local envs without dependency keep current behavior.
-        return True
+        return False
     parser, capability_checker, _collect_identifiers = parser_bundle
     try:
         node = parser(expr)
@@ -1280,65 +1279,9 @@ def is_where_rows_expr(v: Any) -> bool:
         return False
     txt = str(v).strip()
     parser_bundle = _where_rows_expr_parser_fn()
-    # Parser + capability checker are authoritative whenever parser is available.
-    if parser_bundle is not None:
-        return _where_rows_expr_parser_parse_ok(txt)
-
-    # Fallback path for parser-unavailable environments.
-    txt_lex = _strip_quoted_string_literals(txt)
-    safe_funcs = {
-        "abs",
-        "coalesce",
-        "ends_with",
-        "head",
-        "nodes",
-        "relationships",
-        "reverse",
-        "sign",
-        "size",
-        "single",
-        "none",
-        "all",
-        "any",
-        "starts_with",
-        "tail",
-        "toboolean",
-        "tostring",
-    }
-    func_calls = [
-        fn
-        for fn in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt_lex)
-        if fn.lower() not in {"and", "or", "not", "contains", "starts", "ends", "with", "is", "in"}
-    ]
-    if any(fn.lower() not in safe_funcs for fn in func_calls):
+    if parser_bundle is None:
         return False
-    if not _where_rows_quotes_balanced(txt):
-        return False
-    if not _where_rows_delimiters_balanced(txt_lex):
-        return False
-    if not _where_rows_map_literals_well_formed(txt):
-        return False
-    if _has_top_level_pipe(txt_lex):
-        return False
-    if _where_rows_has_unsupported_tokens(txt_lex):
-        return False
-    if not _where_rows_boolean_keyword_placement_well_formed(txt_lex):
-        return False
-    if not _where_rows_function_call_args_well_formed(txt_lex):
-        return False
-    if _where_rows_string_predicate_has_dynamic_rhs(txt):
-        return False
-    if not _where_rows_quantifier_calls_well_formed(txt_lex):
-        return False
-    if not _where_rows_quantifier_call_context_well_formed(txt_lex):
-        return False
-    if not _where_rows_list_comprehension_calls_well_formed(txt_lex):
-        return False
-    if not _where_rows_case_calls_well_formed(txt_lex):
-        return False
-    if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\[\]{}:\|\s]+", txt) is None:
-        return False
-    return True
+    return _where_rows_expr_parser_parse_ok(txt)
 
 
 def is_non_empty_list_of_strings(v: Any) -> bool:
@@ -1441,67 +1384,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
     expr = params.get('expr')
     if isinstance(expr, str):
         parser_cols = _where_rows_expr_required_cols(expr)
-        if len(parser_cols) > 0:
-            out.extend(parser_cols)
-        else:
-            expr_clean = _strip_map_literal_bare_keys(_strip_quoted_string_literals(expr))
-            quantifier_vars = set(
-                re.findall(
-                    r"(?is)\b(?:any|all|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
-                    expr_clean,
-                )
-            )
-            list_comp_vars = set(
-                re.findall(
-                    r"(?is)\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\b",
-                    expr_clean,
-                )
-            )
-            scoped_vars = quantifier_vars | list_comp_vars
-            ids = set()
-            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", expr_clean):
-                name = match.group(1)
-                start = match.start(1)
-                # Property keys in expressions like `x.a` are not top-level table columns.
-                if start > 0 and expr_clean[start - 1] == ".":
-                    continue
-                ids.add(name)
-            reserved = {
-                "and",
-                "or",
-                "not",
-                "is",
-                "null",
-                "in",
-                "where",
-                "case",
-                "when",
-                "then",
-                "else",
-                "end",
-                "any",
-                "all",
-                "none",
-                "single",
-                "contains",
-                "starts",
-                "with",
-                "ends",
-                "true",
-                "false",
-                "abs",
-                "coalesce",
-                "head",
-                "nodes",
-                "relationships",
-                "reverse",
-                "sign",
-                "size",
-                "tail",
-                "toboolean",
-                "tostring",
-            }
-            out.extend([name for name in ids if name.lower() not in reserved and name not in scoped_vars])
+        out.extend(parser_cols)
     return sorted(set(out))
 
 

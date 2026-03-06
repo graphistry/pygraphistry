@@ -1851,14 +1851,18 @@ class TestRowPipelineSafelist:
         )
         assert cols == ["id", "n", "score", "vals"]
 
-    def test_row_pipeline_where_rows_required_cols_fallback_scoped_vars(self, monkeypatch):
+    def test_row_pipeline_where_rows_required_cols_parser_required(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
         cols = call_safelist._where_rows_requires_node_cols(
             {"expr": "any(x IN vals WHERE x > threshold)"}
         )
-        assert "vals" in cols
-        assert "threshold" in cols
-        assert "x" not in cols
+        assert cols == []
+
+    def test_row_pipeline_where_rows_validator_rejects_without_parser(self, monkeypatch):
+        monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params("where_rows", {"expr": "score > 1"})
+        assert exc_info.value.code == ErrorCode.E201
 
     def test_row_pipeline_runtime_parser_authority(self, monkeypatch):
         nodes_df = pd.DataFrame({
