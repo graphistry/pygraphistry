@@ -201,7 +201,10 @@ _GRAMMAR = r"""
         | postfix "[" subscript_key "]"  -> subscript
 
 ?subscript_key: expr                     -> subscript_index
-              | [expr] ".." [expr]       -> subscript_slice
+              | expr ".." expr           -> subscript_slice_between
+              | expr ".."                -> subscript_slice_from
+              | ".." expr                -> subscript_slice_to
+              | ".."                     -> subscript_slice_all
 
 ?primary: literal
         | identifier
@@ -343,6 +346,32 @@ def _contains_unquoted_comment_marker(expr: str) -> bool:
 
 
 def _validate_parsed_ast(node: ExprNode) -> None:
+    if isinstance(node, Identifier):
+        if node.name.upper() in {
+            "AND",
+            "OR",
+            "NOT",
+            "IN",
+            "IS",
+            "NULL",
+            "CASE",
+            "WHEN",
+            "THEN",
+            "ELSE",
+            "END",
+            "CONTAINS",
+            "STARTS",
+            "WITH",
+            "ENDS",
+            "ANY",
+            "ALL",
+            "NONE",
+            "SINGLE",
+        }:
+            raise GFQLExprParseError(
+                f"Invalid keyword usage as identifier: {node.name}"
+            )
+        return
     if isinstance(node, FunctionCall):
         if len(node.args) == 0:
             raise GFQLExprParseError(f"Function '{node.name}' requires at least one argument")
@@ -570,13 +599,28 @@ def _build_transformer() -> Any:
         def subscript_index(self, items: Sequence[Any]) -> Tuple[str, ExprNode]:
             return ("index", cast(ExprNode, _strip_tokens(items)[0]))
 
-        def subscript_slice(self, items: Sequence[Any]) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
+        def subscript_slice_between(
+            self, items: Sequence[Any]
+        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
             stripped = _strip_tokens(items)
-            if len(stripped) == 0:
-                return ("slice", None, None)
-            if len(stripped) == 1:
-                return ("slice", cast(ExprNode, stripped[0]), None)
-            return ("slice", cast(Optional[ExprNode], stripped[0]), cast(Optional[ExprNode], stripped[1]))
+            return ("slice", cast(ExprNode, stripped[0]), cast(ExprNode, stripped[1]))
+
+        def subscript_slice_from(
+            self, items: Sequence[Any]
+        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
+            stripped = _strip_tokens(items)
+            return ("slice", cast(ExprNode, stripped[0]), None)
+
+        def subscript_slice_to(
+            self, items: Sequence[Any]
+        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
+            stripped = _strip_tokens(items)
+            return ("slice", None, cast(ExprNode, stripped[0]))
+
+        def subscript_slice_all(
+            self, _items: Sequence[Any]
+        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
+            return ("slice", None, None)
 
         def subscript(self, items: Sequence[Any]) -> ExprNode:
             stripped = _strip_tokens(items)
@@ -844,8 +888,14 @@ def validate_expr_capabilities(
             _walk(n.operand)
             return
         if isinstance(n, BinaryOp):
-            if n.op.lower() not in allowed_binary_ops:
+            op = n.op.lower()
+            if op not in allowed_binary_ops:
                 errors.append(f"unsupported binary op: {n.op}")
+            if op in {"contains", "starts_with", "ends_with"}:
+                if not isinstance(n.right, Literal):
+                    errors.append(
+                        f"string predicate rhs must be literal scalar: {n.op}"
+                    )
             _walk(n.left)
             _walk(n.right)
             return

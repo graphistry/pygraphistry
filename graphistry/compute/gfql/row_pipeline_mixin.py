@@ -530,7 +530,8 @@ class RowPipelineMixin:
             list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_list_ast__")
             total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total_ast__")
 
-            base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})
+            base = table_df.reset_index(drop=True).copy()
+            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
                 total_series = base[list_col].str.len()
@@ -540,9 +541,10 @@ class RowPipelineMixin:
                 total_series = total_series.where(~list_null_mask, 0).fillna(0)
             base = base.assign(**{total_col: total_series})
 
-            non_null = base.loc[~list_null_mask, [row_col, list_col, total_col]]
-            expanded = non_null[[row_col, list_col, total_col]].explode(list_col)
+            non_null = base.loc[~list_null_mask].copy()
+            expanded = non_null.explode(list_col)
             if len(expanded) > 0:
+                expanded = expanded.reset_index(drop=True)
                 expanded = expanded.assign(
                     **{"__gfql_q_pos_ast__": expanded.groupby(row_col, sort=False).cumcount()}
                 )
@@ -611,7 +613,8 @@ class RowPipelineMixin:
             len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_len_ast__")
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out_ast__")
 
-            base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series})[[row_col, list_col]]
+            base = table_df.reset_index(drop=True).copy()
+            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
             null_mask = self._gfql_null_mask(base, base[list_col])
             if hasattr(base[list_col], "str") and hasattr(base[list_col].str, "len"):
                 lengths = base[list_col].str.len()
@@ -621,8 +624,8 @@ class RowPipelineMixin:
                 lengths = lengths.fillna(0)
             base = base.assign(**{len_col: lengths})
 
-            non_null = base.loc[~null_mask, [row_col, list_col, len_col]]
-            expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
+            non_null = base.loc[~null_mask].copy()
+            expanded = non_null.explode(list_col)
             if len(expanded) > 0:
                 expanded = expanded.reset_index(drop=True)
                 expanded = expanded.assign(
@@ -1725,13 +1728,20 @@ class RowPipelineMixin:
             if len(capability_errors) > 0:
                 raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
 
+            ast_error: Optional[Exception] = None
             try:
                 ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
-            except Exception:
+            except Exception as exc:
+                ast_error = exc
                 ast_ok, ast_value = False, None
             if ast_ok:
                 return ast_value
-            if not RowPipelineMixin._gfql_ast_fallback_allowed(ast_node, expr_parser_mod):
+            fallback_allowed = RowPipelineMixin._gfql_ast_fallback_allowed(ast_node, expr_parser_mod)
+            if ast_error is not None and not fallback_allowed:
+                if isinstance(ast_error, ValueError):
+                    raise ast_error
+                raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from ast_error
+            if not fallback_allowed:
                 raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
 
         if txt in table_df.columns:
@@ -2191,7 +2201,10 @@ class RowPipelineMixin:
             if alias == "":
                 raise ValueError("select alias must be non-empty")
             if isinstance(expr, str):
-                projected[alias] = self._gfql_eval_string_expr(table_df, expr)
+                value = self._gfql_eval_string_expr(table_df, expr)
+                if not hasattr(value, "astype"):
+                    value = self._gfql_broadcast_scalar(table_df, value)
+                projected[alias] = value
             else:
                 projected[alias] = self._gfql_broadcast_scalar(table_df, expr)
 
