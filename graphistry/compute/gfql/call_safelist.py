@@ -248,7 +248,7 @@ def is_where_rows_expr(v: object) -> bool:
 
 
 def is_non_empty_list_of_strings(v: object) -> bool:
-    return isinstance(v, list) and is_list_of_strings(v) and len(v) > 0
+    return is_list_of_strings(v) and len(v) > 0
 
 
 def is_list_of_agg_specs(v: object) -> bool:
@@ -342,9 +342,7 @@ def _select_added_node_cols(params: Dict[str, object]) -> List[str]:
 def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
     filter_dict = params.get('filter_dict')
-    if not isinstance(filter_dict, dict):
-        out = []
-    else:
+    if isinstance(filter_dict, dict):
         out.extend([k for k in filter_dict.keys() if isinstance(k, str)])
 
     expr = params.get('expr')

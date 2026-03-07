@@ -157,10 +157,10 @@ class RowPipelineMixin:
         return col
 
     def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
-        try:
-            import graphistry.compute.gfql.expr_parser as expr_parser_mod
-        except Exception:
+        parser_bundle = _gfql_expr_runtime_parser_bundle()
+        if parser_bundle is None:
             return False, None
+        _parse_expr, _validate_expr_capabilities, expr_parser_mod = parser_bundle
 
         Identifier = expr_parser_mod.Identifier
         Literal = expr_parser_mod.Literal
