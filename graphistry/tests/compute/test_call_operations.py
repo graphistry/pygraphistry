@@ -248,6 +248,18 @@ class TestCallExecution:
         assert hasattr(result, '_nodes')
         assert 'degree' in result._nodes.columns
         assert len(result._nodes) == 4
+
+    def test_execute_return_alias(self, sample_graph):
+        """Test executing return_ alias through execute_call row-pipeline path."""
+        result = execute_call(
+            sample_graph,
+            'return_',
+            {'items': [('node', 'node')]},
+            Engine.PANDAS
+        )
+
+        assert list(result._nodes.columns) == ['node']
+        assert len(result._nodes) == len(sample_graph._nodes)
     
     def test_execute_filter_nodes(self, sample_graph):
         """Test executing filter_nodes_by_dict method."""

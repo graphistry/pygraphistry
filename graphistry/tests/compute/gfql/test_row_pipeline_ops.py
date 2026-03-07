@@ -1547,6 +1547,8 @@ class TestRowPipelineSafelist:
         assert params == {"items": [("name", "name"), ("const", 1)]}
         params = validate_call_params("select", {"items": ["name", ("const", 1)]})
         assert params == {"items": ["name", ("const", 1)]}
+        params = validate_call_params("return_", {"items": [("name", "name")]})
+        assert params == {"items": [("name", "name")]}
         params = validate_call_params("with_", {"items": ["name"]})
         assert params == {"items": ["name"]}
 
@@ -1561,6 +1563,7 @@ class TestRowPipelineSafelist:
             [("", "name")],
         ]:
             self._assert_e201("select", {"items": bad_items})
+            self._assert_e201("return_", {"items": bad_items})
 
     def test_row_pipeline_with_where_rows_validation(self):
         params = validate_call_params("with_", {"items": [("name", "name")]})

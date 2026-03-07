@@ -688,6 +688,21 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         }
     },
 
+    'return_': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_projection_items
+        },
+        'description': 'RETURN-style row projection alias of select()',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
     'with_': {
         'allowed_params': {'items'},
         'required_params': {'items'},
