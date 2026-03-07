@@ -616,6 +616,48 @@ EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
     'requires_edge_cols': _required_column,
 }
 
+
+def _schema_effects(
+    *,
+    adds_node_cols: Any = None,
+    adds_edge_cols: Any = None,
+    requires_node_cols: Any = None,
+    requires_edge_cols: Any = None,
+) -> Dict[str, Any]:
+    return {
+        'adds_node_cols': [] if adds_node_cols is None else adds_node_cols,
+        'adds_edge_cols': [] if adds_edge_cols is None else adds_edge_cols,
+        'requires_node_cols': [] if requires_node_cols is None else requires_node_cols,
+        'requires_edge_cols': [] if requires_edge_cols is None else requires_edge_cols,
+    }
+
+
+def _method_entry(
+    *,
+    allowed_params: Set[str],
+    required_params: Set[str],
+    param_validators: Dict[str, Callable[[object], bool]],
+    description: str,
+    schema_effects: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        'allowed_params': allowed_params,
+        'required_params': required_params,
+        'param_validators': param_validators,
+        'description': description,
+        'schema_effects': schema_effects,
+    }
+
+
+def _projection_row_entry(description: str) -> Dict[str, Any]:
+    return _method_entry(
+        allowed_params={'items'},
+        required_params={'items'},
+        param_validators={'items': is_projection_items},
+        description=description,
+        schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
+    )
+
 # Dictionary mapping allowed Plottable method names to their validation rules.
 #
 # Each method entry contains:
@@ -643,157 +685,96 @@ EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
 #     }
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
-    'rows': {
-        'allowed_params': {'table', 'source'},
-        'required_params': set(),
-        'param_validators': {
+    'rows': _method_entry(
+        allowed_params={'table', 'source'},
+        required_params=set(),
+        param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
-            'source': is_string_or_none
+            'source': is_string_or_none,
         },
-        'description': 'Set active row table from nodes/edges, optionally filtered by source alias',
-        'schema_effects': {
-            'adds_node_cols': [],
-            'adds_edge_cols': [],
-            'requires_node_cols': _rows_requires_node_cols,
-            'requires_edge_cols': _rows_requires_edge_cols
-        }
-    },
+        description='Set active row table from nodes/edges, optionally filtered by source alias',
+        schema_effects=_schema_effects(
+            requires_node_cols=_rows_requires_node_cols,
+            requires_edge_cols=_rows_requires_edge_cols,
+        ),
+    ),
 
-    'select': {
-        'allowed_params': {'items'},
-        'required_params': {'items'},
-        'param_validators': {
-            'items': is_projection_items
-        },
-        'description': 'Project row table columns/expressions into aliased outputs',
-        'schema_effects': {
-            'adds_node_cols': _select_added_node_cols,
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'select': _projection_row_entry('Project row table columns/expressions into aliased outputs'),
 
-    'return_': {
-        'allowed_params': {'items'},
-        'required_params': {'items'},
-        'param_validators': {
-            'items': is_projection_items
-        },
-        'description': 'RETURN-style row projection alias of select()',
-        'schema_effects': {
-            'adds_node_cols': _select_added_node_cols,
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'return_': _projection_row_entry('RETURN-style row projection alias of select()'),
 
-    'with_': {
-        'allowed_params': {'items'},
-        'required_params': {'items'},
-        'param_validators': {
-            'items': is_projection_items
-        },
-        'description': 'WITH-style row projection with scope-reset semantics',
-        'schema_effects': {
-            'adds_node_cols': _select_added_node_cols,
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'with_': _projection_row_entry('WITH-style row projection with scope-reset semantics'),
 
-    'where_rows': {
-        'allowed_params': {'filter_dict', 'expr'},
-        'required_params': set(),
-        'param_validators': {
+    'where_rows': _method_entry(
+        allowed_params={'filter_dict', 'expr'},
+        required_params=set(),
+        param_validators={
             'filter_dict': is_where_rows_filter_dict,
             'expr': is_where_rows_expr,
         },
-        'description': 'Filter active row table by column values/predicates',
-        'schema_effects': {
-            'adds_node_cols': [],
-            'adds_edge_cols': [],
-            'requires_node_cols': _where_rows_requires_node_cols,
-            'requires_edge_cols': []
-        }
-    },
+        description='Filter active row table by column values/predicates',
+        schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
+    ),
 
-    'order_by': {
-        'allowed_params': {'keys'},
-        'required_params': {'keys'},
-        'param_validators': {
-            'keys': is_order_keys
-        },
-        'description': 'Sort active row table by expression/direction keys',
-        'schema_effects': {
-            'adds_node_cols': [],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'order_by': _method_entry(
+        allowed_params={'keys'},
+        required_params={'keys'},
+        param_validators={'keys': is_order_keys},
+        description='Sort active row table by expression/direction keys',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
 
-    'skip': {
-        'allowed_params': {'value'},
-        'required_params': {'value'},
-        'param_validators': {
-            'value': is_non_negative_int_like
-        },
-        'description': 'Skip first N rows from active row table',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'skip': _method_entry(
+        allowed_params={'value'},
+        required_params={'value'},
+        param_validators={'value': is_non_negative_int_like},
+        description='Skip first N rows from active row table',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
 
-    'limit': {
-        'allowed_params': {'value'},
-        'required_params': {'value'},
-        'param_validators': {
-            'value': is_non_negative_int_like
-        },
-        'description': 'Limit active row table to first N rows',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'limit': _method_entry(
+        allowed_params={'value'},
+        required_params={'value'},
+        param_validators={'value': is_non_negative_int_like},
+        description='Limit active row table to first N rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
 
-    'unwind': {
-        'allowed_params': {'expr', 'as_'},
-        'required_params': {'expr'},
-        'param_validators': {
+    'unwind': _method_entry(
+        allowed_params={'expr', 'as_'},
+        required_params={'expr'},
+        param_validators={
             'expr': is_unwind_expr,
-            'as_': is_non_empty_string
+            'as_': is_non_empty_string,
         },
-        'description': 'Explode list-like row expression into multiple rows',
-        'schema_effects': {
-            'adds_node_cols': _unwind_added_node_cols,
-            'adds_edge_cols': [],
-            'requires_node_cols': _unwind_requires_node_cols,
-            'requires_edge_cols': []
-        }
-    },
+        description='Explode list-like row expression into multiple rows',
+        schema_effects=_schema_effects(
+            adds_node_cols=_unwind_added_node_cols,
+            requires_node_cols=_unwind_requires_node_cols,
+        ),
+    ),
 
-    'group_by': {
-        'allowed_params': {'keys', 'aggregations'},
-        'required_params': {'keys', 'aggregations'},
-        'param_validators': {
+    'group_by': _method_entry(
+        allowed_params={'keys', 'aggregations'},
+        required_params={'keys', 'aggregations'},
+        param_validators={
             'keys': is_non_empty_list_of_strings,
-            'aggregations': is_list_of_agg_specs
+            'aggregations': is_list_of_agg_specs,
         },
-        'description': 'Group rows by keys and compute vectorized aggregations',
-        'schema_effects': {
-            'adds_node_cols': _group_by_added_node_cols,
-            'adds_edge_cols': [],
-            'requires_node_cols': _group_by_requires_node_cols,
-            'requires_edge_cols': []
-        }
-    },
+        description='Group rows by keys and compute vectorized aggregations',
+        schema_effects=_schema_effects(
+            adds_node_cols=_group_by_added_node_cols,
+            requires_node_cols=_group_by_requires_node_cols,
+        ),
+    ),
 
-    'distinct': {
-        'allowed_params': set(),
-        'required_params': set(),
-        'param_validators': {},
-        'description': 'Drop duplicate rows from active row table',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'distinct': _method_entry(
+        allowed_params=set(),
+        required_params=set(),
+        param_validators={},
+        description='Drop duplicate rows from active row table',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
 
     'get_degrees': {
         'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
