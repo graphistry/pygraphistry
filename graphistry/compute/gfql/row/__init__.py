@@ -1,10 +1,8 @@
-"""Compatibility shim for row-pipeline runtime helpers."""
+"""Row-pipeline runtime and validation helpers for GFQL."""
 
 from graphistry.compute.gfql.row.pipeline import (
     ROW_PIPELINE_CALLS,
     RowPipelineMixin,
-    _RowPipelineAdapter,
-    _gfql_expr_runtime_parser_bundle,
     execute_row_pipeline_call,
     is_row_pipeline_call,
 )
@@ -12,8 +10,6 @@ from graphistry.compute.gfql.row.pipeline import (
 __all__ = [
     "ROW_PIPELINE_CALLS",
     "RowPipelineMixin",
-    "_RowPipelineAdapter",
-    "_gfql_expr_runtime_parser_bundle",
     "execute_row_pipeline_call",
     "is_row_pipeline_call",
 ]

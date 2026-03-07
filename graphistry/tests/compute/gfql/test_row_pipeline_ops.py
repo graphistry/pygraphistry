@@ -5,7 +5,7 @@ import pytest
 
 import graphistry.compute.gfql.call_safelist as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
-import graphistry.compute.gfql.row_pipeline_mixin as row_pipeline_mixin
+import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
 from graphistry.compute.ast import (
     ASTCall,
     distinct,

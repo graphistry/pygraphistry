@@ -42,7 +42,7 @@ from graphistry.compute.gfql.call_safelist_support import (
     is_unwind_expr,
     validate_hypergraph_opts,
 )
-from graphistry.compute.gfql.order_expr_utils import (
+from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )

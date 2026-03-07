@@ -10,7 +10,7 @@ from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call_safelist import validate_call_params
-from graphistry.compute.gfql.row_pipeline_mixin import (
+from graphistry.compute.gfql.row.pipeline import (
     execute_row_pipeline_call,
     is_row_pipeline_call,
 )
