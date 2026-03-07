@@ -248,7 +248,9 @@ def is_where_rows_expr(v: object) -> bool:
 
 
 def is_non_empty_list_of_strings(v: object) -> bool:
-    return is_list_of_strings(v) and len(v) > 0
+    if not isinstance(v, list):
+        return False
+    return len(v) > 0 and all(isinstance(item, str) for item in v)
 
 
 def is_list_of_agg_specs(v: object) -> bool:
