@@ -324,12 +324,12 @@ class TestASTCallChainHazards:
 
     def test_filter_edges_in_safelist(self):
         """Verify filter_edges_by_dict is in call safelist."""
-        from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+        from graphistry.compute.gfql.call.validation import SAFELIST_V1
         assert 'filter_edges_by_dict' in SAFELIST_V1
 
     def test_filter_nodes_in_safelist(self):
         """Verify filter_nodes_by_dict is in call safelist."""
-        from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+        from graphistry.compute.gfql.call.validation import SAFELIST_V1
         assert 'filter_nodes_by_dict' in SAFELIST_V1
 
     def test_invalid_call_raises_error(self, sample_graph):

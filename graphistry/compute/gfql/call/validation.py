@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-from graphistry.compute.gfql.call_safelist_support import (
+from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
     NO_SCHEMA_EFFECTS,

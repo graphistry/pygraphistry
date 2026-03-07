@@ -13,7 +13,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
@@ -1439,7 +1439,7 @@ class ASTCall(ASTObject):
         """
         # For chain_let, we don't use wavefronts, just execute the call
         # Import here due to circular dependency
-        from graphistry.compute.gfql.call_executor import execute_call  # noqa: F401, F811
+        from graphistry.compute.gfql.call.executor import execute_call  # noqa: F401, F811
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':

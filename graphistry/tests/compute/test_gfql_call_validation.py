@@ -13,7 +13,7 @@ Tests cover diverse operation types:
 import pandas as pd
 import pytest
 from graphistry.compute.ast import call, ASTCall
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.exceptions import GFQLTypeError
 
 

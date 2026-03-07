@@ -345,7 +345,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
                 raise
     elif isinstance(ast_obj, ASTCall):
         # Execute method call with validation
-        from .gfql.call_executor import execute_call
+        from .gfql.call.executor import execute_call
         result = execute_call(g, ast_obj.function, ast_obj.params, engine, policy=policy, context=context)
     else:
         # Check if it's a Chain or Plottable

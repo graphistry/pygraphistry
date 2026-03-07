@@ -248,7 +248,7 @@ def _validate_call_op(
     """
     errors: List[GFQLSchemaError] = []
 
-    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+    from graphistry.compute.gfql.call.validation import SAFELIST_V1
 
     if op.function not in SAFELIST_V1:
         return errors
@@ -304,7 +304,7 @@ def _validate_call_op(
 
 def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set) -> None:
     """Apply schema effects from a call operation to tracked column sets."""
-    from graphistry.compute.gfql.call_safelist import SAFELIST_V1
+    from graphistry.compute.gfql.call.validation import SAFELIST_V1
 
     if op.function not in SAFELIST_V1:
         return

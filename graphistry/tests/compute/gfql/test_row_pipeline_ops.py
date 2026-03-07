@@ -3,7 +3,7 @@ import warnings
 import pandas as pd
 import pytest
 
-import graphistry.compute.gfql.call_safelist as call_safelist
+import graphistry.compute.gfql.call.validation as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
 from graphistry.compute.ast import (
@@ -23,7 +23,7 @@ from graphistry.compute.ast import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.predicates.numeric import gt
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.tests.test_compute import CGFull
 
 
