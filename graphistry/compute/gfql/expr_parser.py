@@ -90,6 +90,11 @@ class FunctionCall:
 
 
 @dataclass(frozen=True)
+class Wildcard:
+    pass
+
+
+@dataclass(frozen=True)
 class CaseWhen:
     condition: "ExprNode"
     when_true: "ExprNode"
@@ -142,6 +147,7 @@ ExprNode = Union[
     BinaryOp,
     IsNullOp,
     FunctionCall,
+    Wildcard,
     CaseWhen,
     QuantifierExpr,
     ListComprehension,
@@ -226,7 +232,10 @@ map_entry: map_key ":" expr
 map_key: NAME                            -> map_key_name
        | STRING                          -> map_key_string
 
-function_call: NAME "(" expr_list ")"
+function_call: NAME "(" func_args ")"
+func_args: func_arg ("," func_arg)*
+?func_arg: expr
+         | "*"                           -> star_arg
 identifier: NAME ("." NAME)*
 
 case_expr: "CASE"i "WHEN"i expr "THEN"i expr "ELSE"i expr "END"i
@@ -347,6 +356,12 @@ def _build_transformer() -> _TransformerLike:
             if len(names) == 0:
                 raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
+
+        def func_args(self, items: Sequence[Any]) -> List[ExprNode]:
+            return [cast(ExprNode, i) for i in _strip_tokens(items)]
+
+        def star_arg(self, _: Sequence[Any]) -> Wildcard:
+            return Wildcard()
 
         def function_call(self, items: Sequence[Any]) -> FunctionCall:
             fn = ""
@@ -609,6 +624,7 @@ def parse_expr(expr: str) -> ExprNode:
             BinaryOp,
             IsNullOp,
             FunctionCall,
+            Wildcard,
             CaseWhen,
             QuantifierExpr,
             ListComprehension,
@@ -630,6 +646,8 @@ def collect_identifiers(node: ExprNode) -> Set[str]:
             out.add(n.name)
             return
         if isinstance(n, Literal):
+            return
+        if isinstance(n, Wildcard):
             return
         if isinstance(n, UnaryOp):
             _walk(n.operand)
@@ -756,6 +774,9 @@ def validate_expr_capabilities(
         if isinstance(n, Identifier):
             return
         if isinstance(n, Literal):
+            return
+        if isinstance(n, Wildcard):
+            errors.append("unsupported wildcard: *")
             return
         if isinstance(n, UnaryOp):
             if n.op.lower() not in allowed_unary_ops:

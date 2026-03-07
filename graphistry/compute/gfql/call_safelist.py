@@ -31,13 +31,11 @@ Usage:
     g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
-import re
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.gfql.order_expr_utils import (
-    is_aggregate_alias_expr,
-    is_plain_order_label,
+    is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
 
@@ -194,13 +192,12 @@ def is_order_keys(v: object) -> bool:
         txt = expr.strip()
         if txt == "":
             return False
-        # Runtime order_by supports sorting by projected aliases that are not GFQL expressions.
-        if is_plain_order_label(txt) or is_aggregate_alias_expr(txt):
-            return True
         parsed = _where_rows_expr_parse(txt)
         if parsed is None:
             return False
         node, capability_checker, _collect_identifiers = parsed
+        if is_order_aggregate_alias_ast(node):
+            return True
         try:
             capability_errors = capability_checker(node)
         except Exception:
@@ -357,9 +354,7 @@ def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
 def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
     expr = params.get('expr')
     if isinstance(expr, str):
-        txt = expr.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", txt):
-            return [txt]
+        return _where_rows_expr_required_cols(expr)
     return []
 
 
@@ -379,12 +374,8 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
             if not isinstance(item, (list, tuple)) or len(item) != 3:
                 continue
             expr = item[2]
-            if (
-                isinstance(expr, str)
-                and expr != "*"
-                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr.strip()) is not None
-            ):
-                out.append(expr)
+            if isinstance(expr, str) and expr != "*":
+                out.extend(_where_rows_expr_required_cols(expr))
     return out
 
 

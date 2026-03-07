@@ -8,6 +8,7 @@ from graphistry.compute.gfql.expr_parser import (
     Literal,
     ListComprehension,
     QuantifierExpr,
+    Wildcard,
     collect_identifiers,
     find_unsupported_functions,
     parse_expr,
@@ -150,3 +151,19 @@ def test_find_unsupported_functions_accepts_known() -> None:
     node = parse_expr("size(vals) > 1 AND toString(name) = 'x'")
     bad = find_unsupported_functions(node)
     assert bad == set()
+
+
+@requires_lark
+def test_parse_expr_aggregate_wildcard_function_node() -> None:
+    node = parse_expr("count(*)")
+    assert isinstance(node, FunctionCall)
+    assert len(node.args) == 1
+    assert isinstance(node.args[0], Wildcard)
+
+
+@requires_lark
+def test_validate_expr_capabilities_rejects_wildcard_function_arg() -> None:
+    node = parse_expr("count(*)")
+    errors = validate_expr_capabilities(node)
+    assert "unsupported function: count" in errors
+    assert "unsupported wildcard: *" in errors

@@ -1,26 +1,5 @@
-import re
-
-
-_ORDER_AGG_ALIAS_RE = re.compile(
-    r"(?is)\s*(?:count|sum|min|max|avg|mean|collect)\s*\(\s*(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*"
-)
-_ORDER_LABEL_DISALLOWED_TOKENS = (
-    "(",
-    ")",
-    "[",
-    "]",
-    "{",
-    "}",
-    "+",
-    "-",
-    "*",
-    "/",
-    "%",
-    "<",
-    ">",
-    "=",
-    "!",
-)
+_EXPR_PARSER_MODULE = "graphistry.compute.gfql.expr_parser"
+_ORDER_AGG_ALIAS_FUNCS = frozenset({"count", "sum", "min", "max", "avg", "mean", "collect"})
 _ORDER_UNSUPPORTED_NODE_NAMES = frozenset(
     {
         "QuantifierExpr",
@@ -33,25 +12,36 @@ _ORDER_UNSUPPORTED_NODE_NAMES = frozenset(
 )
 
 
-def is_aggregate_alias_expr(text: str) -> bool:
-    return _ORDER_AGG_ALIAS_RE.fullmatch(text) is not None
-
-
-def is_plain_order_label(text: str) -> bool:
-    txt = text.strip()
-    if txt == "":
+def is_order_aggregate_alias_ast(node: object) -> bool:
+    node_type = type(node)
+    if node_type.__name__ != "FunctionCall" or node_type.__module__ != _EXPR_PARSER_MODULE:
         return False
-    for token in _ORDER_LABEL_DISALLOWED_TOKENS:
-        if token in txt:
-            return False
-    return True
+
+    fn = getattr(node, "name", None)
+    args = getattr(node, "args", None)
+    if not isinstance(fn, str) or fn.lower() not in _ORDER_AGG_ALIAS_FUNCS:
+        return False
+    if not isinstance(args, tuple) or len(args) != 1:
+        return False
+
+    arg = args[0]
+    arg_type = type(arg)
+    if arg_type.__module__ != _EXPR_PARSER_MODULE:
+        return False
+    if arg_type.__name__ == "Wildcard":
+        return True
+    if arg_type.__name__ != "Identifier":
+        return False
+
+    name = getattr(arg, "name", None)
+    return isinstance(name, str) and name != ""
 
 
 def order_expr_ast_static_supported(node: object) -> bool:
     node_type = type(node)
     if node_type.__name__ in _ORDER_UNSUPPORTED_NODE_NAMES:
         return False
-    if node_type.__module__ != "graphistry.compute.gfql.expr_parser":
+    if node_type.__module__ != _EXPR_PARSER_MODULE:
         return True
     try:
         fields = vars(node).values()

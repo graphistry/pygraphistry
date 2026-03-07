@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol,
 
 import pandas as pd
 from graphistry.compute.gfql.order_expr_utils import (
-    is_aggregate_alias_expr,
-    is_plain_order_label,
+    is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
 
@@ -692,8 +691,6 @@ class RowPipelineMixin:
         txt = expr.strip()
         if txt == "":
             return False
-        if is_plain_order_label(txt) or is_aggregate_alias_expr(txt):
-            return True
 
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -701,6 +698,11 @@ class RowPipelineMixin:
         parser, capability_checker, _expr_parser_mod = parser_bundle
         try:
             node = parser(txt)
+        except Exception:
+            return False
+        if is_order_aggregate_alias_ast(node):
+            return True
+        try:
             capability_errors = capability_checker(node)
         except Exception:
             return False
