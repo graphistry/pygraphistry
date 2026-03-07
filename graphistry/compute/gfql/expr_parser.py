@@ -186,7 +186,7 @@ _GRAMMAR = r"""
 
 ?additive: multiplicative
          | additive "+" multiplicative   -> add_op
-         | additive "-" multiplicative   -> sub_op
+         | additive MINUS multiplicative -> sub_op
 
 ?multiplicative: unary
                | multiplicative "*" unary -> mul_op
@@ -194,7 +194,7 @@ _GRAMMAR = r"""
                | multiplicative "%" unary -> mod_op
 
 ?unary: "+" unary                        -> uplus
-      | "-" unary                        -> uminus
+      | MINUS unary                      -> uminus
       | postfix
 
 ?postfix: primary
@@ -225,7 +225,7 @@ map_entry: map_key ":" expr
 map_key: NAME                            -> map_key_name
        | STRING                          -> map_key_string
 
-function_call: NAME "(" [expr_list] ")"
+function_call: NAME "(" expr_list ")"
 identifier: NAME ("." NAME)*
 
 case_expr: "CASE"i "WHEN"i expr "THEN"i expr "ELSE"i expr "END"i
@@ -247,9 +247,12 @@ literal: "NULL"i                            -> null_lit
        | STRING                          -> string_lit
 
 COMP_OP: "<=" | ">=" | "<>" | "!=" | "=" | "<" | ">"
-NAME: /[A-Za-z_][A-Za-z0-9_]*/
+MINUS: /-(?!-)/
+NAME: /(?!(?i:AND|OR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
+LINE_COMMENT: /--[^\n]*/
+BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
 %ignore WS
 """
@@ -321,118 +324,6 @@ def _parse_number_token(token: str) -> Union[int, float]:
     if any(c in token for c in (".", "e", "E")):
         return float(token)
     return int(token)
-
-
-def _contains_unquoted_comment_marker(expr: str) -> bool:
-    in_single = False
-    in_double = False
-    escaped = False
-    i = 0
-    while i < len(expr):
-        ch = expr[i]
-        if escaped:
-            escaped = False
-            i += 1
-            continue
-        if ch == "\\" and (in_single or in_double):
-            escaped = True
-            i += 1
-            continue
-        if ch == "'" and not in_double:
-            in_single = not in_single
-            i += 1
-            continue
-        if ch == '"' and not in_single:
-            in_double = not in_double
-            i += 1
-            continue
-        if not in_single and not in_double:
-            if ch == "-" and i + 1 < len(expr) and expr[i + 1] == "-":
-                return True
-            if ch == "/" and i + 1 < len(expr) and expr[i + 1] == "*":
-                return True
-        i += 1
-    return False
-
-
-def _validate_parsed_ast(node: ExprNode) -> None:
-    if isinstance(node, Identifier):
-        if node.name.upper() in {
-            "AND",
-            "OR",
-            "NOT",
-            "IN",
-            "IS",
-            "NULL",
-            "CASE",
-            "WHEN",
-            "THEN",
-            "ELSE",
-            "END",
-            "CONTAINS",
-            "STARTS",
-            "WITH",
-            "ENDS",
-            "ANY",
-            "ALL",
-            "NONE",
-            "SINGLE",
-        }:
-            raise GFQLExprParseError(
-                f"Invalid keyword usage as identifier: {node.name}"
-            )
-        return
-    if isinstance(node, FunctionCall):
-        if len(node.args) == 0:
-            raise GFQLExprParseError(f"Function '{node.name}' requires at least one argument")
-        for arg in node.args:
-            _validate_parsed_ast(arg)
-        return
-    if isinstance(node, UnaryOp):
-        _validate_parsed_ast(node.operand)
-        return
-    if isinstance(node, BinaryOp):
-        _validate_parsed_ast(node.left)
-        _validate_parsed_ast(node.right)
-        return
-    if isinstance(node, IsNullOp):
-        _validate_parsed_ast(node.value)
-        return
-    if isinstance(node, CaseWhen):
-        _validate_parsed_ast(node.condition)
-        _validate_parsed_ast(node.when_true)
-        _validate_parsed_ast(node.when_false)
-        return
-    if isinstance(node, QuantifierExpr):
-        _validate_parsed_ast(node.source)
-        _validate_parsed_ast(node.predicate)
-        return
-    if isinstance(node, ListComprehension):
-        _validate_parsed_ast(node.source)
-        if node.predicate is not None:
-            _validate_parsed_ast(node.predicate)
-        if node.projection is not None:
-            _validate_parsed_ast(node.projection)
-        return
-    if isinstance(node, ListLiteral):
-        for item in node.items:
-            _validate_parsed_ast(item)
-        return
-    if isinstance(node, MapLiteral):
-        for _, value in node.items:
-            _validate_parsed_ast(value)
-        return
-    if isinstance(node, SubscriptExpr):
-        _validate_parsed_ast(node.value)
-        _validate_parsed_ast(node.key)
-        return
-    if isinstance(node, SliceExpr):
-        _validate_parsed_ast(node.value)
-        if node.start is not None:
-            _validate_parsed_ast(node.start)
-        if node.stop is not None:
-            _validate_parsed_ast(node.stop)
-        return
 
 
 def _build_transformer() -> _TransformerLike:
@@ -715,8 +606,6 @@ def _build_transformer() -> _TransformerLike:
 def parse_expr(expr: str) -> ExprNode:
     if not isinstance(expr, str) or expr.strip() == "":
         raise GFQLExprParseError("Expression must be a non-empty string")
-    if _contains_unquoted_comment_marker(expr):
-        raise GFQLExprParseError("Invalid GFQL expression")
 
     parser = _parser()
     transformer = _build_transformer()
@@ -752,9 +641,7 @@ def parse_expr(expr: str) -> ExprNode:
         ),
     ):
         raise GFQLExprParseError("Invalid GFQL expression AST")
-    parsed_node = cast(ExprNode, node)
-    _validate_parsed_ast(parsed_node)
-    return parsed_node
+    return cast(ExprNode, node)
 
 
 def collect_identifiers(node: ExprNode) -> Set[str]:
