@@ -538,146 +538,80 @@ class TestRowPipelineExecution:
             {"p": 1, "q": 4},
         ]
 
-    def test_row_pipeline_group_by_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "grp": ["x", "x", "y"],
-            "score": [1, 2, 5],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            group_by(
-                ["grp"],
-                [("cnt", "count"), ("sum_score", "sum", "score"), ("avg_score", "avg", "score")],
+    @pytest.mark.parametrize(
+        ("nodes", "steps", "expected_records"),
+        [
+            pytest.param(
+                {"id": ["a", "b", "c"], "grp": ["x", "x", "y"], "score": [1, 2, 5]},
+                [
+                    rows(),
+                    group_by(
+                        ["grp"],
+                        [("cnt", "count"), ("sum_score", "sum", "score"), ("avg_score", "avg", "score")],
+                    ),
+                    order_by([("grp", "asc")]),
+                ],
+                [
+                    {"grp": "x", "cnt": 2, "sum_score": 3, "avg_score": 1.5},
+                    {"grp": "y", "cnt": 1, "sum_score": 5, "avg_score": 5.0},
+                ],
+                id="group-by",
             ),
-            order_by([("grp", "asc")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
-            {"grp": "x", "cnt": 2, "sum_score": 3, "avg_score": 1.5},
-            {"grp": "y", "cnt": 1, "sum_score": 5, "avg_score": 5.0},
-        ]
-
-    def test_row_pipeline_group_by_collect_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c", "d"],
-            "grp": ["x", "x", "y", "y"],
-            "score": [1, None, 5, 6],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            group_by(
-                ["grp"],
-                [("scores", "collect", "score")],
+            pytest.param(
+                {"id": ["a", "b", "c", "d"], "grp": ["x", "x", "y", "y"], "score": [1, None, 5, 6]},
+                [rows(), group_by(["grp"], [("scores", "collect", "score")]), order_by([("grp", "asc")])],
+                [{"grp": "x", "scores": [1.0]}, {"grp": "y", "scores": [5.0, 6.0]}],
+                id="group-by-collect",
             ),
-            order_by([("grp", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"grp": "x", "scores": [1.0]},
-            {"grp": "y", "scores": [5.0, 6.0]},
-        ]
-
-    def test_row_pipeline_group_by_expression_count_distinct_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c", "d"],
-            "grp": ["x", "x", "x", "y"],
-            "score": [1, 1, 2, 3],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            group_by(["grp"], [("cnt_shifted", "count_distinct", "score + 1")]),
-            order_by([("grp", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"grp": "x", "cnt_shifted": 2},
-            {"grp": "y", "cnt_shifted": 1},
-        ]
-
-    def test_row_pipeline_group_by_expression_collect_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "grp": ["x", "x", "y"],
-            "score": [1, 2, 5],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            group_by(["grp"], [("scores_shifted", "collect", "score + 1")]),
-            order_by([("grp", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"grp": "x", "scores_shifted": [2, 3]},
-            {"grp": "y", "scores_shifted": [6]},
-        ]
-
-    def test_row_pipeline_with_alias(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 1]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            with_([("id2", "id"), ("score2", "score")]),
-            order_by([("score2", "asc")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
-            {"id2": "b", "score2": 1},
-            {"id2": "a", "score2": 2},
-        ]
-
-    def test_row_pipeline_select_string_arithmetic_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("score", "score"), ("score_plus_2", "score + 2"), ("neg_score", "-1 * score")]),
-            order_by([("score", "asc")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
-            {"score": 2, "score_plus_2": 4, "neg_score": -2},
-            {"score": 5, "score_plus_2": 7, "neg_score": -5},
-        ]
-
-    def test_row_pipeline_select_dynamic_list_expression_vectorized(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("id", "id"), ("vals", "[score, score + 1, 99]")]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "vals": [2, 3, 99]},
-            {"id": "b", "vals": [5, 6, 99]},
-        ]
-
-    def test_row_pipeline_select_list_comprehension_filter_projection_vectorized(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "vals": [[1, 2, 3], [2], [], None]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("id", "id"), ("vals2", "[x IN vals WHERE x > 1 | x + 10]")]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "vals2": [12, 13]},
-            {"id": "b", "vals2": [12]},
-            {"id": "c", "vals2": []},
-            {"id": "d", "vals2": None},
-        ]
+            pytest.param(
+                {"id": ["a", "b", "c", "d"], "grp": ["x", "x", "x", "y"], "score": [1, 1, 2, 3]},
+                [rows(), group_by(["grp"], [("cnt_shifted", "count_distinct", "score + 1")]), order_by([("grp", "asc")])],
+                [{"grp": "x", "cnt_shifted": 2}, {"grp": "y", "cnt_shifted": 1}],
+                id="group-by-count-distinct-expr",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "grp": ["x", "x", "y"], "score": [1, 2, 5]},
+                [rows(), group_by(["grp"], [("scores_shifted", "collect", "score + 1")]), order_by([("grp", "asc")])],
+                [{"grp": "x", "scores_shifted": [2, 3]}, {"grp": "y", "scores_shifted": [6]}],
+                id="group-by-collect-expr",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "score": [2, 1]},
+                [rows(), with_([("id2", "id"), ("score2", "score")]), order_by([("score2", "asc")])],
+                [{"id2": "b", "score2": 1}, {"id2": "a", "score2": 2}],
+                id="with-alias",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "score": [2, 5]},
+                [
+                    rows(),
+                    select([("score", "score"), ("score_plus_2", "score + 2"), ("neg_score", "-1 * score")]),
+                    order_by([("score", "asc")]),
+                ],
+                [{"score": 2, "score_plus_2": 4, "neg_score": -2}, {"score": 5, "score_plus_2": 7, "neg_score": -5}],
+                id="select-arithmetic",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "score": [2, 5]},
+                [rows(), select([("id", "id"), ("vals", "[score, score + 1, 99]")]), order_by([("id", "asc")])],
+                [{"id": "a", "vals": [2, 3, 99]}, {"id": "b", "vals": [5, 6, 99]}],
+                id="select-dynamic-list",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c", "d"], "vals": [[1, 2, 3], [2], [], None]},
+                [rows(), select([("id", "id"), ("vals2", "[x IN vals WHERE x > 1 | x + 10]")]), order_by([("id", "asc")])],
+                [
+                    {"id": "a", "vals2": [12, 13]},
+                    {"id": "b", "vals2": [12]},
+                    {"id": "c", "vals2": []},
+                    {"id": "d", "vals2": None},
+                ],
+                id="select-list-comprehension",
+            ),
+        ],
+    )
+    def test_row_pipeline_exact_record_cases(self, nodes, steps, expected_records):
+        _assert_node_records(pd.DataFrame(nodes), steps, expected_records)
 
     @pytest.mark.parametrize(
         ("nodes", "items", "expected_records"),
