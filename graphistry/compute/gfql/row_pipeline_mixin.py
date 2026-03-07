@@ -142,48 +142,7 @@ class _RowPipelineContext(Protocol):
 
 
 class RowPipelineMixin:
-    _GFQL_BIN_OP_RE = re.compile(
-        r"^\s*(?P<left>[^()]+?)\s*(?P<op><=|>=|<>|!=|=|<|>|\+|-|\*|/|%)\s*(?P<right>[^()]+?)\s*$"
-    )
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
-    _GFQL_IS_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NULL$", re.IGNORECASE)
-    _GFQL_IS_NOT_NULL_RE = re.compile(r"^(?P<value>.+?)\s+IS\s+NOT\s+NULL$", re.IGNORECASE)
-    _GFQL_LABEL_PRED_RE = re.compile(
-        r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<label>[A-Za-z_][A-Za-z0-9_]*)$"
-    )
-    _GFQL_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-    _GFQL_QUANTIFIER_RE = re.compile(r"^(?P<fn>ANY|ALL|NONE|SINGLE)\s*\((?P<body>.*)\)$", re.IGNORECASE | re.DOTALL)
-    _GFQL_SIZE_RE = re.compile(r"(?is)^size\s*\((?P<inner>.+)\)$")
-    _GFQL_ABS_RE = re.compile(r"(?is)^abs\s*\((?P<inner>.+)\)$")
-    _GFQL_SIGN_RE = re.compile(r"(?is)^sign\s*\((?P<inner>.+)\)$")
-    _GFQL_TOBOOLEAN_RE = re.compile(r"(?is)^toBoolean\s*\((?P<inner>.+)\)$")
-    _GFQL_TOSTRING_RE = re.compile(r"(?is)^toString\s*\((?P<inner>.+)\)$")
-    _GFQL_COALESCE_RE = re.compile(r"(?is)^coalesce\s*\((?P<inner>.+)\)$")
-    _GFQL_HEAD_RE = re.compile(r"(?is)^head\s*\((?P<inner>.+)\)$")
-    _GFQL_TAIL_RE = re.compile(r"(?is)^tail\s*\((?P<inner>.+)\)$")
-    _GFQL_REVERSE_RE = re.compile(r"(?is)^reverse\s*\((?P<inner>.+)\)$")
-    _GFQL_NODES_RE = re.compile(r"(?is)^nodes\s*\((?P<inner>.+)\)$")
-    _GFQL_RELATIONSHIPS_RE = re.compile(r"(?is)^relationships\s*\((?P<inner>.+)\)$")
-    _GFQL_RAND_RE = re.compile(r"(?is)^rand\s*\(\s*\)\s*$")
-    _GFQL_ORDER_SAFE_FUNCS = {
-        "abs",
-        "tostring",
-        "toboolean",
-        "coalesce",
-        "size",
-        "sign",
-        "reverse",
-        "head",
-        "tail",
-        "rand",
-        "count",
-        "sum",
-        "min",
-        "max",
-        "avg",
-        "mean",
-        "collect",
-    }
 
     @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
@@ -725,19 +684,72 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_order_expr_static_supported(expr: str) -> bool:
+        def _is_aggregate_alias_expr(text: str) -> bool:
+            return re.fullmatch(
+                r"(?is)\s*(?:count|sum|min|max|avg|mean|collect)\s*\(\s*(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*",
+                text,
+            ) is not None
+
+        def _is_plain_order_label(text: str) -> bool:
+            txt_inner = text.strip()
+            if txt_inner == "":
+                return False
+            for token in ("(", ")", "[", "]", "{", "}", "+", "-", "*", "/", "%", "<", ">", "=", "!"):
+                if token in txt_inner:
+                    return False
+            return True
+
+        def _order_expr_ast_static_supported(node: object) -> bool:
+            unsupported_node_names = {
+                "QuantifierExpr",
+                "ListComprehension",
+                "ListLiteral",
+                "MapLiteral",
+                "SubscriptExpr",
+                "SliceExpr",
+            }
+            node_type = type(node)
+            if node_type.__name__ in unsupported_node_names:
+                return False
+            if node_type.__module__ != "graphistry.compute.gfql.expr_parser":
+                return True
+            try:
+                fields = vars(node).values()
+            except Exception:
+                return True
+            for value in fields:
+                if isinstance(value, (list, tuple)):
+                    for item in value:
+                        if not _order_expr_ast_static_supported(item):
+                            return False
+                    continue
+                if isinstance(value, dict):
+                    for item in value.values():
+                        if not _order_expr_ast_static_supported(item):
+                            return False
+                    continue
+                if not _order_expr_ast_static_supported(value):
+                    return False
+            return True
+
         txt = expr.strip()
         if txt == "":
             return False
-        if re.search(r"[\[\]{}]", txt):
+        if _is_plain_order_label(txt) or _is_aggregate_alias_expr(txt):
+            return True
+
+        parser_bundle = _gfql_expr_runtime_parser_bundle()
+        if parser_bundle is None:
             return False
-        if re.search(r"(?i)\b(?:ANY|ALL|NONE|SINGLE)\s*\(", txt):
+        parser, capability_checker, _expr_parser_mod = parser_bundle
+        try:
+            node = parser(txt)
+            capability_errors = capability_checker(node)
+        except Exception:
             return False
-        func_calls = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", txt)
-        if any(fn.lower() not in RowPipelineMixin._GFQL_ORDER_SAFE_FUNCS for fn in func_calls):
+        if len(capability_errors) > 0:
             return False
-        if re.fullmatch(r"[A-Za-z0-9_.'\"+\-*/%<>=!(),\s]+", txt) is None:
-            return False
-        return True
+        return _order_expr_ast_static_supported(node)
 
     @staticmethod
     def _gfql_order_value_family(value: Any) -> Optional[str]:
