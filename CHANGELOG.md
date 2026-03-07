@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 - **Ecosystem**: Added [graphistry-skills](https://github.com/graphistry/graphistry-skills) documentation for LLM coding assistants (Claude Code, Cursor, Codex). Skills improve AI code generation success rates from ~50% to ~90%.
+- **GFQL / Cypher-style workflows**: Added and expanded docs for MATCH/WHERE/RETURN row-pipeline flows (`quick`, `where`, `return`, temporal + wire examples, and spec mapping pages) with clearer operator semantics and placement guidance.
 
 ## [0.51.0 - 2026-03-02]
 
