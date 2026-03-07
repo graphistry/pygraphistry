@@ -51,6 +51,7 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 - **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
+- **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
 
@@ -95,6 +96,28 @@ Example: Match an account and its owner when both steps share an attribute.
         ],
         where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
     )
+
+**Row-Pipeline `RETURN` Example**
+
+Example: Match people, filter rows, project columns, then sort/limit.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, gt
+    from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+    top_people = g.gfql([
+        n({"type": "Person"}),
+        e_forward({"type": "FOLLOWS"}),
+        n({"type": "Person", "score": gt(0)}, name="p"),
+        rows(table="nodes", source="p"),
+        where_rows(expr="score >= 50"),
+        return_(["id", "name", "score"]),
+        order_by([("score", "desc"), ("name", "asc")]),
+        limit(10),
+    ])
+
+    top_people._nodes
 
 Example visualization (static):
 

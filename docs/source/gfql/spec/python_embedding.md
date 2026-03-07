@@ -53,6 +53,27 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+### Row-Pipeline Query Execution (`MATCH ... RETURN` style)
+
+```python
+from graphistry import n, e_forward
+from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+result = g.gfql([
+    n({"type": "Person"}),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+    order_by([("score", "desc"), ("name", "asc")]),
+    limit(25),
+])
+```
+
+Row-pipeline results use the active row table as `result._nodes`. `result._edges`
+is an empty placeholder frame in row mode.
+
 ### Same-Path Constraints (WHERE)
 
 ```python
@@ -100,6 +121,31 @@ Advanced troubleshooting (migration/debugging): you can set
 `GRAPHISTRY_WHERE_VALIDATION_IGNORE_ERRORS` and
 `GRAPHISTRY_WHERE_VALIDATION_IGNORE_CALLS` to suppress specific missing-column
 validation branches when needed.
+
+### Common Row-Pipeline Validation Errors
+
+`where_rows(...)` and related row operations fail fast when expressions or
+payloads are unsupported:
+
+Exception class depends on validation phase:
+- expression/shape checks usually raise `GFQLTypeError`
+- schema/column checks usually raise `GFQLSchemaError`
+
+```python
+from graphistry.compute import rows, where_rows, return_
+
+# Missing column in expression
+g.gfql([rows(), where_rows(expr="missing_col > 1"), return_(["id"])])
+# -> Validation error for missing required column on active row table
+
+# Unsupported function in expression subset
+g.gfql([rows(), where_rows(expr="reverse(name) = 'x'"), return_(["id"])])
+# -> GFQLTypeError (unsupported row expression/function)
+
+# Invalid rows table selector
+g.gfql([rows(table="invalid_table")])
+# -> Validation error (table must be 'nodes' or 'edges')
+```
 
 ## Engine Selection
 
@@ -317,12 +363,12 @@ g.gfql([n({"name": "Alice"})])
 ### Unsupported Operations
 
 ```python
-# Wrong - Can't aggregate in chain
-# g.gfql([n(), e(), count()])
-
-# Correct - Aggregate after chain
-result = g.gfql([n(), e()])
-count = len(result._edges)
+# Supported in row pipeline - grouped aggregation
+from graphistry.compute import rows, group_by
+g.gfql([
+    rows(),
+    group_by(keys=["type"], aggregations=[("cnt", "count")]),
+])
 
 # Wrong - OPTIONAL MATCH not supported
 # No direct GFQL equivalent
@@ -331,6 +377,10 @@ count = len(result._edges)
 result = g.gfql([n(), e_forward()])
 # Check for nodes without edges
 nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._source])]
+
+# Wrong - Arbitrary row function outside supported expression subset
+# g.gfql([rows(), where_rows(expr="custom_fn(score)")])
+# Correct - Use supported row-expression operators, or post-process DataFrame
 ```
 
 ## Best Practices

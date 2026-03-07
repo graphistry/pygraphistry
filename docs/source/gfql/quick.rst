@@ -16,8 +16,11 @@ Basic Usage
 
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
-- **query**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances), or an equivalent GFQL chain object.
+- **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
+
+Use this page as a quick MATCH/chain reference.
+For row-pipeline RETURN semantics, see :doc:`return`.
 
 Node Matchers
 -------------
@@ -183,12 +186,100 @@ Use `where` to relate attributes across named steps in a chain.
     )
 
 `compare()` can relate node and edge columns when the column types align.
+Supported `compare(..., op, ...)` operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
 equivalent explicit form.
 Multiple WHERE comparisons are ANDed.
 
+Row Pipelines (`MATCH ... RETURN` style)
+----------------------------------------
+
+Use row-pipeline operators to move from pattern matching to tabular Cypher-like
+`RETURN` processing.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, gt
+    from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+    top_people = g.gfql([
+        n({"type": "Person"}),
+        e_forward({"type": "FOLLOWS"}),
+        n({"type": "Person", "score": gt(10)}, name="p"),
+        rows(table="nodes", source="p"),
+        where_rows(expr="score >= 50 AND name STARTS WITH 'A'"),
+        return_(["id", "name", ("score_bucket", "score / 10")]),
+        order_by([("score_bucket", "desc"), ("name", "asc")]),
+        limit(25),
+    ])
+
+    top_people._nodes
+
+Notes:
+
+- `rows(table="nodes" or table="edges", source="alias")` picks the active row table.
+  `source` must be an alias introduced earlier via `name="..."` on a matcher.
+  In the example above, `source="p"` refers to `n(..., name="p")`, so only
+  rows matched by alias `p` are used.
+- Edge example: `e_forward(..., name="e")` followed by
+  `rows(table="edges", source="e")` scopes rows to edges matched as `e`.
+- If `source` is omitted (for example, `rows(table="nodes")`), the full active
+  nodes/edges table is used.
+- `return_(["col"])` is shorthand for `return_([("col", "col")])`.
+- `with_(...)` and `select(...)` share projection semantics with `return_(...)`:
+
+  .. code-block:: python
+
+      from graphistry.compute import rows, with_, select, return_
+
+      # Equivalent projections
+      rows(table="nodes", source="p")
+      return_(["id", ("score2", "score * 2")])
+      with_(["id", ("score2", "score * 2")])
+      select([("id", "id"), ("score2", "score * 2")])
+
+  `return_(["id"])`, `with_(["id"])`, and `select([("id", "id")])` all project
+  the same `id` column.
+- `where_rows()` evaluates row expressions and filter dictionaries in a
+  vectorized dataframe execution path (pandas/cuDF engines).
+- In `where_rows(expr="...")`, supported comparison operators are
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+
 Combined Examples
 -----------------
+
+- **MATCH with same-path WHERE constraints:**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, col, compare
+
+      g.gfql(
+          [
+              n({"type": "account"}, name="a"),
+              e_forward({"status": "active"}, name="e"),
+              n({"type": "user"}, name="u"),
+          ],
+          where=[compare(col("a", "org_id"), "==", col("u", "org_id"))],
+      )
+
+- **MATCH then RETURN (row pipeline):**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, gt
+      from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+      g.gfql([
+          n({"type": "Person"}),
+          e_forward({"type": "FOLLOWS"}),
+          n({"type": "Person", "score": gt(0)}, name="p"),
+          rows(table="nodes", source="p"),
+          where_rows(expr="score >= 50"),
+          return_(["id", "name", "score"]),
+          order_by([("score", "desc"), ("name", "asc")]),
+          limit(10),
+      ])
 
 - **Find people connected to transactions via active relationships:**
 
