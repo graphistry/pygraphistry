@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
 
 DEFAULT_ALLOWED_FUNCTIONS: FrozenSet[str] = frozenset(
@@ -156,6 +156,25 @@ ExprNode = Union[
     SubscriptExpr,
     SliceExpr,
 ]
+
+_EXPR_NODE_TYPES = (
+    Identifier,
+    Literal,
+    UnaryOp,
+    BinaryOp,
+    IsNullOp,
+    FunctionCall,
+    Wildcard,
+    CaseWhen,
+    QuantifierExpr,
+    ListComprehension,
+    ListLiteral,
+    MapLiteral,
+    SubscriptExpr,
+    SliceExpr,
+)
+
+ExprVisitor = Callable[[ExprNode], None]
 
 
 class GFQLExprParseError(ValueError):
@@ -638,125 +657,91 @@ def parse_expr(expr: str) -> ExprNode:
     return cast(ExprNode, node)
 
 
+def is_expr_node(node: object) -> bool:
+    return isinstance(node, _EXPR_NODE_TYPES)
+
+
+def iter_expr_children(node: ExprNode) -> Tuple[ExprNode, ...]:
+    if isinstance(node, (Identifier, Literal, Wildcard)):
+        return ()
+    if isinstance(node, UnaryOp):
+        return (node.operand,)
+    if isinstance(node, BinaryOp):
+        return (node.left, node.right)
+    if isinstance(node, IsNullOp):
+        return (node.value,)
+    if isinstance(node, FunctionCall):
+        return node.args
+    if isinstance(node, CaseWhen):
+        return (node.condition, node.when_true, node.when_false)
+    if isinstance(node, QuantifierExpr):
+        return (node.source, node.predicate)
+    if isinstance(node, ListComprehension):
+        children: List[ExprNode] = [node.source]
+        if node.predicate is not None:
+            children.append(node.predicate)
+        if node.projection is not None:
+            children.append(node.projection)
+        return tuple(children)
+    if isinstance(node, ListLiteral):
+        return node.items
+    if isinstance(node, MapLiteral):
+        return tuple(value for _, value in node.items)
+    if isinstance(node, SubscriptExpr):
+        return (node.value, node.key)
+    if isinstance(node, SliceExpr):
+        children = [node.value]
+        if node.start is not None:
+            children.append(node.start)
+        if node.stop is not None:
+            children.append(node.stop)
+        return tuple(children)
+    return ()
+
+
+def walk_expr_nodes(
+    node: ExprNode,
+    *,
+    enter: Optional[ExprVisitor] = None,
+    leave: Optional[ExprVisitor] = None,
+) -> None:
+    def _walk(current: ExprNode) -> None:
+        if enter is not None:
+            enter(current)
+        for child in iter_expr_children(current):
+            _walk(child)
+        if leave is not None:
+            leave(current)
+
+    _walk(node)
+
+
 def collect_identifiers(node: ExprNode) -> Set[str]:
     out: Set[str] = set()
 
-    def _walk(n: ExprNode) -> None:
+    def _enter(n: ExprNode) -> None:
         if isinstance(n, Identifier):
             out.add(n.name)
-            return
-        if isinstance(n, Literal):
-            return
-        if isinstance(n, Wildcard):
-            return
-        if isinstance(n, UnaryOp):
-            _walk(n.operand)
-            return
-        if isinstance(n, BinaryOp):
-            _walk(n.left)
-            _walk(n.right)
-            return
-        if isinstance(n, IsNullOp):
-            _walk(n.value)
-            return
-        if isinstance(n, FunctionCall):
-            for arg in n.args:
-                _walk(arg)
-            return
-        if isinstance(n, CaseWhen):
-            _walk(n.condition)
-            _walk(n.when_true)
-            _walk(n.when_false)
-            return
-        if isinstance(n, QuantifierExpr):
-            _walk(n.source)
-            _walk(n.predicate)
-            bound_prefix = f"{n.var}."
-            out.difference_update(
-                {name for name in out if name == n.var or name.startswith(bound_prefix)}
-            )
-            return
-        if isinstance(n, ListComprehension):
-            _walk(n.source)
-            if n.predicate is not None:
-                _walk(n.predicate)
-            if n.projection is not None:
-                _walk(n.projection)
-            bound_prefix = f"{n.var}."
-            out.difference_update(
-                {name for name in out if name == n.var or name.startswith(bound_prefix)}
-            )
-            return
-        if isinstance(n, ListLiteral):
-            for i in n.items:
-                _walk(i)
-            return
-        if isinstance(n, MapLiteral):
-            for _, v in n.items:
-                _walk(v)
-            return
-        if isinstance(n, SubscriptExpr):
-            _walk(n.value)
-            _walk(n.key)
-            return
-        if isinstance(n, SliceExpr):
-            _walk(n.value)
-            if n.start is not None:
-                _walk(n.start)
-            if n.stop is not None:
-                _walk(n.stop)
-            return
 
-    _walk(node)
+    def _leave(n: ExprNode) -> None:
+        if isinstance(n, (QuantifierExpr, ListComprehension)):
+            bound_prefix = f"{n.var}."
+            out.difference_update(
+                {name for name in out if name == n.var or name.startswith(bound_prefix)}
+            )
+
+    walk_expr_nodes(node, enter=_enter, leave=_leave)
     return out
 
 
 def find_unsupported_functions(node: ExprNode, allowed: FrozenSet[str] = DEFAULT_ALLOWED_FUNCTIONS) -> Set[str]:
     bad: Set[str] = set()
 
-    def _walk(n: ExprNode) -> None:
-        if isinstance(n, FunctionCall):
-            if n.name not in allowed:
-                bad.add(n.name)
-            for arg in n.args:
-                _walk(arg)
-        elif isinstance(n, UnaryOp):
-            _walk(n.operand)
-        elif isinstance(n, BinaryOp):
-            _walk(n.left)
-            _walk(n.right)
-        elif isinstance(n, IsNullOp):
-            _walk(n.value)
-        elif isinstance(n, CaseWhen):
-            _walk(n.condition)
-            _walk(n.when_true)
-            _walk(n.when_false)
-        elif isinstance(n, QuantifierExpr):
-            _walk(n.source)
-            _walk(n.predicate)
-        elif isinstance(n, ListComprehension):
-            _walk(n.source)
-            if n.predicate is not None:
-                _walk(n.predicate)
-            if n.projection is not None:
-                _walk(n.projection)
-        elif isinstance(n, ListLiteral):
-            for i in n.items:
-                _walk(i)
-        elif isinstance(n, MapLiteral):
-            for _, v in n.items:
-                _walk(v)
-        elif isinstance(n, SubscriptExpr):
-            _walk(n.value)
-            _walk(n.key)
-        elif isinstance(n, SliceExpr):
-            _walk(n.value)
-            if n.start is not None:
-                _walk(n.start)
-            if n.stop is not None:
-                _walk(n.stop)
+    def _enter(n: ExprNode) -> None:
+        if isinstance(n, FunctionCall) and n.name not in allowed:
+            bad.add(n.name)
 
-    _walk(node)
+    walk_expr_nodes(node, enter=_enter)
     return bad
 
 
@@ -770,10 +755,8 @@ def validate_expr_capabilities(
 ) -> List[str]:
     errors: List[str] = []
 
-    def _walk(n: ExprNode) -> None:
-        if isinstance(n, Identifier):
-            return
-        if isinstance(n, Literal):
+    def _enter(n: ExprNode) -> None:
+        if isinstance(n, (Identifier, Literal)):
             return
         if isinstance(n, Wildcard):
             errors.append("unsupported wildcard: *")
@@ -781,68 +764,29 @@ def validate_expr_capabilities(
         if isinstance(n, UnaryOp):
             if n.op.lower() not in allowed_unary_ops:
                 errors.append(f"unsupported unary op: {n.op}")
-            _walk(n.operand)
             return
         if isinstance(n, BinaryOp):
             op = n.op.lower()
             if op not in allowed_binary_ops:
                 errors.append(f"unsupported binary op: {n.op}")
-            if op in {"contains", "starts_with", "ends_with"}:
-                if not isinstance(n.right, Literal):
-                    errors.append(
-                        f"string predicate rhs must be literal scalar: {n.op}"
-                    )
-            _walk(n.left)
-            _walk(n.right)
+            if op in {"contains", "starts_with", "ends_with"} and not isinstance(n.right, Literal):
+                errors.append(f"string predicate rhs must be literal scalar: {n.op}")
             return
         if isinstance(n, IsNullOp):
-            _walk(n.value)
             return
         if isinstance(n, FunctionCall):
             if n.name not in allowed_functions:
                 errors.append(f"unsupported function: {n.name}")
-            for arg in n.args:
-                _walk(arg)
             return
         if isinstance(n, CaseWhen):
-            _walk(n.condition)
-            _walk(n.when_true)
-            _walk(n.when_false)
             return
         if isinstance(n, QuantifierExpr):
             if n.fn not in allowed_quantifiers:
                 errors.append(f"unsupported quantifier: {n.fn}")
-            _walk(n.source)
-            _walk(n.predicate)
             return
-        if isinstance(n, ListComprehension):
-            _walk(n.source)
-            if n.predicate is not None:
-                _walk(n.predicate)
-            if n.projection is not None:
-                _walk(n.projection)
+        if isinstance(n, (ListComprehension, ListLiteral, MapLiteral, SubscriptExpr, SliceExpr)):
             return
-        if isinstance(n, ListLiteral):
-            for i in n.items:
-                _walk(i)
-            return
-        if isinstance(n, MapLiteral):
-            for _, v in n.items:
-                _walk(v)
-            return
-        if isinstance(n, SubscriptExpr):
-            _walk(n.value)
-            _walk(n.key)
-            return
-        if isinstance(n, SliceExpr):
-            _walk(n.value)
-            if n.start is not None:
-                _walk(n.start)
-            if n.stop is not None:
-                _walk(n.stop)
-            return
-
         errors.append(f"unsupported node type: {type(n).__name__}")
 
-    _walk(node)
+    walk_expr_nodes(node, enter=_enter)
     return errors

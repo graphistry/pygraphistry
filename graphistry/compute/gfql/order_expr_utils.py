@@ -1,63 +1,52 @@
-_EXPR_PARSER_MODULE = "graphistry.compute.gfql.expr_parser"
-_ORDER_AGG_ALIAS_FUNCS = frozenset({"count", "sum", "min", "max", "avg", "mean", "collect"})
-_ORDER_UNSUPPORTED_NODE_NAMES = frozenset(
-    {
-        "QuantifierExpr",
-        "ListComprehension",
-        "ListLiteral",
-        "MapLiteral",
-        "SubscriptExpr",
-        "SliceExpr",
-    }
+from __future__ import annotations
+
+from typing import Final, cast
+
+from graphistry.compute.gfql.expr_parser import (
+    ExprNode,
+    FunctionCall,
+    Identifier,
+    ListComprehension,
+    ListLiteral,
+    MapLiteral,
+    QuantifierExpr,
+    SliceExpr,
+    SubscriptExpr,
+    Wildcard,
+    iter_expr_children,
+    is_expr_node,
+)
+
+
+_ORDER_AGG_ALIAS_FUNCS: Final[frozenset[str]] = frozenset(
+    {"count", "sum", "min", "max", "avg", "mean", "collect"}
+)
+_ORDER_UNSUPPORTED_NODE_TYPES: Final[tuple[type, ...]] = (
+    QuantifierExpr,
+    ListComprehension,
+    ListLiteral,
+    MapLiteral,
+    SubscriptExpr,
+    SliceExpr,
 )
 
 
 def is_order_aggregate_alias_ast(node: object) -> bool:
-    node_type = type(node)
-    if node_type.__name__ != "FunctionCall" or node_type.__module__ != _EXPR_PARSER_MODULE:
+    if not isinstance(node, FunctionCall):
+        return False
+    if node.name.lower() not in _ORDER_AGG_ALIAS_FUNCS or len(node.args) != 1:
         return False
 
-    fn = getattr(node, "name", None)
-    args = getattr(node, "args", None)
-    if not isinstance(fn, str) or fn.lower() not in _ORDER_AGG_ALIAS_FUNCS:
-        return False
-    if not isinstance(args, tuple) or len(args) != 1:
-        return False
-
-    arg = args[0]
-    arg_type = type(arg)
-    if arg_type.__module__ != _EXPR_PARSER_MODULE:
-        return False
-    if arg_type.__name__ == "Wildcard":
-        return True
-    if arg_type.__name__ != "Identifier":
-        return False
-
-    name = getattr(arg, "name", None)
-    return isinstance(name, str) and name != ""
+    arg = node.args[0]
+    return isinstance(arg, (Wildcard, Identifier)) and (
+        not isinstance(arg, Identifier) or arg.name != ""
+    )
 
 
 def order_expr_ast_static_supported(node: object) -> bool:
-    node_type = type(node)
-    if node_type.__name__ in _ORDER_UNSUPPORTED_NODE_NAMES:
+    if not is_expr_node(node):
+        return True
+    expr_node = cast(ExprNode, node)
+    if isinstance(expr_node, _ORDER_UNSUPPORTED_NODE_TYPES):
         return False
-    if node_type.__module__ != _EXPR_PARSER_MODULE:
-        return True
-    try:
-        fields = vars(node).values()
-    except Exception:
-        return True
-    for value in fields:
-        if isinstance(value, (list, tuple)):
-            for item in value:
-                if not order_expr_ast_static_supported(item):
-                    return False
-            continue
-        if isinstance(value, dict):
-            for item in value.values():
-                if not order_expr_ast_static_supported(item):
-                    return False
-            continue
-        if not order_expr_ast_static_supported(value):
-            return False
-    return True
+    return all(order_expr_ast_static_supported(child) for child in iter_expr_children(expr_node))
