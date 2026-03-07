@@ -1,35 +1,4 @@
-"""Safelist of allowed methods for GFQL Call operations.
-
-This module defines which Plottable methods can be called through GFQL
-and their parameter validation rules.
-
-Available Operations:
-    Graph Transformations:
-        - hypergraph: Transform event data into entity relationships
-
-    Graph Traversals:
-        - hop: Multi-hop traversal with configurable direction and depth
-
-    Data Operations:
-        - get_degrees: Calculate node degrees (in/out/total)
-        - filter_edges_by_dict: Filter edges based on attribute values
-        - prune_self_edges: Remove self-referencing edges
-        - materialize_nodes: Compute and materialize node DataFrame
-
-    Layout Operations:
-        - layout_settings: Configure layout algorithm settings
-        - tree_layout: Apply hierarchical tree layout
-
-Usage:
-    from graphistry.compute.ast import call
-    from graphistry.compute.calls import hypergraph  # Typed alternative
-
-    # Using call() with string name
-    g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
-
-    # Using typed builder (recommended for hypergraph)
-    g.gfql(hypergraph(entity_types=['user', 'product']))
-"""
+"""GFQL call safelist and parameter validators."""
 
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
@@ -111,6 +80,11 @@ def _where_rows_expr_required_cols(expr: str) -> List[str]:
             continue
         cols.add(name.split(".")[0])
     return sorted(cols)
+
+
+def _expr_required_cols(params: Dict[str, object], key: str = 'expr') -> List[str]:
+    expr = params.get(key)
+    return _where_rows_expr_required_cols(expr) if isinstance(expr, str) else []
 
 
 # Type validators
@@ -305,18 +279,19 @@ def is_non_negative_int_like(v: object) -> bool:
     return False
 
 
-def _rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
-    if params.get('table', 'nodes') != 'nodes':
+def _rows_requires_cols(params: Dict[str, object], table: str) -> List[str]:
+    if params.get('table', 'nodes') != table:
         return []
     source = params.get('source')
     return [source] if isinstance(source, str) else []
+
+
+def _rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    return _rows_requires_cols(params, 'nodes')
 
 
 def _rows_requires_edge_cols(params: Dict[str, object]) -> List[str]:
-    if params.get('table', 'nodes') != 'edges':
-        return []
-    source = params.get('source')
-    return [source] if isinstance(source, str) else []
+    return _rows_requires_cols(params, 'edges')
 
 
 def _select_added_node_cols(params: Dict[str, object]) -> List[str]:
@@ -343,19 +318,12 @@ def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
     filter_dict = params.get('filter_dict')
     if isinstance(filter_dict, dict):
         out.extend([k for k in filter_dict.keys() if isinstance(k, str)])
-
-    expr = params.get('expr')
-    if isinstance(expr, str):
-        parser_cols = _where_rows_expr_required_cols(expr)
-        out.extend(parser_cols)
+    out.extend(_expr_required_cols(params))
     return sorted(set(out))
 
 
 def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
-    expr = params.get('expr')
-    if isinstance(expr, str):
-        return _where_rows_expr_required_cols(expr)
-    return []
+    return _expr_required_cols(params)
 
 
 def _unwind_added_node_cols(params: Dict[str, object]) -> List[str]:
@@ -464,16 +432,18 @@ def _umap_suffix(params: Dict[str, object]) -> str:
     return suffix if isinstance(suffix, str) else ''
 
 
-def _umap_node_required_cols(params: Dict[str, object]) -> List[str]:
-    if _umap_kind(params) != 'nodes':
+def _umap_required_cols(params: Dict[str, object], kind: str) -> List[str]:
+    if _umap_kind(params) != kind:
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
+
+
+def _umap_node_required_cols(params: Dict[str, object]) -> List[str]:
+    return _umap_required_cols(params, 'nodes')
 
 
 def _umap_edge_required_cols(params: Dict[str, object]) -> List[str]:
-    if _umap_kind(params) != 'edges':
-        return []
-    return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
+    return _umap_required_cols(params, 'edges')
 
 
 def _umap_node_adds(params: Dict[str, object]) -> List[str]:
@@ -657,32 +627,6 @@ def _projection_row_entry(description: str) -> Dict[str, Any]:
         description=description,
         schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
     )
-
-# Dictionary mapping allowed Plottable method names to their validation rules.
-#
-# Each method entry contains:
-#     - allowed_params (Set[str]): Parameter names that can be passed to the method
-#     - required_params (Set[str]): Parameters that must be provided
-#     - param_validators (Dict[str, Callable]): Maps param names to validation functions
-#     - description (str): Human-readable description of what the method does
-#     - schema_effects (Dict[str, List[str]]): Describes schema changes:
-#         - adds_node_cols: Columns added to node DataFrame
-#         - adds_edge_cols: Columns added to edge DataFrame
-#         - requires_node_cols: Node columns that must exist before calling
-#         - requires_edge_cols: Edge columns that must exist before calling
-#
-# Example entry:
-#     'hop': {
-#         'allowed_params': {'steps', 'to_fixed_point', 'direction'},
-#         'required_params': set(),
-#         'param_validators': {
-#             'steps': is_int,
-#             'to_fixed_point': is_bool,
-#             'direction': lambda v: v in ['forward', 'reverse', 'undirected']
-#         },
-#         'description': 'Traverse graph edges for N steps',
-#         'schema_effects': {}
-#     }
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _method_entry(
@@ -1345,43 +1289,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
 
 def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, object]:
-    """Validate parameters for a GFQL Call operation against the safelist.
-    
-    Performs comprehensive validation:
-        1. Checks if function is in the safelist
-        2. Verifies all required parameters are present
-        3. Ensures no unknown parameters are passed
-        4. Validates parameter types using configured validators
-        5. Returns the validated parameters unchanged
-    
-    Args:
-        function: Name of the Plottable method to call
-        params: Dictionary of parameters to validate
-    
-    Returns:
-        The same parameters dict if validation passes
-    
-    Raises:
-        GFQLTypeError: If function not in safelist (E303)
-        GFQLTypeError: If required parameters missing (E105)
-        GFQLTypeError: If unknown parameters provided (E303)
-        GFQLTypeError: If parameter type validation fails (E201)
-    
-    **Example::**
-    
-        # Valid call
-        params = validate_call_params('hop', {'steps': 2, 'direction': 'forward'})
-        
-        # Invalid - unknown function
-        validate_call_params('dangerous_method', {})  # Raises E303
-        
-        # Invalid - missing required param
-        validate_call_params('fa2_layout', {})  # Would raise E105 if layout was required
-        
-        # Invalid - wrong type
-        validate_call_params('hop', {'steps': 'two'})  # Raises E201
-    """
-    # Check if function is in safelist
+    """Validate a GFQL call against the safelist."""
     if function not in SAFELIST_V1:
         raise GFQLTypeError(
             ErrorCode.E303,
@@ -1395,8 +1303,7 @@ def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, 
     allowed_params = config['allowed_params']
     required_params = config['required_params']
     param_validators = config['param_validators']
-    
-    # Check for required parameters
+
     missing_required = required_params - set(params.keys())
     if missing_required:
         raise GFQLTypeError(
@@ -1406,8 +1313,7 @@ def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, 
             value=list(missing_required),
             suggestion=f"Required parameters: {', '.join(sorted(missing_required))}"
         )
-    
-    # Check for unknown parameters
+
     unknown_params = set(params.keys()) - allowed_params
     if unknown_params:
         raise GFQLTypeError(
@@ -1417,8 +1323,7 @@ def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, 
             value=list(unknown_params),
             suggestion=f"Allowed parameters: {', '.join(sorted(allowed_params))}"
         )
-    
-    # Validate parameter types
+
     for param_name, param_value in params.items():
         if param_name in param_validators:
             validator = param_validators[param_name]

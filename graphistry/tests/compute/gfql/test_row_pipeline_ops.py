@@ -50,6 +50,20 @@ def _normalize_expr_eval_output(value):
     return value
 
 
+def _normalize_record_value(value):
+    if isinstance(value, list):
+        return [_normalize_record_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_record_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_record_value(item) for key, item in value.items()}
+    return _normalize_expr_eval_output(value)
+
+
+def _normalize_records(records):
+    return [{key: _normalize_record_value(value) for key, value in row.items()} for row in records]
+
+
 def _self_loop_edges(nodes_df):
     if len(nodes_df) == 0:
         return pd.DataFrame({"s": [], "d": []})
@@ -61,11 +75,22 @@ def _run_node_steps(nodes_df, steps, edges_df=None):
     return _mk_graph(nodes_df, edges_df).gfql(steps)._nodes
 
 
-def _assert_node_records(nodes_df, steps, expected_records, *, edges_df=None, expected_columns=None):
+def _assert_node_records(
+    nodes_df,
+    steps,
+    expected_records,
+    *,
+    edges_df=None,
+    expected_columns=None,
+    normalize=False,
+):
     result_nodes = _run_node_steps(nodes_df, steps, edges_df=edges_df)
     if expected_columns is not None:
         assert list(result_nodes.columns) == expected_columns
-    assert result_nodes.reset_index(drop=True).to_dict(orient="records") == expected_records
+    records = result_nodes.reset_index(drop=True).to_dict(orient="records")
+    if normalize:
+        records = _normalize_records(records)
+    assert records == expected_records
     return result_nodes
 
 
@@ -77,6 +102,75 @@ def _assert_single_row_select_records(items, expected_records, *, nodes_df=None)
         expected_records,
         edges_df=_self_loop_edges(base_nodes),
     )
+
+
+def _assert_ordered_projection_values(nodes, column, asc_expected, desc_expected, *, limit_value=None):
+    nodes_df = pd.DataFrame(nodes)
+    g = _mk_graph(nodes_df)
+    base_steps = [rows(), select([(column, column)])]
+    limit_steps = [] if limit_value is None else [limit(limit_value)]
+
+    asc_result = g.gfql(base_steps + [order_by([(column, "asc")])] + limit_steps)
+    assert asc_result._nodes[column].tolist() == asc_expected
+
+    desc_result = g.gfql(base_steps + [order_by([(column, "desc")])] + limit_steps)
+    assert desc_result._nodes[column].tolist() == desc_expected
+
+
+def _parse_identifier_score(_expr):
+    return expr_parser.Identifier("score")
+
+
+def _parse_score_gt_one(_expr):
+    return expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1))
+
+
+def _parse_unknown_fn_score(_expr):
+    return expr_parser.FunctionCall("unknown_fn", (expr_parser.Identifier("score"),))
+
+
+def _parse_name_minus_x(_expr):
+    return expr_parser.BinaryOp("-", expr_parser.Identifier("name"), expr_parser.Literal("x"))
+
+
+def _raise_bad_parse(_expr):
+    raise ValueError("bad parse")
+
+
+def _capabilities_ok(_node):
+    return []
+
+
+def _capabilities_unsupported(_node):
+    return ["unsupported"]
+
+
+def _collect_score(_node):
+    return {"score"}
+
+
+def _collect_nested_score_vals(_node):
+    return {"n.age", "score", "vals"}
+
+
+def _where_rows_parser_bundle(parse=_parse_identifier_score, capabilities=_capabilities_ok, collect=_collect_score):
+    return parse, capabilities, collect
+
+
+def _runtime_parser_bundle(parse, capabilities=_capabilities_ok):
+    return parse, capabilities, expr_parser
+
+
+def _assert_ast_parity(nodes, cases):
+    g = _mk_graph(pd.DataFrame(nodes))
+    ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+    table_df = g._nodes
+
+    for ast_node, expr in cases:
+        ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
+        assert ok, expr
+        legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
+        assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
 
 
 class TestRowPipelineASTPrimitives:
@@ -628,16 +722,14 @@ class TestRowPipelineExecution:
     def test_row_pipeline_select_single_row_exact_records(self, nodes, items, expected_records):
         _assert_single_row_select_records(items, expected_records, nodes_df=pd.DataFrame(nodes))
 
-    def test_row_pipeline_select_rejects_non_json_literal_shapes(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
+    @pytest.mark.parametrize("expr", ["[1, (2, 3)]", "{1: 2}"])
+    def test_row_pipeline_select_rejects_non_json_literal_shapes(self, expr):
         with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
-            g.gfql([rows(), select([("bad", "[1, (2, 3)]")])])
-
-        with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
-            g.gfql([rows(), select([("bad", "{1: 2}")])])
+            _run_node_steps(
+                pd.DataFrame({"id": ["a"]}),
+                [rows(), select([("bad", expr)])],
+                edges_df=pd.DataFrame({"s": ["a"], "d": ["a"]}),
+            )
 
     @pytest.mark.parametrize(
         ("nodes", "steps", "expected_records", "expected_columns", "edges"),
@@ -752,6 +844,14 @@ class TestRowPipelineExecution:
                 id="literal-expressions",
             ),
             pytest.param(
+                {"id": ["a", "b"]},
+                [rows(), select([("id", "id"), ("lst", [1, 2]), ("mp", {"k": "v"})]), order_by([("id", "asc")])],
+                [{"id": "a", "lst": [1, 2], "mp": {"k": "v"}}, {"id": "b", "lst": [1, 2], "mp": {"k": "v"}}],
+                None,
+                None,
+                id="broadcast-list-map-literals",
+            ),
+            pytest.param(
                 {"id": ["a", "b", "c"], "score": [1, 3, 2]},
                 [rows(), select([("id", "id"), ("bucket", "CASE WHEN score > 2 THEN 'hi' ELSE 'lo' END")]), order_by([("id", "asc")])],
                 [{"id": "a", "bucket": "lo"}, {"id": "b", "bucket": "hi"}, {"id": "c", "bucket": "lo"}],
@@ -767,6 +867,14 @@ class TestRowPipelineExecution:
                 {"s": ["a", "b", "a"], "d": ["b", "c", "c"], "weight": [1, 3, 2]},
                 id="rows-edges-table-projection",
             ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "division": ["x", "x", "y"], "age": [3, 7, 4]},
+                [rows(), group_by(["division"], [("count(*)", "count"), ("max(n.age)", "max", "age")]), order_by([("count(*)", "asc"), ("max(n.age)", "desc")])],
+                [{"division": "y", "count(*)": 1, "max(n.age)": 4}, {"division": "x", "count(*)": 2, "max(n.age)": 7}],
+                None,
+                None,
+                id="order-by-aggregate-alias-columns",
+            ),
         ],
     )
     def test_row_pipeline_exact_record_cases_more(
@@ -781,34 +889,170 @@ class TestRowPipelineExecution:
             expected_columns=expected_columns,
         )
 
-    def test_row_pipeline_select_quantifier_empty_and_null(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("any_empty", "any(x IN [] WHERE x = 1)"),
-                ("all_empty", "all(x IN [] WHERE x = 1)"),
-                ("none_empty", "none(x IN [] WHERE x = 1)"),
-                ("single_empty", "single(x IN [] WHERE x = 1)"),
-                ("any_null", "any(x IN [null] WHERE x = 1)"),
-                ("all_null", "all(x IN [null] WHERE x = 1)"),
-                ("none_null", "none(x IN [null] WHERE x = 1)"),
-                ("single_null", "single(x IN [null] WHERE x = 1)"),
-            ]),
-        ])
-        row = result._nodes.to_dict(orient="records")[0]
-
-        assert row["any_empty"] is False
-        assert row["all_empty"] is True
-        assert row["none_empty"] is True
-        assert row["single_empty"] is False
-        assert pd.isna(row["any_null"])
-        assert pd.isna(row["all_null"])
-        assert pd.isna(row["none_null"])
-        assert pd.isna(row["single_null"])
+    @pytest.mark.parametrize(
+        ("nodes", "steps", "expected_records", "normalize", "edges"),
+        [
+            pytest.param(
+                {"id": ["a"]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("any_empty", "any(x IN [] WHERE x = 1)"),
+                            ("all_empty", "all(x IN [] WHERE x = 1)"),
+                            ("none_empty", "none(x IN [] WHERE x = 1)"),
+                            ("single_empty", "single(x IN [] WHERE x = 1)"),
+                            ("any_null", "any(x IN [null] WHERE x = 1)"),
+                            ("all_null", "all(x IN [null] WHERE x = 1)"),
+                            ("none_null", "none(x IN [null] WHERE x = 1)"),
+                            ("single_null", "single(x IN [null] WHERE x = 1)"),
+                        ]
+                    ),
+                ],
+                [
+                    {
+                        "any_empty": False,
+                        "all_empty": True,
+                        "none_empty": True,
+                        "single_empty": False,
+                        "any_null": None,
+                        "all_null": None,
+                        "none_null": None,
+                        "single_null": None,
+                    }
+                ],
+                True,
+                {"s": ["a"], "d": ["a"]},
+                id="quantifier-empty-and-null",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "txt": ["abcdef", "xxabyy", None]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("id", "id"),
+                            ("has_ab", "txt CONTAINS 'ab'"),
+                            ("starts_ab", "txt STARTS WITH 'ab'"),
+                            ("ends_ef", "txt ENDS WITH 'ef'"),
+                        ]
+                    ),
+                    order_by([("id", "asc")]),
+                ],
+                [
+                    {"id": "a", "has_ab": True, "starts_ab": True, "ends_ef": True},
+                    {"id": "b", "has_ab": True, "starts_ab": False, "ends_ef": False},
+                    {"id": "c", "has_ab": None, "starts_ab": None, "ends_ef": None},
+                ],
+                True,
+                None,
+                id="string-predicate-ops",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "txt": ["abc STARTS WITH xyz", "abc xyz", None]},
+                [rows(), select([("id", "id"), ("hit", "txt CONTAINS 'STARTS WITH'")]), order_by([("id", "asc")])],
+                [{"id": "a", "hit": True}, {"id": "b", "hit": False}, {"id": "c", "hit": None}],
+                True,
+                None,
+                id="string-predicate-keyword-in-literal",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "txt": ["abcdef", None]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("contains_null", "txt CONTAINS null"),
+                            ("starts_null", "txt STARTS WITH null"),
+                            ("ends_null", "txt ENDS WITH null"),
+                        ]
+                    ),
+                ],
+                [{"contains_null": None, "starts_null": None, "ends_null": None}] * 2,
+                True,
+                None,
+                id="string-predicate-null-rhs",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "txt": ["abcdef", "ghij"]},
+                [rows(), select([("lhs_null", "txt[null..2]"), ("rhs_null", "txt[1..null]")])],
+                [{"lhs_null": None, "rhs_null": None}, {"lhs_null": None, "rhs_null": None}],
+                True,
+                None,
+                id="slice-null-bounds",
+            ),
+            pytest.param(
+                {
+                    "id": ["a", "b", "c"],
+                    "vals": [[1, 2, 3], [4], []],
+                    "txt": ["ab", "cd", ""],
+                    "score": [-2, 0, 3],
+                },
+                [
+                    rows(),
+                    select(
+                        [
+                            ("id", "id"),
+                            ("h_vals", "head(vals)"),
+                            ("t_vals", "tail(vals)"),
+                            ("r_vals", "reverse(vals)"),
+                            ("h_txt", "head(txt)"),
+                            ("t_txt", "tail(txt)"),
+                            ("r_txt", "reverse(txt)"),
+                            ("sgn", "sign(score)"),
+                        ]
+                    ),
+                    order_by([("id", "asc")]),
+                ],
+                [
+                    {
+                        "id": "a",
+                        "h_vals": 1,
+                        "t_vals": [2, 3],
+                        "r_vals": [3, 2, 1],
+                        "h_txt": "a",
+                        "t_txt": "b",
+                        "r_txt": "ba",
+                        "sgn": -1,
+                    },
+                    {
+                        "id": "b",
+                        "h_vals": 4,
+                        "t_vals": [],
+                        "r_vals": [4],
+                        "h_txt": "c",
+                        "t_txt": "d",
+                        "r_txt": "dc",
+                        "sgn": 0,
+                    },
+                    {
+                        "id": "c",
+                        "h_vals": None,
+                        "t_vals": [],
+                        "r_vals": [],
+                        "h_txt": None,
+                        "t_txt": "",
+                        "r_txt": "",
+                        "sgn": 1,
+                    },
+                ],
+                True,
+                None,
+                id="sequence-function-family",
+            ),
+        ],
+    )
+    def test_row_pipeline_normalized_exact_record_cases(
+        self, nodes, steps, expected_records, normalize, edges
+    ):
+        edges_df = None if edges is None else pd.DataFrame(edges)
+        _assert_node_records(
+            pd.DataFrame(nodes),
+            steps,
+            expected_records,
+            edges_df=edges_df,
+            normalize=normalize,
+        )
 
     def test_row_pipeline_order_by_mixed_list_values(self):
         nodes_df = pd.DataFrame({
@@ -824,341 +1068,125 @@ class TestRowPipelineExecution:
                 select([("v", "v")]),
             ])
 
-    def test_row_pipeline_order_by_cypher_list_value_semantics(self):
-        nodes_df = pd.DataFrame({
-            "id": list("abcdefgh"),
-            "lists": [[], ["a"], ["a", 1], [1], [1, "a"], [1, None], [None, 1], [None, 2]],
-        })
-        g = _mk_graph(nodes_df)
-
-        asc_result = g.gfql([
-            rows(),
-            select([("lists", "lists")]),
-            order_by([("lists", "asc")]),
-        ])
-        assert asc_result._nodes["lists"].tolist() == [
-            [],
-            ["a"],
-            ["a", 1],
-            [1],
-            [1, "a"],
-            [1, None],
-            [None, 1],
-            [None, 2],
-        ]
-
-        desc_result = g.gfql([
-            rows(),
-            select([("lists", "lists")]),
-            order_by([("lists", "desc")]),
-        ])
-        assert desc_result._nodes["lists"].tolist() == [
-            [None, 2],
-            [None, 1],
-            [1, None],
-            [1, "a"],
-            [1],
-            ["a", 1],
-            ["a"],
-            [],
-        ]
-
-    def test_row_pipeline_order_by_time_offsets_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": list("abcde"),
-            "times": [
-                "10:35-08:00",
-                "12:31:14.645876123+01:00",
-                "12:31:14.645876124+01:00",
-                "12:35:15+05:00",
-                "12:30:14.645876123+01:01",
-            ],
-        })
-        g = _mk_graph(nodes_df)
-
-        asc_result = g.gfql([
-            rows(),
-            select([("times", "times")]),
-            order_by([("times", "asc")]),
-            limit(3),
-        ])
-        assert asc_result._nodes["times"].tolist() == [
-            "12:35:15+05:00",
-            "12:30:14.645876123+01:01",
-            "12:31:14.645876123+01:00",
-        ]
-
-        desc_result = g.gfql([
-            rows(),
-            select([("times", "times")]),
-            order_by([("times", "desc")]),
-            limit(3),
-        ])
-        assert desc_result._nodes["times"].tolist() == [
-            "10:35-08:00",
-            "12:31:14.645876124+01:00",
-            "12:31:14.645876123+01:00",
-        ]
-
-    def test_row_pipeline_order_by_datetime_offsets_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": list("abcde"),
-            "datetimes": [
-                "1984-10-11T12:30:14.000000012+00:15",
-                "1984-10-11T12:31:14.645876123+00:17",
-                "0001-01-01T01:01:01.000000001-11:59",
-                "9999-09-09T09:59:59.999999999+11:59",
-                "1980-12-11T12:31:14-11:59",
-            ],
-        })
-        g = _mk_graph(nodes_df)
-
-        asc_result = g.gfql([
-            rows(),
-            select([("datetimes", "datetimes")]),
-            order_by([("datetimes", "asc")]),
-            limit(3),
-        ])
-        assert asc_result._nodes["datetimes"].tolist() == [
-            "0001-01-01T01:01:01.000000001-11:59",
-            "1980-12-11T12:31:14-11:59",
-            "1984-10-11T12:31:14.645876123+00:17",
-        ]
-
-        desc_result = g.gfql([
-            rows(),
-            select([("datetimes", "datetimes")]),
-            order_by([("datetimes", "desc")]),
-            limit(3),
-        ])
-        assert desc_result._nodes["datetimes"].tolist() == [
-            "9999-09-09T09:59:59.999999999+11:59",
-            "1984-10-11T12:30:14.000000012+00:15",
-            "1984-10-11T12:31:14.645876123+00:17",
-        ]
-
-    def test_row_pipeline_bad_source_alias_raises(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "v": [1, 2]})
-        g = _mk_graph(nodes_df)
-
-        with pytest.raises(Exception, match="requires node column|alias column not found"):
-            g.gfql([rows(source="missing")])
-
-    def test_row_pipeline_select_sequence_function_family(self):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "vals": [[1, 2, 3], [4], []],
-                "txt": ["ab", "cd", ""],
-                "score": [-2, 0, 3],
-            }
-        )
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("h_vals", "head(vals)"),
-                        ("t_vals", "tail(vals)"),
-                        ("r_vals", "reverse(vals)"),
-                        ("h_txt", "head(txt)"),
-                        ("t_txt", "tail(txt)"),
-                        ("r_txt", "reverse(txt)"),
-                        ("sgn", "sign(score)"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
+    @pytest.mark.parametrize(
+        ("nodes", "column", "asc_expected", "desc_expected", "limit_value"),
+        [
+            pytest.param(
+                {
+                    "id": list("abcdefgh"),
+                    "lists": [[], ["a"], ["a", 1], [1], [1, "a"], [1, None], [None, 1], [None, 2]],
+                },
+                "lists",
+                [[], ["a"], ["a", 1], [1], [1, "a"], [1, None], [None, 1], [None, 2]],
+                [[None, 2], [None, 1], [1, None], [1, "a"], [1], ["a", 1], ["a"], []],
+                None,
+                id="cypher-list-value-semantics",
+            ),
+            pytest.param(
+                {
+                    "id": list("abcde"),
+                    "times": [
+                        "10:35-08:00",
+                        "12:31:14.645876123+01:00",
+                        "12:31:14.645876124+01:00",
+                        "12:35:15+05:00",
+                        "12:30:14.645876123+01:01",
+                    ],
+                },
+                "times",
+                ["12:35:15+05:00", "12:30:14.645876123+01:01", "12:31:14.645876123+01:00"],
+                ["10:35-08:00", "12:31:14.645876124+01:00", "12:31:14.645876123+01:00"],
+                3,
+                id="time-offsets",
+            ),
+            pytest.param(
+                {
+                    "id": list("abcde"),
+                    "datetimes": [
+                        "1984-10-11T12:30:14.000000012+00:15",
+                        "1984-10-11T12:31:14.645876123+00:17",
+                        "0001-01-01T01:01:01.000000001-11:59",
+                        "9999-09-09T09:59:59.999999999+11:59",
+                        "1980-12-11T12:31:14-11:59",
+                    ],
+                },
+                "datetimes",
+                [
+                    "0001-01-01T01:01:01.000000001-11:59",
+                    "1980-12-11T12:31:14-11:59",
+                    "1984-10-11T12:31:14.645876123+00:17",
+                ],
+                [
+                    "9999-09-09T09:59:59.999999999+11:59",
+                    "1984-10-11T12:30:14.000000012+00:15",
+                    "1984-10-11T12:31:14.645876123+00:17",
+                ],
+                3,
+                id="datetime-offsets",
+            ),
+        ],
+    )
+    def test_row_pipeline_order_by_value_semantics(
+        self, nodes, column, asc_expected, desc_expected, limit_value
+    ):
+        _assert_ordered_projection_values(
+            nodes,
+            column,
+            asc_expected,
+            desc_expected,
+            limit_value=limit_value,
         )
 
-        records = result._nodes.to_dict(orient="records")
-        assert records[:2] == [
-            {
-                "id": "a",
-                "h_vals": 1,
-                "t_vals": [2, 3],
-                "r_vals": [3, 2, 1],
-                "h_txt": "a",
-                "t_txt": "b",
-                "r_txt": "ba",
-                "sgn": -1,
-            },
-            {
-                "id": "b",
-                "h_vals": 4,
-                "t_vals": [],
-                "r_vals": [4],
-                "h_txt": "c",
-                "t_txt": "d",
-                "r_txt": "dc",
-                "sgn": 0,
-            },
-        ]
-        assert records[2]["id"] == "c"
-        assert pd.isna(records[2]["h_vals"])
-        assert records[2]["t_vals"] == []
-        assert records[2]["r_vals"] == []
-        assert pd.isna(records[2]["h_txt"])
-        assert records[2]["t_txt"] == ""
-        assert records[2]["r_txt"] == ""
-        assert records[2]["sgn"] == 1
+    @pytest.mark.parametrize(
+        ("nodes", "steps", "pattern", "edges"),
+        [
+            pytest.param(
+                {"id": ["a", "b"], "v": [1, 2]},
+                [rows(source="missing")],
+                "requires node column|alias column not found",
+                None,
+                id="bad-source-alias",
+            ),
+            pytest.param(
+                {"id": ["a"], "x": [1]},
+                [rows(), select([("bad", "reverse(x)")])],
+                "reverse\\(\\) requires list/string input",
+                {"s": ["a"], "d": ["a"]},
+                id="reverse-invalid-input",
+            ),
+            pytest.param(
+                {"id": ["a", "b"]},
+                [rows("bad_table")],
+                "table",
+                None,
+                id="invalid-rows-table",
+            ),
+            pytest.param(
+                {"id": ["a", "b"]},
+                [rows(), select([("x", "missing_col")])],
+                "unsupported token in row expression|unsupported row expression",
+                None,
+                id="select-missing-column",
+            ),
+            pytest.param(
+                {"id": ["a", "b"]},
+                [rows(), order_by([("missing_col", "asc")])],
+                "order_by column not found|unsupported token in row expression|unsupported row expression",
+                None,
+                id="order-by-missing-column",
+            ),
+        ],
+    )
+    def test_row_pipeline_runtime_error_cases(self, nodes, steps, pattern, edges):
+        edges_df = None if edges is None else pd.DataFrame(edges)
+        with pytest.raises(Exception, match=pattern):
+            _run_node_steps(pd.DataFrame(nodes), steps, edges_df=edges_df)
 
-    def test_row_pipeline_select_string_predicate_ops(self):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "txt": ["abcdef", "xxabyy", None],
-            }
-        )
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("has_ab", "txt CONTAINS 'ab'"),
-                        ("starts_ab", "txt STARTS WITH 'ab'"),
-                        ("ends_ef", "txt ENDS WITH 'ef'"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
-        )
-
-        records = result._nodes.to_dict(orient="records")
-        assert records[0] == {"id": "a", "has_ab": True, "starts_ab": True, "ends_ef": True}
-        assert records[1] == {"id": "b", "has_ab": True, "starts_ab": False, "ends_ef": False}
-        assert records[2]["id"] == "c"
-        assert pd.isna(records[2]["has_ab"])
-        assert pd.isna(records[2]["starts_ab"])
-        assert pd.isna(records[2]["ends_ef"])
-
-    def test_row_pipeline_select_string_predicate_keyword_in_literal(self):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "txt": ["abc STARTS WITH xyz", "abc xyz", None],
-            }
-        )
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select([("id", "id"), ("hit", "txt CONTAINS 'STARTS WITH'")]),
-                order_by([("id", "asc")]),
-            ]
-        )
-
-        records = result._nodes.to_dict(orient="records")
-        assert records[0] == {"id": "a", "hit": True}
-        assert records[1] == {"id": "b", "hit": False}
-        assert records[2]["id"] == "c"
-        assert pd.isna(records[2]["hit"])
-
-    def test_row_pipeline_select_string_predicates_null_rhs(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", None]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("contains_null", "txt CONTAINS null"),
-                        ("starts_null", "txt STARTS WITH null"),
-                        ("ends_null", "txt ENDS WITH null"),
-                    ]
-                ),
-            ]
-        )
-
-        for col in ["contains_null", "starts_null", "ends_null"]:
-            assert all(pd.isna(v) for v in result._nodes[col].tolist())
-
-    def test_row_pipeline_select_slice_null_bound_returns_null(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", "ghij"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("lhs_null", "txt[null..2]"),
-                        ("rhs_null", "txt[1..null]"),
-                    ]
-                ),
-            ]
-        )
-
-        assert result._nodes["lhs_null"].tolist() == [None, None]
-        assert result._nodes["rhs_null"].tolist() == [None, None]
-
-    def test_row_pipeline_select_reverse_invalid_input_raises(self):
-        nodes_df = pd.DataFrame({"id": ["a"], "x": [1]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        with pytest.raises(Exception, match="reverse\\(\\) requires list/string input"):
-            g.gfql([rows(), select([("bad", "reverse(x)")])])
-
-    def test_row_pipeline_select_broadcasts_list_map_literals(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("id", "id"), ("lst", [1, 2]), ("mp", {"k": "v"})]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "lst": [1, 2], "mp": {"k": "v"}},
-            {"id": "b", "lst": [1, 2], "mp": {"k": "v"}},
-        ]
-
-    def test_row_pipeline_invalid_rows_table_rejected(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        with pytest.raises(Exception, match="table"):
-            g.gfql([rows("bad_table")])
-
-    def test_row_pipeline_select_missing_column_raises(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
-            g.gfql([rows(), select([("x", "missing_col")])])
-
-    def test_row_pipeline_order_by_missing_column_raises(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        with pytest.raises(Exception, match="order_by column not found|unsupported token in row expression|unsupported row expression"):
-            g.gfql([rows(), order_by([("missing_col", "asc")])])
-
+    @pytest.mark.parametrize("builder", [skip, limit], ids=["skip", "limit"])
     @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
-    def test_row_pipeline_skip_invalid_values_rejected(self, value):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
+    def test_row_pipeline_invalid_page_values_rejected(self, builder, value):
         with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
-            g.gfql([rows(), skip(value)])
-
-    @pytest.mark.parametrize("value", [-1, True, "1.5", "bad"])
-    def test_row_pipeline_limit_invalid_values_rejected(self, value):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
-            g.gfql([rows(), limit(value)])
+            _run_node_steps(pd.DataFrame({"id": ["a", "b"]}), [rows(), builder(value)])
 
     def test_row_pipeline_vectorized_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
@@ -1216,24 +1244,58 @@ class TestRowPipelineSafelist:
             validate_call_params(function, params)
         assert exc_info.value.code == ErrorCode.E303
 
-    def test_row_pipeline_rows_validation(self):
-        params = validate_call_params("rows", {})
-        assert params == {}
+    @staticmethod
+    def _assert_valid(function, params):
+        assert validate_call_params(function, params) == params
 
-        params = validate_call_params("rows", {"table": "edges", "source": "rel"})
-        assert params == {"table": "edges", "source": "rel"}
+    @staticmethod
+    def _patch_where_rows_parser(
+        monkeypatch,
+        *,
+        parse=_parse_identifier_score,
+        capabilities=_capabilities_ok,
+        collect=_collect_score,
+    ):
+        monkeypatch.setattr(
+            call_safelist,
+            "_where_rows_expr_parser_fn",
+            lambda: _where_rows_parser_bundle(parse, capabilities, collect),
+        )
+
+    @staticmethod
+    def _assert_runtime_where_rows(
+        monkeypatch,
+        *,
+        nodes,
+        expr,
+        bundle,
+        expected_records=None,
+        expected_message=None,
+    ):
+        g = _mk_graph(pd.DataFrame(nodes))
+        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: bundle)
+        steps = [rows(), where_rows(expr=expr)]
+        if expected_message is None:
+            result = g.gfql(steps)
+            assert result._nodes.reset_index(drop=True).to_dict(orient="records") == expected_records
+            return
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql(steps + [return_([("id", "id")])])
+        assert exc_info.value.code == ErrorCode.E303
+        assert expected_message in exc_info.value.message
+
+    def test_row_pipeline_rows_validation(self):
+        self._assert_valid("rows", {})
+        self._assert_valid("rows", {"table": "edges", "source": "rel"})
 
         self._assert_e201("rows", {"table": "bad"})
 
     def test_row_pipeline_select_validation(self):
-        params = validate_call_params("select", {"items": [("name", "name"), ("const", 1)]})
-        assert params == {"items": [("name", "name"), ("const", 1)]}
-        params = validate_call_params("select", {"items": ["name", ("const", 1)]})
-        assert params == {"items": ["name", ("const", 1)]}
-        params = validate_call_params("return_", {"items": [("name", "name")]})
-        assert params == {"items": [("name", "name")]}
-        params = validate_call_params("with_", {"items": ["name"]})
-        assert params == {"items": ["name"]}
+        self._assert_valid("select", {"items": [("name", "name"), ("const", 1)]})
+        self._assert_valid("select", {"items": ["name", ("const", 1)]})
+        self._assert_valid("return_", {"items": [("name", "name")]})
+        self._assert_valid("with_", {"items": ["name"]})
 
         for bad_items in [
             None,
@@ -1249,38 +1311,26 @@ class TestRowPipelineSafelist:
             self._assert_e201("return_", {"items": bad_items})
 
     def test_row_pipeline_with_where_rows_validation(self):
-        params = validate_call_params("with_", {"items": [("name", "name")]})
-        assert params == {"items": [("name", "name")]}
-        params = validate_call_params("where_rows", {"filter_dict": {"name": "alice"}})
-        assert params == {"filter_dict": {"name": "alice"}}
+        self._assert_valid("with_", {"items": [("name", "name")]})
+        self._assert_valid("where_rows", {"filter_dict": {"name": "alice"}})
         valid_exprs = [
             "score > 1 AND name != 'bob'",
             "name = 'rand()'",
             'name = "rand()"',
-            "txt CONTAINS 5",
-            "txt CONTAINS null",
-            "txt CONTAINS (5)",
-            "txt STARTS WITH (5)",
-            "txt ENDS WITH (5)",
+            *[f"txt {op}" for op in ["CONTAINS 5", "CONTAINS null", "CONTAINS (5)", "STARTS WITH (5)", "ENDS WITH (5)"]],
             "CASE WHEN score > 1 THEN true ELSE false END",
-            "any(x IN vals WHERE x = 2)",
-            "all(x IN vals WHERE x > 1)",
-            "none(x IN vals WHERE x < 0)",
-            "single(x IN vals WHERE x = 2)",
+            *[f"{fn}(x IN vals WHERE x {pred})" for fn, pred in [("any", "= 2"), ("all", "> 1"), ("none", "< 0"), ("single", "= 2")]],
             "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END",
-            "size([x IN vals WHERE x > 1]) > 0",
-            "size([x IN vals WHERE x > 1 | x]) > 0",
+            *[f"size([x IN vals WHERE x > 1{suffix}]) > 0" for suffix in ["", " | x"]],
         ]
         for expr in valid_exprs:
-            assert validate_call_params("where_rows", {"expr": expr}) == {"expr": expr}
+            self._assert_valid("where_rows", {"expr": expr})
         pred = gt(1)
-        params = validate_call_params("where_rows", {"filter_dict": {"score": pred}})
-        assert params == {"filter_dict": {"score": pred}}
-        params = validate_call_params(
+        self._assert_valid("where_rows", {"filter_dict": {"score": pred}})
+        self._assert_valid(
             "where_rows",
             {"filter_dict": {"score": pred}, "expr": "score > 1"},
         )
-        assert params == {"filter_dict": {"score": pred}, "expr": "score > 1"}
 
         bad_filter_dict_inputs = [{"filter_dict": "bad"}, {"filter_dict": {1: "x"}}]
         for bad_params in bad_filter_dict_inputs:
@@ -1288,23 +1338,24 @@ class TestRowPipelineSafelist:
 
         invalid_exprs = [
             "rand() > 0.1",
-            "txt CONTAINS rhs",
-            "txt STARTS WITH rhs",
-            "txt ENDS WITH rhs",
-            "txt CONTAINS [1,2]",
-            "txt CONTAINS {k: 'v'}",
-            "txt CONTAINS (rhs)",
+            *[f"txt {op} rhs" for op in ["CONTAINS", "STARTS WITH", "ENDS WITH"]],
+            *[f"txt CONTAINS {rhs}" for rhs in ["[1,2]", "{k: 'v'}", "(rhs)"]],
             "any(x IN vals WHERE x = 2",
             "any(x vals WHERE x = 2)",
             "any(x IN vals | WHERE x = 2)",
             "CASE WHEN score > 1 THEN true END",
             "score > 1 AND CASE WHEN id = 'a' THEN true END",
-            "size([x vals WHERE x > 1]) > 0",
-            "size([x IN vals WHERE ]) > 0",
-            "size([x IN vals WHERE x > 1 | ]) > 0",
-            "size([x IN vals | ]) > 0",
-            "size([x IN vals | WHERE x > 1]) > 0",
-            "size([x IN vals | WHERE x > 1 | x + 1]) > 0",
+            *[
+                f"size({expr}) > 0"
+                for expr in [
+                    "[x vals WHERE x > 1]",
+                    "[x IN vals WHERE ]",
+                    "[x IN vals WHERE x > 1 | ]",
+                    "[x IN vals | ]",
+                    "[x IN vals | WHERE x > 1]",
+                    "[x IN vals | WHERE x > 1 | x + 1]",
+                ]
+            ],
             "(id = 'a') | (id = 'b')",
             "score > 1 THEN true",
             "END",
@@ -1326,19 +1377,11 @@ class TestRowPipelineSafelist:
             "id = 'a' OR NOT",
             "id = 'a' AND (OR id = 'b')",
             "id = 'a' OR (AND id = 'b')",
-            "id = = 'a'",
-            "score > = 2",
-            "score < = 2",
-            "score ! = 2",
-            "score < > 2",
-            "score =< 2",
-            "score => 2",
+            *["id = = 'a'", "score > = 2", "score < = 2", "score ! = 2", "score < > 2", "score =< 2", "score => 2"],
             "coalesce(id, 'x') y",
             "size(vals) z",
             "any(x IN vals WHERE x = 2) OR OR id = 'a'",
-            "size() > 0",
-            "size( ) > 0",
-            "size(,) > 0",
+            *["size() > 0", "size( ) > 0", "size(,) > 0"],
             "coalesce() = id",
             "toString() = 'x'",
             "toBoolean()",
@@ -1347,129 +1390,111 @@ class TestRowPipelineSafelist:
             "head() = 1",
             "tail() = []",
             "reverse() = []",
-            "size(( )) > 0",
-            "coalesce(( )) = id",
-            "coalesce(id score) = id",
-            "size(vals,) > 0",
-            "size(,vals) > 0",
+            *["size(( )) > 0", "coalesce(( )) = id", "coalesce(id score) = id", "size(vals,) > 0", "size(,vals) > 0"],
         ]
         for expr in invalid_exprs:
             self._assert_e201("where_rows", {"expr": expr})
 
     def test_row_pipeline_where_rows_parser_authority(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_parse_ok", lambda _expr: False)
-        monkeypatch.setattr(
-            call_safelist,
-            "_where_rows_expr_parser_fn",
-            lambda: (lambda _expr: object(), lambda _node: [], lambda _node: set()),
-        )
-
+        self._patch_where_rows_parser(monkeypatch, parse=lambda _expr: object(), collect=lambda _node: set())
         self._assert_e201("where_rows", {"expr": "score > 1"})
 
-    def test_row_pipeline_where_rows_strict_parser_authority_when_available(self, monkeypatch):
-        def fake_parse(_expr):
-            return expr_parser.Identifier("score")
+    @pytest.mark.parametrize(
+        ("capabilities", "expr", "expected"),
+        [
+            pytest.param(_capabilities_ok, "score == 1", {"expr": "score == 1"}, id="parser-controls-syntax"),
+            pytest.param(_capabilities_unsupported, "score > 1", ErrorCode.E201, id="capability-fail"),
+        ],
+    )
+    def test_row_pipeline_where_rows_strict_parser_authority(self, monkeypatch, capabilities, expr, expected):
+        self._patch_where_rows_parser(monkeypatch, capabilities=capabilities)
+        if isinstance(expected, dict):
+            assert validate_call_params("where_rows", {"expr": expr}) == expected
+            return
+        self._assert_e201("where_rows", {"expr": expr})
 
-        def fake_capabilities(_node):
-            return []
-
-        monkeypatch.setattr(
-            call_safelist,
-            "_where_rows_expr_parser_fn",
-            lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
-        )
-        # Old lexical checks reject '==', but strict parser authority should control when parser is available.
-        params = validate_call_params("where_rows", {"expr": "score == 1"})
-        assert params == {"expr": "score == 1"}
-
-    def test_row_pipeline_where_rows_strict_parser_authority_rejects_capability_fail(self, monkeypatch):
-        def fake_parse(_expr):
-            return expr_parser.Identifier("score")
-
-        def fake_capabilities(_node):
-            return ["unsupported"]
-
-        monkeypatch.setattr(
-            call_safelist,
-            "_where_rows_expr_parser_fn",
-            lambda: (fake_parse, fake_capabilities, lambda _node: {"score"}),
-        )
-        with pytest.raises(GFQLTypeError) as exc_info:
-            validate_call_params("where_rows", {"expr": "score > 1"})
-        assert exc_info.value.code == ErrorCode.E201
-
-    def test_row_pipeline_where_rows_required_cols_from_parser(self, monkeypatch):
-        def fake_parse(_expr):
-            return "node"
-
-        def fake_capabilities(_node):
-            return []
-
-        def fake_collect(_node):
-            return {"n.age", "score", "vals"}
-
-        monkeypatch.setattr(
-            call_safelist,
-            "_where_rows_expr_parser_fn",
-            lambda: (fake_parse, fake_capabilities, fake_collect),
-        )
-        cols = call_safelist._where_rows_requires_node_cols(
-            {"filter_dict": {"id": "a"}, "expr": "ignored"}
-        )
-        assert cols == ["id", "n", "score", "vals"]
-
-    def test_row_pipeline_where_rows_required_cols_parser_required(self, monkeypatch):
-        monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
-        cols = call_safelist._where_rows_requires_node_cols(
-            {"expr": "any(x IN vals WHERE x > threshold)"}
-        )
-        assert cols == []
+    @pytest.mark.parametrize(
+        ("bundle", "params", "expected"),
+        [
+            pytest.param(
+                _where_rows_parser_bundle(lambda _expr: "node", collect=_collect_nested_score_vals),
+                {"filter_dict": {"id": "a"}, "expr": "ignored"},
+                ["id", "n", "score", "vals"],
+                id="parser-derived-cols",
+            ),
+            pytest.param(None, {"expr": "any(x IN vals WHERE x > threshold)"}, [], id="parser-required"),
+        ],
+    )
+    def test_row_pipeline_where_rows_required_cols(self, monkeypatch, bundle, params, expected):
+        monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: bundle)
+        assert call_safelist._where_rows_requires_node_cols(params) == expected
 
     def test_row_pipeline_where_rows_validator_rejects_without_parser(self, monkeypatch):
         monkeypatch.setattr(call_safelist, "_where_rows_expr_parser_fn", lambda: None)
         self._assert_e201("where_rows", {"expr": "score > 1"})
 
-    def test_row_pipeline_runtime_parser_authority(self, monkeypatch):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "score": [1, 2, 3],
-        })
-        g = _mk_graph(nodes_df)
-
-        # Parser unavailable -> runtime fails fast.
-        monkeypatch.setattr(row_pipeline_mixin, "_gfql_expr_runtime_parser_bundle", lambda: None)
-        with pytest.raises(GFQLTypeError) as exc_info:
-            g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
-        assert exc_info.value.code == ErrorCode.E303
-        assert "parser backend unavailable" in exc_info.value.message
-
-        # Parser available + parse failure -> runtime failfast.
-        def fake_parse(_expr):
-            raise ValueError("bad parse")
-
-        def fake_capabilities(_node):
-            return []
-
-        monkeypatch.setattr(
-            row_pipeline_mixin,
-            "_gfql_expr_runtime_parser_bundle",
-            lambda: (fake_parse, fake_capabilities, expr_parser),
+    @pytest.mark.parametrize(
+        ("nodes", "expr", "bundle", "expected_records", "expected_message"),
+        [
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 2, 3]},
+                "score > 1",
+                None,
+                None,
+                "parser backend unavailable",
+                id="parser-unavailable",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 2, 3]},
+                "score > 1",
+                _runtime_parser_bundle(_raise_bad_parse),
+                None,
+                "parser validation failed",
+                id="parse-fail",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 2, 3]},
+                "score > 1",
+                _runtime_parser_bundle(_parse_score_gt_one),
+                [{"id": "b", "score": 2}, {"id": "c", "score": 3}],
+                None,
+                id="ast-success",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 2, 3]},
+                "score > 1",
+                _runtime_parser_bundle(_parse_unknown_fn_score),
+                None,
+                "AST evaluator unsupported",
+                id="unsupported-ast",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "name": ["x", "y", "z"]},
+                "name - 'x'",
+                _runtime_parser_bundle(_parse_name_minus_x),
+                None,
+                "AST evaluator unsupported",
+                id="type-error-normalized",
+            ),
+        ],
+    )
+    def test_row_pipeline_runtime_parser_paths(
+        self, monkeypatch, nodes, expr, bundle, expected_records, expected_message
+    ):
+        self._assert_runtime_where_rows(
+            monkeypatch,
+            nodes=nodes,
+            expr=expr,
+            bundle=bundle,
+            expected_records=expected_records,
+            expected_message=expected_message,
         )
-        with pytest.raises(GFQLTypeError) as exc_info:
-            g.gfql([rows(), where_rows(expr="score > 1"), return_([("id", "id")])])
-        assert exc_info.value.code == ErrorCode.E303
-        assert "parser validation failed" in exc_info.value.message
 
-    def test_row_pipeline_eval_expr_ast_subset_parity(self, monkeypatch):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "score": [1, 2, 3],
-            "name": ["a", "bb", "ccc"],
-        })
-        g = _mk_graph(nodes_df)
-        table_df = g._nodes
-
-        cases = [
+    def test_row_pipeline_eval_expr_ast_subset_parity(self):
+        _assert_ast_parity(
+            {"id": ["a", "b", "c"], "score": [1, 2, 3], "name": ["a", "bb", "ccc"]},
+            [
             (
                 expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
                 "score > 1",
@@ -1505,27 +1530,13 @@ class TestRowPipelineSafelist:
                 ),
                 "score + 1 >= 3",
             ),
-        ]
-
-        for ast_node, expr in cases:
-            ctx = row_pipeline_mixin._RowPipelineAdapter(g)
-            ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
-            assert ok, expr
-            legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
-            assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
-
-    def test_row_pipeline_eval_expr_ast_advanced_parity(self, monkeypatch):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "score": [1, 3, 2],
-                "vals": [[1], [1, 2], [2, 3]],
-            }
+            ],
         )
-        g = _mk_graph(nodes_df)
-        table_df = g._nodes
 
-        cases = [
+    def test_row_pipeline_eval_expr_ast_advanced_parity(self):
+        _assert_ast_parity(
+            {"id": ["a", "b", "c"], "score": [1, 3, 2], "vals": [[1], [1, 2], [2, 3]]},
+            [
             (
                 expr_parser.CaseWhen(
                     condition=expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(2)),
@@ -1567,90 +1578,12 @@ class TestRowPipelineSafelist:
                 ),
                 "vals[0..2]",
             ),
-        ]
-
-        for ast_node, expr in cases:
-            ctx = row_pipeline_mixin._RowPipelineAdapter(g)
-            ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
-            assert ok, expr
-            legacy_out = ctx._gfql_eval_string_expr(table_df, expr)
-            assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
-
-    def test_row_pipeline_runtime_ast_path_with_parser_bundle(self, monkeypatch):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "score": [1, 2, 3],
-        })
-        g = _mk_graph(nodes_df)
-
-        def fake_parse(_expr):
-            return expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1))
-
-        def fake_capabilities(_node):
-            return []
-
-        monkeypatch.setattr(
-            row_pipeline_mixin,
-            "_gfql_expr_runtime_parser_bundle",
-            lambda: (fake_parse, fake_capabilities, expr_parser),
+            ],
         )
-        result = g.gfql([rows(), where_rows(expr="score > 1")])
-        assert result._nodes[["id", "score"]].reset_index(drop=True).to_dict(orient="records") == [
-            {"id": "b", "score": 2},
-            {"id": "c", "score": 3},
-        ]
-
-    def test_row_pipeline_runtime_ast_unsupported(self, monkeypatch):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "score": [1, 2, 3],
-        })
-        g = _mk_graph(nodes_df)
-
-        def fake_parse(_expr):
-            return expr_parser.FunctionCall("unknown_fn", (expr_parser.Identifier("score"),))
-
-        def fake_capabilities(_node):
-            return []
-
-        monkeypatch.setattr(
-            row_pipeline_mixin,
-            "_gfql_expr_runtime_parser_bundle",
-            lambda: (fake_parse, fake_capabilities, expr_parser),
-        )
-        with pytest.raises(GFQLTypeError) as exc_info:
-            g.gfql([rows(), where_rows(expr="score > 1")])
-        assert exc_info.value.code == ErrorCode.E303
-        assert "AST evaluator unsupported" in exc_info.value.message
-
-    def test_row_pipeline_runtime_ast_type_error_normalized(self, monkeypatch):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "name": ["x", "y", "z"],
-        })
-        g = _mk_graph(nodes_df)
-
-        def fake_parse(_expr):
-            return expr_parser.BinaryOp("-", expr_parser.Identifier("name"), expr_parser.Literal("x"))
-
-        def fake_capabilities(_node):
-            return []
-
-        monkeypatch.setattr(
-            row_pipeline_mixin,
-            "_gfql_expr_runtime_parser_bundle",
-            lambda: (fake_parse, fake_capabilities, expr_parser),
-        )
-        with pytest.raises(GFQLTypeError) as exc_info:
-            g.gfql([rows(), where_rows(expr="name - 'x'")])
-        assert exc_info.value.code == ErrorCode.E303
-        assert "AST evaluator unsupported" in exc_info.value.message
 
     def test_row_pipeline_order_by_validation(self):
-        params = validate_call_params("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
-        assert params == {"keys": [("name", "asc"), ("score", "desc")]}
-        params = validate_call_params("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
-        assert params == {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]}
+        self._assert_valid("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
+        self._assert_valid("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
 
         for bad_keys in [
             None,
@@ -1665,25 +1598,6 @@ class TestRowPipelineSafelist:
         ]:
             self._assert_e201("order_by", {"keys": bad_keys})
 
-    def test_row_pipeline_order_by_aggregate_alias_columns(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "division": ["x", "x", "y"],
-            "age": [3, 7, 4],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            group_by(["division"], [("count(*)", "count"), ("max(n.age)", "max", "age")]),
-            order_by([("count(*)", "asc"), ("max(n.age)", "desc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"division": "y", "count(*)": 1, "max(n.age)": 4},
-            {"division": "x", "count(*)": 2, "max(n.age)": 7},
-        ]
-
     @pytest.mark.parametrize("function", ["skip", "limit"])
     def test_row_pipeline_skip_limit_validation(self, function):
         for value in [0, 2, 2.0, "3"]:
@@ -1694,40 +1608,25 @@ class TestRowPipelineSafelist:
             self._assert_e201(function, {"value": bad_value})
 
     def test_row_pipeline_distinct_validation(self):
-        params = validate_call_params("distinct", {})
-        assert params == {}
+        self._assert_valid("distinct", {})
 
         self._assert_e303("distinct", {"extra": True})
 
     def test_row_pipeline_unwind_group_by_validation(self):
-        params = validate_call_params("unwind", {"expr": "vals", "as_": "v"})
-        assert params == {"expr": "vals", "as_": "v"}
-        params = validate_call_params("unwind", {"expr": [1, 2, 3], "as_": "v"})
-        assert params == {"expr": [1, 2, 3], "as_": "v"}
-        params = validate_call_params(
+        self._assert_valid("unwind", {"expr": "vals", "as_": "v"})
+        self._assert_valid("unwind", {"expr": [1, 2, 3], "as_": "v"})
+        self._assert_valid(
             "group_by",
             {"keys": ["grp"], "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")]},
         )
-        assert params == {
-            "keys": ["grp"],
-            "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")],
-        }
-        params = validate_call_params(
+        self._assert_valid(
             "group_by",
             {"keys": ["grp"], "aggregations": [("vals", "collect", "v")]},
         )
-        assert params == {
-            "keys": ["grp"],
-            "aggregations": [("vals", "collect", "v")],
-        }
-        params = validate_call_params(
+        self._assert_valid(
             "group_by",
             {"keys": ["grp"], "aggregations": [("vals", "collect", "v + 1")]},
         )
-        assert params == {
-            "keys": ["grp"],
-            "aggregations": [("vals", "collect", "v + 1")],
-        }
 
         self._assert_e201("unwind", {"expr": 1})
         self._assert_e201("unwind", {"expr": "vals", "as_": ""})
