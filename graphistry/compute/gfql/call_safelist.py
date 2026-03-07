@@ -31,55 +31,380 @@ Usage:
     g.gfql(hypergraph(entity_types=['user', 'product']))
 """
 
-from typing import Dict, Any, List
+import re
+from functools import lru_cache
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.gfql.order_expr_utils import (
+    is_aggregate_alias_expr,
+    is_plain_order_label,
+    order_expr_ast_static_supported,
+)
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.expr_parser import ExprNode
+
+WhereRowsParseFn = Callable[[str], "ExprNode"]
+WhereRowsCapabilityFn = Callable[["ExprNode"], List[str]]
+WhereRowsCollectIdentifiersFn = Callable[["ExprNode"], Set[str]]
+WhereRowsParserBundle = Tuple[
+    WhereRowsParseFn,
+    WhereRowsCapabilityFn,
+    WhereRowsCollectIdentifiersFn,
+]
+WhereRowsParsedExpr = Tuple["ExprNode", WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
+
+
+@lru_cache(maxsize=1)
+def _where_rows_expr_parser_fn() -> Optional[WhereRowsParserBundle]:
+    try:
+        from graphistry.compute.gfql.expr_parser import (
+            collect_identifiers,
+            parse_expr,
+            validate_expr_capabilities,
+        )
+        # Ensure parser backend dependencies are available at runtime (e.g., lark).
+        try:
+            parse_expr("1 = 1")
+        except ImportError:
+            return None
+        return parse_expr, validate_expr_capabilities, collect_identifiers
+    except Exception:
+        return None
+
+
+def _where_rows_expr_parse(expr: str) -> Optional[WhereRowsParsedExpr]:
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        return None
+    parser, capability_checker, collect_identifiers = parser_bundle
+    try:
+        return parser(expr), capability_checker, collect_identifiers
+    except Exception:
+        return None
+
+
+def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
+        return False
+    node, capability_checker, _collect_identifiers = parsed
+    try:
+        capability_errors = capability_checker(node)
+        if len(capability_errors) > 0:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _where_rows_expr_required_cols(expr: str) -> List[str]:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
+        return []
+    node, _capability_checker, collect_identifiers = parsed
+    try:
+        names = collect_identifiers(node)
+    except Exception:
+        return []
+    cols: Set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or name == "":
+            continue
+        cols.add(name.split(".")[0])
+    return sorted(cols)
 
 
 # Type validators
-def is_string(v: Any) -> bool:
+def is_string(v: object) -> bool:
     return isinstance(v, str)
 
 
-def is_int(v: Any) -> bool:
+def is_non_empty_string(v: object) -> bool:
+    return isinstance(v, str) and v.strip() != ""
+
+
+def is_int(v: object) -> bool:
     return isinstance(v, int)
 
 
-def is_bool(v: Any) -> bool:
+def is_bool(v: object) -> bool:
     return isinstance(v, bool)
 
-def is_int_or_none(v: Any) -> bool:
+def is_int_or_none(v: object) -> bool:
     return v is None or isinstance(v, int)
 
 
-def is_dict(v: Any) -> bool:
+def is_dict(v: object) -> bool:
     return isinstance(v, dict)
 
 
-def is_string_or_none(v: Any) -> bool:
+def is_string_or_none(v: object) -> bool:
     return v is None or isinstance(v, str)
 
 
-def is_float(v: Any) -> bool:
-    return isinstance(v, float)
-
-
-def is_int_or_float(v: Any) -> bool:
+def is_int_or_float(v: object) -> bool:
     return isinstance(v, (int, float))
 
 
-def is_list_of_strings(v: Any) -> bool:
+def is_list_of_strings(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
 
-def is_list(v: Any) -> bool:
+def is_list(v: object) -> bool:
     return isinstance(v, list)
 
 
-def is_list_or_dict(v: Any) -> bool:
+def is_list_or_dict(v: object) -> bool:
     return isinstance(v, (list, dict))
 
 
-def _symbolic_cols(v: Any) -> list:
+def _is_json_compatible_value(v: object) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, (bool, int, float, str)):
+        return True
+    if isinstance(v, list):
+        return all(_is_json_compatible_value(item) for item in v)
+    if isinstance(v, dict):
+        return all(isinstance(k, str) and _is_json_compatible_value(val) for k, val in v.items())
+    return False
+
+
+def is_projection_items(v: object) -> bool:
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if isinstance(item, str):
+            if not is_non_empty_string(item):
+                return False
+            continue
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        alias, expr = item
+        if not is_non_empty_string(alias):
+            return False
+        if not (isinstance(expr, str) or _is_json_compatible_value(expr)):
+            return False
+    return True
+
+
+def is_order_keys(v: object) -> bool:
+    def _is_static_order_expr_supported(expr: str) -> bool:
+        txt = expr.strip()
+        if txt == "":
+            return False
+        # Runtime order_by supports sorting by projected aliases that are not GFQL expressions.
+        if is_plain_order_label(txt) or is_aggregate_alias_expr(txt):
+            return True
+        parsed = _where_rows_expr_parse(txt)
+        if parsed is None:
+            return False
+        node, capability_checker, _collect_identifiers = parsed
+        try:
+            capability_errors = capability_checker(node)
+        except Exception:
+            return False
+        if len(capability_errors) > 0:
+            return False
+        return order_expr_ast_static_supported(node)
+
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        expr, direction = item
+        if not is_non_empty_string(expr):
+            return False
+        if not _is_static_order_expr_supported(expr):
+            return False
+        if not isinstance(direction, str) or direction.lower() not in {"asc", "desc"}:
+            return False
+    return True
+
+
+def is_where_rows_filter_dict(v: object) -> bool:
+    if not isinstance(v, dict):
+        return False
+    # Lazy import avoids circular import at module import time
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    for k, val in v.items():
+        if not is_non_empty_string(k):
+            return False
+        if not (isinstance(val, ASTPredicate) or _is_json_compatible_value(val)):
+            return False
+    return True
+
+
+def is_where_rows_expr(v: object) -> bool:
+    if not is_non_empty_string(v):
+        return False
+    txt = str(v).strip()
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        return False
+    return _where_rows_expr_parser_parse_ok(txt)
+
+
+def is_non_empty_list_of_strings(v: object) -> bool:
+    if not isinstance(v, list):
+        return False
+    return len(v) > 0 and all(isinstance(item, str) for item in v)
+
+
+def is_list_of_agg_specs(v: object) -> bool:
+    allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean", "collect"}
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) not in {2, 3}:
+            return False
+        alias = item[0]
+        func = item[1]
+        if not is_non_empty_string(alias):
+            return False
+        if not isinstance(func, str):
+            return False
+        func_l = func.lower()
+        if func_l not in allowed:
+            return False
+        if func_l == "count":
+            if len(item) == 2:
+                continue
+            expr = item[2]
+            if not (expr is None or expr == "*" or is_non_empty_string(expr)):
+                return False
+            continue
+        # non-count aggs require a column expression
+        if len(item) != 3:
+            return False
+        expr = item[2]
+        if not is_non_empty_string(expr):
+            return False
+        if expr == "*":
+                return False
+    return True
+
+
+def is_unwind_expr(v: object) -> bool:
+    if is_non_empty_string(v):
+        return True
+    if isinstance(v, (list, tuple)):
+        return all(_is_json_compatible_value(item) for item in v)
+    return False
+
+
+def is_non_negative_int_like(v: object) -> bool:
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return v >= 0
+    if isinstance(v, float):
+        return v.is_integer() and v >= 0
+    if isinstance(v, str):
+        txt = v.strip()
+        return txt.isdigit()
+    return False
+
+
+def _rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    if params.get('table', 'nodes') != 'nodes':
+        return []
+    source = params.get('source')
+    return [source] if isinstance(source, str) else []
+
+
+def _rows_requires_edge_cols(params: Dict[str, object]) -> List[str]:
+    if params.get('table', 'nodes') != 'edges':
+        return []
+    source = params.get('source')
+    return [source] if isinstance(source, str) else []
+
+
+def _select_added_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    items = params.get('items')
+    if not isinstance(items, list):
+        return out
+    for item in items:
+        if isinstance(item, str):
+            out.append(item)
+            continue
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        alias = item[0]
+        if isinstance(alias, str):
+            out.append(alias)
+        else:
+            out.append(str(alias))
+    return out
+
+
+def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    filter_dict = params.get('filter_dict')
+    if isinstance(filter_dict, dict):
+        out.extend([k for k in filter_dict.keys() if isinstance(k, str)])
+
+    expr = params.get('expr')
+    if isinstance(expr, str):
+        parser_cols = _where_rows_expr_required_cols(expr)
+        out.extend(parser_cols)
+    return sorted(set(out))
+
+
+def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    expr = params.get('expr')
+    if isinstance(expr, str):
+        txt = expr.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", txt):
+            return [txt]
+    return []
+
+
+def _unwind_added_node_cols(params: Dict[str, object]) -> List[str]:
+    as_name = params.get('as_', 'value')
+    return [as_name] if isinstance(as_name, str) and as_name != '' else []
+
+
+def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    keys = params.get('keys')
+    if isinstance(keys, list):
+        out.extend([k for k in keys if isinstance(k, str)])
+    aggregations = params.get('aggregations')
+    if isinstance(aggregations, list):
+        for item in aggregations:
+            if not isinstance(item, (list, tuple)) or len(item) != 3:
+                continue
+            expr = item[2]
+            if (
+                isinstance(expr, str)
+                and expr != "*"
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr.strip()) is not None
+            ):
+                out.append(expr)
+    return out
+
+
+def _group_by_added_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    keys = params.get('keys')
+    if isinstance(keys, list):
+        out.extend([k for k in keys if isinstance(k, str)])
+    aggregations = params.get('aggregations')
+    if isinstance(aggregations, list):
+        for item in aggregations:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            alias = item[0]
+            if isinstance(alias, str):
+                out.append(alias)
+    return out
+
+
+def _symbolic_cols(v: object) -> List[str]:
     if isinstance(v, str):
         return [v]
     if isinstance(v, list) and all(isinstance(item, str) for item in v):
@@ -87,13 +412,13 @@ def _symbolic_cols(v: Any) -> list:
     return []
 
 
-def _resolve_hyper_opts(params: Dict[str, Any]) -> Dict[str, Any]:
+def _resolve_hyper_opts(params: Dict[str, object]) -> Dict[str, object]:
     opts = params.get('opts')
     return opts if isinstance(opts, dict) else {}
 
 
-def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
-    cols: list = []
+def _hypergraph_input_required_cols(params: Dict[str, object]) -> List[str]:
+    cols: List[str] = []
     entity_types = params.get('entity_types')
     if isinstance(entity_types, list):
         cols.extend([c for c in entity_types if isinstance(c, str)])
@@ -104,7 +429,7 @@ def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
     return cols
 
 
-def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
+def _hypergraph_node_adds(params: Dict[str, object]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     node_id = opts.get('NODEID', 'nodeID')
     node_type = opts.get('NODETYPE', 'type')
@@ -119,7 +444,7 @@ def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
     return out
 
 
-def _hypergraph_edge_adds(params: Dict[str, Any]) -> list:
+def _hypergraph_edge_adds(params: Dict[str, object]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     edge_type = opts.get('EDGETYPE', 'edgeType')
     if params.get('direct'):
@@ -138,35 +463,36 @@ def _hypergraph_edge_adds(params: Dict[str, Any]) -> list:
     return out
 
 
-def _umap_kind(params: Dict[str, Any]) -> str:
-    return params.get('kind', 'nodes')
+def _umap_kind(params: Dict[str, object]) -> str:
+    kind = params.get('kind', 'nodes')
+    return kind if isinstance(kind, str) else 'nodes'
 
 
-def _umap_suffix(params: Dict[str, Any]) -> str:
+def _umap_suffix(params: Dict[str, object]) -> str:
     suffix = params.get('suffix', '')
     return suffix if isinstance(suffix, str) else ''
 
 
-def _umap_node_required_cols(params: Dict[str, Any]) -> list:
+def _umap_node_required_cols(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_edge_required_cols(params: Dict[str, Any]) -> list:
+def _umap_edge_required_cols(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'edges':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_node_adds(params: Dict[str, Any]) -> list:
+def _umap_node_adds(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     suffix = _umap_suffix(params)
     return [f'x{suffix}', f'y{suffix}']
 
 
-def _umap_edge_adds(params: Dict[str, Any]) -> list:
+def _umap_edge_adds(params: Dict[str, object]) -> List[str]:
     kind = _umap_kind(params)
     suffix = _umap_suffix(params)
     if kind == 'edges':
@@ -176,18 +502,25 @@ def _umap_edge_adds(params: Dict[str, Any]) -> list:
     return []
 
 
-def _xy_out_cols(params: Dict[str, Any]) -> list:
-    return [params.get('x_out_col', 'x'), params.get('y_out_col', 'y')]
+def _xy_out_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    x_col = params.get('x_out_col', 'x')
+    y_col = params.get('y_out_col', 'y')
+    if isinstance(x_col, str):
+        out.append(x_col)
+    if isinstance(y_col, str):
+        out.append(y_col)
+    return out
 
 
-def _required_column(params: Dict[str, Any]) -> list:
+def _required_column(params: Dict[str, object]) -> List[str]:
     col = params.get('column')
     return [col] if isinstance(col, str) else []
 
 
 
 
-def is_dict_str_to_list_str(v: Any) -> bool:
+def is_dict_str_to_list_str(v: object) -> bool:
     """Validate dict mapping strings to lists of strings."""
     if not isinstance(v, dict):
         return False
@@ -199,7 +532,7 @@ def is_dict_str_to_list_str(v: Any) -> bool:
     return True
 
 
-def validate_hypergraph_opts(v: Any) -> bool:
+def validate_hypergraph_opts(v: object) -> bool:
     """Validate hypergraph opts parameter structure.
 
     Expected structure based on HyperBindings class:
@@ -319,6 +652,158 @@ EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
 #     }
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
+    'rows': {
+        'allowed_params': {'table', 'source'},
+        'required_params': set(),
+        'param_validators': {
+            'table': lambda v: v in ['nodes', 'edges'],
+            'source': is_string_or_none
+        },
+        'description': 'Set active row table from nodes/edges, optionally filtered by source alias',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': _rows_requires_node_cols,
+            'requires_edge_cols': _rows_requires_edge_cols
+        }
+    },
+
+    'select': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_projection_items
+        },
+        'description': 'Project row table columns/expressions into aliased outputs',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'return_': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_projection_items
+        },
+        'description': 'RETURN-style row projection alias of select()',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'with_': {
+        'allowed_params': {'items'},
+        'required_params': {'items'},
+        'param_validators': {
+            'items': is_projection_items
+        },
+        'description': 'WITH-style row projection with scope-reset semantics',
+        'schema_effects': {
+            'adds_node_cols': _select_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'where_rows': {
+        'allowed_params': {'filter_dict', 'expr'},
+        'required_params': set(),
+        'param_validators': {
+            'filter_dict': is_where_rows_filter_dict,
+            'expr': is_where_rows_expr,
+        },
+        'description': 'Filter active row table by column values/predicates',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': _where_rows_requires_node_cols,
+            'requires_edge_cols': []
+        }
+    },
+
+    'order_by': {
+        'allowed_params': {'keys'},
+        'required_params': {'keys'},
+        'param_validators': {
+            'keys': is_order_keys
+        },
+        'description': 'Sort active row table by expression/direction keys',
+        'schema_effects': {
+            'adds_node_cols': [],
+            'adds_edge_cols': [],
+            'requires_node_cols': [],
+            'requires_edge_cols': []
+        }
+    },
+
+    'skip': {
+        'allowed_params': {'value'},
+        'required_params': {'value'},
+        'param_validators': {
+            'value': is_non_negative_int_like
+        },
+        'description': 'Skip first N rows from active row table',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
+    'limit': {
+        'allowed_params': {'value'},
+        'required_params': {'value'},
+        'param_validators': {
+            'value': is_non_negative_int_like
+        },
+        'description': 'Limit active row table to first N rows',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
+    'unwind': {
+        'allowed_params': {'expr', 'as_'},
+        'required_params': {'expr'},
+        'param_validators': {
+            'expr': is_unwind_expr,
+            'as_': is_non_empty_string
+        },
+        'description': 'Explode list-like row expression into multiple rows',
+        'schema_effects': {
+            'adds_node_cols': _unwind_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': _unwind_requires_node_cols,
+            'requires_edge_cols': []
+        }
+    },
+
+    'group_by': {
+        'allowed_params': {'keys', 'aggregations'},
+        'required_params': {'keys', 'aggregations'},
+        'param_validators': {
+            'keys': is_non_empty_list_of_strings,
+            'aggregations': is_list_of_agg_specs
+        },
+        'description': 'Group rows by keys and compute vectorized aggregations',
+        'schema_effects': {
+            'adds_node_cols': _group_by_added_node_cols,
+            'adds_edge_cols': [],
+            'requires_node_cols': _group_by_requires_node_cols,
+            'requires_edge_cols': []
+        }
+    },
+
+    'distinct': {
+        'allowed_params': set(),
+        'required_params': set(),
+        'param_validators': {},
+        'description': 'Drop duplicate rows from active row table',
+        'schema_effects': NO_SCHEMA_EFFECTS
+    },
+
     'get_degrees': {
         'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
         'required_params': set(),
@@ -887,7 +1372,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 }
 
 
-def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, object]:
     """Validate parameters for a GFQL Call operation against the safelist.
     
     Performs comprehensive validation:

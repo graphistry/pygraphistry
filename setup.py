@@ -11,6 +11,7 @@ core_requires = [
   'numpy',
   'palettable >= 3.0',
   'pandas',
+  'lark >= 1.1, < 2',
   'pyarrow >= 0.15.0',
   'requests',
   'squarify',

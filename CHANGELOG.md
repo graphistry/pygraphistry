@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Row pipeline**: Added Cypher-style row operators for MATCH ... RETURN workflows: `rows()`, `where_rows()`, `return_()`, `with_()`, `order_by()`, `skip()`, `limit()`, `distinct()`, `unwind()`, and `group_by()`.
+- **GFQL / Parser**: Added a Lark-backed expression parser for the supported `where_rows(expr=...)` subset, with compile-time validation for unsupported shapes.
+
+### Fixed
+- **GFQL / Validation + runtime parity**: Hardened row-pipeline validation/runtime boundaries so unsupported expressions fail fast in validation and still fail safely at runtime when validation is bypassed.
+
+### Tests
+- **GFQL / Row pipeline**: Expanded unit coverage for projection aliasing, ordering/grouping semantics, DISTINCT/UNWIND flows, and parser/precedence regressions across pure-vector execution paths.
+
 ### Docs
 - **Ecosystem**: Added [graphistry-skills](https://github.com/graphistry/graphistry-skills) documentation for LLM coding assistants (Claude Code, Cursor, Codex). Skills improve AI code generation success rates from ~50% to ~90%.
 
