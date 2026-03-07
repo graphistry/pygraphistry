@@ -35,6 +35,11 @@ import re
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.gfql.order_expr_utils import (
+    is_aggregate_alias_expr,
+    is_plain_order_label,
+    order_expr_ast_static_supported,
+)
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.expr_parser import ExprNode
@@ -185,60 +190,12 @@ def is_projection_items(v: object) -> bool:
 
 
 def is_order_keys(v: object) -> bool:
-    def _is_aggregate_alias_expr(expr: str) -> bool:
-        return re.fullmatch(
-            r"(?is)\s*(?:count|sum|min|max|avg|mean|collect)\s*\(\s*(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*",
-            expr,
-        ) is not None
-
-    def _is_plain_order_label(expr: str) -> bool:
-        txt = expr.strip()
-        if txt == "":
-            return False
-        for token in ("(", ")", "[", "]", "{", "}", "+", "-", "*", "/", "%", "<", ">", "=", "!"):
-            if token in txt:
-                return False
-        return True
-
-    def _order_expr_ast_static_supported(node: object) -> bool:
-        unsupported_node_names = {
-            "QuantifierExpr",
-            "ListComprehension",
-            "ListLiteral",
-            "MapLiteral",
-            "SubscriptExpr",
-            "SliceExpr",
-        }
-        node_type = type(node)
-        if node_type.__name__ in unsupported_node_names:
-            return False
-        if node_type.__module__ != "graphistry.compute.gfql.expr_parser":
-            return True
-        try:
-            fields = vars(node).values()
-        except Exception:
-            return True
-        for value in fields:
-            if isinstance(value, (list, tuple)):
-                for item in value:
-                    if not _order_expr_ast_static_supported(item):
-                        return False
-                continue
-            if isinstance(value, dict):
-                for item in value.values():
-                    if not _order_expr_ast_static_supported(item):
-                        return False
-                continue
-            if not _order_expr_ast_static_supported(value):
-                return False
-        return True
-
     def _is_static_order_expr_supported(expr: str) -> bool:
         txt = expr.strip()
         if txt == "":
             return False
         # Runtime order_by supports sorting by projected aliases that are not GFQL expressions.
-        if _is_plain_order_label(txt) or _is_aggregate_alias_expr(txt):
+        if is_plain_order_label(txt) or is_aggregate_alias_expr(txt):
             return True
         parsed = _where_rows_expr_parse(txt)
         if parsed is None:
@@ -250,7 +207,7 @@ def is_order_keys(v: object) -> bool:
             return False
         if len(capability_errors) > 0:
             return False
-        return _order_expr_ast_static_supported(node)
+        return order_expr_ast_static_supported(node)
 
     if not isinstance(v, list):
         return False
