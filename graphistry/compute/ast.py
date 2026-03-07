@@ -195,7 +195,7 @@ class ASTNode(ASTObject):
                     children.append(value)
         return children
 
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
         return {
@@ -210,7 +210,7 @@ class ASTNode(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTNode':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTNode':
         out = ASTNode(
             filter_dict=maybe_filter_dict_from_json(d, 'filter_dict'),
             name=d['name'] if 'name' in d else None,
@@ -502,7 +502,7 @@ class ASTEdge(ASTObject):
                         children.append(value)
         return children
 
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
         return {
@@ -539,7 +539,7 @@ class ASTEdge(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdge(
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
@@ -704,7 +704,7 @@ class ASTEdgeForward(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeForward(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -775,7 +775,7 @@ class ASTEdgeReverse(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeReverse(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -846,7 +846,7 @@ class ASTEdgeUndirected(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeUndirected(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -1003,7 +1003,7 @@ class ASTLet(ASTObject):
                 children.append(v)
         return children
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Let to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1026,7 +1026,7 @@ class ASTLet(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTLet':
         """Create ASTLet from JSON representation.
         
         :param d: JSON dictionary with 'bindings' field
@@ -1124,7 +1124,7 @@ class ASTRemoteGraph(ASTObject):
                 value=type(self.token).__name__
             )
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert RemoteGraph to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1143,7 +1143,7 @@ class ASTRemoteGraph(ASTObject):
         return result
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRemoteGraph':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTRemoteGraph':
         """Create ASTRemoteGraph from JSON representation.
         
         :param d: JSON dictionary with 'dataset_id' field
@@ -1242,7 +1242,7 @@ class ASTRef(ASTObject):
         # ASTObject inherits from ASTSerializable, so this is safe
         return self.chain
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Ref to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1259,7 +1259,7 @@ class ASTRef(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRef':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTRef':
         """Create ASTRef from JSON representation.
         
         :param d: JSON dictionary with 'ref' and 'chain' fields
@@ -1378,7 +1378,7 @@ class ASTCall(ASTObject):
                 if param in self.params:
                     validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
 
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Call to JSON representation.
         
         Args:
@@ -1396,7 +1396,7 @@ class ASTCall(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTCall':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTCall':
         """Create ASTCall from JSON representation.
         
         :param d: JSON dictionary with 'function' field and optional 'params'

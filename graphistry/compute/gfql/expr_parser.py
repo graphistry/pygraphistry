@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
 
 DEFAULT_ALLOWED_FUNCTIONS: FrozenSet[str] = frozenset(
@@ -254,8 +254,17 @@ STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 %ignore WS
 """
 
+class _ParserLike(Protocol):
+    def parse(self, text: str) -> object:
+        ...
 
-def _lark_imports() -> Tuple[Any, Any, Any]:
+
+class _TransformerLike(Protocol):
+    def transform(self, tree: object) -> object:
+        ...
+
+
+def _lark_imports() -> Tuple[type, type, Type[Exception]]:
     try:
         from lark import Lark, Transformer
         from lark.exceptions import LarkError
@@ -267,9 +276,10 @@ def _lark_imports() -> Tuple[Any, Any, Any]:
 
 
 @lru_cache(maxsize=1)
-def _parser() -> Any:
+def _parser() -> _ParserLike:
     Lark, _, _ = _lark_imports()
-    return Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False)
+    parser = Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False)
+    return cast(_ParserLike, parser)
 
 
 def _parse_string_token(token: str) -> str:
@@ -425,7 +435,7 @@ def _validate_parsed_ast(node: ExprNode) -> None:
         return
 
 
-def _build_transformer() -> Any:
+def _build_transformer() -> _TransformerLike:
     _, Transformer, _ = _lark_imports()
 
     def _is_token(value: Any) -> bool:
@@ -699,7 +709,7 @@ def _build_transformer() -> Any:
         def is_not_null(self, items: Sequence[Any]) -> IsNullOp:
             return IsNullOp(value=cast(ExprNode, _strip_tokens(items)[0]), negated=True)
 
-    return _AstBuilder()
+    return cast(_TransformerLike, _AstBuilder())
 
 
 def parse_expr(expr: str) -> ExprNode:

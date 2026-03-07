@@ -33,19 +33,21 @@ Usage:
 
 import re
 from functools import lru_cache
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.expr_parser import ExprNode
 
-WhereRowsParseFn = Callable[[str], Any]
-WhereRowsCapabilityFn = Callable[[Any], List[str]]
-WhereRowsCollectIdentifiersFn = Callable[[Any], Set[str]]
+WhereRowsParseFn = Callable[[str], "ExprNode"]
+WhereRowsCapabilityFn = Callable[["ExprNode"], List[str]]
+WhereRowsCollectIdentifiersFn = Callable[["ExprNode"], Set[str]]
 WhereRowsParserBundle = Tuple[
     WhereRowsParseFn,
     WhereRowsCapabilityFn,
     WhereRowsCollectIdentifiersFn,
 ]
-WhereRowsParsedExpr = Tuple[Any, WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
+WhereRowsParsedExpr = Tuple["ExprNode", WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
 
 
 @lru_cache(maxsize=1)
@@ -109,50 +111,50 @@ def _where_rows_expr_required_cols(expr: str) -> List[str]:
 
 
 # Type validators
-def is_string(v: Any) -> bool:
+def is_string(v: object) -> bool:
     return isinstance(v, str)
 
 
-def is_non_empty_string(v: Any) -> bool:
+def is_non_empty_string(v: object) -> bool:
     return isinstance(v, str) and v.strip() != ""
 
 
-def is_int(v: Any) -> bool:
+def is_int(v: object) -> bool:
     return isinstance(v, int)
 
 
-def is_bool(v: Any) -> bool:
+def is_bool(v: object) -> bool:
     return isinstance(v, bool)
 
-def is_int_or_none(v: Any) -> bool:
+def is_int_or_none(v: object) -> bool:
     return v is None or isinstance(v, int)
 
 
-def is_dict(v: Any) -> bool:
+def is_dict(v: object) -> bool:
     return isinstance(v, dict)
 
 
-def is_string_or_none(v: Any) -> bool:
+def is_string_or_none(v: object) -> bool:
     return v is None or isinstance(v, str)
 
 
-def is_int_or_float(v: Any) -> bool:
+def is_int_or_float(v: object) -> bool:
     return isinstance(v, (int, float))
 
 
-def is_list_of_strings(v: Any) -> bool:
+def is_list_of_strings(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, str) for item in v)
 
 
-def is_list(v: Any) -> bool:
+def is_list(v: object) -> bool:
     return isinstance(v, list)
 
 
-def is_list_or_dict(v: Any) -> bool:
+def is_list_or_dict(v: object) -> bool:
     return isinstance(v, (list, dict))
 
 
-def _is_json_compatible_value(v: Any) -> bool:
+def _is_json_compatible_value(v: object) -> bool:
     if v is None:
         return True
     if isinstance(v, (bool, int, float, str)):
@@ -164,7 +166,7 @@ def _is_json_compatible_value(v: Any) -> bool:
     return False
 
 
-def is_projection_items(v: Any) -> bool:
+def is_projection_items(v: object) -> bool:
     if not isinstance(v, list):
         return False
     for item in v:
@@ -182,7 +184,7 @@ def is_projection_items(v: Any) -> bool:
     return True
 
 
-def is_order_keys(v: Any) -> bool:
+def is_order_keys(v: object) -> bool:
     def _is_static_order_expr_supported(expr: str) -> bool:
         safe_funcs = {
             "abs",
@@ -227,7 +229,7 @@ def is_order_keys(v: Any) -> bool:
     return True
 
 
-def is_where_rows_filter_dict(v: Any) -> bool:
+def is_where_rows_filter_dict(v: object) -> bool:
     if not isinstance(v, dict):
         return False
     # Lazy import avoids circular import at module import time
@@ -240,7 +242,7 @@ def is_where_rows_filter_dict(v: Any) -> bool:
     return True
 
 
-def is_where_rows_expr(v: Any) -> bool:
+def is_where_rows_expr(v: object) -> bool:
     if not is_non_empty_string(v):
         return False
     txt = str(v).strip()
@@ -250,11 +252,11 @@ def is_where_rows_expr(v: Any) -> bool:
     return _where_rows_expr_parser_parse_ok(txt)
 
 
-def is_non_empty_list_of_strings(v: Any) -> bool:
-    return is_list_of_strings(v) and len(v) > 0
+def is_non_empty_list_of_strings(v: object) -> bool:
+    return isinstance(v, list) and is_list_of_strings(v) and len(v) > 0
 
 
-def is_list_of_agg_specs(v: Any) -> bool:
+def is_list_of_agg_specs(v: object) -> bool:
     allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean", "collect"}
     if not isinstance(v, list):
         return False
@@ -288,7 +290,7 @@ def is_list_of_agg_specs(v: Any) -> bool:
     return True
 
 
-def is_unwind_expr(v: Any) -> bool:
+def is_unwind_expr(v: object) -> bool:
     if is_non_empty_string(v):
         return True
     if isinstance(v, (list, tuple)):
@@ -296,7 +298,7 @@ def is_unwind_expr(v: Any) -> bool:
     return False
 
 
-def is_non_negative_int_like(v: Any) -> bool:
+def is_non_negative_int_like(v: object) -> bool:
     if isinstance(v, bool):
         return False
     if isinstance(v, int):
@@ -309,22 +311,22 @@ def is_non_negative_int_like(v: Any) -> bool:
     return False
 
 
-def _rows_requires_node_cols(params: Dict[str, Any]) -> list:
+def _rows_requires_node_cols(params: Dict[str, Any]) -> List[str]:
     if params.get('table', 'nodes') != 'nodes':
         return []
     source = params.get('source')
     return [source] if isinstance(source, str) else []
 
 
-def _rows_requires_edge_cols(params: Dict[str, Any]) -> list:
+def _rows_requires_edge_cols(params: Dict[str, Any]) -> List[str]:
     if params.get('table', 'nodes') != 'edges':
         return []
     source = params.get('source')
     return [source] if isinstance(source, str) else []
 
 
-def _select_added_node_cols(params: Dict[str, Any]) -> list:
-    out: list = []
+def _select_added_node_cols(params: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
     for item in params.get('items', []):
         if isinstance(item, str):
             out.append(item)
@@ -339,8 +341,8 @@ def _select_added_node_cols(params: Dict[str, Any]) -> list:
     return out
 
 
-def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
-    out: list = []
+def _where_rows_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
     filter_dict = params.get('filter_dict')
     if not isinstance(filter_dict, dict):
         out = []
@@ -354,7 +356,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> list:
     return sorted(set(out))
 
 
-def _unwind_requires_node_cols(params: Dict[str, Any]) -> list:
+def _unwind_requires_node_cols(params: Dict[str, Any]) -> List[str]:
     expr = params.get('expr')
     if isinstance(expr, str):
         txt = expr.strip()
@@ -363,13 +365,13 @@ def _unwind_requires_node_cols(params: Dict[str, Any]) -> list:
     return []
 
 
-def _unwind_added_node_cols(params: Dict[str, Any]) -> list:
+def _unwind_added_node_cols(params: Dict[str, Any]) -> List[str]:
     as_name = params.get('as_', 'value')
     return [as_name] if isinstance(as_name, str) and as_name != '' else []
 
 
-def _group_by_requires_node_cols(params: Dict[str, Any]) -> list:
-    out: list = []
+def _group_by_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
     keys = params.get('keys')
     if isinstance(keys, list):
         out.extend([k for k in keys if isinstance(k, str)])
@@ -388,8 +390,8 @@ def _group_by_requires_node_cols(params: Dict[str, Any]) -> list:
     return out
 
 
-def _group_by_added_node_cols(params: Dict[str, Any]) -> list:
-    out: list = []
+def _group_by_added_node_cols(params: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
     keys = params.get('keys')
     if isinstance(keys, list):
         out.extend([k for k in keys if isinstance(k, str)])
@@ -404,7 +406,7 @@ def _group_by_added_node_cols(params: Dict[str, Any]) -> list:
     return out
 
 
-def _symbolic_cols(v: Any) -> list:
+def _symbolic_cols(v: object) -> List[str]:
     if isinstance(v, str):
         return [v]
     if isinstance(v, list) and all(isinstance(item, str) for item in v):
@@ -417,8 +419,8 @@ def _resolve_hyper_opts(params: Dict[str, Any]) -> Dict[str, Any]:
     return opts if isinstance(opts, dict) else {}
 
 
-def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
-    cols: list = []
+def _hypergraph_input_required_cols(params: Dict[str, Any]) -> List[str]:
+    cols: List[str] = []
     entity_types = params.get('entity_types')
     if isinstance(entity_types, list):
         cols.extend([c for c in entity_types if isinstance(c, str)])
@@ -429,7 +431,7 @@ def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
     return cols
 
 
-def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
+def _hypergraph_node_adds(params: Dict[str, Any]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     node_id = opts.get('NODEID', 'nodeID')
     node_type = opts.get('NODETYPE', 'type')
@@ -444,7 +446,7 @@ def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
     return out
 
 
-def _hypergraph_edge_adds(params: Dict[str, Any]) -> list:
+def _hypergraph_edge_adds(params: Dict[str, Any]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     edge_type = opts.get('EDGETYPE', 'edgeType')
     if params.get('direct'):
@@ -472,26 +474,26 @@ def _umap_suffix(params: Dict[str, Any]) -> str:
     return suffix if isinstance(suffix, str) else ''
 
 
-def _umap_node_required_cols(params: Dict[str, Any]) -> list:
+def _umap_node_required_cols(params: Dict[str, Any]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_edge_required_cols(params: Dict[str, Any]) -> list:
+def _umap_edge_required_cols(params: Dict[str, Any]) -> List[str]:
     if _umap_kind(params) != 'edges':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_node_adds(params: Dict[str, Any]) -> list:
+def _umap_node_adds(params: Dict[str, Any]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     suffix = _umap_suffix(params)
     return [f'x{suffix}', f'y{suffix}']
 
 
-def _umap_edge_adds(params: Dict[str, Any]) -> list:
+def _umap_edge_adds(params: Dict[str, Any]) -> List[str]:
     kind = _umap_kind(params)
     suffix = _umap_suffix(params)
     if kind == 'edges':
@@ -501,18 +503,25 @@ def _umap_edge_adds(params: Dict[str, Any]) -> list:
     return []
 
 
-def _xy_out_cols(params: Dict[str, Any]) -> list:
-    return [params.get('x_out_col', 'x'), params.get('y_out_col', 'y')]
+def _xy_out_cols(params: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
+    x_col = params.get('x_out_col', 'x')
+    y_col = params.get('y_out_col', 'y')
+    if isinstance(x_col, str):
+        out.append(x_col)
+    if isinstance(y_col, str):
+        out.append(y_col)
+    return out
 
 
-def _required_column(params: Dict[str, Any]) -> list:
+def _required_column(params: Dict[str, Any]) -> List[str]:
     col = params.get('column')
     return [col] if isinstance(col, str) else []
 
 
 
 
-def is_dict_str_to_list_str(v: Any) -> bool:
+def is_dict_str_to_list_str(v: object) -> bool:
     """Validate dict mapping strings to lists of strings."""
     if not isinstance(v, dict):
         return False
@@ -524,7 +533,7 @@ def is_dict_str_to_list_str(v: Any) -> bool:
     return True
 
 
-def validate_hypergraph_opts(v: Any) -> bool:
+def validate_hypergraph_opts(v: object) -> bool:
     """Validate hypergraph opts parameter structure.
 
     Expected structure based on HyperBindings class:

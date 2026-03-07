@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 _thread_local = threading.local()
 
 
-def _is_plottable_like(obj: Any) -> bool:
+def _is_plottable_like(obj: object) -> bool:
     """Runtime-safe structural check for Plottable-like objects.
 
     Avoids isinstance(..., Plottable) Protocol checks, which may trigger expensive

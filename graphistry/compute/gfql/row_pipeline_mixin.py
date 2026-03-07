@@ -2,16 +2,23 @@ import datetime
 import math
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import pandas as pd
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.gfql.expr_parser import ExprNode
+
+
+GFQLParseExprFn = Callable[[str], "ExprNode"]
+GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
+GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 
 
 @lru_cache(maxsize=1)
-def _gfql_expr_runtime_parser_bundle() -> Any:
+def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
     try:
         import graphistry.compute.gfql.expr_parser as expr_parser_mod
         from graphistry.compute.gfql.expr_parser import parse_expr, validate_expr_capabilities
