@@ -50,85 +50,93 @@ def _normalize_expr_eval_output(value):
     return value
 
 
+def _self_loop_edges(nodes_df):
+    if len(nodes_df) == 0:
+        return pd.DataFrame({"s": [], "d": []})
+    node_id = nodes_df["id"].iloc[0]
+    return pd.DataFrame({"s": [node_id], "d": [node_id]})
+
+
+def _run_node_steps(nodes_df, steps, edges_df=None):
+    return _mk_graph(nodes_df, edges_df).gfql(steps)._nodes
+
+
+def _assert_node_records(nodes_df, steps, expected_records, *, edges_df=None, expected_columns=None):
+    result_nodes = _run_node_steps(nodes_df, steps, edges_df=edges_df)
+    if expected_columns is not None:
+        assert list(result_nodes.columns) == expected_columns
+    assert result_nodes.reset_index(drop=True).to_dict(orient="records") == expected_records
+    return result_nodes
+
+
+def _assert_single_row_select_records(items, expected_records, *, nodes_df=None):
+    base_nodes = pd.DataFrame({"id": ["a"]}) if nodes_df is None else nodes_df
+    return _assert_node_records(
+        base_nodes,
+        [rows(), select(items)],
+        expected_records,
+        edges_df=_self_loop_edges(base_nodes),
+    )
+
+
 class TestRowPipelineASTPrimitives:
-    def test_row_pipeline_primitives_build_ast_calls(self):
-        row_step = rows("nodes", source="a")
-        assert isinstance(row_step, ASTCall)
-        assert row_step.function == "rows"
-        assert row_step.params == {"table": "nodes", "source": "a"}
+    @pytest.mark.parametrize(
+        ("step", "function", "params"),
+        [
+            pytest.param(rows("nodes", source="a"), "rows", {"table": "nodes", "source": "a"}, id="rows"),
+            pytest.param(
+                select([("name", "name"), ("age", "age")]),
+                "select",
+                {"items": [("name", "name"), ("age", "age")]},
+                id="select",
+            ),
+            pytest.param(with_([("name", "name")]), "with_", {"items": [("name", "name")]}, id="with_"),
+            pytest.param(return_([("name", "name")]), "select", {"items": [("name", "name")]}, id="return_"),
+            pytest.param(
+                where_rows({"name": "alice"}),
+                "where_rows",
+                {"filter_dict": {"name": "alice"}},
+                id="where-dict",
+            ),
+            pytest.param(where_rows(expr="score > 1"), "where_rows", {"expr": "score > 1"}, id="where-expr"),
+            pytest.param(
+                order_by([("name", "asc"), ("age", "desc")]),
+                "order_by",
+                {"keys": [("name", "asc"), ("age", "desc")]},
+                id="order_by",
+            ),
+            pytest.param(skip(3), "skip", {"value": 3}, id="skip"),
+            pytest.param(limit(10), "limit", {"value": 10}, id="limit"),
+            pytest.param(distinct(), "distinct", {}, id="distinct"),
+            pytest.param(unwind("vals", as_="v"), "unwind", {"expr": "vals", "as_": "v"}, id="unwind"),
+            pytest.param(
+                group_by(["grp"], [("cnt", "count"), ("sum_score", "sum", "score")]),
+                "group_by",
+                {
+                    "keys": ["grp"],
+                    "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")],
+                },
+                id="group_by",
+            ),
+        ],
+    )
+    def test_row_pipeline_primitives_build_ast_calls(self, step, function, params):
+        assert isinstance(step, ASTCall)
+        assert step.function == function
+        assert step.params == params
 
-        select_step = select([("name", "name"), ("age", "age")])
-        assert isinstance(select_step, ASTCall)
-        assert select_step.function == "select"
-        assert select_step.params == {"items": [("name", "name"), ("age", "age")]}
-
-        with_step = with_([("name", "name")])
-        assert isinstance(with_step, ASTCall)
-        assert with_step.function == "with_"
-        assert with_step.params == {"items": [("name", "name")]}
-
-        return_step = return_([("name", "name")])
-        assert isinstance(return_step, ASTCall)
-        assert return_step.function == "select"
-        assert return_step.params == {"items": [("name", "name")]}
-
-        where_step = where_rows({"name": "alice"})
-        assert isinstance(where_step, ASTCall)
-        assert where_step.function == "where_rows"
-        assert where_step.params == {"filter_dict": {"name": "alice"}}
-        where_expr_step = where_rows(expr="score > 1")
-        assert isinstance(where_expr_step, ASTCall)
-        assert where_expr_step.function == "where_rows"
-        assert where_expr_step.params == {"expr": "score > 1"}
-
-        order_step = order_by([("name", "asc"), ("age", "desc")])
-        assert isinstance(order_step, ASTCall)
-        assert order_step.function == "order_by"
-        assert order_step.params == {"keys": [("name", "asc"), ("age", "desc")]}
-
-        skip_step = skip(3)
-        assert isinstance(skip_step, ASTCall)
-        assert skip_step.function == "skip"
-        assert skip_step.params == {"value": 3}
-
-        limit_step = limit(10)
-        assert isinstance(limit_step, ASTCall)
-        assert limit_step.function == "limit"
-        assert limit_step.params == {"value": 10}
-
-        distinct_step = distinct()
-        assert isinstance(distinct_step, ASTCall)
-        assert distinct_step.function == "distinct"
-        assert distinct_step.params == {}
-
-        unwind_step = unwind("vals", as_="v")
-        assert isinstance(unwind_step, ASTCall)
-        assert unwind_step.function == "unwind"
-        assert unwind_step.params == {"expr": "vals", "as_": "v"}
-
-        group_step = group_by(["grp"], [("cnt", "count"), ("sum_score", "sum", "score")])
-        assert isinstance(group_step, ASTCall)
-        assert group_step.function == "group_by"
-        assert group_step.params == {
-            "keys": ["grp"],
-            "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")],
-        }
-
-    def test_row_pipeline_projection_shorthand_builds_identity_pairs(self):
-        select_step = select(["name", "age"])
-        assert isinstance(select_step, ASTCall)
-        assert select_step.function == "select"
-        assert select_step.params == {"items": [("name", "name"), ("age", "age")]}
-
-        with_step = with_(["name"])
-        assert isinstance(with_step, ASTCall)
-        assert with_step.function == "with_"
-        assert with_step.params == {"items": [("name", "name")]}
-
-        return_step = return_(["name"])
-        assert isinstance(return_step, ASTCall)
-        assert return_step.function == "select"
-        assert return_step.params == {"items": [("name", "name")]}
+    @pytest.mark.parametrize(
+        ("step", "function", "params"),
+        [
+            pytest.param(select(["name", "age"]), "select", {"items": [("name", "name"), ("age", "age")]}, id="select"),
+            pytest.param(with_(["name"]), "with_", {"items": [("name", "name")]}, id="with_"),
+            pytest.param(return_(["name"]), "select", {"items": [("name", "name")]}, id="return_"),
+        ],
+    )
+    def test_row_pipeline_projection_shorthand_builds_identity_pairs(self, step, function, params):
+        assert isinstance(step, ASTCall)
+        assert step.function == function
+        assert step.params == params
 
 
 class TestRowPipelineExecution:
@@ -304,43 +312,74 @@ class TestRowPipelineExecution:
 
         assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
-    def test_row_pipeline_where_rows_expr_keyword_in_string_with_boolean_ops(self):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "name": ["a AND b", "z", "a OR b"],
-                "size": [1, 2, 3],
-            }
-        )
-        assert self._where_expr_ids(
-            nodes_df, "name = 'a AND b' OR (name = 'a OR b' AND size > 2)"
-        ) == ["a", "c"]
-
-    def test_row_pipeline_where_rows_expr_column_named_size(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "size": [1, 3]})
-        assert self._where_expr_ids(nodes_df, "size > 1") == ["b"]
-
-    def test_row_pipeline_where_rows_expr_map_literal_bare_key(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "mp": [{"k": "v"}, {"k": "z"}]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                where_rows(expr="mp = {k: 'v'}"),
-                return_([("id", "id"), ("mp", "mp")]),
-            ]
-        )
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "a", "mp": {"k": "v"}}]
-
-    def test_row_pipeline_where_rows_expr_string_predicate_numeric_rhs(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["x5", "yy"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([rows(), where_rows(expr="txt CONTAINS 5"), return_([("id", "id")])])
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+    @pytest.mark.parametrize(
+        ("nodes", "expr", "expected_ids"),
+        [
+            pytest.param(
+                {"id": ["a", "b", "c"], "name": ["a AND b", "z", "a OR b"], "size": [1, 2, 3]},
+                "name = 'a AND b' OR (name = 'a OR b' AND size > 2)",
+                ["a", "c"],
+                id="keyword-in-string",
+            ),
+            pytest.param({"id": ["a", "b"], "size": [1, 3]}, "size > 1", ["b"], id="column-named-size"),
+            pytest.param(
+                {"id": ["a", "b"], "mp": [{"k": "v"}, {"k": "z"}]},
+                "mp = {k: 'v'}",
+                ["a"],
+                id="map-literal",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "txt": ["x5", "yy"]},
+                "txt CONTAINS 5",
+                ["a"],
+                id="numeric-string-rhs",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]},
+                "txt CONTAINS 'a' OR txt CONTAINS 'b'",
+                ["a", "b"],
+                id="string-boolean-composition",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]},
+                "NOT txt CONTAINS 'a'",
+                ["b", "c"],
+                id="not-string-predicate",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "txt": ["aa", "bb", "bb"]},
+                "id = 'a' OR id = 'b' AND txt CONTAINS 'b'",
+                ["a", "b"],
+                id="and-or-precedence",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                "CASE WHEN score > 2 THEN true ELSE false END",
+                ["b"],
+                id="case-when",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]},
+                "size([x IN vals WHERE x > 1]) > 0",
+                ["a", "b"],
+                id="list-comprehension-bound-var",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]},
+                "size([x IN vals WHERE x > 1 | x + 1]) > 0",
+                ["a", "b"],
+                id="list-comprehension-projection",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c", "d"], "x": [1, 2, None, 4], "lst": [[1, 2], [2, 3], [], None]},
+                "NOT (x IN lst) OR x IS NULL",
+                ["c", "d"],
+                id="is-null-or-precedence",
+            ),
+        ],
+    )
+    def test_row_pipeline_where_rows_expr_vectorized_cases(self, nodes, expr, expected_ids):
+        assert self._where_expr_ids(pd.DataFrame(nodes), expr) == expected_ids
 
     def test_row_pipeline_where_rows_expr_string_predicate_parenthesized_scalar_rhs(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["abc5", "5abc", "none"]})
@@ -353,55 +392,22 @@ class TestRowPipelineExecution:
         for expr, expected_ids in cases:
             assert self._where_expr_ids(nodes_df, expr) == expected_ids
 
-    def test_row_pipeline_where_rows_expr_string_predicate_boolean_composition(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
-        assert self._where_expr_ids(nodes_df, "txt CONTAINS 'a' OR txt CONTAINS 'b'") == ["a", "b"]
-
-    def test_row_pipeline_where_rows_expr_not_string_predicate(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "cc"]})
-        assert self._where_expr_ids(nodes_df, "NOT txt CONTAINS 'a'") == ["b", "c"]
-
-    def test_row_pipeline_where_rows_expr_and_or_precedence(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["aa", "bb", "bb"]})
-        assert self._where_expr_ids(nodes_df, "id = 'a' OR id = 'b' AND txt CONTAINS 'b'") == ["a", "b"]
-
-    def test_row_pipeline_where_rows_expr_case_when(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        assert self._where_expr_ids(nodes_df, "CASE WHEN score > 2 THEN true ELSE false END") == ["b"]
-
     def test_row_pipeline_where_rows_expr_case_boolean_composition(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "score": [1, 2, 3, 4]})
-        g = _mk_graph(nodes_df)
-
-        and_result = g.gfql(
-            [
-                rows(),
-                where_rows(
-                    expr=(
-                        "CASE WHEN score > 1 THEN true ELSE false END "
-                        "AND CASE WHEN score > 2 THEN true ELSE false END"
-                    )
-                ),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-        assert and_result._nodes["id"].tolist() == ["c", "d"]
-
-        or_result = g.gfql(
-            [
-                rows(),
-                where_rows(
-                    expr=(
-                        "CASE WHEN score > 1 THEN true ELSE false END "
-                        "OR CASE WHEN score > 2 THEN true ELSE false END"
-                    )
-                ),
-                order_by([("id", "asc")]),
-                return_([("id", "id")]),
-            ]
-        )
-        assert or_result._nodes["id"].tolist() == ["b", "c", "d"]
+        cases = [
+            (
+                "CASE WHEN score > 1 THEN true ELSE false END "
+                "AND CASE WHEN score > 2 THEN true ELSE false END",
+                ["c", "d"],
+            ),
+            (
+                "CASE WHEN score > 1 THEN true ELSE false END "
+                "OR CASE WHEN score > 2 THEN true ELSE false END",
+                ["b", "c", "d"],
+            ),
+        ]
+        for expr, expected_ids in cases:
+            assert self._where_expr_ids(nodes_df, expr) == expected_ids
 
     def test_row_pipeline_where_rows_expr_quantifiers(self):
         nodes_df = pd.DataFrame(
@@ -421,22 +427,6 @@ class TestRowPipelineExecution:
         ]
         for expr, expected_ids in cases:
             assert self._where_expr_ids(nodes_df, expr) == expected_ids
-
-    def test_row_pipeline_where_rows_expr_list_comprehension_bound_var(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
-        assert self._where_expr_ids(nodes_df, "size([x IN vals WHERE x > 1]) > 0") == ["a", "b"]
-
-    def test_row_pipeline_where_rows_expr_list_comprehension_projection(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "vals": [[1, 2], [2, 3], [1]]})
-        assert self._where_expr_ids(nodes_df, "size([x IN vals WHERE x > 1 | x + 1]) > 0") == ["a", "b"]
-
-    def test_row_pipeline_where_rows_is_null_or_precedence(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c", "d"],
-            "x": [1, 2, None, 4],
-            "lst": [[1, 2], [2, 3], [], None],
-        })
-        assert self._where_expr_ids(nodes_df, "NOT (x IN lst) OR x IS NULL") == ["c", "d"]
 
     def test_row_pipeline_where_rows_expr_avoids_fillna_downcast_futurewarning(self):
         nodes_df = pd.DataFrame({
@@ -657,30 +647,6 @@ class TestRowPipelineExecution:
             {"score": 5, "score_plus_2": 7, "neg_score": -5},
         ]
 
-    def test_row_pipeline_select_unary_neg_parenthesized_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([("v", "-(3 + 2)")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"v": -5}]
-
-    def test_row_pipeline_select_list_literal_comparison(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([("eq", "[1, 2] = [1, 2]"), ("neq", "[1, 2] = [1]")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"eq": True, "neq": False}]
-
     def test_row_pipeline_select_dynamic_list_expression_vectorized(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "score": [2, 5]})
         g = _mk_graph(nodes_df)
@@ -713,17 +679,105 @@ class TestRowPipelineExecution:
             {"id": "d", "vals2": None},
         ]
 
-    def test_row_pipeline_select_nested_json_like_literal(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([("eq_nested", "[1, {'k': [2, null]}] = [1, {'k': [2, null]}]")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"eq_nested": True}]
+    @pytest.mark.parametrize(
+        ("nodes", "items", "expected_records"),
+        [
+            pytest.param({"id": ["a"]}, [("v", "-(3 + 2)")], [{"v": -5}], id="unary-neg"),
+            pytest.param(
+                {"id": ["a"]},
+                [("eq", "[1, 2] = [1, 2]"), ("neq", "[1, 2] = [1]")],
+                [{"eq": True, "neq": False}],
+                id="list-literal-comparison",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [("eq_nested", "[1, {'k': [2, null]}] = [1, {'k': [2, null]}]")],
+                [{"eq_nested": True}],
+                id="nested-json-like-literal",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [
+                    ("any_hit", "any(x IN [1, 2, 3] WHERE x = 2)"),
+                    ("all_lt_5", "all(x IN [1, 2, 3] WHERE x < 5)"),
+                    ("none_gt_3", "none(x IN [1, 2, 3] WHERE x > 3)"),
+                    ("single_even", "single(x IN [1, 2, 3] WHERE x % 2 = 0)"),
+                    ("size_list", "size([1, 2, 3])"),
+                    ("abs_num", "abs(-7)"),
+                ],
+                [
+                    {
+                        "any_hit": True,
+                        "all_lt_5": True,
+                        "none_gt_3": True,
+                        "single_even": True,
+                        "size_list": 3,
+                        "abs_num": 7,
+                    }
+                ],
+                id="quantifier-literals",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [("nested_none", "none(x IN [['abc'], ['abc', 'def']] WHERE all(y IN x WHERE y = 'def'))")],
+                [{"nested_none": True}],
+                id="nested-quantifier-list-literal",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [
+                    ("none_map_hit", "none(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+                    ("any_map_hit", "any(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+                    ("single_map_hit", "single(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
+                ],
+                [{"none_map_hit": False, "any_map_hit": True, "single_map_hit": True}],
+                id="quantifier-over-map-list-literal",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [
+                    ("picked", "[x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x.a]"),
+                    ("picked_count", "size([x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x])"),
+                ],
+                [{"picked": [2], "picked_count": 1}],
+                id="list-comprehension-map-literal",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [
+                    ("eq_negated_any", "none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2))"),
+                    ("all_and_any", "all(x IN [1, 2, 3] WHERE x < 5) AND any(x IN [1, 2, 3] WHERE x = 2)"),
+                ],
+                [{"eq_negated_any": True, "all_and_any": True}],
+                id="quantifier-composed-expressions",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [("none_outer_lt", "none(x IN [1, 2, 3] WHERE all(y IN [1, 2, 3] WHERE x < y))")],
+                [{"none_outer_lt": True}],
+                id="nested-quantifier-outer-var",
+            ),
+            pytest.param(
+                {"id": ["a"], "txt": ["abcdef"]},
+                [
+                    ("mid", "txt[1..3]"),
+                    ("left", "txt[..2]"),
+                    ("right", "txt[2..]"),
+                    ("empty", "txt[0..0]"),
+                ],
+                [{"mid": "bc", "left": "ab", "right": "cdef", "empty": ""}],
+                id="slice-variants",
+            ),
+            pytest.param(
+                {"id": ["a"]},
+                [("v", "[[1, 2, 3]]"), ("has3", "3 IN [[1, 2, 3]][0]")],
+                [{"v": [[1, 2, 3]], "has3": True}],
+                id="preserves-nested-list-shape",
+            ),
+        ],
+    )
+    def test_row_pipeline_select_single_row_exact_records(self, nodes, items, expected_records):
+        _assert_single_row_select_records(items, expected_records, nodes_df=pd.DataFrame(nodes))
 
     def test_row_pipeline_select_rejects_non_json_literal_shapes(self):
         nodes_df = pd.DataFrame({"id": ["a"]})
@@ -789,116 +843,6 @@ class TestRowPipelineExecution:
             {"id": "a", "is_null": False, "is_big": False, "flag": False},
             {"id": "b", "is_null": True, "is_big": None, "flag": True},
             {"id": "c", "is_null": False, "is_big": True, "flag": True},
-        ]
-
-    def test_row_pipeline_select_quantifier_literals(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("any_hit", "any(x IN [1, 2, 3] WHERE x = 2)"),
-                ("all_lt_5", "all(x IN [1, 2, 3] WHERE x < 5)"),
-                ("none_gt_3", "none(x IN [1, 2, 3] WHERE x > 3)"),
-                ("single_even", "single(x IN [1, 2, 3] WHERE x % 2 = 0)"),
-                ("size_list", "size([1, 2, 3])"),
-                ("abs_num", "abs(-7)"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {
-                "any_hit": True,
-                "all_lt_5": True,
-                "none_gt_3": True,
-                "single_even": True,
-                "size_list": 3,
-                "abs_num": 7,
-            }
-        ]
-
-    def test_row_pipeline_select_nested_quantifier_list_literal(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("nested_none", "none(x IN [['abc'], ['abc', 'def']] WHERE all(y IN x WHERE y = 'def'))"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"nested_none": True}]
-
-    def test_row_pipeline_select_quantifier_over_map_list_literal(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("none_map_hit", "none(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
-                ("any_map_hit", "any(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
-                ("single_map_hit", "single(x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2)"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"none_map_hit": False, "any_map_hit": True, "single_map_hit": True}
-        ]
-
-    def test_row_pipeline_select_list_comprehension_with_map_literal(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("picked", "[x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x.a]"),
-                ("picked_count", "size([x IN [{a: 2, b: 5}, {a: 4}] WHERE x.a = 2 | x])"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"picked": [2], "picked_count": 1}
-        ]
-
-    def test_row_pipeline_select_quantifier_composed_expressions(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("eq_negated_any", "none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2))"),
-                ("all_and_any", "all(x IN [1, 2, 3] WHERE x < 5) AND any(x IN [1, 2, 3] WHERE x = 2)"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"eq_negated_any": True, "all_and_any": True}
-        ]
-
-    def test_row_pipeline_select_nested_quantifier_outer_var_reference(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("none_outer_lt", "none(x IN [1, 2, 3] WHERE all(y IN [1, 2, 3] WHERE x < y))"),
-            ]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"none_outer_lt": True}
         ]
 
     def test_row_pipeline_select_quantifier_empty_and_null(self):
@@ -1360,34 +1304,6 @@ class TestRowPipelineExecution:
         for col in ["contains_null", "starts_null", "ends_null"]:
             assert all(pd.isna(v) for v in result._nodes[col].tolist())
 
-    def test_row_pipeline_select_slice_variants(self):
-        nodes_df = pd.DataFrame({"id": ["a"], "txt": ["abcdef"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("mid", "txt[1..3]"),
-                        ("left", "txt[..2]"),
-                        ("right", "txt[2..]"),
-                        ("empty", "txt[0..0]"),
-                    ]
-                ),
-            ]
-        )
-
-        assert result._nodes.to_dict(orient="records") == [
-            {
-                "mid": "bc",
-                "left": "ab",
-                "right": "cdef",
-                "empty": "",
-            }
-        ]
-
     def test_row_pipeline_select_slice_null_bound_returns_null(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"], "txt": ["abcdef", "ghij"]})
         g = _mk_graph(nodes_df)
@@ -1429,16 +1345,6 @@ class TestRowPipelineExecution:
             {"id": "a", "lst": [1, 2], "mp": {"k": "v"}},
             {"id": "b", "lst": [1, 2], "mp": {"k": "v"}},
         ]
-
-    def test_row_pipeline_select_preserves_nested_list_literal_shape(self):
-        nodes_df = pd.DataFrame({"id": ["a"]})
-        edges_df = pd.DataFrame({"s": ["a"], "d": ["a"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([rows(), select([("v", "[[1, 2, 3]]"), ("has3", "3 IN [[1, 2, 3]][0]")])])
-
-        records = result._nodes.to_dict(orient="records")
-        assert records == [{"v": [[1, 2, 3]], "has3": True}]
 
     def test_row_pipeline_invalid_rows_table_rejected(self):
         nodes_df = pd.DataFrame({"id": ["a", "b"]})
