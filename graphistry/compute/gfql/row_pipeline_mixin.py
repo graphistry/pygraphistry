@@ -157,6 +157,15 @@ class RowPipelineMixin:
         ">": operator.gt,
         ">=": operator.ge,
     }
+    _GFQL_GROUPBY_AGG_METHODS = {
+        "count": "count",
+        "count_distinct": "nunique",
+        "sum": "sum",
+        "min": "min",
+        "max": "max",
+        "avg": "mean",
+        "mean": "mean",
+    }
 
     @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
@@ -178,6 +187,30 @@ class RowPipelineMixin:
         if hasattr(out, "where"):
             out = out.where(~(left_null_mask | right_null_mask), pd.NA)
         return out
+
+    @staticmethod
+    def _gfql_apply_string_predicate_scalar(left_txt: str, right_txt: str, op_name: str) -> bool:
+        op_map = {
+            "contains": lambda l, r: r in l,
+            "starts_with": lambda l, r: l.startswith(r),
+            "ends_with": lambda l, r: l.endswith(r),
+        }
+        fn = op_map.get(op_name)
+        if fn is None:
+            raise ValueError(f"unsupported row expression predicate op: {op_name}")
+        return fn(left_txt, right_txt)
+
+    @staticmethod
+    def _gfql_apply_string_predicate_series(left_txt: Any, needle: str, op_name: str) -> Any:
+        op_map = {
+            "contains": lambda s, n: s.str.contains(n, regex=False),
+            "starts_with": lambda s, n: s.str.startswith(n),
+            "ends_with": lambda s, n: s.str.endswith(n),
+        }
+        fn = op_map.get(op_name)
+        if fn is None:
+            raise ValueError(f"unsupported row expression predicate op: {op_name}")
+        return fn(left_txt, needle)
 
     def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
@@ -1001,34 +1034,40 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_eval_sequence_fn_series(series_value: Any, fn_name: str, expr: str) -> Any:
+        op_map = {
+            "head": lambda s: s.str.get(0),
+            "tail": lambda s: s.str.slice(start=1),
+            "reverse": lambda s: s.str[::-1],
+        }
+        fn = op_map.get(fn_name)
+        if fn is None:
+            raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
         try:
-            if fn_name == "head":
-                return series_value.str.get(0)
-            if fn_name == "tail":
-                return series_value.str.slice(start=1)
-            if fn_name == "reverse":
-                return series_value.str[::-1]
+            return fn(series_value)
         except Exception as exc:
             raise ValueError(
                 f"unsupported row expression: {fn_name}() requires list/string input in {expr!r}"
             ) from exc
-        raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
 
     @staticmethod
     def _gfql_eval_sequence_fn_scalar(value: Any, fn_name: str, expr: str) -> Any:
         if RowPipelineMixin._gfql_is_null_scalar(value):
             return None
+        op_map = {
+            "head": lambda v: v[0] if len(v) > 0 else None,
+            "tail": lambda v: v[1:],
+        }
         try:
-            if fn_name == "head":
-                return value[0] if len(value) > 0 else None
-            if fn_name == "tail":
-                return value[1:]
             if fn_name == "reverse":
                 if isinstance(value, str):
                     return value[::-1]
                 if isinstance(value, (list, tuple)):
                     return list(reversed(value))
-            raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
+                raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
+            fn = op_map.get(fn_name)
+            if fn is None:
+                raise ValueError(f"unsupported row expression function: {fn_name} in {expr!r}")
+            return fn(value)
         except Exception as exc:
             raise ValueError(
                 f"unsupported row expression: {fn_name}() requires list/string input in {expr!r}"
@@ -1055,14 +1094,14 @@ class RowPipelineMixin:
             left_txt = left_series.astype(str)
             needle = str(right)
 
-            if op_name == "contains":
-                out = left_txt.str.contains(needle, regex=False)
-            elif op_name == "starts_with":
-                out = left_txt.str.startswith(needle)
-            elif op_name == "ends_with":
-                out = left_txt.str.endswith(needle)
-            else:
+            try:
+                out = RowPipelineMixin._gfql_apply_string_predicate_series(left_txt, needle, op_name)
+            except ValueError:
                 raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression predicate op: {op_name} in {expr!r}"
+                ) from exc
 
             if hasattr(out, "where"):
                 return out.where(~any_null, pd.NA)
@@ -1072,13 +1111,10 @@ class RowPipelineMixin:
             return None
         left_txt = str(left)
         right_txt = str(right)
-        if op_name == "contains":
-            return right_txt in left_txt
-        if op_name == "starts_with":
-            return left_txt.startswith(right_txt)
-        if op_name == "ends_with":
-            return left_txt.endswith(right_txt)
-        raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+        try:
+            return RowPipelineMixin._gfql_apply_string_predicate_scalar(left_txt, right_txt, op_name)
+        except ValueError as exc:
+            raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}") from exc
 
     def _gfql_broadcast_scalar(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
         tmp_col = "__gfql_tmp_scalar__"
@@ -1768,19 +1804,7 @@ class RowPipelineMixin:
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
                 grouped = _make_grouped(table_df)
-                if func == "count":
-                    agg_df = grouped[expr_col].count().reset_index(name=alias)
-                elif func == "count_distinct":
-                    agg_df = grouped[expr_col].nunique().reset_index(name=alias)
-                elif func == "sum":
-                    agg_df = grouped[expr_col].sum().reset_index(name=alias)
-                elif func == "min":
-                    agg_df = grouped[expr_col].min().reset_index(name=alias)
-                elif func == "max":
-                    agg_df = grouped[expr_col].max().reset_index(name=alias)
-                elif func in {"avg", "mean"}:
-                    agg_df = grouped[expr_col].mean().reset_index(name=alias)
-                elif func == "collect":
+                if func == "collect":
                     # collect() ignores null entries; compute collection on
                     # non-null rows and merge against full key space below.
                     grouped_df = grouped.obj
@@ -1793,7 +1817,11 @@ class RowPipelineMixin:
                         .reset_index(name=alias)
                     )
                 else:
-                    raise ValueError(f"unsupported group_by aggregation function: {func!r}")
+                    method_name = RowPipelineMixin._GFQL_GROUPBY_AGG_METHODS.get(func)
+                    if method_name is None:
+                        raise ValueError(f"unsupported group_by aggregation function: {func!r}")
+                    agg_series = grouped[expr_col]
+                    agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left")
             if func == "collect":
