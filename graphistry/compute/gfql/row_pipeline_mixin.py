@@ -1,5 +1,6 @@
 import datetime
 import math
+import operator
 import re
 from functools import lru_cache
 from types import ModuleType
@@ -147,6 +148,15 @@ class _RowPipelineContext(Protocol):
 
 class RowPipelineMixin:
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
+    _GFQL_COMPARISON_BINARY_OPS = {
+        "=": operator.eq,
+        "!=": operator.ne,
+        "<>": operator.ne,
+        "<": operator.lt,
+        "<=": operator.le,
+        ">": operator.gt,
+        ">=": operator.ge,
+    }
 
     @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
@@ -154,6 +164,20 @@ class RowPipelineMixin:
         while col in columns:
             col = f"{col}_x"
         return col
+
+    def _gfql_eval_comparison_op(
+        self: _RowPipelineContext, table_df: Any, left: Any, right: Any, op: str
+    ) -> Optional[Any]:
+        cmp_fn = RowPipelineMixin._GFQL_COMPARISON_BINARY_OPS.get(op)
+        if cmp_fn is None:
+            return None
+
+        left_null_mask = self._gfql_null_mask(table_df, left)
+        right_null_mask = self._gfql_null_mask(table_df, right)
+        out = cmp_fn(left, right)
+        if hasattr(out, "where"):
+            out = out.where(~(left_null_mask | right_null_mask), pd.NA)
+        return out
 
     def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
@@ -270,25 +294,9 @@ class RowPipelineMixin:
             if op == "and":
                 return True, self._gfql_bool_mask(table_df, left) & self._gfql_bool_mask(table_df, right)
 
-            if op in {"=", "!=", "<>", "<", "<=", ">", ">="}:
-                left_null_mask = self._gfql_null_mask(table_df, left)
-                right_null_mask = self._gfql_null_mask(table_df, right)
-                any_null_mask = left_null_mask | right_null_mask
-                if op == "=":
-                    out = left == right
-                elif op in {"!=", "<>"}:
-                    out = left != right
-                elif op == "<":
-                    out = left < right
-                elif op == "<=":
-                    out = left <= right
-                elif op == ">":
-                    out = left > right
-                else:
-                    out = left >= right
-                if hasattr(out, "where"):
-                    out = out.where(~any_null_mask, pd.NA)
-                return True, out
+            cmp_out = RowPipelineMixin._gfql_eval_comparison_op(self, table_df, left, right, op)
+            if cmp_out is not None:
+                return True, cmp_out
 
             if op == "in":
                 return True, self._gfql_eval_in_expr(table_df, left, right, "ast IN")
