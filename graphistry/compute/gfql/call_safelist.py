@@ -33,13 +33,23 @@ Usage:
 
 import re
 from functools import lru_cache
-from typing import Dict, Any, List, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 
+WhereRowsParseFn = Callable[[str], Any]
+WhereRowsCapabilityFn = Callable[[Any], List[str]]
+WhereRowsCollectIdentifiersFn = Callable[[Any], Set[str]]
+WhereRowsParserBundle = Tuple[
+    WhereRowsParseFn,
+    WhereRowsCapabilityFn,
+    WhereRowsCollectIdentifiersFn,
+]
+WhereRowsParsedExpr = Tuple[Any, WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
+
 
 @lru_cache(maxsize=1)
-def _where_rows_expr_parser_fn() -> Any:
+def _where_rows_expr_parser_fn() -> Optional[WhereRowsParserBundle]:
     try:
         from graphistry.compute.gfql.expr_parser import (
             collect_identifiers,
@@ -56,7 +66,7 @@ def _where_rows_expr_parser_fn() -> Any:
         return None
 
 
-def _where_rows_expr_parse(expr: str) -> Any:
+def _where_rows_expr_parse(expr: str) -> Optional[WhereRowsParsedExpr]:
     parser_bundle = _where_rows_expr_parser_fn()
     if parser_bundle is None:
         return None
