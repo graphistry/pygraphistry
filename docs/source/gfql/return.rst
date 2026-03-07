@@ -138,6 +138,11 @@ Notes
 -----
 
 - `return_(["id"])` is shorthand for `return_([("id", "id")])`.
+- Multiple projection steps are allowed and applied left-to-right:
+  `return_(...)`, `with_(...)`, and `select(...)` each project from the current
+  active row table produced by prior steps.
+  Later projections can only reference columns that still exist after earlier
+  projections.
 - `order_by([("col", "asc" | "desc")])` sorts by one or more keys.
 - `skip(n)` and `limit(n)` are row offsets/caps.
 - In `where_rows(expr="...")`, comparison operators are
@@ -145,6 +150,11 @@ Notes
 - For temporal/date-time row filtering, `where_rows(filter_dict=...)` uses the
   same predicate operators as MATCH filters (`gt`, `ge`, `lt`, `le`, `eq`,
   `ne`, `between`).
+- Call-step placement rule: row-pipeline calls (`rows`, `where_rows`, `return_`,
+  `with_`, `select`, `order_by`, `skip`, `limit`, `distinct`, `unwind`,
+  `group_by`) are chain-list steps. Do not interleave call steps with `n()/e()`
+  traversals in the chain interior; place calls in boundary prefix/suffix
+  segments around traversal steps.
 - Unsupported row expressions are rejected by validator/runtime.
 
 See also: :doc:`quick`, :doc:`where`, :doc:`spec/cypher_mapping`.

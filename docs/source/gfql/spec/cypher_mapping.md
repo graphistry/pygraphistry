@@ -64,6 +64,15 @@ query = Chain([
 g.gfql(query)
 ```
 
+Projection sequencing and placement rules:
+
+- Multiple `return_(...)` / `with_(...)` / `select(...)` steps are valid and
+  execute in list order; each step projects from the current row table produced
+  by previous steps.
+- Interior mixing is invalid: do not place call steps between traversal steps
+  (`n()/e_*()`), e.g. `[n(...), return_(...), e_forward(...)]`.
+  Keep call steps in boundary prefix/suffix segments around traversal blocks.
+
 ## When You Still Need DataFrames
 - Unsupported Cypher clauses (for example `OPTIONAL MATCH`)
 - Arbitrary joins across disconnected intermediate result sets
