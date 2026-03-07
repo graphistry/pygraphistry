@@ -3,7 +3,7 @@ import math
 import re
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 from graphistry.compute.gfql.order_expr_utils import (
@@ -65,7 +65,7 @@ def is_row_pipeline_call(function: str) -> bool:
     return function in ROW_PIPELINE_CALLS
 
 
-class _RowPipelineContext(Protocol):
+class RowPipelineMixin:
     _nodes: Any
     _edges: Any
     _node: Any
@@ -74,86 +74,8 @@ class _RowPipelineContext(Protocol):
     _edge: Any
 
     def bind(self) -> "Plottable":
-        ...
+        raise NotImplementedError("RowPipelineMixin.bind() must be implemented by host plotter")
 
-    def _gfql_row_table(self, table_df: Any) -> "Plottable":
-        ...
-
-    def _gfql_get_active_table(self) -> Any:
-        ...
-
-    @staticmethod
-    def _gfql_coerce_non_negative_int(value: Any, op_name: str) -> int:
-        ...
-
-    def select(self, items: List[Any]) -> "Plottable":
-        ...
-
-    def _gfql_broadcast_scalar(self, table_df: Any, value: Any) -> Any:
-        ...
-
-    def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
-        ...
-
-    def _gfql_null_mask(self, table_df: Any, value: Any) -> Any:
-        ...
-
-    def _gfql_resolve_token(self, table_df: Any, token: str) -> Any:
-        ...
-
-    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
-        ...
-
-    def _gfql_eval_dynamic_list_subscript(
-        self, table_df: Any, base_value: Any, key_value: Any, expr: str
-    ) -> Any:
-        ...
-
-    def _gfql_eval_slice_subscript(
-        self,
-        table_df: Any,
-        base_value: Any,
-        start_value: Any,
-        end_value: Any,
-        start_present: bool,
-        end_present: bool,
-        expr: str,
-    ) -> Any:
-        ...
-
-    def _gfql_concat_list_scalar(
-        self, table_df: Any, list_series: Any, scalar_series: Any, prepend: bool = False
-    ) -> Any:
-        ...
-
-    def _gfql_eval_in_expr(self, table_df: Any, left_expr: str, right_expr: str, expr: str) -> Any:
-        ...
-
-    def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
-        ...
-
-    def _gfql_eval_string_predicate_expr(
-        self,
-        table_df: Any,
-        left: Any,
-        right: Any,
-        op_name: str,
-        expr: str,
-    ) -> Any:
-        ...
-
-    def _gfql_build_list_sort_columns(
-        self, work_df: Any, sort_col: str, key_prefix: str
-    ) -> Tuple[Any, List[str]]:
-        ...
-
-    def _gfql_build_temporal_sort_columns(
-        self, work_df: Any, sort_col: str, key_prefix: str, mode: str
-    ) -> Tuple[Any, List[str]]:
-        ...
-
-
-class RowPipelineMixin:
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
 
     @staticmethod
@@ -164,7 +86,7 @@ class RowPipelineMixin:
         return col
 
     def _gfql_eval_comparison_op(
-        self: _RowPipelineContext, table_df: Any, left: Any, right: Any, op: str
+        self, table_df: Any, left: Any, right: Any, op: str
     ) -> Optional[Any]:
         cmp_fn = GFQL_COMPARISON_BINARY_OPS.get(op)
         if cmp_fn is None:
@@ -177,7 +99,7 @@ class RowPipelineMixin:
             out = out.where(~(left_null_mask | right_null_mask), pd.NA)
         return out
 
-    def _gfql_eval_expr_ast(self: _RowPipelineContext, table_df: Any, node: Any) -> Tuple[bool, Any]:
+    def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
             return False, None
@@ -802,7 +724,7 @@ class RowPipelineMixin:
         return None
 
     def _gfql_build_list_sort_columns(
-        self: _RowPipelineContext,
+        self,
         work_df: Any,
         sort_col: str,
         key_prefix: str,
@@ -894,7 +816,7 @@ class RowPipelineMixin:
         return merged, key_cols
 
     def _gfql_build_temporal_sort_columns(
-        self: _RowPipelineContext,
+        self,
         work_df: Any,
         sort_col: str,
         key_prefix: str,
@@ -1010,7 +932,7 @@ class RowPipelineMixin:
         return len(values) > 0 and all(isinstance(v, bool) for v in values)
 
     def _gfql_eval_string_predicate_expr(
-        self: _RowPipelineContext,
+        self,
         table_df: Any,
         left: Any,
         right: Any,
@@ -1052,7 +974,7 @@ class RowPipelineMixin:
         except ValueError as exc:
             raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}") from exc
 
-    def _gfql_broadcast_scalar(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+    def _gfql_broadcast_scalar(self, table_df: Any, value: Any) -> Any:
         tmp_col = "__gfql_tmp_scalar__"
         while tmp_col in table_df.columns:
             tmp_col = f"{tmp_col}_x"
@@ -1064,7 +986,7 @@ class RowPipelineMixin:
 
         return table_df.assign(**{tmp_col: value})[tmp_col]
 
-    def _gfql_bool_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+    def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):
             mask = value
             # Avoid pandas object-dtype fillna() downcast FutureWarning while
@@ -1076,7 +998,7 @@ class RowPipelineMixin:
             return mask.astype(bool)
         return self._gfql_broadcast_scalar(table_df, bool(value)).astype(bool)
 
-    def _gfql_null_mask(self: _RowPipelineContext, table_df: Any, value: Any) -> Any:
+    def _gfql_null_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "isna"):
             return value.isna()
         try:
@@ -1090,7 +1012,7 @@ class RowPipelineMixin:
             RowPipelineMixin._gfql_is_null_scalar(value),
         ).astype(bool)
 
-    def _gfql_resolve_token(self: _RowPipelineContext, table_df: Any, token: str) -> Any:
+    def _gfql_resolve_token(self, table_df: Any, token: str) -> Any:
         txt = token.strip()
         if txt in table_df.columns:
             return table_df[txt]
@@ -1108,7 +1030,7 @@ class RowPipelineMixin:
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_eval_dynamic_list_subscript(
-        self: _RowPipelineContext,
+        self,
         table_df: Any,
         base_value: Any,
         key_value: Any,
@@ -1180,7 +1102,7 @@ class RowPipelineMixin:
         return merged[base_col].reset_index(drop=True)
 
     def _gfql_eval_slice_subscript(
-        self: _RowPipelineContext,
+        self,
         table_df: Any,
         base_value: Any,
         start_value: Any,
@@ -1236,7 +1158,7 @@ class RowPipelineMixin:
             ) from exc
 
     def _gfql_concat_list_scalar(
-        self: _RowPipelineContext,
+        self,
         table_df: Any,
         list_series: Any,
         scalar_series: Any,
@@ -1296,7 +1218,7 @@ class RowPipelineMixin:
         return out.reset_index(drop=True)
 
     def _gfql_eval_in_expr(
-        self: _RowPipelineContext,
+        self,
         table_df: Any,
         left_value: Any,
         right_value: Any,
@@ -1361,7 +1283,7 @@ class RowPipelineMixin:
         out = out.where(~rhs_null, pd.NA)
         return out.reset_index(drop=True)
 
-    def _gfql_eval_string_expr(self: _RowPipelineContext, table_df: Any, expr: str) -> Any:
+    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         txt = expr.strip()
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -1391,7 +1313,7 @@ class RowPipelineMixin:
 
         raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
 
-    def _gfql_row_table(self: _RowPipelineContext, table_df: Any) -> "Plottable":
+    def _gfql_row_table(self, table_df: Any) -> "Plottable":
         """Return a plottable that treats ``table_df`` as the active row table."""
         out = self.bind()
         table_df = table_df.reset_index(drop=True)
@@ -1407,7 +1329,7 @@ class RowPipelineMixin:
             out._node = None
         return out
 
-    def _gfql_get_active_table(self: _RowPipelineContext) -> Any:
+    def _gfql_get_active_table(self) -> Any:
         if self._nodes is not None:
             return self._nodes
         if self._edges is not None:
@@ -1439,7 +1361,7 @@ class RowPipelineMixin:
         return out
 
     def rows(
-        self: _RowPipelineContext, table: str = "nodes", source: Optional[str] = None
+        self, table: str = "nodes", source: Optional[str] = None
     ) -> "Plottable":
         if table not in {"nodes", "edges"}:
             raise ValueError(
@@ -1467,7 +1389,7 @@ class RowPipelineMixin:
 
         return self._gfql_row_table(table_df)
 
-    def select(self: _RowPipelineContext, items: List[Any]) -> "Plottable":
+    def select(self, items: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
         if items is None:
             raise ValueError(
@@ -1499,12 +1421,12 @@ class RowPipelineMixin:
         out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)
 
-    def with_(self: _RowPipelineContext, items: List[Any]) -> "Plottable":
+    def with_(self, items: List[Any]) -> "Plottable":
         """Python-safe alias for Cypher WITH-style row projection."""
         return self.select(items)
 
     def where_rows(
-        self: _RowPipelineContext,
+        self,
         filter_dict: Optional[Dict[str, Any]] = None,
         expr: Optional[str] = None,
     ) -> "Plottable":
@@ -1530,10 +1452,10 @@ class RowPipelineMixin:
 
         return self._gfql_row_table(out_df)
 
-    def return_(self: _RowPipelineContext, items: List[Any]) -> "Plottable":
+    def return_(self, items: List[Any]) -> "Plottable":
         return self.select(items)
 
-    def order_by(self: _RowPipelineContext, keys: List[Any]) -> "Plottable":
+    def order_by(self, keys: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
         if keys is None:
             raise ValueError(
@@ -1612,17 +1534,17 @@ class RowPipelineMixin:
             out_df = work_df
         return self._gfql_row_table(out_df)
 
-    def skip(self: _RowPipelineContext, value: Any) -> "Plottable":
+    def skip(self, value: Any) -> "Plottable":
         table_df = self._gfql_get_active_table()
         skip_count = self._gfql_coerce_non_negative_int(value, "skip")
         return self._gfql_row_table(table_df.iloc[skip_count:])
 
-    def limit(self: _RowPipelineContext, value: Any) -> "Plottable":
+    def limit(self, value: Any) -> "Plottable":
         table_df = self._gfql_get_active_table()
         limit_count = self._gfql_coerce_non_negative_int(value, "limit")
         return self._gfql_row_table(table_df.iloc[:limit_count])
 
-    def distinct(self: _RowPipelineContext) -> "Plottable":
+    def distinct(self) -> "Plottable":
         table_df = self._gfql_get_active_table()
         try:
             out_df = table_df.drop_duplicates()
@@ -1639,7 +1561,7 @@ class RowPipelineMixin:
             out_df = table_df.loc[mask]
         return self._gfql_row_table(out_df)
 
-    def unwind(self: _RowPipelineContext, expr: Any, as_: str = "value") -> "Plottable":
+    def unwind(self, expr: Any, as_: str = "value") -> "Plottable":
         """Vectorized UNWIND for column or literal list expressions."""
         table_df = self._gfql_get_active_table()
         if not isinstance(as_, str) or as_.strip() == "":
@@ -1671,7 +1593,7 @@ class RowPipelineMixin:
         return self._gfql_row_table(out_df)
 
     def group_by(
-        self: _RowPipelineContext,
+        self,
         keys: Sequence[str],
         aggregations: Sequence[Sequence[Any]],
     ) -> "Plottable":
