@@ -10,6 +10,20 @@ Operators
 
 The following table lists the available operators, their descriptions, and examples of how to use them in GFQL.
 
+WHERE Operators (Cross-Reference)
+---------------------------------
+
+This page covers predicate functions used inside step filters like
+``n({...})`` and ``e_forward({...})``. WHERE operators are documented separately:
+
+- Same-path MATCH WHERE uses ``compare(col(...), op, col(...))`` with
+  ``op`` in ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
+- Row-pipeline WHERE uses ``where_rows(expr="...")`` with comparators
+  ``=``, ``!=``, ``<>``, ``<``, ``<=``, ``>``, ``>=``.
+
+See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
+(``MATCH ... RETURN`` row pipelines).
+
 **Numeric and Comparison Operators**
 
 .. list-table::
@@ -41,14 +55,16 @@ The following table lists the available operators, their descriptions, and examp
      - ``n({ "age": between(18, 65) })``
 
 .. note::
-   For null-safe comparisons, use ``isna()``/``notna()`` in per-step
-   predicates. All numeric comparison operators (``gt``, ``lt``, ``ge``,
-   ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
-   
-   - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
-   - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
-   - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
-   
+   Null handling and temporal comparisons are separate:
+
+   - Use ``isna()`` / ``notna()`` for null-safe checks:
+     - ``n({ "closed_at": isna() })``
+     - ``n({ "created_at": notna() })``
+   - Use comparison operators for non-null values (including temporal columns):
+     - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
+     - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
+     - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
+
    See :doc:`/gfql/datetime_filtering` for datetime filtering examples.
 
 **Categorical Operators**

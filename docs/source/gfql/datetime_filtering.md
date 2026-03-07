@@ -92,6 +92,74 @@ date_range_edges = g.gfql([
 ])
 ```
 
+### Comparison Operators (Python, Row Expressions, Wire)
+
+Temporal comparisons use the same core operators across APIs:
+
+- Python predicate helpers: `gt`, `ge`, `lt`, `le`, `eq`, `ne`
+- Wire protocol predicate types: `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`
+- `where_rows(expr="...")` comparators: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
+
+Example mapping:
+
+- Python: `gt(pd.Timestamp("2024-01-01"))`
+- Wire: `{"type": "GT", "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}}`
+- Row expression: `where_rows(expr="created_at > created_cutoff")`
+
+### WHERE Context (What Works Where)
+
+Temporal filters work in different forms depending on GFQL context:
+
+| Context | Temporal form | Notes |
+| --- | --- | --- |
+| Matcher filters (`n(filter_dict=...)`, `e_forward(edge_match=...)`) | Predicate helpers (`gt`, `ge`, `lt`, `le`, `eq`, `ne`, `between`, `is_in`) | Primary place for temporal predicates |
+| Same-path `where=[...]` | `compare(col(...), op, col(...))` with `op` in `==`, `!=`, `<`, `<=`, `>`, `>=` | Alias-column comparisons; predicate helpers are not used here |
+| Row pipeline `where_rows(filter_dict=...)` | Same predicate helpers as matcher filters | Useful after `rows(...)` in `MATCH ... RETURN` flows |
+| Row pipeline `where_rows(expr="...")` | Expression comparators `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=` | Expression parser syntax; no predicate helper function calls inside `expr` |
+
+See also:
+- {doc}`GFQL WHERE (Same-Path Constraints) <where>`
+- {doc}`GFQL RETURN (Row Pipelines) <return>`
+
+### Temporal WHERE Examples (Valid vs Invalid)
+
+```python
+import pandas as pd
+from datetime import datetime
+
+from graphistry import n, e_forward, col, compare
+from graphistry.compute import rows, where_rows, return_, lt
+
+# 1) Same-path WHERE (MATCH-stage): use compare(..., op, ...)
+g.gfql(
+    [
+        n({"type": "event"}, name="a"),
+        e_forward(name="e"),
+        n({"type": "event"}, name="b"),
+    ],
+    where=[compare(col("a", "created_at"), "<", col("b", "created_at"))],
+)
+
+# 2) Row-pipeline WHERE with predicate helpers: where_rows(filter_dict=...)
+g.gfql([
+    n({"type": "event"}, name="evt"),
+    rows(table="nodes", source="evt"),
+    where_rows(filter_dict={"created_at": lt(pd.Timestamp("2024-01-01T00:00:00Z"))}),
+    return_(["id", "created_at"]),
+])
+
+# 3) Row-pipeline WHERE with expression comparators: where_rows(expr="...")
+g.gfql([
+    n({"type": "event"}, name="evt"),
+    rows(table="nodes", source="evt"),
+    where_rows(expr="created_at < cutoff_ts"),
+    return_(["id", "created_at", "cutoff_ts"]),
+])
+
+# INVALID for same-path WHERE:
+# where=[lt(col("a", "created_at"))]  # predicate helper form is not valid here
+```
+
 ### Date-Only Filtering
 
 For date comparisons (ignoring time):
