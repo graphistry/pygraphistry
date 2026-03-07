@@ -199,118 +199,117 @@ class TestRowPipelineExecution:
             {"id": "c", "score": 3},
         ]
 
-    def test_row_pipeline_distinct_unhashable_cells(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "vals": [[1, 2], [1, 2], [3]],
-            "meta": [{"k": "v"}, {"k": "v"}, {"k": "z"}],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("vals", "vals"), ("meta", "meta")]),
-            distinct(),
-        ])
-
-        assert result._nodes.reset_index(drop=True).to_dict(orient="records") == [
-            {"vals": [1, 2], "meta": {"k": "v"}},
-            {"vals": [3], "meta": {"k": "z"}},
-        ]
-
-    def test_row_pipeline_order_by_list_values_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "vals": [[1, 2], [1, 2], [3]],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("vals", "vals")]),
-            order_by([("vals", "asc")]),
-        ])
-        assert result._nodes["vals"].tolist() == [[1, 2], [1, 2], [3]]
-
-    def test_row_pipeline_exec_with_match_alias_source(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "grp": ["x", "x", "y"],
-        })
-        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            n({"grp": "x"}, name="a"),
-            rows(source="a"),
-            return_([("id", "id")]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert list(result._nodes.columns) == ["id"]
-        assert result._nodes["id"].tolist() == ["a", "b"]
-
-    def test_row_pipeline_where_rows_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "score": [1, 3, 2],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            where_rows({"score": gt(1)}),
-            order_by([("id", "asc")]),
-            return_([("id", "id"), ("score", "score")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "b", "score": 3},
-            {"id": "c", "score": 2},
-        ]
-
-    def test_row_pipeline_where_rows_expr_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "vals": [[1], [1, 2], [1, 2, 3]],
-            "name": ["n1", "n2", "n3"],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            where_rows(expr="size(vals) > 1 AND NOT (name = 'n3')"),
-            order_by([("id", "asc")]),
-            return_([("id", "id"), ("vals", "vals"), ("name", "name")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "b", "vals": [1, 2], "name": "n2"},
-        ]
-
-    def test_row_pipeline_where_rows_expr_quoted_function_text(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["rand()", "plain"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            where_rows(expr="name = 'rand()'"),
-            return_([("id", "id"), ("name", "name")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "a", "name": "rand()"}]
-
-    def test_row_pipeline_where_rows_expr_size_literal_with_paren(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "name": ["n1", "n2"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            where_rows(expr="size(['x)', 'y']) = 2 AND NOT (name = 'n2')"),
-            return_([("id", "id")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+    @pytest.mark.parametrize(
+        ("nodes", "steps", "expected_records", "expected_columns", "edges"),
+        [
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1, 2], [1, 2], [3]], "meta": [{"k": "v"}, {"k": "v"}, {"k": "z"}]},
+                [rows(), select([("vals", "vals"), ("meta", "meta")]), distinct()],
+                [{"vals": [1, 2], "meta": {"k": "v"}}, {"vals": [3], "meta": {"k": "z"}}],
+                None,
+                None,
+                id="distinct-unhashable-cells",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1, 2], [1, 2], [3]]},
+                [rows(), select([("vals", "vals")]), order_by([("vals", "asc")])],
+                [{"vals": [1, 2]}, {"vals": [1, 2]}, {"vals": [3]}],
+                ["vals"],
+                None,
+                id="order-by-list-values",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "grp": ["x", "x", "y"]},
+                [n({"grp": "x"}, name="a"), rows(source="a"), return_([("id", "id")]), order_by([("id", "asc")])],
+                [{"id": "a"}, {"id": "b"}],
+                ["id"],
+                {"s": ["a", "b"], "d": ["b", "c"]},
+                id="match-alias-source",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                [rows(), where_rows({"score": gt(1)}), order_by([("id", "asc")]), return_([("id", "id"), ("score", "score")])],
+                [{"id": "b", "score": 3}, {"id": "c", "score": 2}],
+                None,
+                None,
+                id="where-rows-dict",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1], [1, 2], [1, 2, 3]], "name": ["n1", "n2", "n3"]},
+                [rows(), where_rows(expr="size(vals) > 1 AND NOT (name = 'n3')"), order_by([("id", "asc")]), return_([("id", "id"), ("vals", "vals"), ("name", "name")])],
+                [{"id": "b", "vals": [1, 2], "name": "n2"}],
+                None,
+                None,
+                id="where-rows-expr",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "name": ["rand()", "plain"]},
+                [rows(), where_rows(expr="name = 'rand()'"), return_([("id", "id"), ("name", "name")])],
+                [{"id": "a", "name": "rand()"}],
+                None,
+                None,
+                id="where-rows-quoted-function-text",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "name": ["n1", "n2"]},
+                [rows(), where_rows(expr="size(['x)', 'y']) = 2 AND NOT (name = 'n2')"), return_([("id", "id")])],
+                [{"id": "a"}],
+                None,
+                None,
+                id="where-rows-size-literal-paren",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "vals": [[1, 2], [3]]},
+                [rows(), unwind("vals", as_="v"), select([("id", "id"), ("v", "v")]), order_by([("v", "asc")])],
+                [{"id": "a", "v": 1}, {"id": "a", "v": 2}, {"id": "b", "v": 3}],
+                None,
+                None,
+                id="unwind-column",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "first": [[1, 2], [3]], "second": [[4], [5, 6]]},
+                [rows(), unwind("first + second", as_="x"), select([("x", "x")]), order_by([("x", "asc")])],
+                [{"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5}, {"x": 6}],
+                None,
+                None,
+                id="unwind-string-expr",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "qrows": [[[2], [3, 4]], [[5], [6, 7]]]},
+                [rows(), unwind("qrows[0]", as_="q"), select([("q", "q")]), order_by([("q", "asc")])],
+                [{"q": 2}, {"q": 5}],
+                None,
+                None,
+                id="unwind-subscript-expr",
+            ),
+            pytest.param(
+                {"id": ["seed"]},
+                [
+                    rows(),
+                    with_([("prows", [0, 1]), ("qrows", [[2], [3, 4]])]),
+                    unwind("prows", as_="p"),
+                    unwind("qrows[p]", as_="q"),
+                    select([("p", "p"), ("q", "q")]),
+                    order_by([("p", "asc"), ("q", "asc")]),
+                ],
+                [{"p": 0, "q": 2}, {"p": 1, "q": 3}, {"p": 1, "q": 4}],
+                None,
+                {"s": [], "d": []},
+                id="unwind-dynamic-subscript-expr",
+            ),
+        ],
+    )
+    def test_row_pipeline_exact_record_cases_vectorized(
+        self, nodes, steps, expected_records, expected_columns, edges
+    ):
+        edges_df = None if edges is None else pd.DataFrame(edges)
+        _assert_node_records(
+            pd.DataFrame(nodes),
+            steps,
+            expected_records,
+            edges_df=edges_df,
+            expected_columns=expected_columns,
+        )
 
     @pytest.mark.parametrize(
         ("nodes", "expr", "expected_ids"),
@@ -453,90 +452,6 @@ class TestRowPipelineExecution:
             for w in caught
             if issubclass(w.category, FutureWarning)
         )
-
-    def test_row_pipeline_unwind_column_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b"],
-            "vals": [[1, 2], [3]],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            unwind("vals", as_="v"),
-            select([("id", "id"), ("v", "v")]),
-            order_by([("v", "asc")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "v": 1},
-            {"id": "a", "v": 2},
-            {"id": "b", "v": 3},
-        ]
-
-    def test_row_pipeline_unwind_string_expression_vectorized(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b"],
-            "first": [[1, 2], [3]],
-            "second": [[4], [5, 6]],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            unwind("first + second", as_="x"),
-            select([("x", "x")]),
-            order_by([("x", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"x": 1},
-            {"x": 2},
-            {"x": 3},
-            {"x": 4},
-            {"x": 5},
-            {"x": 6},
-        ]
-
-    def test_row_pipeline_unwind_subscript_expression(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b"],
-            "qrows": [[[2], [3, 4]], [[5], [6, 7]]],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            unwind("qrows[0]", as_="q"),
-            select([("q", "q")]),
-            order_by([("q", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"q": 2},
-            {"q": 5},
-        ]
-
-    def test_row_pipeline_unwind_dynamic_subscript_expression(self):
-        nodes_df = pd.DataFrame({
-            "id": ["seed"],
-        })
-        edges_df = pd.DataFrame({"s": [], "d": []})
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(),
-            with_([("prows", [0, 1]), ("qrows", [[2], [3, 4]])]),
-            unwind("prows", as_="p"),
-            unwind("qrows[p]", as_="q"),
-            select([("p", "p"), ("q", "q")]),
-            order_by([("p", "asc"), ("q", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"p": 0, "q": 2},
-            {"p": 1, "q": 3},
-            {"p": 1, "q": 4},
-        ]
 
     @pytest.mark.parametrize(
         ("nodes", "steps", "expected_records"),
@@ -724,60 +639,147 @@ class TestRowPipelineExecution:
         with pytest.raises(Exception, match="unsupported token in row expression|unsupported row expression"):
             g.gfql([rows(), select([("bad", "{1: 2}")])])
 
-    def test_row_pipeline_select_toboolean_tostring_coalesce(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "s": ["true", "false", None]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("b", "toBoolean(s)"),
-                ("s2", "toString(coalesce(s, 'x'))"),
-            ]),
-            order_by([("s2", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"b": False, "s2": "false"},
-            {"b": True, "s2": "true"},
-            {"b": None, "s2": "x"},
-        ]
-
-    def test_row_pipeline_select_alias_property_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "a": [True, True], "num": [2, 5]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("num_proj", "a.num"), ("num_plus_1", "a.num + 1")]),
-            order_by([("num_proj", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"num_proj": 2, "num_plus_1": 3},
-            {"num_proj": 5, "num_plus_1": 6},
-        ]
-
-    def test_row_pipeline_select_boolean_null_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [2, None, 7]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("id", "id"),
-                ("is_null", "score IS NULL"),
-                ("is_big", "score > 5"),
-                ("flag", "(score IS NULL) OR (score > 5)"),
-            ]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "is_null": False, "is_big": False, "flag": False},
-            {"id": "b", "is_null": True, "is_big": None, "flag": True},
-            {"id": "c", "is_null": False, "is_big": True, "flag": True},
-        ]
+    @pytest.mark.parametrize(
+        ("nodes", "steps", "expected_records", "expected_columns", "edges"),
+        [
+            pytest.param(
+                {"id": ["a", "b", "c"], "s": ["true", "false", None]},
+                [rows(), select([("b", "toBoolean(s)"), ("s2", "toString(coalesce(s, 'x'))")]), order_by([("s2", "asc")])],
+                [{"b": False, "s2": "false"}, {"b": True, "s2": "true"}, {"b": None, "s2": "x"}],
+                None,
+                None,
+                id="toboolean-tostring-coalesce",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "a": [True, True], "num": [2, 5]},
+                [rows(), select([("num_proj", "a.num"), ("num_plus_1", "a.num + 1")]), order_by([("num_proj", "asc")])],
+                [{"num_proj": 2, "num_plus_1": 3}, {"num_proj": 5, "num_plus_1": 6}],
+                None,
+                None,
+                id="alias-property-expression",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [2, None, 7]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("id", "id"),
+                            ("is_null", "score IS NULL"),
+                            ("is_big", "score > 5"),
+                            ("flag", "(score IS NULL) OR (score > 5)"),
+                        ]
+                    ),
+                    order_by([("id", "asc")]),
+                ],
+                [
+                    {"id": "a", "is_null": False, "is_big": False, "flag": False},
+                    {"id": "b", "is_null": True, "is_big": None, "flag": True},
+                    {"id": "c", "is_null": False, "is_big": True, "flag": True},
+                ],
+                None,
+                None,
+                id="boolean-null-expression",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "vals": [[1, 2, 3], [2], []], "maps": [[{"a": 1}, {"a": 2}], [{"a": 0}], []]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("id", "id"),
+                            ("has_2", "any(x IN vals WHERE x = 2)"),
+                            ("all_lt_4", "all(x IN vals WHERE x < 4)"),
+                            ("any_map_a_2", "any(x IN maps WHERE x.a = 2)"),
+                        ]
+                    ),
+                    order_by([("id", "asc")]),
+                ],
+                [
+                    {"id": "a", "has_2": True, "all_lt_4": True, "any_map_a_2": True},
+                    {"id": "b", "has_2": True, "all_lt_4": True, "any_map_a_2": False},
+                    {"id": "c", "has_2": False, "all_lt_4": True, "any_map_a_2": False},
+                ],
+                None,
+                None,
+                id="quantifier-on-list-columns",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                [rows(), order_by([("score + 2", "desc")]), limit(2), select([("id", "id"), ("score", "score")])],
+                [{"id": "b", "score": 3}, {"id": "c", "score": 2}],
+                None,
+                None,
+                id="order-by-string-expression",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "path_nodes": [["n1", "n2"], ["n3"]], "path_rels": [["r1"], []]},
+                [rows(), select([("id", "id"), ("ns", "nodes(path_nodes)"), ("rs", "relationships(path_rels)")]), order_by([("id", "asc")])],
+                [{"id": "a", "ns": ["n1", "n2"], "rs": ["r1"]}, {"id": "b", "ns": ["n3"], "rs": []}],
+                None,
+                None,
+                id="nodes-relationships-passthrough",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "vals": [[1, 2], [3]]},
+                [
+                    rows(),
+                    select(
+                        [
+                            ("id", "id"),
+                            ("has2", "2 IN vals"),
+                            ("has5", "5 IN vals"),
+                            ("append9", "vals + 9"),
+                            ("prepend9", "9 + vals"),
+                        ]
+                    ),
+                    order_by([("id", "asc")]),
+                ],
+                [
+                    {"id": "a", "has2": True, "has5": False, "append9": [1, 2, 9], "prepend9": [9, 1, 2]},
+                    {"id": "b", "has2": False, "has5": False, "append9": [3, 9], "prepend9": [9, 3]},
+                ],
+                None,
+                None,
+                id="in-operator-list-concat",
+            ),
+            pytest.param(
+                {"id": ["a", "b"], "one_src": [0, 0]},
+                [rows(), select([("id", "id"), ("one", 1), ("txt", "id")])],
+                [{"id": "a", "one": 1, "txt": "a"}, {"id": "b", "one": 1, "txt": "b"}],
+                None,
+                None,
+                id="literal-expressions",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                [rows(), select([("id", "id"), ("bucket", "CASE WHEN score > 2 THEN 'hi' ELSE 'lo' END")]), order_by([("id", "asc")])],
+                [{"id": "a", "bucket": "lo"}, {"id": "b", "bucket": "hi"}, {"id": "c", "bucket": "lo"}],
+                None,
+                None,
+                id="case-when-expression",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"]},
+                [rows(table="edges"), select([("weight", "weight")]), order_by([("weight", "desc")])],
+                [{"weight": 3}, {"weight": 2}, {"weight": 1}],
+                ["weight"],
+                {"s": ["a", "b", "a"], "d": ["b", "c", "c"], "weight": [1, 3, 2]},
+                id="rows-edges-table-projection",
+            ),
+        ],
+    )
+    def test_row_pipeline_exact_record_cases_more(
+        self, nodes, steps, expected_records, expected_columns, edges
+    ):
+        edges_df = None if edges is None else pd.DataFrame(edges)
+        _assert_node_records(
+            pd.DataFrame(nodes),
+            steps,
+            expected_records,
+            edges_df=edges_df,
+            expected_columns=expected_columns,
+        )
 
     def test_row_pipeline_select_quantifier_empty_and_null(self):
         nodes_df = pd.DataFrame({"id": ["a"]})
@@ -807,46 +809,6 @@ class TestRowPipelineExecution:
         assert pd.isna(row["all_null"])
         assert pd.isna(row["none_null"])
         assert pd.isna(row["single_null"])
-
-    def test_row_pipeline_select_quantifier_on_list_columns(self):
-        nodes_df = pd.DataFrame({
-            "id": ["a", "b", "c"],
-            "vals": [[1, 2, 3], [2], []],
-            "maps": [[{"a": 1}, {"a": 2}], [{"a": 0}], []],
-        })
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([
-                ("id", "id"),
-                ("has_2", "any(x IN vals WHERE x = 2)"),
-                ("all_lt_4", "all(x IN vals WHERE x < 4)"),
-                ("any_map_a_2", "any(x IN maps WHERE x.a = 2)"),
-            ]),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "has_2": True, "all_lt_4": True, "any_map_a_2": True},
-            {"id": "b", "has_2": True, "all_lt_4": True, "any_map_a_2": False},
-            {"id": "c", "has_2": False, "all_lt_4": True, "any_map_a_2": False},
-        ]
-
-    def test_row_pipeline_order_by_string_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            order_by([("score + 2", "desc")]),
-            limit(2),
-            select([("id", "id"), ("score", "score")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "b", "score": 3},
-            {"id": "c", "score": 2},
-        ]
 
     def test_row_pipeline_order_by_mixed_list_values(self):
         nodes_df = pd.DataFrame({
@@ -982,59 +944,6 @@ class TestRowPipelineExecution:
         with pytest.raises(Exception, match="requires node column|alias column not found"):
             g.gfql([rows(source="missing")])
 
-    def test_row_pipeline_rows_edges_table_projection(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"]})
-        edges_df = pd.DataFrame({
-            "s": ["a", "b", "a"],
-            "d": ["b", "c", "c"],
-            "weight": [1, 3, 2],
-        })
-        g = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
-
-        result = g.gfql([
-            rows(table="edges"),
-            select([("weight", "weight")]),
-            order_by([("weight", "desc")]),
-        ])
-
-        assert list(result._nodes.columns) == ["weight"]
-        assert result._nodes["weight"].tolist() == [3, 2, 1]
-
-    def test_row_pipeline_select_allows_literal_expressions(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select([("id", "id"), ("one", 1), ("txt", "id")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "one": 1, "txt": "a"},
-            {"id": "b", "one": 1, "txt": "b"},
-        ]
-
-    def test_row_pipeline_select_case_when_expression(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql([
-            rows(),
-            select(
-                [
-                    ("id", "id"),
-                    ("bucket", "CASE WHEN score > 2 THEN 'hi' ELSE 'lo' END"),
-                ]
-            ),
-            order_by([("id", "asc")]),
-        ])
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "bucket": "lo"},
-            {"id": "b", "bucket": "hi"},
-            {"id": "c", "bucket": "lo"},
-        ]
-
     def test_row_pipeline_select_sequence_function_family(self):
         nodes_df = pd.DataFrame(
             {
@@ -1096,72 +1005,6 @@ class TestRowPipelineExecution:
         assert records[2]["t_txt"] == ""
         assert records[2]["r_txt"] == ""
         assert records[2]["sgn"] == 1
-
-    def test_row_pipeline_select_nodes_relationships_passthrough(self):
-        nodes_df = pd.DataFrame(
-            {
-                "id": ["a", "b"],
-                "path_nodes": [["n1", "n2"], ["n3"]],
-                "path_rels": [["r1"], []],
-            }
-        )
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("ns", "nodes(path_nodes)"),
-                        ("rs", "relationships(path_rels)"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
-        )
-
-        assert result._nodes.to_dict(orient="records") == [
-            {"id": "a", "ns": ["n1", "n2"], "rs": ["r1"]},
-            {"id": "b", "ns": ["n3"], "rs": []},
-        ]
-
-    def test_row_pipeline_select_in_operator_and_list_scalar_concat(self):
-        nodes_df = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], [3]]})
-        g = _mk_graph(nodes_df)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("has2", "2 IN vals"),
-                        ("has5", "5 IN vals"),
-                        ("append9", "vals + 9"),
-                        ("prepend9", "9 + vals"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
-        )
-
-        assert result._nodes.to_dict(orient="records") == [
-            {
-                "id": "a",
-                "has2": True,
-                "has5": False,
-                "append9": [1, 2, 9],
-                "prepend9": [9, 1, 2],
-            },
-            {
-                "id": "b",
-                "has2": False,
-                "has5": False,
-                "append9": [3, 9],
-                "prepend9": [9, 3],
-            },
-        ]
 
     def test_row_pipeline_select_string_predicate_ops(self):
         nodes_df = pd.DataFrame(
