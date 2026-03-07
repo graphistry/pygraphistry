@@ -107,3 +107,6 @@ AI_PROGRESS/
 plans/
 tmp/
 test_env/
+.agents
+.agents/
+.claude/

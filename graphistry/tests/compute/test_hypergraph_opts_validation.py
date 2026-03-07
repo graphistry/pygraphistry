@@ -1,7 +1,7 @@
 """Tests for improved hypergraph opts parameter validation."""
 
 import pytest
-from graphistry.compute.gfql.call_safelist import (
+from graphistry.compute.gfql.call.validation import (
     validate_hypergraph_opts,
     validate_call_params
 )

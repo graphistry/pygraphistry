@@ -620,7 +620,7 @@ def chain(
         context = ExecutionContext()
 
     if policy:
-        from graphistry.compute.gfql.call_executor import _thread_local as call_thread_local
+        from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
         try:
             call_thread_local.policy = policy
@@ -753,7 +753,7 @@ def _chain_impl(
 
     if schema_changer_idx is not None:
         if len(ops) == 1:
-            from graphistry.compute.gfql.call_executor import execute_call
+            from graphistry.compute.gfql.call.executor import execute_call
             from graphistry.compute.exceptions import GFQLTypeError, ErrorCode
 
             engine_concrete = resolve_engine(engine, self)

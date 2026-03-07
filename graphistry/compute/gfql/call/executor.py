@@ -9,7 +9,11 @@ import time
 from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.gfql.call.validation import validate_call_params
+from graphistry.compute.gfql.row.pipeline import (
+    execute_row_pipeline_call,
+    is_row_pipeline_call,
+)
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
@@ -23,7 +27,7 @@ if TYPE_CHECKING:
 _thread_local = threading.local()
 
 
-def _is_plottable_like(obj: Any) -> bool:
+def _is_plottable_like(obj: object) -> bool:
     """Runtime-safe structural check for Plottable-like objects.
 
     Avoids isinstance(..., Plottable) Protocol checks, which may trigger expensive
@@ -118,18 +122,23 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         if function == 'hypergraph':
             hypergraph_returns_dataframe = params_for_return.get('return_as', 'graph') != 'graph'
 
-        # Check if method exists on Plottable
-        if not hasattr(g, function):
-            raise AttributeError(
-                f"Plottable has no method '{function}'. "
-                f"This should not happen if safelist is properly configured."
-            )
+        if is_row_pipeline_call(function):
+            # Route GFQL row-pipeline calls via dedicated adapter to avoid
+            # widening core Plottable/ComputeMixin inheritance.
+            result = execute_row_pipeline_call(g, function, validated_params)
+        else:
+            # Check if method exists on Plottable
+            if not hasattr(g, function):
+                raise AttributeError(
+                    f"Plottable has no method '{function}'. "
+                    f"This should not happen if safelist is properly configured."
+                )
 
-        # Get the method
-        method = getattr(g, function)
+            # Get the method
+            method = getattr(g, function)
 
-        # Execute the method with validated parameters
-        result = method(**validated_params)
+            # Execute the method with validated parameters
+            result = method(**validated_params)
 
         # Calculate execution time
         execution_time = time.perf_counter() - start_time
@@ -148,7 +157,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Ensure result matches requested engine (defensive coercion)
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
-            result = ensure_engine_match(result, engine)
+            result = ensure_engine_match(cast(Plottable, result), engine)
 
         # Mark as successful
         success = True

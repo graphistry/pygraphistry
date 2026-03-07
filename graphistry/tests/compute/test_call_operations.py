@@ -9,8 +9,8 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.compute.ast import ASTCall, ASTLet, n
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_let import chain_let_impl
-from graphistry.compute.gfql.call_safelist import validate_call_params
-from graphistry.compute.gfql.call_executor import execute_call
+from graphistry.compute.gfql.call.validation import validate_call_params
+from graphistry.compute.gfql.call.executor import execute_call
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
 
 
@@ -80,7 +80,6 @@ class TestCallSafelist:
                 'direction': 'sideways'
             })
         assert exc_info.value.code == ErrorCode.E201
-
 
 class TestASTCall:
     """Test ASTCall node validation and serialization."""
@@ -249,6 +248,18 @@ class TestCallExecution:
         assert hasattr(result, '_nodes')
         assert 'degree' in result._nodes.columns
         assert len(result._nodes) == 4
+
+    def test_execute_return_alias(self, sample_graph):
+        """Test executing return_ alias through execute_call row-pipeline path."""
+        result = execute_call(
+            sample_graph,
+            'return_',
+            {'items': [('node', 'node')]},
+            Engine.PANDAS
+        )
+
+        assert list(result._nodes.columns) == ['node']
+        assert len(result._nodes) == len(sample_graph._nodes)
     
     def test_execute_filter_nodes(self, sample_graph):
         """Test executing filter_nodes_by_dict method."""
@@ -444,7 +455,7 @@ class TestCallInDAG:
         assert len(result2._nodes) > 0
         assert all(result2._nodes['deg'] == 2)
     
-    @patch('graphistry.compute.gfql.call_executor.getattr')
+    @patch('graphistry.compute.gfql.call.executor.getattr')
     def test_call_execution_error(self, mock_getattr, sample_graph):
         """Test handling of execution errors in calls."""
         # Make the method raise an error

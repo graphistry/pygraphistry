@@ -2,7 +2,7 @@
 
 import copy, datetime as dt, graphistry, os, pandas as pd, pyarrow as pa, pytest
 
-from mock import patch
+from unittest.mock import patch
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import NODE
 

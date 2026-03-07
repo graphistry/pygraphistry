@@ -3,7 +3,7 @@ from typing import Iterable
 import numpy as np, pandas as pd, pytest, queue
 from common import NoAuthTestCase
 from concurrent.futures import Future
-from mock import patch
+from unittest.mock import patch
 
 try:
     from gremlin_python.driver.resultset import ResultSet

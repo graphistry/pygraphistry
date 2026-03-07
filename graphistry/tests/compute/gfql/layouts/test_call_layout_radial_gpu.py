@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from graphistry.Engine import Engine
-from graphistry.compute.gfql.call_executor import execute_call
+from graphistry.compute.gfql.call.executor import execute_call
 from graphistry.tests.test_compute import CGFull
 
 

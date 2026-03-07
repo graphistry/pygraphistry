@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
+    Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
 )
 from typing_extensions import Literal
 
@@ -13,7 +13,7 @@ from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLSyntaxError
-from graphistry.compute.gfql.call_safelist import validate_call_params
+from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
@@ -195,7 +195,7 @@ class ASTNode(ASTObject):
                     children.append(value)
         return children
 
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
         return {
@@ -210,7 +210,7 @@ class ASTNode(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTNode':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTNode':
         out = ASTNode(
             filter_dict=maybe_filter_dict_from_json(d, 'filter_dict'),
             name=d['name'] if 'name' in d else None,
@@ -502,7 +502,7 @@ class ASTEdge(ASTObject):
                         children.append(value)
         return children
 
-    def to_json(self, validate=True) -> dict:
+    def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
         return {
@@ -539,7 +539,7 @@ class ASTEdge(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdge(
             direction=d['direction'] if 'direction' in d else None,
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
@@ -704,7 +704,7 @@ class ASTEdgeForward(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeForward(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -775,7 +775,7 @@ class ASTEdgeReverse(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeReverse(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -846,7 +846,7 @@ class ASTEdgeUndirected(ASTEdge):
         )
 
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTEdge':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdgeUndirected(
             edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
             hops=d['hops'] if 'hops' in d else None,
@@ -1003,7 +1003,7 @@ class ASTLet(ASTObject):
                 children.append(v)
         return children
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Let to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1026,7 +1026,7 @@ class ASTLet(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTLet':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTLet':
         """Create ASTLet from JSON representation.
         
         :param d: JSON dictionary with 'bindings' field
@@ -1124,7 +1124,7 @@ class ASTRemoteGraph(ASTObject):
                 value=type(self.token).__name__
             )
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert RemoteGraph to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1143,7 +1143,7 @@ class ASTRemoteGraph(ASTObject):
         return result
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRemoteGraph':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTRemoteGraph':
         """Create ASTRemoteGraph from JSON representation.
         
         :param d: JSON dictionary with 'dataset_id' field
@@ -1242,7 +1242,7 @@ class ASTRef(ASTObject):
         # ASTObject inherits from ASTSerializable, so this is safe
         return self.chain
     
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Ref to JSON representation.
         
         :param validate: Whether to validate before serialization
@@ -1259,7 +1259,7 @@ class ASTRef(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTRef':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTRef':
         """Create ASTRef from JSON representation.
         
         :param d: JSON dictionary with 'ref' and 'chain' fields
@@ -1378,7 +1378,7 @@ class ASTCall(ASTObject):
                 if param in self.params:
                     validate_column_name(self.params[param], f"call('{self.function}') {param} parameter")
 
-    def to_json(self, validate: bool = True) -> dict:
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Call to JSON representation.
         
         Args:
@@ -1396,7 +1396,7 @@ class ASTCall(ASTObject):
         }
     
     @classmethod
-    def from_json(cls, d: dict, validate: bool = True) -> 'ASTCall':
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTCall':
         """Create ASTCall from JSON representation.
         
         :param d: JSON dictionary with 'function' field and optional 'params'
@@ -1439,7 +1439,7 @@ class ASTCall(ASTObject):
         """
         # For chain_let, we don't use wavefronts, just execute the call
         # Import here due to circular dependency
-        from graphistry.compute.gfql.call_executor import execute_call  # noqa: F401, F811
+        from graphistry.compute.gfql.call.executor import execute_call  # noqa: F401, F811
         return execute_call(g, self.function, self.params, engine)
     
     def reverse(self) -> 'ASTCall':
@@ -1518,3 +1518,90 @@ ref = ASTRef  # noqa: E305
 # Import type-safe call() function from models/gfql/types/call
 # This provides overloaded signatures for IDE autocomplete and type checking
 from graphistry.models.gfql.types.call import call  # noqa: E305 E402 F401
+
+
+def rows(table: str = "nodes", source: Optional[str] = None) -> ASTCall:
+    """Create a row-source operation for GFQL row pipelines.
+
+    This operation converts graph outputs into a row table context (nodes or edges),
+    optionally constrained to a named alias/source tag.
+    """
+    params: Dict[str, Any] = {"table": table}
+    if source is not None:
+        params["source"] = source
+    return ASTCall("rows", params)
+
+
+ProjectionItem = Union[str, Tuple[str, Any]]
+
+
+def _normalize_projection_items(items: Iterable[ProjectionItem]) -> List[Tuple[str, Any]]:
+    out: List[Tuple[str, Any]] = []
+    for item in items:
+        if isinstance(item, str):
+            out.append((item, item))
+        else:
+            out.append(item)
+    return out
+
+
+def select(items: Iterable[ProjectionItem]) -> ASTCall:
+    """Create a row projection operation for GFQL row pipelines."""
+    return ASTCall("select", {"items": _normalize_projection_items(items)})
+
+
+def with_(items: Iterable[ProjectionItem]) -> ASTCall:
+    """Python-safe alias for Cypher WITH row projection semantics."""
+    return ASTCall("with_", {"items": _normalize_projection_items(items)})
+
+
+def return_(items: Iterable[ProjectionItem]) -> ASTCall:
+    """Python-safe alias for Cypher RETURN semantics."""
+    return select(items)
+
+
+def where_rows(
+    filter_dict: Optional[Dict[str, Any]] = None,
+    expr: Optional[str] = None,
+) -> ASTCall:
+    """Create a row-table WHERE operation using filter_dict and/or expression."""
+    params: Dict[str, Any] = {}
+    if filter_dict is not None:
+        params["filter_dict"] = filter_dict
+    if expr is not None:
+        params["expr"] = expr
+    if not params:
+        params["filter_dict"] = {}
+    return ASTCall("where_rows", params)
+
+
+def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
+    """Create an ORDER BY operation for GFQL row pipelines."""
+    return ASTCall("order_by", {"keys": list(keys)})
+
+
+def skip(value: Any) -> ASTCall:
+    """Create a SKIP operation for GFQL row pipelines."""
+    return ASTCall("skip", {"value": value})
+
+
+def limit(value: Any) -> ASTCall:
+    """Create a LIMIT operation for GFQL row pipelines."""
+    return ASTCall("limit", {"value": value})
+
+
+def distinct() -> ASTCall:
+    """Create a DISTINCT operation for GFQL row pipelines."""
+    return ASTCall("distinct", {})
+
+
+def unwind(expr: Any, as_: str = "value") -> ASTCall:
+    """Create a constrained UNWIND row expansion operation."""
+    return ASTCall("unwind", {"expr": expr, "as_": as_})
+
+
+def group_by(
+    keys: Iterable[str], aggregations: Iterable[Sequence[Any]]
+) -> ASTCall:
+    """Create grouped aggregation operation for row pipelines."""
+    return ASTCall("group_by", {"keys": list(keys), "aggregations": list(aggregations)})

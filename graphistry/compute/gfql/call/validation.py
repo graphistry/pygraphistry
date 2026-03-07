@@ -1,324 +1,311 @@
-"""Safelist of allowed methods for GFQL Call operations.
+"""GFQL call safelist and parameter validators."""
 
-This module defines which Plottable methods can be called through GFQL
-and their parameter validation rules.
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
-Available Operations:
-    Graph Transformations:
-        - hypergraph: Transform event data into entity relationships
-
-    Graph Traversals:
-        - hop: Multi-hop traversal with configurable direction and depth
-
-    Data Operations:
-        - get_degrees: Calculate node degrees (in/out/total)
-        - filter_edges_by_dict: Filter edges based on attribute values
-        - prune_self_edges: Remove self-referencing edges
-        - materialize_nodes: Compute and materialize node DataFrame
-
-    Layout Operations:
-        - layout_settings: Configure layout algorithm settings
-        - tree_layout: Apply hierarchical tree layout
-
-Usage:
-    from graphistry.compute.ast import call
-    from graphistry.compute.calls import hypergraph  # Typed alternative
-
-    # Using call() with string name
-    g.gfql(call('hypergraph', {'entity_types': ['user', 'product']}))
-
-    # Using typed builder (recommended for hypergraph)
-    g.gfql(hypergraph(entity_types=['user', 'product']))
-"""
-
-from typing import Dict, Any, List
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.gfql.call.support import (
+    EDGE_COLUMN_SCHEMA_EFFECTS,
+    NODE_COLUMN_SCHEMA_EFFECTS,
+    NO_SCHEMA_EFFECTS,
+    XY_NODE_SCHEMA_EFFECTS,
+    XY_OUT_COL_SCHEMA_EFFECTS,
+    _group_by_added_node_cols,
+    _hypergraph_edge_adds,
+    _hypergraph_input_required_cols,
+    _hypergraph_node_adds,
+    _is_json_compatible_value,
+    _method_entry,
+    _projection_row_entry,
+    _rows_requires_edge_cols,
+    _rows_requires_node_cols,
+    _schema_effects,
+    _umap_edge_adds,
+    _umap_edge_required_cols,
+    _umap_node_adds,
+    _umap_node_required_cols,
+    _unwind_added_node_cols,
+    is_bool,
+    is_dict,
+    is_int,
+    is_int_or_float,
+    is_int_or_none,
+    is_list,
+    is_list_of_agg_specs,
+    is_list_of_strings,
+    is_list_or_dict,
+    is_non_empty_list_of_strings,
+    is_non_empty_string,
+    is_non_negative_int_like,
+    is_string,
+    is_string_or_none,
+    is_unwind_expr,
+    validate_hypergraph_opts,
+)
+from graphistry.compute.gfql.row.order_expr import (
+    is_order_aggregate_alias_ast,
+    order_expr_ast_static_supported,
+)
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.expr_parser import ExprNode
+
+WhereRowsParseFn = Callable[[str], "ExprNode"]
+WhereRowsCapabilityFn = Callable[["ExprNode"], List[str]]
+WhereRowsCollectIdentifiersFn = Callable[["ExprNode"], Set[str]]
+WhereRowsParserBundle = Tuple[
+    WhereRowsParseFn,
+    WhereRowsCapabilityFn,
+    WhereRowsCollectIdentifiersFn,
+]
+WhereRowsParsedExpr = Tuple["ExprNode", WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
 
 
-# Type validators
-def is_string(v: Any) -> bool:
-    return isinstance(v, str)
+@lru_cache(maxsize=1)
+def _where_rows_expr_parser_fn() -> Optional[WhereRowsParserBundle]:
+    try:
+        from graphistry.compute.gfql.expr_parser import (
+            collect_identifiers,
+            parse_expr,
+            validate_expr_capabilities,
+        )
+        # Ensure parser backend dependencies are available at runtime (e.g., lark).
+        try:
+            parse_expr("1 = 1")
+        except ImportError:
+            return None
+        return parse_expr, validate_expr_capabilities, collect_identifiers
+    except Exception:
+        return None
 
 
-def is_int(v: Any) -> bool:
-    return isinstance(v, int)
+def _where_rows_expr_parse(expr: str) -> Optional[WhereRowsParsedExpr]:
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        return None
+    parser, capability_checker, collect_identifiers = parser_bundle
+    try:
+        return parser(expr), capability_checker, collect_identifiers
+    except Exception:
+        return None
 
 
-def is_bool(v: Any) -> bool:
-    return isinstance(v, bool)
-
-def is_int_or_none(v: Any) -> bool:
-    return v is None or isinstance(v, int)
-
-
-def is_dict(v: Any) -> bool:
-    return isinstance(v, dict)
-
-
-def is_string_or_none(v: Any) -> bool:
-    return v is None or isinstance(v, str)
-
-
-def is_float(v: Any) -> bool:
-    return isinstance(v, float)
+def _where_rows_expr_parser_parse_ok(expr: str) -> bool:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
+        return False
+    node, capability_checker, _collect_identifiers = parsed
+    try:
+        capability_errors = capability_checker(node)
+        if len(capability_errors) > 0:
+            return False
+        return True
+    except Exception:
+        return False
 
 
-def is_int_or_float(v: Any) -> bool:
-    return isinstance(v, (int, float))
-
-
-def is_list_of_strings(v: Any) -> bool:
-    return isinstance(v, list) and all(isinstance(item, str) for item in v)
-
-
-def is_list(v: Any) -> bool:
-    return isinstance(v, list)
-
-
-def is_list_or_dict(v: Any) -> bool:
-    return isinstance(v, (list, dict))
-
-
-def _symbolic_cols(v: Any) -> list:
-    if isinstance(v, str):
-        return [v]
-    if isinstance(v, list) and all(isinstance(item, str) for item in v):
-        return list(v)
-    return []
-
-
-def _resolve_hyper_opts(params: Dict[str, Any]) -> Dict[str, Any]:
-    opts = params.get('opts')
-    return opts if isinstance(opts, dict) else {}
-
-
-def _hypergraph_input_required_cols(params: Dict[str, Any]) -> list:
-    cols: list = []
-    entity_types = params.get('entity_types')
-    if isinstance(entity_types, list):
-        cols.extend([c for c in entity_types if isinstance(c, str)])
-    opts = _resolve_hyper_opts(params)
-    event_id = opts.get('EVENTID')
-    if isinstance(event_id, str):
-        cols.append(event_id)
-    return cols
-
-
-def _hypergraph_node_adds(params: Dict[str, Any]) -> list:
-    opts = _resolve_hyper_opts(params)
-    node_id = opts.get('NODEID', 'nodeID')
-    node_type = opts.get('NODETYPE', 'type')
-    title = opts.get('TITLE', 'nodeTitle')
-    out = []
-    if isinstance(node_id, str):
-        out.append(node_id)
-    if isinstance(node_type, str):
-        out.append(node_type)
-    if isinstance(title, str):
-        out.append(title)
-    return out
-
-
-def _hypergraph_edge_adds(params: Dict[str, Any]) -> list:
-    opts = _resolve_hyper_opts(params)
-    edge_type = opts.get('EDGETYPE', 'edgeType')
-    if params.get('direct'):
-        src = opts.get('SOURCE', 'src')
-        dst = opts.get('DESTINATION', 'dst')
-    else:
-        src = opts.get('ATTRIBID', 'attribID')
-        dst = opts.get('EVENTID', 'EventID')
-    out = []
-    if isinstance(src, str):
-        out.append(src)
-    if isinstance(dst, str):
-        out.append(dst)
-    if isinstance(edge_type, str):
-        out.append(edge_type)
-    return out
-
-
-def _umap_kind(params: Dict[str, Any]) -> str:
-    return params.get('kind', 'nodes')
-
-
-def _umap_suffix(params: Dict[str, Any]) -> str:
-    suffix = params.get('suffix', '')
-    return suffix if isinstance(suffix, str) else ''
-
-
-def _umap_node_required_cols(params: Dict[str, Any]) -> list:
-    if _umap_kind(params) != 'nodes':
+def _where_rows_expr_required_cols(expr: str) -> List[str]:
+    parsed = _where_rows_expr_parse(expr)
+    if parsed is None:
         return []
-    return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
-
-
-def _umap_edge_required_cols(params: Dict[str, Any]) -> list:
-    if _umap_kind(params) != 'edges':
+    node, _capability_checker, collect_identifiers = parsed
+    try:
+        names = collect_identifiers(node)
+    except Exception:
         return []
-    return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
+    cols: Set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or name == "":
+            continue
+        cols.add(name.split(".")[0])
+    return sorted(cols)
 
 
-def _umap_node_adds(params: Dict[str, Any]) -> list:
-    if _umap_kind(params) != 'nodes':
-        return []
-    suffix = _umap_suffix(params)
-    return [f'x{suffix}', f'y{suffix}']
+def _expr_required_cols(params: Dict[str, object], key: str = 'expr') -> List[str]:
+    expr = params.get(key)
+    return _where_rows_expr_required_cols(expr) if isinstance(expr, str) else []
+
+def is_order_keys(v: object) -> bool:
+    def _is_static_order_expr_supported(expr: str) -> bool:
+        txt = expr.strip()
+        if txt == "":
+            return False
+        parsed = _where_rows_expr_parse(txt)
+        if parsed is None:
+            return False
+        node, capability_checker, _collect_identifiers = parsed
+        if is_order_aggregate_alias_ast(node):
+            return True
+        try:
+            capability_errors = capability_checker(node)
+        except Exception:
+            return False
+        if len(capability_errors) > 0:
+            return False
+        return order_expr_ast_static_supported(node)
+
+    if not isinstance(v, list):
+        return False
+    for item in v:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        expr, direction = item
+        if not is_non_empty_string(expr):
+            return False
+        if not _is_static_order_expr_supported(expr):
+            return False
+        if not isinstance(direction, str) or direction.lower() not in {"asc", "desc"}:
+            return False
+    return True
 
 
-def _umap_edge_adds(params: Dict[str, Any]) -> list:
-    kind = _umap_kind(params)
-    suffix = _umap_suffix(params)
-    if kind == 'edges':
-        return [f'x{suffix}', f'y{suffix}']
-    if kind == 'nodes' and params.get('encode_weight', True):
-        return ['_src_implicit', '_dst_implicit', f'_weight{suffix}']
-    return []
-
-
-def _xy_out_cols(params: Dict[str, Any]) -> list:
-    return [params.get('x_out_col', 'x'), params.get('y_out_col', 'y')]
-
-
-def _required_column(params: Dict[str, Any]) -> list:
-    col = params.get('column')
-    return [col] if isinstance(col, str) else []
-
-
-
-
-def is_dict_str_to_list_str(v: Any) -> bool:
-    """Validate dict mapping strings to lists of strings."""
+def is_where_rows_filter_dict(v: object) -> bool:
     if not isinstance(v, dict):
         return False
+    # Lazy import avoids circular import at module import time
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
     for k, val in v.items():
-        if not isinstance(k, str):
+        if not is_non_empty_string(k):
             return False
-        if not is_list_of_strings(val):
+        if not (isinstance(val, ASTPredicate) or _is_json_compatible_value(val)):
             return False
     return True
 
 
-def validate_hypergraph_opts(v: Any) -> bool:
-    """Validate hypergraph opts parameter structure.
-
-    Expected structure based on HyperBindings class:
-    {
-        'TITLE': str,           # default: 'nodeTitle'
-        'DELIM': str,          # default: '::'
-        'NODEID': str,         # default: 'nodeID'
-        'ATTRIBID': str,       # default: 'attribID'
-        'EVENTID': str,        # default: 'EventID'
-        'EVENTTYPE': str,      # default: 'event'
-        'SOURCE': str,         # default: 'src'
-        'DESTINATION': str,    # default: 'dst'
-        'CATEGORY': str,       # default: 'category'
-        'NODETYPE': str,       # default: 'type'
-        'EDGETYPE': str,       # default: 'edgeType'
-        'NULLVAL': str,        # default: 'null'
-        'SKIP': List[str],     # optional list
-        'CATEGORIES': Dict[str, List[str]],  # category mappings
-        'EDGES': Dict[str, List[str]]        # edge type mappings
-    }
-    """
-    if not isinstance(v, dict):
+def is_where_rows_expr(v: object) -> bool:
+    if not is_non_empty_string(v):
         return False
-
-    # Known string keys from HyperBindings
-    string_keys = {
-        'TITLE', 'DELIM', 'NODEID', 'ATTRIBID', 'EVENTID', 'EVENTTYPE',
-        'SOURCE', 'DESTINATION', 'CATEGORY', 'NODETYPE', 'EDGETYPE', 'NULLVAL'
-    }
-
-    for key, val in v.items():
-        if not isinstance(key, str):
-            return False
-
-        # Check known string parameters
-        if key in string_keys:
-            if not isinstance(val, str):
-                return False
-        # Check SKIP parameter (list of strings)
-        elif key == 'SKIP':
-            if not is_list_of_strings(val):
-                return False
-        # Check CATEGORIES and EDGES (dict of string -> list of strings)
-        elif key in ('CATEGORIES', 'EDGES'):
-            if not is_dict_str_to_list_str(val):
-                return False
-        # Unknown key - still allow but must be JSON-serializable
-        else:
-            # For forward compatibility, allow other keys but they should be simple types
-            if not isinstance(val, (str, int, float, bool, list, dict, type(None))):
-                return False
-
-    return True
+    txt = str(v).strip()
+    parser_bundle = _where_rows_expr_parser_fn()
+    if parser_bundle is None:
+        return False
+    return _where_rows_expr_parser_parse_ok(txt)
 
 
-# Safelist configuration
-# Shared no-op schema effects for calls that neither require nor add columns.
-NO_SCHEMA_EFFECTS: Dict[str, List[str]] = {
-    'adds_node_cols': [],
-    'adds_edge_cols': [],
-    'requires_node_cols': [],
-    'requires_edge_cols': [],
-}
+def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    filter_dict = params.get("filter_dict")
+    if isinstance(filter_dict, dict):
+        out.extend([k for k in filter_dict.keys() if isinstance(k, str)])
+    out.extend(_expr_required_cols(params))
+    return sorted(set(out))
 
-XY_OUT_COL_SCHEMA_EFFECTS: Dict[str, Any] = {
-    'adds_node_cols': _xy_out_cols,
-    'adds_edge_cols': [],
-    'requires_node_cols': [],
-    'requires_edge_cols': [],
-}
 
-XY_NODE_SCHEMA_EFFECTS: Dict[str, List[str]] = {
-    'adds_node_cols': ['x', 'y'],
-    'adds_edge_cols': [],
-    'requires_node_cols': [],
-    'requires_edge_cols': [],
-}
+def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    return _expr_required_cols(params)
 
-NODE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
-    'adds_node_cols': [],
-    'adds_edge_cols': [],
-    'requires_node_cols': _required_column,
-    'requires_edge_cols': [],
-}
 
-EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
-    'adds_node_cols': [],
-    'adds_edge_cols': [],
-    'requires_node_cols': [],
-    'requires_edge_cols': _required_column,
-}
+def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
+    out: List[str] = []
+    keys = params.get("keys")
+    if isinstance(keys, list):
+        out.extend([k for k in keys if isinstance(k, str)])
+    aggregations = params.get("aggregations")
+    if isinstance(aggregations, list):
+        for item in aggregations:
+            if not isinstance(item, (list, tuple)) or len(item) != 3:
+                continue
+            expr = item[2]
+            if isinstance(expr, str) and expr != "*":
+                out.extend(_where_rows_expr_required_cols(expr))
+    return out
 
-# Dictionary mapping allowed Plottable method names to their validation rules.
-#
-# Each method entry contains:
-#     - allowed_params (Set[str]): Parameter names that can be passed to the method
-#     - required_params (Set[str]): Parameters that must be provided
-#     - param_validators (Dict[str, Callable]): Maps param names to validation functions
-#     - description (str): Human-readable description of what the method does
-#     - schema_effects (Dict[str, List[str]]): Describes schema changes:
-#         - adds_node_cols: Columns added to node DataFrame
-#         - adds_edge_cols: Columns added to edge DataFrame
-#         - requires_node_cols: Node columns that must exist before calling
-#         - requires_edge_cols: Edge columns that must exist before calling
-#
-# Example entry:
-#     'hop': {
-#         'allowed_params': {'steps', 'to_fixed_point', 'direction'},
-#         'required_params': set(),
-#         'param_validators': {
-#             'steps': is_int,
-#             'to_fixed_point': is_bool,
-#             'direction': lambda v: v in ['forward', 'reverse', 'undirected']
-#         },
-#         'description': 'Traverse graph edges for N steps',
-#         'schema_effects': {}
-#     }
+
+# Parser-backed helpers stay local because tests monkeypatch parser availability
+# and capability behavior through this module.
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
+    'rows': _method_entry(
+        allowed_params={'table', 'source'},
+        required_params=set(),
+        param_validators={
+            'table': lambda v: v in ['nodes', 'edges'],
+            'source': is_string_or_none,
+        },
+        description='Set active row table from nodes/edges, optionally filtered by source alias',
+        schema_effects=_schema_effects(
+            requires_node_cols=_rows_requires_node_cols,
+            requires_edge_cols=_rows_requires_edge_cols,
+        ),
+    ),
+
+    'select': _projection_row_entry('Project row table columns/expressions into aliased outputs'),
+
+    'return_': _projection_row_entry('RETURN-style row projection alias of select()'),
+
+    'with_': _projection_row_entry('WITH-style row projection with scope-reset semantics'),
+
+    'where_rows': _method_entry(
+        allowed_params={'filter_dict', 'expr'},
+        required_params=set(),
+        param_validators={
+            'filter_dict': is_where_rows_filter_dict,
+            'expr': is_where_rows_expr,
+        },
+        description='Filter active row table by column values/predicates',
+        schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
+    ),
+
+    'order_by': _method_entry(
+        allowed_params={'keys'},
+        required_params={'keys'},
+        param_validators={'keys': is_order_keys},
+        description='Sort active row table by expression/direction keys',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'skip': _method_entry(
+        allowed_params={'value'},
+        required_params={'value'},
+        param_validators={'value': is_non_negative_int_like},
+        description='Skip first N rows from active row table',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'limit': _method_entry(
+        allowed_params={'value'},
+        required_params={'value'},
+        param_validators={'value': is_non_negative_int_like},
+        description='Limit active row table to first N rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'unwind': _method_entry(
+        allowed_params={'expr', 'as_'},
+        required_params={'expr'},
+        param_validators={
+            'expr': is_unwind_expr,
+            'as_': is_non_empty_string,
+        },
+        description='Explode list-like row expression into multiple rows',
+        schema_effects=_schema_effects(
+            adds_node_cols=_unwind_added_node_cols,
+            requires_node_cols=_unwind_requires_node_cols,
+        ),
+    ),
+
+    'group_by': _method_entry(
+        allowed_params={'keys', 'aggregations'},
+        required_params={'keys', 'aggregations'},
+        param_validators={
+            'keys': is_non_empty_list_of_strings,
+            'aggregations': is_list_of_agg_specs,
+        },
+        description='Group rows by keys and compute vectorized aggregations',
+        schema_effects=_schema_effects(
+            adds_node_cols=_group_by_added_node_cols,
+            requires_node_cols=_group_by_requires_node_cols,
+        ),
+    ),
+
+    'distinct': _method_entry(
+        allowed_params=set(),
+        required_params=set(),
+        param_validators={},
+        description='Drop duplicate rows from active row table',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
     'get_degrees': {
         'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
         'required_params': set(),
@@ -887,44 +874,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 }
 
 
-def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate parameters for a GFQL Call operation against the safelist.
-    
-    Performs comprehensive validation:
-        1. Checks if function is in the safelist
-        2. Verifies all required parameters are present
-        3. Ensures no unknown parameters are passed
-        4. Validates parameter types using configured validators
-        5. Returns the validated parameters unchanged
-    
-    Args:
-        function: Name of the Plottable method to call
-        params: Dictionary of parameters to validate
-    
-    Returns:
-        The same parameters dict if validation passes
-    
-    Raises:
-        GFQLTypeError: If function not in safelist (E303)
-        GFQLTypeError: If required parameters missing (E105)
-        GFQLTypeError: If unknown parameters provided (E303)
-        GFQLTypeError: If parameter type validation fails (E201)
-    
-    **Example::**
-    
-        # Valid call
-        params = validate_call_params('hop', {'steps': 2, 'direction': 'forward'})
-        
-        # Invalid - unknown function
-        validate_call_params('dangerous_method', {})  # Raises E303
-        
-        # Invalid - missing required param
-        validate_call_params('fa2_layout', {})  # Would raise E105 if layout was required
-        
-        # Invalid - wrong type
-        validate_call_params('hop', {'steps': 'two'})  # Raises E201
-    """
-    # Check if function is in safelist
+def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, object]:
+    """Validate a GFQL call against the safelist."""
     if function not in SAFELIST_V1:
         raise GFQLTypeError(
             ErrorCode.E303,
@@ -938,8 +889,7 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
     allowed_params = config['allowed_params']
     required_params = config['required_params']
     param_validators = config['param_validators']
-    
-    # Check for required parameters
+
     missing_required = required_params - set(params.keys())
     if missing_required:
         raise GFQLTypeError(
@@ -949,8 +899,7 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
             value=list(missing_required),
             suggestion=f"Required parameters: {', '.join(sorted(missing_required))}"
         )
-    
-    # Check for unknown parameters
+
     unknown_params = set(params.keys()) - allowed_params
     if unknown_params:
         raise GFQLTypeError(
@@ -960,8 +909,7 @@ def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any
             value=list(unknown_params),
             suggestion=f"Allowed parameters: {', '.join(sorted(allowed_params))}"
         )
-    
-    # Validate parameter types
+
     for param_name, param_value in params.items():
         if param_name in param_validators:
             validator = param_validators[param_name]

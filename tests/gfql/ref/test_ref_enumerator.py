@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+pytest.importorskip("hypothesis")
 from hypothesis import given, settings, strategies as st
 from typing import Set
 from types import SimpleNamespace
