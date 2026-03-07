@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
@@ -288,36 +289,13 @@ def _parser() -> _ParserLike:
 def _parse_string_token(token: str) -> str:
     if len(token) < 2 or token[0] != token[-1] or token[0] not in {"'", '"'}:
         raise GFQLExprParseError("Invalid string literal")
-    quote = token[0]
-    out: List[str] = []
-    i = 1
-    end = len(token) - 1
-    while i < end:
-        ch = token[i]
-        if ch != "\\":
-            out.append(ch)
-            i += 1
-            continue
-        if i + 1 >= end:
-            raise GFQLExprParseError("Invalid string literal")
-        nxt = token[i + 1]
-        if nxt == quote or nxt == "\\":
-            out.append(nxt)
-        elif nxt == "n":
-            out.append("\n")
-        elif nxt == "r":
-            out.append("\r")
-        elif nxt == "t":
-            out.append("\t")
-        elif nxt == "b":
-            out.append("\b")
-        elif nxt == "f":
-            out.append("\f")
-        else:
-            # Keep unknown escapes permissive for Cypher-like inputs.
-            out.append(nxt)
-        i += 2
-    return "".join(out)
+    try:
+        value = pyast.literal_eval(token)
+    except Exception as exc:
+        raise GFQLExprParseError("Invalid string literal") from exc
+    if not isinstance(value, str):
+        raise GFQLExprParseError("Invalid string literal")
+    return value
 
 
 def _parse_number_token(token: str) -> Union[int, float]:

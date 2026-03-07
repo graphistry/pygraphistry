@@ -311,23 +311,26 @@ def is_non_negative_int_like(v: object) -> bool:
     return False
 
 
-def _rows_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+def _rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
     if params.get('table', 'nodes') != 'nodes':
         return []
     source = params.get('source')
     return [source] if isinstance(source, str) else []
 
 
-def _rows_requires_edge_cols(params: Dict[str, Any]) -> List[str]:
+def _rows_requires_edge_cols(params: Dict[str, object]) -> List[str]:
     if params.get('table', 'nodes') != 'edges':
         return []
     source = params.get('source')
     return [source] if isinstance(source, str) else []
 
 
-def _select_added_node_cols(params: Dict[str, Any]) -> List[str]:
+def _select_added_node_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
-    for item in params.get('items', []):
+    items = params.get('items')
+    if not isinstance(items, list):
+        return out
+    for item in items:
         if isinstance(item, str):
             out.append(item)
             continue
@@ -341,7 +344,7 @@ def _select_added_node_cols(params: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _where_rows_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
     filter_dict = params.get('filter_dict')
     if not isinstance(filter_dict, dict):
@@ -356,7 +359,7 @@ def _where_rows_requires_node_cols(params: Dict[str, Any]) -> List[str]:
     return sorted(set(out))
 
 
-def _unwind_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
     expr = params.get('expr')
     if isinstance(expr, str):
         txt = expr.strip()
@@ -365,12 +368,12 @@ def _unwind_requires_node_cols(params: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _unwind_added_node_cols(params: Dict[str, Any]) -> List[str]:
+def _unwind_added_node_cols(params: Dict[str, object]) -> List[str]:
     as_name = params.get('as_', 'value')
     return [as_name] if isinstance(as_name, str) and as_name != '' else []
 
 
-def _group_by_requires_node_cols(params: Dict[str, Any]) -> List[str]:
+def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
     keys = params.get('keys')
     if isinstance(keys, list):
@@ -390,7 +393,7 @@ def _group_by_requires_node_cols(params: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _group_by_added_node_cols(params: Dict[str, Any]) -> List[str]:
+def _group_by_added_node_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
     keys = params.get('keys')
     if isinstance(keys, list):
@@ -414,12 +417,12 @@ def _symbolic_cols(v: object) -> List[str]:
     return []
 
 
-def _resolve_hyper_opts(params: Dict[str, Any]) -> Dict[str, Any]:
+def _resolve_hyper_opts(params: Dict[str, object]) -> Dict[str, object]:
     opts = params.get('opts')
     return opts if isinstance(opts, dict) else {}
 
 
-def _hypergraph_input_required_cols(params: Dict[str, Any]) -> List[str]:
+def _hypergraph_input_required_cols(params: Dict[str, object]) -> List[str]:
     cols: List[str] = []
     entity_types = params.get('entity_types')
     if isinstance(entity_types, list):
@@ -431,7 +434,7 @@ def _hypergraph_input_required_cols(params: Dict[str, Any]) -> List[str]:
     return cols
 
 
-def _hypergraph_node_adds(params: Dict[str, Any]) -> List[str]:
+def _hypergraph_node_adds(params: Dict[str, object]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     node_id = opts.get('NODEID', 'nodeID')
     node_type = opts.get('NODETYPE', 'type')
@@ -446,7 +449,7 @@ def _hypergraph_node_adds(params: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _hypergraph_edge_adds(params: Dict[str, Any]) -> List[str]:
+def _hypergraph_edge_adds(params: Dict[str, object]) -> List[str]:
     opts = _resolve_hyper_opts(params)
     edge_type = opts.get('EDGETYPE', 'edgeType')
     if params.get('direct'):
@@ -465,35 +468,36 @@ def _hypergraph_edge_adds(params: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _umap_kind(params: Dict[str, Any]) -> str:
-    return params.get('kind', 'nodes')
+def _umap_kind(params: Dict[str, object]) -> str:
+    kind = params.get('kind', 'nodes')
+    return kind if isinstance(kind, str) else 'nodes'
 
 
-def _umap_suffix(params: Dict[str, Any]) -> str:
+def _umap_suffix(params: Dict[str, object]) -> str:
     suffix = params.get('suffix', '')
     return suffix if isinstance(suffix, str) else ''
 
 
-def _umap_node_required_cols(params: Dict[str, Any]) -> List[str]:
+def _umap_node_required_cols(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_edge_required_cols(params: Dict[str, Any]) -> List[str]:
+def _umap_edge_required_cols(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'edges':
         return []
     return _symbolic_cols(params.get('X')) + _symbolic_cols(params.get('y'))
 
 
-def _umap_node_adds(params: Dict[str, Any]) -> List[str]:
+def _umap_node_adds(params: Dict[str, object]) -> List[str]:
     if _umap_kind(params) != 'nodes':
         return []
     suffix = _umap_suffix(params)
     return [f'x{suffix}', f'y{suffix}']
 
 
-def _umap_edge_adds(params: Dict[str, Any]) -> List[str]:
+def _umap_edge_adds(params: Dict[str, object]) -> List[str]:
     kind = _umap_kind(params)
     suffix = _umap_suffix(params)
     if kind == 'edges':
@@ -503,7 +507,7 @@ def _umap_edge_adds(params: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _xy_out_cols(params: Dict[str, Any]) -> List[str]:
+def _xy_out_cols(params: Dict[str, object]) -> List[str]:
     out: List[str] = []
     x_col = params.get('x_out_col', 'x')
     y_col = params.get('y_out_col', 'y')
@@ -514,7 +518,7 @@ def _xy_out_cols(params: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _required_column(params: Dict[str, Any]) -> List[str]:
+def _required_column(params: Dict[str, object]) -> List[str]:
     col = params.get('column')
     return [col] if isinstance(col, str) else []
 
@@ -1358,7 +1362,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 }
 
 
-def validate_call_params(function: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, object]:
     """Validate parameters for a GFQL Call operation against the safelist.
     
     Performs comprehensive validation:
