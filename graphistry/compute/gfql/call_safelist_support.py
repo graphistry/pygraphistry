@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, Dict, List, Set
 
-from graphistry.compute.gfql.operator_vocab import GFQL_AGGREGATION_FUNCTIONS
+from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 
 
 def is_string(v: object) -> bool:

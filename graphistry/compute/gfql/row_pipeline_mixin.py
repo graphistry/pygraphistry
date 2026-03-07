@@ -10,7 +10,7 @@ from graphistry.compute.gfql.order_expr_utils import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
-from graphistry.compute.gfql.operator_vocab import (
+from graphistry.compute.gfql.language_defs import (
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
 )

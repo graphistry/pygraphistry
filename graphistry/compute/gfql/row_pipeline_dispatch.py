@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict
 
-from graphistry.compute.gfql.operator_vocab import GFQL_COMPARISON_BINARY_OPS, GFQL_GROUPBY_AGG_METHODS
+from graphistry.compute.gfql.language_defs import GFQL_COMPARISON_BINARY_OPS, GFQL_GROUPBY_AGG_METHODS
 
 _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "contains": lambda left_txt, right_txt: right_txt in left_txt,

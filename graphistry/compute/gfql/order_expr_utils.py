@@ -16,7 +16,7 @@ from graphistry.compute.gfql.expr_parser import (
     iter_expr_children,
     is_expr_node,
 )
-from graphistry.compute.gfql.operator_vocab import GFQL_ORDER_AGG_ALIAS_FUNCTIONS
+from graphistry.compute.gfql.language_defs import GFQL_ORDER_AGG_ALIAS_FUNCTIONS
 
 _ORDER_UNSUPPORTED_NODE_TYPES: Final[tuple[type, ...]] = (
     QuantifierExpr,

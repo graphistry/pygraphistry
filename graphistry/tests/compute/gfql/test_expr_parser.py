@@ -14,7 +14,7 @@ from graphistry.compute.gfql.expr_parser import (
     parse_expr,
     validate_expr_capabilities,
 )
-from graphistry.compute.gfql.operator_vocab import GFQL_COMPARISON_BINARY_OP_NAMES
+from graphistry.compute.gfql.language_defs import GFQL_COMPARISON_BINARY_OP_NAMES
 
 
 def _has_lark() -> bool:

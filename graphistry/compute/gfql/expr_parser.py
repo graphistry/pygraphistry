@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
-from graphistry.compute.gfql.operator_vocab import (
+from graphistry.compute.gfql.language_defs import (
     GFQL_ALLOWED_BINARY_OPS,
     GFQL_ALLOWED_FUNCTIONS,
     GFQL_ALLOWED_QUANTIFIERS,
