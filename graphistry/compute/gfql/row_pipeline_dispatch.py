@@ -1,26 +1,6 @@
-import operator
 from typing import Any, Callable, Dict
 
-
-GFQL_COMPARISON_BINARY_OPS: Dict[str, Callable[[Any, Any], Any]] = {
-    "=": operator.eq,
-    "!=": operator.ne,
-    "<>": operator.ne,
-    "<": operator.lt,
-    "<=": operator.le,
-    ">": operator.gt,
-    ">=": operator.ge,
-}
-
-GFQL_GROUPBY_AGG_METHODS: Dict[str, str] = {
-    "count": "count",
-    "count_distinct": "nunique",
-    "sum": "sum",
-    "min": "min",
-    "max": "max",
-    "avg": "mean",
-    "mean": "mean",
-}
+from graphistry.compute.gfql.operator_vocab import GFQL_COMPARISON_BINARY_OPS, GFQL_GROUPBY_AGG_METHODS
 
 _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "contains": lambda left_txt, right_txt: right_txt in left_txt,

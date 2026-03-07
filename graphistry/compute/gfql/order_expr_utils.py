@@ -16,11 +16,8 @@ from graphistry.compute.gfql.expr_parser import (
     iter_expr_children,
     is_expr_node,
 )
+from graphistry.compute.gfql.operator_vocab import GFQL_ORDER_AGG_ALIAS_FUNCTIONS
 
-
-_ORDER_AGG_ALIAS_FUNCS: Final[frozenset[str]] = frozenset(
-    {"count", "sum", "min", "max", "avg", "mean", "collect"}
-)
 _ORDER_UNSUPPORTED_NODE_TYPES: Final[tuple[type, ...]] = (
     QuantifierExpr,
     ListComprehension,
@@ -34,7 +31,7 @@ _ORDER_UNSUPPORTED_NODE_TYPES: Final[tuple[type, ...]] = (
 def is_order_aggregate_alias_ast(node: object) -> bool:
     if not isinstance(node, FunctionCall):
         return False
-    if node.name.lower() not in _ORDER_AGG_ALIAS_FUNCS or len(node.args) != 1:
+    if node.name.lower() not in GFQL_ORDER_AGG_ALIAS_FUNCTIONS or len(node.args) != 1:
         return False
 
     arg = node.args[0]

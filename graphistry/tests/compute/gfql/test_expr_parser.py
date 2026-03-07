@@ -14,6 +14,7 @@ from graphistry.compute.gfql.expr_parser import (
     parse_expr,
     validate_expr_capabilities,
 )
+from graphistry.compute.gfql.operator_vocab import GFQL_COMPARISON_BINARY_OP_NAMES
 
 
 def _has_lark() -> bool:
@@ -89,6 +90,14 @@ def test_parse_expr_precedence_tree() -> None:
 def test_parse_expr_accepts_supported_samples(expr: str) -> None:
     node = parse_expr(expr)
     assert node is not None
+
+
+@requires_lark
+@pytest.mark.parametrize("op", sorted(GFQL_COMPARISON_BINARY_OP_NAMES))
+def test_parse_expr_accepts_shared_comparison_vocab(op: str) -> None:
+    node = parse_expr(f"score {op} 1")
+    assert isinstance(node, BinaryOp)
+    assert node.op == op
 
 
 @requires_lark

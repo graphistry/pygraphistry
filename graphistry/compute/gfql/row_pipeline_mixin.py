@@ -10,9 +10,11 @@ from graphistry.compute.gfql.order_expr_utils import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
-from graphistry.compute.gfql.row_pipeline_dispatch import (
+from graphistry.compute.gfql.operator_vocab import (
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
+)
+from graphistry.compute.gfql.row_pipeline_dispatch import (
     apply_string_predicate_scalar,
     apply_string_predicate_series,
     eval_sequence_fn_scalar,

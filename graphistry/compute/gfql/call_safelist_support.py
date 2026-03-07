@@ -2,6 +2,8 @@
 
 from typing import Any, Callable, Dict, List, Set
 
+from graphistry.compute.gfql.operator_vocab import GFQL_AGGREGATION_FUNCTIONS
+
 
 def is_string(v: object) -> bool:
     return isinstance(v, str)
@@ -84,7 +86,6 @@ def is_non_empty_list_of_strings(v: object) -> bool:
 
 
 def is_list_of_agg_specs(v: object) -> bool:
-    allowed = {"count", "count_distinct", "sum", "min", "max", "avg", "mean", "collect"}
     if not isinstance(v, list):
         return False
     for item in v:
@@ -97,7 +98,7 @@ def is_list_of_agg_specs(v: object) -> bool:
         if not isinstance(func, str):
             return False
         func_l = func.lower()
-        if func_l not in allowed:
+        if func_l not in GFQL_AGGREGATION_FUNCTIONS:
             return False
         if func_l == "count":
             if len(item) == 2:

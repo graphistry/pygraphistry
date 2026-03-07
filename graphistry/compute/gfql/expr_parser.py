@@ -5,53 +5,20 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
-
-DEFAULT_ALLOWED_FUNCTIONS: FrozenSet[str] = frozenset(
-    {
-        "size",
-        "abs",
-        "toboolean",
-        "tostring",
-        "coalesce",
-        "sign",
-        "head",
-        "tail",
-        "reverse",
-        "nodes",
-        "relationships",
-        "any",
-        "all",
-        "none",
-        "single",
-    }
+from graphistry.compute.gfql.operator_vocab import (
+    GFQL_ALLOWED_BINARY_OPS,
+    GFQL_ALLOWED_FUNCTIONS,
+    GFQL_ALLOWED_QUANTIFIERS,
+    GFQL_ALLOWED_UNARY_OPS,
+    GFQL_COMPARISON_GRAMMAR_ALTS,
+    GFQL_STRING_PREDICATE_OPS,
 )
 
-DEFAULT_ALLOWED_BINARY_OPS: FrozenSet[str] = frozenset(
-    {
-        "or",
-        "and",
-        "=",
-        "!=",
-        "<>",
-        "<",
-        "<=",
-        ">",
-        ">=",
-        "in",
-        "contains",
-        "starts_with",
-        "ends_with",
-        "+",
-        "-",
-        "*",
-        "/",
-        "%",
-    }
-)
 
-DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = frozenset({"+", "-", "not"})
-
-DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = frozenset({"any", "all", "none", "single"})
+DEFAULT_ALLOWED_FUNCTIONS: FrozenSet[str] = GFQL_ALLOWED_FUNCTIONS
+DEFAULT_ALLOWED_BINARY_OPS: FrozenSet[str] = GFQL_ALLOWED_BINARY_OPS
+DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
+DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 
 
 @dataclass(frozen=True)
@@ -275,7 +242,7 @@ literal: "NULL"i                            -> null_lit
        | NUMBER                          -> number_lit
        | STRING                          -> string_lit
 
-COMP_OP: "<=" | ">=" | "<>" | "!=" | "=" | "<" | ">"
+COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
 NAME: /(?!(?i:AND|OR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
@@ -285,6 +252,8 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
 %ignore WS
 """
+
+_GRAMMAR = _GRAMMAR.replace("__GFQL_COMPARISON_GRAMMAR_ALTS__", GFQL_COMPARISON_GRAMMAR_ALTS)
 
 class _ParserLike(Protocol):
     def parse(self, text: str) -> object:
@@ -769,7 +738,7 @@ def validate_expr_capabilities(
             op = n.op.lower()
             if op not in allowed_binary_ops:
                 errors.append(f"unsupported binary op: {n.op}")
-            if op in {"contains", "starts_with", "ends_with"} and not isinstance(n.right, Literal):
+            if op in GFQL_STRING_PREDICATE_OPS and not isinstance(n.right, Literal):
                 errors.append(f"string predicate rhs must be literal scalar: {n.op}")
             return
         if isinstance(n, IsNullOp):
