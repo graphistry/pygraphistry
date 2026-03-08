@@ -206,8 +206,8 @@ _GRAMMAR = r"""
               | ".."                     -> subscript_slice_all
 
 ?primary: literal
-        | identifier
         | function_call
+        | identifier
         | case_expr
         | quantifier_expr
         | list_comprehension
@@ -224,7 +224,7 @@ map_entry: map_key ":" expr
 map_key: NAME                            -> map_key_name
        | STRING                          -> map_key_string
 
-function_call: NAME "(" func_args ")"
+function_call: identifier "(" func_args ")"
 ?func_args: distinct_func_args
          | regular_func_args
 regular_func_args: func_arg ("," func_arg)*
@@ -385,8 +385,9 @@ def _build_transformer() -> _TransformerLike:
             distinct = False
             for item in items:
                 if _is_token(item):
-                    if str(getattr(item, "type", "")) == "NAME" and fn == "":
-                        fn = str(item).lower()
+                    continue
+                if isinstance(item, Identifier) and fn == "":
+                    fn = item.name.lower()
                     continue
                 if isinstance(item, _FunctionArgs):
                     args = item.args

@@ -99,6 +99,7 @@ def test_parse_expr_xor_precedence_tree() -> None:
         "name CONTAINS 'a'",
         "meta['k'] = 'v'",
         "vals[1..3]",
+        "date.truncate('year', date({year: 1984, month: 10, day: 11}), {})",
     ],
 )
 def test_parse_expr_accepts_supported_samples(expr: str) -> None:
@@ -191,6 +192,14 @@ def test_parse_expr_distinct_function_node() -> None:
     assert node.name == "count"
     assert node.distinct is True
     assert node.args == (Identifier("score"),)
+
+
+@requires_lark
+def test_parse_expr_dotted_function_node() -> None:
+    node = parse_expr("date.truncate('year', date({year: 1984, month: 10, day: 11}), {})")
+    assert isinstance(node, FunctionCall)
+    assert node.name == "date.truncate"
+    assert len(node.args) == 3
 
 
 @requires_lark
