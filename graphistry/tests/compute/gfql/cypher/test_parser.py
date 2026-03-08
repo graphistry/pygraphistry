@@ -200,6 +200,18 @@ def test_parse_with_then_return_pipeline() -> None:
     assert parsed.return_.items[0].expression.text == "ints"
 
 
+def test_parse_multiple_with_stages_and_long_order_directions() -> None:
+    parsed = parse_cypher("WITH 1 AS a, 2 AS b WITH a ORDER BY a ASCENDING WITH a ORDER BY a DESCENDING RETURN a")
+
+    assert len(parsed.with_stages) == 3
+    assert parsed.with_stages[0].clause.items[0].expression.text == "1"
+    assert parsed.with_stages[1].order_by is not None
+    assert parsed.with_stages[1].order_by.items[0].direction == "asc"
+    assert parsed.with_stages[2].order_by is not None
+    assert parsed.with_stages[2].order_by.items[0].direction == "desc"
+    assert parsed.return_.items[0].expression.text == "a"
+
+
 def test_parse_unwind_without_match() -> None:
     parsed = parse_cypher("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x")
 

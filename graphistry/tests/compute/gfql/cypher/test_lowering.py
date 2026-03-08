@@ -745,6 +745,29 @@ def test_string_cypher_executes_with_then_return_pipeline() -> None:
     assert result._nodes.to_dict(orient="records") == [{"ints": 3}, {"ints": 2}]
 
 
+def test_string_cypher_executes_multiple_with_stages() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("WITH 1 AS a, 'b' AS b WITH a ORDER BY a ASCENDING WITH a RETURN a")
+
+    assert result._nodes.to_dict(orient="records") == [{"a": 1}]
+
+
+def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError, match="ORDER BY column must exist after RETURN/WITH projection"):
+        g.gfql("WITH 1 AS a, 'b' AS b, 3 AS c WITH a, b WITH a ORDER BY a, c RETURN a")
+
+
+def test_string_cypher_executes_row_column_expression_order_after_with() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("UNWIND [1, 2, 3] AS a WITH a ORDER BY a + 2 DESC, a ASC LIMIT 1 RETURN a")
+
+    assert result._nodes.to_dict(orient="records") == [{"a": 3}]
+
+
 def test_string_cypher_executes_match_with_then_return_pipeline() -> None:
     nodes = pd.DataFrame(
         {
@@ -806,6 +829,27 @@ def test_string_cypher_executes_match_with_arithmetic_order_pipeline() -> None:
         {"id": "c"},
         {"id": "a"},
     ]
+
+
+def test_string_cypher_executes_match_with_constant_expression_order_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["1a", "1b", "2a", "2b", "3a", "3b", "4a", "4b"],
+            "num": [1, 1, 2, 2, 3, 3, 4, 4],
+            "text": ["a", "b", "a", "b", "a", "b", "a", "b"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) "
+        "WITH a "
+        "ORDER BY 4 + ((a.num * 2) % 2) ASC, a.num ASC, a.text ASC "
+        "LIMIT 1 "
+        "RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a": "({num: 1, text: 'a'})"}]
 
 
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:

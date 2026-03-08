@@ -97,7 +97,9 @@ alias: "AS"i NAME
 order_by_clause: "ORDER"i "BY"i order_item ("," order_item)*
 order_item: order_expr order_direction?
 order_direction: "ASC"i  -> asc_order
+               | "ASCENDING"i -> asc_order
                | "DESC"i -> desc_order
+               | "DESCENDING"i -> desc_order
 
 skip_clause: "SKIP"i page_value
 limit_clause: "LIMIT"i page_value
@@ -209,7 +211,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
 MINUS: /-(?!-)/
-NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/

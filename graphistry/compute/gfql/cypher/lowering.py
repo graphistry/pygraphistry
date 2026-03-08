@@ -1355,8 +1355,10 @@ def _lower_order_by_clause(
     keys: List[Tuple[str, str]] = []
     for item in clause.items:
         try:
-            alias_name, prop = _split_qualified_name(
+            alias_name, prop = _projection_ref_from_expr(
                 item.expression.text,
+                alias_targets=alias_targets or {},
+                field="order_by",
                 line=item.span.line,
                 column=item.span.column,
             )
@@ -1461,18 +1463,29 @@ def _lower_order_by_outputs(
     *,
     available_columns: Set[str],
     expr_to_output: Mapping[str, str],
+    params: Optional[Mapping[str, Any]] = None,
 ) -> ASTObject:
     keys: List[Tuple[str, str]] = []
     for item in clause.items:
         order_key = expr_to_output.get(item.expression.text, item.expression.text)
         if order_key not in available_columns:
-            raise _unsupported(
-                "ORDER BY column must exist after RETURN/WITH projection in this phase",
+            node = _parse_row_expr(
+                item.expression.text,
+                params=params,
                 field="order_by",
-                value=item.expression.text,
                 line=item.span.line,
                 column=item.span.column,
             )
+            roots = {ident.split(".", 1)[0] for ident in collect_identifiers(node)}
+            if any(root not in available_columns for root in roots):
+                raise _unsupported(
+                    "ORDER BY column must exist after RETURN/WITH projection in this phase",
+                    field="order_by",
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            order_key = item.expression.text
         keys.append((order_key, item.direction))
     return order_by(keys)
 
@@ -1831,6 +1844,7 @@ def _lower_row_column_stage(
                 stage.order_by,
                 available_columns=available_columns,
                 expr_to_output=expr_to_output,
+                params=params,
             )
         )
     _append_page_ops_values(
@@ -2011,6 +2025,7 @@ def _lower_row_column_aggregate_stage(
                 stage.order_by,
                 available_columns=available_columns,
                 expr_to_output=expr_to_output,
+                params=params,
             )
         )
     _append_page_ops_values(
@@ -2492,6 +2507,7 @@ def _lower_general_row_projection(
                 query.order_by,
                 available_columns=available_columns,
                 expr_to_output=expr_to_output,
+                params=params,
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
@@ -2522,15 +2538,6 @@ def compile_cypher_query(
     )
 
     if query.with_stages:
-        if len(query.with_stages) > 1:
-            raise _unsupported(
-                "Multiple WITH stages are not yet supported in the local Cypher compiler",
-                field="with",
-                value=len(query.with_stages),
-                line=query.with_stages[1].span.line,
-                column=query.with_stages[1].span.column,
-            )
-
         first_stage = query.with_stages[0]
         row_steps, scope = _build_initial_row_scope(
             query,
@@ -2540,16 +2547,17 @@ def compile_cypher_query(
             params=params,
         )
 
-        if scope.mode == "match_alias":
-            stage_steps, scope, _ = _lower_match_alias_stage(
-                first_stage,
-                scope=scope,
-                params=params,
-                final_stage=False,
-            )
-        else:
-            stage_steps, scope = _lower_row_column_stage(first_stage, scope=scope, params=params)
-        row_steps.extend(stage_steps)
+        for stage in query.with_stages:
+            if scope.mode == "match_alias":
+                stage_steps, scope, _ = _lower_match_alias_stage(
+                    stage,
+                    scope=scope,
+                    params=params,
+                    final_stage=False,
+                )
+            else:
+                stage_steps, scope = _lower_row_column_stage(stage, scope=scope, params=params)
+            row_steps.extend(stage_steps)
 
         final_stage = ProjectionStage(
             clause=query.return_,
