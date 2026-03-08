@@ -177,6 +177,29 @@ def test_parse_top_level_projection_only() -> None:
     assert parsed.limit is not None and parsed.limit.value == 1
 
 
+def test_parse_top_level_quantifier_expression() -> None:
+    parsed = parse_cypher("RETURN none(x IN [true, false] WHERE x) AS result")
+
+    assert parsed.match is None
+    assert parsed.return_.items[0].expression.text == "none(x IN [true, false] WHERE x)"
+    assert parsed.return_.items[0].alias == "result"
+
+
+def test_parse_top_level_membership_and_null_expression() -> None:
+    parsed = parse_cypher("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty")
+
+    assert [item.expression.text for item in parsed.return_.items] == [
+        "3 IN [1, 2, 3]",
+        "null IS NULL",
+    ]
+
+
+def test_parse_top_level_list_comprehension_expression() -> None:
+    parsed = parse_cypher("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
+
+    assert parsed.return_.items[0].expression.text == "[x IN [1, 2, 3] WHERE x > 1 | x + 10]"
+
+
 def test_invalid_syntax_reports_line_and_column() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
         parse_cypher("MATCH (n RETURN n")

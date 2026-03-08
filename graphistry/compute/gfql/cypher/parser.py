@@ -99,8 +99,20 @@ order_expr: expr
 ?or_expr: and_expr
         | or_expr "OR"i and_expr            -> or_op
 
-?and_expr: additive
-         | and_expr "AND"i additive         -> and_op
+?and_expr: not_expr
+         | and_expr "AND"i not_expr         -> and_op
+
+?not_expr: "NOT"i not_expr                  -> not_op
+         | predicate
+
+?predicate: additive
+          | additive COMP_OP additive       -> cmp_op
+          | additive "IS"i "NULL"i          -> expr_is_null
+          | additive "IS"i "NOT"i "NULL"i   -> expr_is_not_null
+          | additive "IN"i additive         -> in_op
+          | additive "CONTAINS"i additive   -> contains_op
+          | additive "STARTS"i "WITH"i additive -> starts_with_op
+          | additive "ENDS"i "WITH"i additive -> ends_with_op
 
 ?additive: multiplicative
          | additive "+" multiplicative      -> add_op
@@ -113,15 +125,26 @@ order_expr: expr
 
 ?unary: "+" unary                           -> uplus
       | MINUS unary                         -> uminus
-      | primary
+      | postfix
+
+?postfix: primary
+        | postfix "[" subscript_key "]"     -> subscript
 
 ?primary: parameter
         | literal
         | qualified_name
         | function_call
+        | quantifier_expr
+        | list_comprehension
         | list_literal
         | map_literal
         | "(" expr ")"                      -> grouped_expr
+
+?subscript_key: expr                        -> subscript_index
+              | expr ".." expr              -> subscript_slice_between
+              | expr ".."                   -> subscript_slice_from
+              | ".." expr                   -> subscript_slice_to
+              | ".."                        -> subscript_slice_all
 
 function_call: NAME "(" [func_args] ")"
 func_args: func_arg ("," func_arg)*
@@ -136,6 +159,16 @@ map_entries: map_entry ("," map_entry)*
 map_entry: map_key ":" expr
 map_key: NAME                               -> map_key_name
        | STRING                             -> map_key_string
+
+quantifier_expr: "ANY"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> any_quant
+               | "ALL"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> all_quant
+               | "NONE"i "(" NAME "IN"i expr "WHERE"i expr ")"      -> none_quant
+               | "SINGLE"i "(" NAME "IN"i expr "WHERE"i expr ")"    -> single_quant
+
+list_comprehension: "[" NAME "IN"i expr "]"                          -> lc_source
+                  | "[" NAME "IN"i expr "|" expr "]"                 -> lc_projection
+                  | "[" NAME "IN"i expr "WHERE"i expr "]"            -> lc_where
+                  | "[" NAME "IN"i expr "WHERE"i expr "|" expr "]"   -> lc_where_projection
 
 ?value: parameter
       | literal
@@ -152,7 +185,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
 MINUS: /-(?!-)/
-NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|NULL|TRUE|FALSE|IS)\b)[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/

@@ -352,3 +352,27 @@ def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
         cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.id) AS max_b")
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_gfql_executes_top_level_quantifier_expression() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN none(x IN [true, false] WHERE x) AS result")
+
+    assert result._nodes.to_dict(orient="records") == [{"result": False}]
+
+
+def test_gfql_executes_top_level_membership_and_null_expression() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty")
+
+    assert result._nodes.to_dict(orient="records") == [{"hit": True, "empty": True}]
+
+
+def test_gfql_executes_top_level_list_comprehension_expression() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
+
+    assert result._nodes.to_dict(orient="records") == [{"vals": [12, 13]}]
