@@ -46,7 +46,8 @@ stage: with_stage
 with_stage: with_clause with_where_clause? order_by_clause? skip_clause? limit_clause?
 return_stage: return_clause order_by_clause? skip_clause? limit_clause?
 
-match_clause: "MATCH"i match_item ("," match_item)*
+match_clause: "MATCH"i match_item ("," match_item)*              -> match_clause
+            | "OPTIONAL"i "MATCH"i match_item ("," match_item)*  -> optional_match_clause
 match_item: pattern
           | NAME "=" pattern               -> bound_pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
@@ -478,6 +479,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
             patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
             return MatchClause(patterns=patterns, span=_span_from_meta(meta))
+
+        def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
+            if len(items) < 1:
+                raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
+            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
+            return MatchClause(patterns=patterns, span=_span_from_meta(meta), optional=True)
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True

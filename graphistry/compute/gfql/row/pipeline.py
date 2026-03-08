@@ -357,6 +357,8 @@ class RowPipelineMixin:
 
             if fn == "size" and len(values) == 1:
                 inner = values[0]
+                if is_null_scalar(inner):
+                    return True, None
                 if hasattr(inner, "str") and hasattr(inner.str, "len"):
                     return True, inner.str.len()
                 try:
@@ -369,6 +371,53 @@ class RowPipelineMixin:
                 if hasattr(inner, "abs"):
                     return True, inner.abs()
                 return True, abs(inner)
+
+            if fn == "sqrt" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    return True, inner.astype(float) ** 0.5
+                if is_null_scalar(inner):
+                    return True, None
+                return True, float(inner) ** 0.5
+
+            if fn == "tofloat" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.astype(float)
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, float(inner)
+
+            if fn == "tointeger" and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.astype(float).fillna(0).astype("int64")
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, int(float(inner))
+
+            if fn == "substring" and len(values) in {2, 3}:
+                inner = values[0]
+                start = values[1]
+                length = values[2] if len(values) == 3 else None
+                if any(hasattr(value, "astype") for value in (start, length) if value is not None):
+                    return False, None
+                if not isinstance(start, int) or isinstance(start, bool):
+                    return False, None
+                if length is not None and (not isinstance(length, int) or isinstance(length, bool)):
+                    return False, None
+                stop = None if length is None else start + length
+                if hasattr(inner, "str") and hasattr(inner.str, "slice"):
+                    return True, inner.str.slice(start, stop)
+                if is_null_scalar(inner):
+                    return True, None
+                if not isinstance(inner, str):
+                    return False, None
+                return True, inner[start:stop]
 
             if fn == "toboolean" and len(values) == 1:
                 inner = values[0]

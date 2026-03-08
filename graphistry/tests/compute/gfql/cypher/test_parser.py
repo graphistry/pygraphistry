@@ -277,6 +277,14 @@ def test_parse_multiple_match_clauses() -> None:
     assert cast(NodePattern, parsed.matches[1].patterns[0][2]).variable == "x"
 
 
+def test_parse_optional_match_clause() -> None:
+    parsed = parse_cypher("OPTIONAL MATCH (n) RETURN n.exists IS NULL AS missing")
+
+    assert len(parsed.matches) == 1
+    assert parsed.matches[0].optional is True
+    assert cast(NodePattern, parsed.matches[0].patterns[0][0]).variable == "n"
+
+
 def test_parse_aggregate_projection_items() -> None:
     parsed = parse_cypher(
         "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division, cnt DESC"

@@ -204,6 +204,12 @@ def _validate_filter_dict(
                 else:
                     raise error
 
+            # Empty frames do not carry reliable runtime dtypes for type checks.
+            # Column existence above is still enforced, but value compatibility
+            # should not fail solely because the dataframe has no rows.
+            if len(df) == 0:
+                continue
+
             # Check type compatibility
             col_dtype = df[resolved_col].dtype
 

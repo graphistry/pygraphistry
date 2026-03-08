@@ -808,6 +808,19 @@ def test_string_cypher_supports_path_bound_match_when_path_variable_is_unused() 
     ]
 
 
+def test_string_cypher_emits_global_aggregate_row_for_empty_match() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH p = (n)-->(b) RETURN aVg(    n.aGe     )")
+
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == [
+        {"aVg(    n.aGe     )": None}
+    ]
+
+
 def test_string_cypher_supports_generic_match_where_constant_false() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "name": ["a", "b"]}),
@@ -2031,6 +2044,29 @@ def test_gfql_executes_top_level_membership_and_null_expression() -> None:
     assert result._nodes.to_dict(orient="records") == [{"hit": True, "empty": True}]
 
 
+def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"size_l": None, "size_null": None, "root": 3.6}
+    ]
+
+
+def test_gfql_executes_substring_and_tointeger_expressions() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH 82.9 AS weight "
+        "RETURN substring('0123456789', 1) AS s, toInteger(weight) AS int_weight"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"s": "123456789", "int_weight": 82}
+    ]
+
+
 def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -2078,6 +2114,52 @@ def test_gfql_executes_with_where_xor_null_pipeline() -> None:
         return (str(row["a"]), str(row["b"]), str(row["result"]))
 
     assert sorted(actual_rows, key=_row_key) == sorted(expected_rows, key=_row_key)
+
+
+def test_gfql_handles_empty_match_label_filter_with_limit_zero() -> None:
+    g = _mk_graph(
+        pd.DataFrame({"id": [], "labels": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = g.gfql(
+        "MATCH (p:Person) "
+        "RETURN p.name AS name "
+        "ORDER BY p.name "
+        "LIMIT 0"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_gfql_executes_optional_match_null_projections_on_non_empty_graph() -> None:
+    g = _mk_graph(
+        pd.DataFrame({"id": ["n1"], "exists": [42]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = g.gfql(
+        "OPTIONAL MATCH (n) "
+        "RETURN n.missing IS NULL AS missing_is_null, "
+        "n.exists IS NOT NULL AS exists_is_not_null"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"missing_is_null": True, "exists_is_not_null": True}
+    ]
+
+
+def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:
+    g = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = g.gfql("OPTIONAL MATCH (a) RETURN count(DISTINCT a)")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"count(DISTINCT a)": 0}
+    ]
 
 
 def test_gfql_executes_with_aggregate_precedence_pipeline() -> None:

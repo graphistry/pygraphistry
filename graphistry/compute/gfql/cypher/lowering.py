@@ -90,6 +90,7 @@ class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
     result_projection: Optional["ResultProjectionPlan"] = None
+    empty_result_row: Optional[Dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -802,6 +803,18 @@ def _aggregate_spec(
         span_line=item.span.line,
         span_column=item.span.column,
     )
+
+
+def _empty_aggregate_row(aggregate_specs: Sequence[_AggregateSpec]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for agg_spec in aggregate_specs:
+        if agg_spec.func in {"count"}:
+            out[agg_spec.output_name] = 0
+        elif agg_spec.func == "collect":
+            out[agg_spec.output_name] = []
+        else:
+            out[agg_spec.output_name] = None
+    return out
 
 
 def _active_match_alias_for_stage(
@@ -3247,6 +3260,7 @@ def _lower_general_row_projection(
 
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
+    empty_result_row: Optional[Dict[str, Any]] = None
     for item in query.return_.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is None:
@@ -3385,6 +3399,7 @@ def _lower_general_row_projection(
             row_steps.append(group_by([global_key], aggregations))
             row_steps.append(return_([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
             available_columns = {agg.output_name for agg in aggregate_specs}
+            empty_result_row = _empty_aggregate_row(aggregate_specs)
     else:
         if query.match is not None and not query.unwinds:
             return CompiledCypherQuery(
@@ -3456,6 +3471,7 @@ def _lower_general_row_projection(
     return CompiledCypherQuery(
         Chain(lowered.query + row_steps, where=lowered.where),
         seed_rows=seed_rows,
+        empty_result_row=empty_result_row,
     )
 
 

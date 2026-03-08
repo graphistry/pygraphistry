@@ -702,6 +702,9 @@ class TestRowPipelineExecution:
                     ("single_even", "single(x IN [1, 2, 3] WHERE x % 2 = 0)"),
                     ("size_list", "size([1, 2, 3])"),
                     ("abs_num", "abs(-7)"),
+                    ("substring_val", "substring('0123456789', 1)"),
+                    ("toint_val", "toInteger(82.9)"),
+                    ("tofloat_val", "toFloat(82)"),
                 ],
                 [
                     {
@@ -711,6 +714,9 @@ class TestRowPipelineExecution:
                         "single_even": True,
                         "size_list": 3,
                         "abs_num": 7,
+                        "substring_val": "123456789",
+                        "toint_val": 82,
+                        "tofloat_val": 82.0,
                     }
                 ],
                 id="quantifier-literals",

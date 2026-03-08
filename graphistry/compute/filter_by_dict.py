@@ -17,6 +17,8 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
 
     if col.startswith("label__") and val is True and "type" in df.columns:
         return "type", col[len("label__") :]
+    if col.startswith("label__") and val is True and "labels" in df.columns and len(df) == 0:
+        return "labels", col[len("label__") :]
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
@@ -53,6 +55,9 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
 
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
+            if len(df) == 0:
+                concrete_filters[col] = (resolved_col, resolved_val)
+                continue
             # Check for obvious type mismatches
             col_dtype = df[resolved_col].dtype
             if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(resolved_val, str):

@@ -37,6 +37,25 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 logger = setup_logger(__name__)
 
 
+def _apply_empty_result_row(
+    result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+    empty_result_row: Mapping[str, Any],
+) -> Plottable:
+    rows_df = getattr(result, "_nodes", None)
+    if rows_df is not None and len(rows_df) > 0:
+        return result
+    concrete_engine = resolve_engine(cast(Any, engine), result)
+    df_ctor = df_cons(concrete_engine)
+    out = result.bind()
+    out._nodes = df_ctor({key: [value] for key, value in empty_result_row.items()})
+    edges_df = getattr(result, "_edges", None)
+    if edges_df is not None:
+        out._edges = edges_df[:0]
+    return out
+
+
 def _materialize_split_alias_columns(
     result: Plottable,
     executor: DFSamePathExecutor,
@@ -423,6 +442,12 @@ def gfql(self: Plottable,
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 result = _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
+                if compiled_query is not None and compiled_query.empty_result_row is not None:
+                    result = _apply_empty_result_row(
+                        result,
+                        engine=engine,
+                        empty_result_row=compiled_query.empty_result_row,
+                    )
                 if compiled_query is not None and compiled_query.result_projection is not None:
                     from .gfql.cypher.result_postprocess import apply_result_projection
 

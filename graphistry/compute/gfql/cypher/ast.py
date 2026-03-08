@@ -73,6 +73,7 @@ PatternElement = Union[NodePattern, RelationshipPattern]
 class MatchClause:
     patterns: Tuple[Tuple[PatternElement, ...], ...]
     span: SourceSpan
+    optional: bool = False
 
     @property
     def pattern(self) -> Tuple[PatternElement, ...]:
