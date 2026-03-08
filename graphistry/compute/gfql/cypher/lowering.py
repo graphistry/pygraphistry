@@ -44,6 +44,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ParameterRef,
     OrderByClause,
     PatternElement,
+    ProjectionStage,
     PropertyRef,
     PropertyEntry,
     RelationshipPattern,
@@ -105,6 +106,16 @@ class _AggregateSpec:
     distinct: bool
     span_line: int
     span_column: int
+
+
+@dataclass(frozen=True)
+class _StageScope:
+    mode: Literal["match_alias", "row_columns"]
+    alias_targets: Dict[str, ASTObject]
+    active_alias: Optional[str]
+    row_columns: Set[str]
+    table: Optional[Literal["nodes", "edges"]]
+    seed_rows: bool
 
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
@@ -468,9 +479,11 @@ def _aggregate_spec(
     )
 
 
-def _active_match_alias(
-    query: CypherQuery,
+def _active_match_alias_for_stage(
     *,
+    unwinds: Sequence[UnwindClause],
+    clause: ReturnClause,
+    order_by_clause: Optional[OrderByClause],
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]] = None,
 ) -> Optional[str]:
@@ -478,7 +491,7 @@ def _active_match_alias(
         return None
 
     expr_texts: List[Tuple[str, int, int, str]] = []
-    for unwind_clause in query.unwinds:
+    for unwind_clause in unwinds:
         expr_texts.append(
             (
                 unwind_clause.expression.text,
@@ -487,17 +500,17 @@ def _active_match_alias(
                 "unwind",
             )
         )
-    for return_item in query.return_.items:
+    for return_item in clause.items:
         expr_texts.append(
             (
                 return_item.expression.text,
                 return_item.span.line,
                 return_item.span.column,
-                query.return_.kind,
+                clause.kind,
             )
         )
-    if query.order_by is not None:
-        for order_item in query.order_by.items:
+    if order_by_clause is not None:
+        for order_item in order_by_clause.items:
             expr_texts.append(
                 (
                     order_item.expression.text,
@@ -525,12 +538,27 @@ def _active_match_alias(
             "Cypher row lowering currently supports one MATCH source alias at a time",
             field="return",
             value=sorted(referenced),
-            line=query.return_.span.line,
-            column=query.return_.span.column,
+            line=clause.span.line,
+            column=clause.span.column,
         )
     if len(referenced) == 1:
         return next(iter(referenced))
     return next(iter(alias_targets))
+
+
+def _active_match_alias(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
+) -> Optional[str]:
+    return _active_match_alias_for_stage(
+        unwinds=query.unwinds,
+        clause=query.return_,
+        order_by_clause=query.order_by,
+        alias_targets=alias_targets,
+        params=params,
+    )
 
 def _resolve_literal(
     value: CypherLiteral,
@@ -1320,36 +1348,79 @@ def _lower_order_by_clause(
     clause: OrderByClause,
     *,
     plan: _ProjectionPlan,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
+    params: Optional[Mapping[str, Any]] = None,
 ) -> ASTObject:
     keys: List[Tuple[str, str]] = []
     for item in clause.items:
-        alias_name, prop = _split_qualified_name(
-            item.expression.text,
-            line=item.span.line,
-            column=item.span.column,
-        )
-        if prop is None:
-            if alias_name in plan.output_to_source_property:
-                order_key = (
-                    plan.output_to_source_property[alias_name]
-                    if plan.whole_row_output_names
-                    else alias_name
-                )
-            elif alias_name in plan.whole_row_output_names or alias_name == plan.source_alias:
+        try:
+            alias_name, prop = _split_qualified_name(
+                item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+            simple_ref = True
+        except GFQLValidationError:
+            simple_ref = False
+            alias_name = None
+            prop = None
+
+        if simple_ref:
+            assert alias_name is not None
+            if prop is None:
+                if alias_name in plan.output_to_source_property:
+                    order_key = (
+                        plan.output_to_source_property[alias_name]
+                        if plan.whole_row_output_names
+                        else alias_name
+                    )
+                elif alias_name in plan.whole_row_output_names or alias_name == plan.source_alias:
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "ORDER BY whole-row entity outputs is not yet supported in local Cypher lowering",
+                        field="order_by",
+                        value=item.expression.text,
+                        suggestion="Order by a projected property or source property instead.",
+                        line=item.span.line,
+                        column=item.span.column,
+                        language="cypher",
+                    )
+                else:
+                    order_key = alias_name
+            else:
+                if alias_name != plan.source_alias:
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "ORDER BY expressions must reference the active RETURN/WITH source alias",
+                        field="order_by",
+                        value=item.expression.text,
+                        suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                        line=item.span.line,
+                        column=item.span.column,
+                        language="cypher",
+                    )
+                order_key = prop if plan.whole_row_output_names else plan.projected_property_outputs.get(prop, prop)
+        else:
+            if not plan.whole_row_output_names or alias_targets is None:
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "ORDER BY whole-row entity outputs is not yet supported in local Cypher lowering",
+                    "ORDER BY expressions must reference projected columns or simple source properties in this phase",
                     field="order_by",
                     value=item.expression.text,
-                    suggestion="Order by a projected property or source property instead.",
+                    suggestion="Order by a projected output column, source property, or supported expression on the active alias.",
                     line=item.span.line,
                     column=item.span.column,
                     language="cypher",
                 )
-            else:
-                order_key = alias_name
-        else:
-            if alias_name != plan.source_alias:
+            referenced = _expr_match_aliases(
+                item.expression.text,
+                alias_targets=alias_targets,
+                params=params,
+                field="order_by",
+                line=item.span.line,
+                column=item.span.column,
+            )
+            if any(root != plan.source_alias for root in referenced):
                 raise GFQLValidationError(
                     ErrorCode.E108,
                     "ORDER BY expressions must reference the active RETURN/WITH source alias",
@@ -1360,7 +1431,15 @@ def _lower_order_by_clause(
                     column=item.span.column,
                     language="cypher",
                 )
-            order_key = prop if plan.whole_row_output_names else plan.projected_property_outputs.get(prop, prop)
+            order_key = cast(
+                str,
+                _row_expr_arg(
+                    item.expression,
+                    params=params,
+                    alias_targets=alias_targets,
+                    field="order_by",
+                ),
+            )
         if not plan.whole_row_output_names and order_key not in plan.available_columns:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -1397,36 +1476,51 @@ def _lower_order_by_outputs(
     return order_by(keys)
 
 
+def _append_page_ops_values(
+    row_steps: List[ASTObject],
+    *,
+    skip_clause: Optional[Any],
+    limit_clause: Optional[Any],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    if skip_clause is not None:
+        row_steps.append(
+            skip(
+                _resolve_page_value(
+                    skip_clause.value,
+                    params=params,
+                    field="skip",
+                    line=skip_clause.span.line,
+                    column=skip_clause.span.column,
+                )
+            )
+        )
+    if limit_clause is not None:
+        row_steps.append(
+            limit(
+                _resolve_page_value(
+                    limit_clause.value,
+                    params=params,
+                    field="limit",
+                    line=limit_clause.span.line,
+                    column=limit_clause.span.column,
+                )
+            )
+        )
+
+
 def _append_page_ops(
     row_steps: List[ASTObject],
     *,
     query: CypherQuery,
     params: Optional[Mapping[str, Any]],
 ) -> None:
-    if query.skip is not None:
-        row_steps.append(
-            skip(
-                _resolve_page_value(
-                    query.skip.value,
-                    params=params,
-                    field="skip",
-                    line=query.skip.span.line,
-                    column=query.skip.span.column,
-                )
-            )
-        )
-    if query.limit is not None:
-        row_steps.append(
-            limit(
-                _resolve_page_value(
-                    query.limit.value,
-                    params=params,
-                    field="limit",
-                    line=query.limit.span.line,
-                    column=query.limit.span.column,
-                )
-            )
-        )
+    _append_page_ops_values(
+        row_steps,
+        skip_clause=query.skip,
+        limit_clause=query.limit,
+        params=params,
+    )
 
 
 def _lower_projection_chain(
@@ -1448,9 +1542,251 @@ def _lower_projection_chain(
     if query.return_.distinct:
         row_steps.append(distinct())
     if query.order_by is not None:
-        row_steps.append(_lower_order_by_clause(query.order_by, plan=plan))
+        row_steps.append(
+            _lower_order_by_clause(
+                query.order_by,
+                plan=plan,
+                alias_targets=alias_targets,
+                params=params,
+            )
+        )
     _append_page_ops(row_steps, query=query, params=params)
     return lowered.query + row_steps
+
+
+def _build_initial_row_scope(
+    query: CypherQuery,
+    lowered: LoweredCypherMatch,
+    *,
+    stage_clause: ReturnClause,
+    stage_order_by: Optional[OrderByClause],
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[List[ASTObject], _StageScope]:
+    alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    active_match_alias = _active_match_alias_for_stage(
+        unwinds=query.unwinds,
+        clause=stage_clause,
+        order_by_clause=stage_order_by,
+        alias_targets=alias_targets,
+        params=params,
+    )
+    seed_rows = query.match is None
+
+    if active_match_alias is None:
+        row_steps: List[ASTObject] = [rows(table="nodes")]
+        table: Optional[Literal["nodes", "edges"]] = None
+        scope_mode: Literal["match_alias", "row_columns"] = "row_columns"
+    else:
+        table = cast(
+            Literal["nodes", "edges"],
+            _alias_table(
+                alias_targets[active_match_alias],
+                alias=active_match_alias,
+                line=stage_clause.span.line,
+                column=stage_clause.span.column,
+            ),
+        )
+        row_steps = [rows(table=table, source=active_match_alias)]
+        scope_mode = "match_alias"
+
+    unwind_aliases: Set[str] = set()
+    for unwind_clause in query.unwinds:
+        if unwind_clause.alias in alias_targets or unwind_clause.alias in unwind_aliases:
+            raise _unsupported(
+                "Cypher UNWIND alias collides with an existing alias in this local subset",
+                field="unwind.alias",
+                value=unwind_clause.alias,
+                line=unwind_clause.span.line,
+                column=unwind_clause.span.column,
+            )
+        _validate_row_expr_scope(
+            unwind_clause.expression.text,
+            alias_targets=alias_targets,
+            active_match_alias=active_match_alias,
+            unwind_aliases=unwind_aliases,
+            params=params,
+            field="unwind",
+            line=unwind_clause.span.line,
+            column=unwind_clause.span.column,
+        )
+        row_steps.append(
+            unwind(
+                _row_expr_arg(
+                    unwind_clause.expression,
+                    params=params,
+                    alias_targets=alias_targets,
+                    field="unwind",
+                ),
+                as_=unwind_clause.alias,
+            )
+        )
+        unwind_aliases.add(unwind_clause.alias)
+
+    return row_steps, _StageScope(
+        mode=scope_mode,
+        alias_targets=dict(alias_targets),
+        active_alias=active_match_alias,
+        row_columns=set(unwind_aliases),
+        table=table,
+        seed_rows=seed_rows,
+    )
+
+
+def _lower_match_alias_stage(
+    stage: ProjectionStage,
+    *,
+    scope: _StageScope,
+    params: Optional[Mapping[str, Any]],
+    final_stage: bool,
+) -> Tuple[List[ASTObject], _StageScope, Optional[ResultProjectionPlan]]:
+    if scope.active_alias is None:
+        raise _unsupported(
+            "Cypher row expressions cannot reference MATCH aliases when no row source is active",
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+    if scope.row_columns:
+        raise _unsupported(
+            "Cypher WITH pipelines that mix MATCH aliases with UNWIND-produced row columns are not yet supported",
+            field=stage.clause.kind,
+            value=sorted(scope.row_columns),
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+
+    plan = _build_projection_plan(stage.clause, alias_targets=scope.alias_targets, params=params)
+    if stage.clause.kind == "with" and plan.whole_row_output_names and plan.projection_items:
+        raise _unsupported(
+            "Cypher WITH pipelines mixing whole-row aliases with scalar projections are not yet supported",
+            field="with",
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+
+    row_steps: List[ASTObject] = []
+    if not plan.whole_row_output_names:
+        projection_fn = with_ if stage.clause.kind == "with" else return_
+        row_steps.append(projection_fn(plan.projection_items))
+    if stage.clause.distinct:
+        row_steps.append(distinct())
+    if stage.order_by is not None:
+        row_steps.append(
+            _lower_order_by_clause(
+                stage.order_by,
+                plan=plan,
+                alias_targets=scope.alias_targets,
+                params=params,
+            )
+        )
+    _append_page_ops_values(
+        row_steps,
+        skip_clause=stage.skip,
+        limit_clause=stage.limit,
+        params=params,
+    )
+
+    if plan.whole_row_output_names:
+        next_scope = _StageScope(
+            mode="match_alias",
+            alias_targets=scope.alias_targets,
+            active_alias=plan.source_alias,
+            row_columns=set(),
+            table=cast(Optional[Literal["nodes", "edges"]], plan.table),
+            seed_rows=scope.seed_rows,
+        )
+    else:
+        next_scope = _StageScope(
+            mode="row_columns",
+            alias_targets={},
+            active_alias=None,
+            row_columns=set(plan.available_columns),
+            table=None,
+            seed_rows=scope.seed_rows,
+        )
+
+    result_projection = _result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
+    return row_steps, next_scope, result_projection
+
+
+def _lower_row_column_stage(
+    stage: ProjectionStage,
+    *,
+    scope: _StageScope,
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[List[ASTObject], _StageScope]:
+    projection_fn = with_ if stage.clause.kind == "with" else return_
+    projection_items: List[Tuple[str, Any]] = []
+    available_columns: Set[str] = set()
+    expr_to_output: Dict[str, str] = {}
+
+    for item in stage.clause.items:
+        output_name = item.alias or item.expression.text
+        if output_name in available_columns:
+            raise _unsupported(
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=stage.clause.kind,
+                value=output_name,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        _validate_row_expr_scope(
+            item.expression.text,
+            alias_targets={},
+            active_match_alias=None,
+            unwind_aliases=scope.row_columns,
+            params=params,
+            field=stage.clause.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        projection_items.append(
+            (
+                output_name,
+                _row_expr_arg(
+                    item.expression,
+                    params=params,
+                    alias_targets={},
+                    field=stage.clause.kind,
+                ),
+            )
+        )
+        available_columns.add(output_name)
+        _add_output_mapping(
+            expr_to_output,
+            source_expr=item.expression.text,
+            output_name=output_name,
+            alias_name=item.alias,
+        )
+
+    row_steps: List[ASTObject] = [projection_fn(projection_items)]
+    if stage.clause.distinct:
+        row_steps.append(distinct())
+    if stage.order_by is not None:
+        row_steps.append(
+            _lower_order_by_outputs(
+                stage.order_by,
+                available_columns=available_columns,
+                expr_to_output=expr_to_output,
+            )
+        )
+    _append_page_ops_values(
+        row_steps,
+        skip_clause=stage.skip,
+        limit_clause=stage.limit,
+        params=params,
+    )
+
+    return row_steps, _StageScope(
+        mode="row_columns",
+        alias_targets={},
+        active_alias=None,
+        row_columns=set(available_columns),
+        table=None,
+        seed_rows=scope.seed_rows,
+    )
 
 
 def _apply_literal_where(
@@ -1943,6 +2279,62 @@ def compile_cypher_query(
         if merged_match is not None
         else LoweredCypherMatch(query=[], where=[])
     )
+
+    if query.with_stages:
+        if len(query.with_stages) > 1:
+            raise _unsupported(
+                "Multiple WITH stages are not yet supported in the local Cypher compiler",
+                field="with",
+                value=len(query.with_stages),
+                line=query.with_stages[1].span.line,
+                column=query.with_stages[1].span.column,
+            )
+
+        first_stage = query.with_stages[0]
+        row_steps, scope = _build_initial_row_scope(
+            query,
+            lowered,
+            stage_clause=first_stage.clause,
+            stage_order_by=first_stage.order_by,
+            params=params,
+        )
+
+        if scope.mode == "match_alias":
+            stage_steps, scope, _ = _lower_match_alias_stage(
+                first_stage,
+                scope=scope,
+                params=params,
+                final_stage=False,
+            )
+        else:
+            stage_steps, scope = _lower_row_column_stage(first_stage, scope=scope, params=params)
+        row_steps.extend(stage_steps)
+
+        final_stage = ProjectionStage(
+            clause=query.return_,
+            order_by=query.order_by,
+            skip=query.skip,
+            limit=query.limit,
+            span=query.return_.span,
+        )
+        result_projection: Optional[ResultProjectionPlan] = None
+        if scope.mode == "match_alias":
+            stage_steps, _next_scope, result_projection = _lower_match_alias_stage(
+                final_stage,
+                scope=scope,
+                params=params,
+                final_stage=True,
+            )
+            row_steps.extend(stage_steps)
+        else:
+            stage_steps, _next_scope = _lower_row_column_stage(final_stage, scope=scope, params=params)
+            row_steps.extend(stage_steps)
+
+        return CompiledCypherQuery(
+            Chain(lowered.query + row_steps, where=lowered.where),
+            seed_rows=scope.seed_rows,
+            result_projection=result_projection,
+        )
 
     if merged_match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)

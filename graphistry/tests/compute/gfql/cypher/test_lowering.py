@@ -728,6 +728,86 @@ def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
     assert chain.chain[2].params["items"] == [("person_name", "name")]
 
 
+def test_cypher_to_gfql_supports_with_then_return_pipeline() -> None:
+    chain = cypher_to_gfql("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
+
+    functions = [cast(ASTCall, step).function for step in chain.chain]
+    assert functions == ["rows", "unwind", "with_", "order_by", "limit", "select"]
+    assert cast(ASTCall, chain.chain[2]).params["items"] == [("ints", "ints")]
+    assert cast(ASTCall, chain.chain[3]).params["keys"] == [("ints", "desc")]
+
+
+def test_string_cypher_executes_with_then_return_pipeline() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
+
+    assert result._nodes.to_dict(orient="records") == [{"ints": 3}, {"ints": 2}]
+
+
+def test_string_cypher_executes_match_with_then_return_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "label__A": [True, True, True],
+            "score": [5, 9, 1],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.score DESC LIMIT 2 RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {score: 9})"},
+        {"a": "(:A {score: 5})"},
+    ]
+
+
+def test_string_cypher_executes_match_with_expression_order_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "type": ["A", "B", "C", "D", "E"],
+            "bool": [True, False, False, True, True],
+            "bool2": [True, False, True, True, False],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a ORDER BY NOT (a.bool AND a.bool2) LIMIT 2 RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {bool: true, bool2: true})"},
+        {"a": "(:D {bool: true, bool2: true})"},
+    ]
+
+
+def test_string_cypher_executes_match_with_arithmetic_order_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "type": ["A", "B", "C", "D", "E"],
+            "num": [9, 5, 30, -11, 7054],
+            "num2": [5, 4, 3, 2, 1],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a ORDER BY (a.num2 + (a.num * 2)) * -1 LIMIT 3 RETURN a.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "e"},
+        {"id": "c"},
+        {"id": "a"},
+    ]
+
+
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")

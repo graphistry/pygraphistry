@@ -164,10 +164,26 @@ def test_parse_return_pipeline_clauses() -> None:
 def test_parse_terminal_with_clause() -> None:
     parsed = parse_cypher("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 5")
 
+    assert parsed.with_stages == ()
     assert parsed.return_.kind == "with"
     assert parsed.order_by is not None
     assert parsed.order_by.items[0].expression.text == "person_name"
     assert parsed.limit is not None and parsed.limit.value == 5
+
+
+def test_parse_with_then_return_pipeline() -> None:
+    parsed = parse_cypher("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
+
+    assert len(parsed.with_stages) == 1
+    with_stage = parsed.with_stages[0]
+    assert with_stage.clause.kind == "with"
+    assert with_stage.clause.items[0].expression.text == "ints"
+    assert with_stage.order_by is not None
+    assert with_stage.order_by.items[0].expression.text == "ints"
+    assert with_stage.order_by.items[0].direction == "desc"
+    assert with_stage.limit is not None and with_stage.limit.value == 2
+    assert parsed.return_.kind == "return"
+    assert parsed.return_.items[0].expression.text == "ints"
 
 
 def test_parse_unwind_without_match() -> None:

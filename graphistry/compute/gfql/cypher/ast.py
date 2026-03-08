@@ -121,6 +121,15 @@ class ReturnClause:
 
 
 @dataclass(frozen=True)
+class ProjectionStage:
+    clause: ReturnClause
+    order_by: Optional["OrderByClause"]
+    skip: Optional["SkipClause"]
+    limit: Optional["LimitClause"]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class OrderItem:
     expression: ExpressionText
     direction: Literal["asc", "desc"]
@@ -150,6 +159,7 @@ class CypherQuery:
     matches: Tuple[MatchClause, ...]
     where: Optional[WhereClause]
     unwinds: Tuple[UnwindClause, ...]
+    with_stages: Tuple[ProjectionStage, ...]
     return_: ReturnClause
     order_by: Optional[OrderByClause]
     skip: Optional[SkipClause]
