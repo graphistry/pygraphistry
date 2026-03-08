@@ -12,11 +12,13 @@ from .ast import (
     ReturnItem,
     SourceSpan,
 )
+from .lowering import lower_match_clause
 from .parser import parse_cypher
 
 __all__ = [
     "CypherQuery",
     "ExpressionText",
+    "lower_match_clause",
     "MatchClause",
     "NodePattern",
     "ParameterRef",
