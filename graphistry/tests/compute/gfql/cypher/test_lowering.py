@@ -633,6 +633,40 @@ def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
     ]
 
 
+def test_string_cypher_parses_week_date_literals() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN date({year: 1817, week: 1, dayOfWeek: 2}) AS d")
+
+    assert result._nodes.to_dict(orient="records") == [{"d": "1816-12-31"}]
+
+
+def test_string_cypher_parses_localtime_compact_literals() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN localtime('214032.142') AS result")
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "21:40:32.142"}]
+
+
+def test_string_cypher_parses_datetime_named_zone_literals() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN datetime('2015-07-21T21:40:32.142[Europe/London]') AS result")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"result": "2015-07-21T21:40:32.142+01:00[Europe/London]"}
+    ]
+
+
+def test_string_cypher_normalizes_time_offset_seconds() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result")
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "12:34:56+02:05"}]
+
+
 def test_string_cypher_formats_temporal_constructor_properties_in_entity_projection() -> None:
     nodes = pd.DataFrame(
         {
