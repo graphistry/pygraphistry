@@ -32,7 +32,7 @@ GFQL_ALLOWED_UNARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "not"})
 GFQL_ALLOWED_QUANTIFIERS: Final[frozenset[str]] = frozenset({"any", "all", "none", "single"})
 
 GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
-    {"size", "abs", "toboolean", "tostring", "coalesce", "sign"}
+    {"size", "abs", "toboolean", "tostring", "coalesce", "sign", "__node_keys__", "__edge_keys__"}
 )
 GFQL_SEQUENCE_FUNCTIONS: Final[frozenset[str]] = frozenset({"head", "tail", "reverse"})
 GFQL_PATH_VALUE_FUNCTIONS: Final[frozenset[str]] = frozenset({"nodes", "relationships"})

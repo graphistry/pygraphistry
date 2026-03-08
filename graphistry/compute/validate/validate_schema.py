@@ -1,6 +1,7 @@
 """Schema validation for GFQL chains without execution."""
 
 from typing import List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
+from typing_extensions import Literal
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
@@ -34,11 +35,12 @@ def trace_chain_schema(
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
     snapshots: List[Tuple[Set[str], Set[str]]] = []
+    active_row_table: Literal["nodes", "edges"] = "nodes"
 
     for op in chain_ops:
         snapshots.append((set(node_columns), set(edge_columns)))
         if isinstance(op, ASTCall):
-            _apply_call_schema_effects(op, node_columns, edge_columns)
+            active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return snapshots
 
@@ -74,6 +76,7 @@ def validate_chain_schema(
     # Get available columns
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
+    active_row_table: Literal["nodes", "edges"] = "nodes"
 
     for i, op in enumerate(chain_ops):
         op_errors = []
@@ -83,7 +86,7 @@ def validate_chain_schema(
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
         elif isinstance(op, ASTCall):
-            op_errors = _validate_call_op(op, node_columns, edge_columns, collect_all)
+            op_errors = _validate_call_op(op, node_columns, edge_columns, active_row_table, collect_all)
         else:
             # For new AST types (ASTLet, ASTRef, ASTRemoteGraph),
             # they have their own _validate_fields() methods called during construction
@@ -103,7 +106,7 @@ def validate_chain_schema(
                 raise op_errors[0]
 
         if isinstance(op, ASTCall):
-            _apply_call_schema_effects(op, node_columns, edge_columns)
+            active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return errors if collect_all else None
 
@@ -255,6 +258,7 @@ def _validate_call_op(
     op: ASTCall,
     node_columns: set,
     edge_columns: set,
+    active_row_table: Literal["nodes", "edges"],
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
     """Validate Call operation schema requirements.
@@ -281,17 +285,20 @@ def _validate_call_op(
         if (not from_edges) and not node_columns:
             return errors
 
+    available_row_columns = edge_columns if active_row_table == "edges" else node_columns
+    row_label = "edge" if active_row_table == "edges" else "node"
+
     required_node_cols = schema_effects.get('requires_node_cols')
     if required_node_cols is not None:
         cols = required_node_cols(op.params) if callable(required_node_cols) else required_node_cols
         for col in cols:
-            if col not in node_columns:
+            if col not in available_row_columns:
                 error = GFQLSchemaError(
                     ErrorCode.E301,
-                    f'Call operation "{op.function}" requires node column "{col}" which does not exist',
+                    f'Call operation "{op.function}" requires {row_label} column "{col}" which does not exist',
                     field=f'{op.function}.{col}',
                     value=col,
-                    suggestion=f'Available node columns: {", ".join(sorted(node_columns)[:10])}{"..." if len(node_columns) > 10 else ""}'
+                    suggestion=f'Available {row_label} columns: {", ".join(sorted(available_row_columns)[:10])}{"..." if len(available_row_columns) > 10 else ""}'
                 )
                 if collect_all:
                     errors.append(error)
@@ -318,12 +325,17 @@ def _validate_call_op(
     return errors
 
 
-def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set) -> None:
+def _apply_call_schema_effects(
+    op: ASTCall,
+    node_columns: set,
+    edge_columns: set,
+    active_row_table: Literal["nodes", "edges"],
+) -> Literal["nodes", "edges"]:
     """Apply schema effects from a call operation to tracked column sets."""
     from graphistry.compute.gfql.call.validation import SAFELIST_V1
 
     if op.function not in SAFELIST_V1:
-        return
+        return active_row_table
 
     method_info = SAFELIST_V1[op.function]
     schema_effects = method_info.get('schema_effects') or {}
@@ -339,6 +351,13 @@ def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set
         cols = adds_edge_cols(op.params) if callable(adds_edge_cols) else adds_edge_cols
         if cols:
             edge_columns.update(cols)
+
+    if op.function == "rows":
+        table = op.params.get("table")
+        if table in {"nodes", "edges"}:
+            return cast(Literal["nodes", "edges"], table)
+
+    return active_row_table
 
 
 # Add to Chain class

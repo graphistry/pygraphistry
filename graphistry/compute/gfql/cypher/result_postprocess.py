@@ -6,11 +6,8 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
+from graphistry.compute.gfql.row.entity_props import edge_property_columns, node_property_columns
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
-
-
-_NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
-_EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", "__gfql_edge_index_0__", "undirected"})
 
 
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
@@ -94,26 +91,11 @@ def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
 
 
 def _node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
-    return [
-        str(col)
-        for col in df.columns
-        if str(col) != alias_col
-        and str(col) not in excluded
-        and not str(col).startswith("__")
-        and not str(col).startswith("label__")
-        and str(col) not in _NODE_INTERNAL_COLS
-    ]
+    return node_property_columns(df, alias_col, excluded)
 
 
 def _edge_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
-    return [
-        str(col)
-        for col in df.columns
-        if str(col) != alias_col
-        and str(col) not in excluded
-        and not str(col).startswith("__")
-        and str(col) not in _EDGE_INTERNAL_COLS
-    ]
+    return edge_property_columns(df, alias_col, excluded)
 
 
 def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:

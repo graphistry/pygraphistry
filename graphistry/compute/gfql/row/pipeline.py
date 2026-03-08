@@ -18,6 +18,7 @@ from graphistry.compute.gfql.row.dispatch import (
     eval_sequence_fn_scalar,
     eval_sequence_fn_series,
 )
+from graphistry.compute.gfql.row.entity_props import entity_keys_series
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
     build_temporal_sort_columns,
@@ -272,6 +273,24 @@ class RowPipelineMixin:
 
         if isinstance(node, FunctionCall):
             fn = str(node.name).lower()
+            if fn in {"__node_keys__", "__edge_keys__"}:
+                if len(node.args) < 1 or any(not isinstance(arg, Identifier) for arg in node.args):
+                    return False, None
+                alias_names = [arg.name for arg in node.args]
+                source_alias = alias_names[0]
+                if source_alias not in table_df.columns:
+                    return False, None
+                out = entity_keys_series(
+                    table_df,
+                    alias_col=source_alias,
+                    table=("nodes" if fn == "__node_keys__" else "edges"),
+                    excluded=tuple(alias_names),
+                )
+                null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return True, out
+
             values: List[Any] = []
             for arg in node.args:
                 ok, val = self._gfql_eval_expr_ast(table_df, arg)
@@ -1335,10 +1354,26 @@ class RowPipelineMixin:
             explode_src = self._gfql_broadcast_scalar(table_df, explode_src)
 
         tmp_col = "__gfql_unwind_values__"
+        list_like = self._gfql_series_is_list_like(explode_src)
         out_df = table_df.assign(**{tmp_col: explode_src})
+        row_col = None
+        len_col = None
+        pos_col = None
+        if list_like:
+            row_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_row__")
+            len_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_len__")
+            pos_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_pos__")
+            lengths = explode_src.str.len()
+            if hasattr(lengths, "fillna"):
+                lengths = lengths.fillna(0)
+            out_df = out_df.assign(**{row_col: range(len(out_df)), len_col: lengths})
         if not hasattr(out_df, "explode"):
             raise ValueError("unwind requires dataframe explode() support")
         out_df = out_df.explode(tmp_col)
+        if list_like and row_col is not None and len_col is not None and pos_col is not None:
+            out_df = out_df.assign(**{pos_col: out_df.groupby(row_col, sort=False).cumcount()})
+            out_df = out_df.loc[out_df[pos_col] < out_df[len_col]]
+            out_df = out_df.drop(columns=[row_col, len_col, pos_col])
         out_df = out_df.assign(**{as_clean: out_df[tmp_col]})
         out_df = out_df.drop(columns=[tmp_col])
         return self._gfql_row_table(out_df)

@@ -78,6 +78,7 @@ def test_parse_expr_precedence_tree() -> None:
     "expr",
     [
         "score > 1",
+        "__node_keys__(n, n, r)",
         "NOT (score > 1 AND score < 3)",
         "CASE WHEN score > 1 THEN true ELSE false END",
         "any(x IN vals WHERE x = 2)",

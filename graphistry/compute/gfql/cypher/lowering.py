@@ -88,7 +88,7 @@ class _ProjectionPlan:
     table: str
     whole_row_output_names: List[str]
     clause_kind: str
-    projection_items: List[Tuple[str, str]]
+    projection_items: List[Tuple[str, Any]]
     projection_columns: List[ResultProjectionColumn]
     available_columns: Set[str]
     projected_property_outputs: Dict[str, str]
@@ -107,6 +107,7 @@ class _AggregateSpec:
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
 _CYPHER_PARAM_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+_CYPHER_ENTITY_KEYS_RE = re.compile(r"\bkeys\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
 
 
@@ -127,6 +128,7 @@ def _parse_row_expr(
     expr_text: str,
     *,
     params: Optional[Mapping[str, Any]] = None,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
     allow_missing_params: bool = False,
     field: str,
     line: int,
@@ -140,6 +142,7 @@ def _parse_row_expr(
         column=column,
         allow_missing=allow_missing_params,
     )
+    prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
     try:
         return parse_expr(prepared)
     except (GFQLExprParseError, ImportError) as exc:
@@ -242,6 +245,28 @@ def _rewrite_param_expr(
     return "".join(out)
 
 
+def _rewrite_entity_keys_expr(
+    expr_text: str,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+) -> str:
+    if not alias_targets:
+        return expr_text
+
+    alias_names = list(alias_targets.keys())
+
+    def _replace(match: re.Match[str]) -> str:
+        alias = match.group(1)
+        target = alias_targets.get(alias)
+        if target is None:
+            return match.group(0)
+        fn = "__node_keys__" if isinstance(target, ASTNode) else "__edge_keys__"
+        ordered_aliases = [alias] + [name for name in alias_names if name != alias]
+        return f"{fn}({', '.join(ordered_aliases)})"
+
+    return _CYPHER_ENTITY_KEYS_RE.sub(_replace, expr_text)
+
+
 def _expr_match_aliases(
     expr_text: str,
     *,
@@ -254,6 +279,7 @@ def _expr_match_aliases(
     node = _parse_row_expr(
         expr_text,
         params=params,
+        alias_targets=alias_targets,
         allow_missing_params=True,
         field=field,
         line=line,
@@ -315,6 +341,7 @@ def _row_expr_arg(
     expr: ExpressionText,
     *,
     params: Optional[Mapping[str, Any]],
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
     field: str,
 ) -> Any:
     param_name = _whole_param_name(expr.text)
@@ -332,7 +359,14 @@ def _row_expr_arg(
         column=expr.span.column,
         allow_missing=False,
     )
-    _parse_row_expr(rewritten, field=field, line=expr.span.line, column=expr.span.column)
+    rewritten = _rewrite_entity_keys_expr(rewritten, alias_targets=alias_targets)
+    _parse_row_expr(
+        rewritten,
+        alias_targets=alias_targets,
+        field=field,
+        line=expr.span.line,
+        column=expr.span.column,
+    )
     return rewritten
 
 
@@ -340,10 +374,12 @@ def _aggregate_spec(
     item: ReturnItem,
     *,
     params: Optional[Mapping[str, Any]] = None,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
 ) -> Optional[_AggregateSpec]:
     node = _parse_row_expr(
         item.expression.text,
         params=params,
+        alias_targets=alias_targets,
         field="return.item",
         line=item.span.line,
         column=item.span.column,
@@ -756,7 +792,7 @@ def _build_projection_plan(
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
     whole_row_output_names: List[str] = []
-    projection_items: List[Tuple[str, str]] = []
+    projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
     available_columns: Set[str] = set()
     projected_property_outputs: Dict[str, str] = {}
@@ -839,7 +875,16 @@ def _build_projection_plan(
                 column=item.span.column,
                 language="cypher",
             )
-        runtime_expr = prop if simple_ref and prop is not None else item.expression.text
+        runtime_expr = (
+            prop
+            if simple_ref and prop is not None
+            else _row_expr_arg(
+                item.expression,
+                params=params,
+                alias_targets=alias_targets,
+                field=f"{clause.kind}.items",
+            )
+        )
         projection_items.append((output_name, runtime_expr))
         available_columns.add(output_name)
         if simple_ref and prop is not None:
@@ -857,7 +902,7 @@ def _build_projection_plan(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="expr",
-                    source_name=item.expression.text,
+                    source_name=runtime_expr if isinstance(runtime_expr, str) else item.expression.text,
                 )
             )
 
@@ -1252,6 +1297,7 @@ def _lower_general_row_projection(
                 _row_expr_arg(
                     unwind_clause.expression,
                     params=params,
+                    alias_targets=alias_targets,
                     field="unwind",
                 ),
                 as_=unwind_clause.alias,
@@ -1262,7 +1308,7 @@ def _lower_general_row_projection(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     for item in query.return_.items:
-        agg_spec = _aggregate_spec(item, params=params)
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is None:
             non_aggregate_items.append(item)
         else:
@@ -1319,6 +1365,7 @@ def _lower_general_row_projection(
                     _row_expr_arg(
                         item.expression,
                         params=params,
+                        alias_targets=alias_targets,
                         field=query.return_.kind,
                     ),
                 )
@@ -1370,6 +1417,7 @@ def _lower_general_row_projection(
                         _row_expr_arg(
                             expr_text_obj,
                             params=params,
+                            alias_targets=alias_targets,
                             field=query.return_.kind,
                         ),
                     )
@@ -1435,6 +1483,7 @@ def _lower_general_row_projection(
                     _row_expr_arg(
                         item.expression,
                         params=params,
+                        alias_targets=alias_targets,
                         field=query.return_.kind,
                     ),
                 )
@@ -1485,9 +1534,12 @@ def compile_cypher_query(
     )
 
     if query.match is not None and not query.unwinds:
-        has_aggregates = any(_aggregate_spec(item, params=params) is not None for item in query.return_.items)
+        alias_targets = _alias_target(lowered.query)
+        has_aggregates = any(
+            _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
+            for item in query.return_.items
+        )
         if not has_aggregates:
-            alias_targets = _alias_target(lowered.query)
             plan = _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),

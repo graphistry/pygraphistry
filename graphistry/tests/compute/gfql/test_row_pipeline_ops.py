@@ -361,6 +361,14 @@ class TestRowPipelineExecution:
                 id="unwind-column",
             ),
             pytest.param(
+                {"id": ["a", "b"], "vals": [[], [3]]},
+                [rows(), unwind("vals", as_="v"), select([("id", "id"), ("v", "v")]), order_by([("v", "asc")])],
+                [{"id": "b", "v": 3}],
+                None,
+                None,
+                id="unwind-column-empty-list-drops-row",
+            ),
+            pytest.param(
                 {"id": ["a", "b"], "first": [[1, 2], [3]], "second": [[4], [5, 6]]},
                 [rows(), unwind("first + second", as_="x"), select([("x", "x")]), order_by([("x", "asc")])],
                 [{"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5}, {"x": 6}],

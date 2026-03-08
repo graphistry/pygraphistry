@@ -510,6 +510,69 @@ def test_string_cypher_supports_parameterized_row_expr_null_propagation() -> Non
     assert pd.isna(result._nodes.iloc[0]["result"])
 
 
+def test_string_cypher_unwinds_node_keys_without_alias_heuristics() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a"],
+            "type": ["Person"],
+            "name": ["Alice"],
+            "active": [True],
+            "score": [5],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n:Person) UNWIND keys(n) AS x RETURN DISTINCT x AS theProps ORDER BY theProps"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"theProps": "active"},
+        {"theProps": "name"},
+        {"theProps": "score"},
+    ]
+
+
+def test_string_cypher_supports_in_keys_for_node_properties() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a"],
+            "type": ["Person"],
+            "name": ["Alice"],
+            "active": [True],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n:Person) RETURN 'active' IN keys(n) AS has_active, 'missing' IN keys(n) AS missing"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"has_active": True, "missing": False}]
+
+
+def test_string_cypher_unwinds_edge_keys_without_internal_columns() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"], "type": ["Person", "Person"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "type": ["KNOWS"],
+            "weight": [5],
+            "active": [True],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH ()-[r:KNOWS]-() UNWIND keys(r) AS x RETURN DISTINCT x AS theProps ORDER BY theProps"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"theProps": "active"},
+        {"theProps": "weight"},
+    ]
+
+
 def test_cypher_to_gfql_executes_relationship_type_projection() -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})
