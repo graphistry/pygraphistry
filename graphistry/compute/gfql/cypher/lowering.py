@@ -109,6 +109,7 @@ class _ProjectionPlan:
     available_columns: Set[str]
     projected_property_outputs: Dict[str, str]
     output_to_source_property: Dict[str, str]
+    output_to_expr_source: Dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -1379,6 +1380,7 @@ def _build_projection_plan(
     available_columns: Set[str] = set()
     projected_property_outputs: Dict[str, str] = {}
     output_to_source_property: Dict[str, str] = {}
+    output_to_expr_source: Dict[str, str] = {}
 
     for item in clause.items:
         binding: Optional[_StageColumnBinding] = None
@@ -1503,6 +1505,8 @@ def _build_projection_plan(
                 )
             )
         else:
+            if isinstance(runtime_expr, str):
+                output_to_expr_source[output_name] = runtime_expr
             projection_columns.append(
                 ResultProjectionColumn(
                     output_name=output_name,
@@ -1540,6 +1544,7 @@ def _build_projection_plan(
         available_columns=available_columns,
         projected_property_outputs=projected_property_outputs,
         output_to_source_property=output_to_source_property,
+        output_to_expr_source=output_to_expr_source,
     )
 
 
@@ -1591,6 +1596,12 @@ def _lower_order_by_clause(
                 if alias_name in plan.output_to_source_property:
                     order_key = (
                         plan.output_to_source_property[alias_name]
+                        if plan.whole_row_output_names
+                        else alias_name
+                    )
+                elif alias_name in plan.output_to_expr_source:
+                    order_key = (
+                        plan.output_to_expr_source[alias_name]
                         if plan.whole_row_output_names
                         else alias_name
                     )
@@ -1935,17 +1946,6 @@ def _lower_match_alias_stage(
         projected_columns=scope.projected_columns,
         params=params,
     )
-    if stage.clause.kind == "with" and plan.whole_row_output_names and any(
-        column.kind == "expr" for column in plan.projection_columns
-    ):
-        raise _unsupported(
-            "Cypher WITH pipelines mixing whole-row aliases with computed scalar projections are not yet supported",
-            field="with",
-            value=[item.expression.text for item in stage.clause.items],
-            line=stage.clause.span.line,
-            column=stage.clause.span.column,
-        )
-
     row_steps: List[ASTObject] = []
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
@@ -2229,6 +2229,7 @@ def _lower_match_alias_aggregate_stage(
                     available_columns=available_columns,
                     projected_property_outputs=projected_property_outputs,
                     output_to_source_property=output_to_source_property,
+                    output_to_expr_source={},
                 ),
                 alias_targets=scope.alias_targets,
                 params=params,

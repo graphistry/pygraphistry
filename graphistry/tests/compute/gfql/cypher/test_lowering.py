@@ -1023,24 +1023,55 @@ def test_string_cypher_executes_match_with_mixed_whole_row_numeric_alias_pipelin
     ]
 
 
-def test_string_cypher_rejects_match_with_mixed_whole_row_computed_alias_pipeline() -> None:
+def test_string_cypher_executes_match_with_mixed_whole_row_computed_alias_pipeline() -> None:
     nodes = pd.DataFrame(
         {
-            "id": ["a", "b"],
-            "type": ["A", "B"],
-            "num": [1, 2],
+            "id": ["a", "b", "c"],
+            "type": ["A", "B", "C"],
+            "num": [1, 2, 3],
         }
     )
     edges = pd.DataFrame({"s": [], "d": []})
 
-    with pytest.raises(GFQLValidationError, match="computed scalar projections"):
-        _mk_graph(nodes, edges).gfql(
-            "MATCH (a) "
-            "WITH a, a.num + 1 AS score "
-            "WITH a, score "
-            "ORDER BY score DESC "
-            "RETURN a, score"
-        )
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) "
+        "WITH a, a.num + 1 AS score "
+        "WITH a, score "
+        "ORDER BY score DESC "
+        "RETURN a, score"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:C {num: 3})", "score": 4},
+        {"a": "(:B {num: 2})", "score": 3},
+        {"a": "(:A {num: 1})", "score": 2},
+    ]
+
+
+def test_string_cypher_executes_with_orderby4_style_mixed_whole_row_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "type": ["A", "A", "A", "A"],
+            "num": [1, 4, 3, 2],
+            "num2": [5, 1, 4, 2],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num + a.num2 AS sum, a.num2 % 3 AS mod "
+        "ORDER BY mod, sum "
+        "LIMIT 3 "
+        "RETURN a, sum, mod"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {num: 4, num2: 1})", "sum": 5, "mod": 1},
+        {"a": "(:A {num: 3, num2: 4})", "sum": 7, "mod": 1},
+        {"a": "(:A {num: 2, num2: 2})", "sum": 4, "mod": 2},
+    ]
 
 
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
