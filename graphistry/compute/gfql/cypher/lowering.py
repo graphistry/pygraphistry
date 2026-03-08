@@ -64,14 +64,21 @@ class LoweredCypherMatch:
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
-    whole_row_projection: Optional["WholeRowProjection"] = None
+    result_projection: Optional["ResultProjectionPlan"] = None
 
 
 @dataclass(frozen=True)
-class WholeRowProjection:
-    alias: str
+class ResultProjectionColumn:
     output_name: str
+    kind: Literal["whole_row", "property", "expr"]
+    source_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ResultProjectionPlan:
+    alias: str
     table: Literal["nodes", "edges"]
+    columns: Tuple[ResultProjectionColumn, ...]
     exclude_columns: Tuple[str, ...] = ()
 
 
@@ -79,12 +86,13 @@ class WholeRowProjection:
 class _ProjectionPlan:
     source_alias: str
     table: str
-    whole_row: bool
-    whole_row_output_name: Optional[str]
+    whole_row_output_names: List[str]
     clause_kind: str
     projection_items: List[Tuple[str, str]]
+    projection_columns: List[ResultProjectionColumn]
     available_columns: Set[str]
     projected_property_outputs: Dict[str, str]
+    output_to_source_property: Dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -631,20 +639,38 @@ def _build_projection_plan(
     alias_targets: Dict[str, ASTObject],
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
-    whole_row = False
-    whole_row_output_name: Optional[str] = None
+    whole_row_output_names: List[str] = []
     projection_items: List[Tuple[str, str]] = []
+    projection_columns: List[ResultProjectionColumn] = []
     available_columns: Set[str] = set()
     projected_property_outputs: Dict[str, str] = {}
+    output_to_source_property: Dict[str, str] = {}
 
     for item in clause.items:
-        alias_name, prop = _projection_ref_from_expr(
-            item.expression.text,
-            alias_targets=alias_targets,
-            field=f"{clause.kind}.items",
-            line=item.span.line,
-            column=item.span.column,
-        )
+        simple_ref = True
+        try:
+            alias_name, prop = _projection_ref_from_expr(
+                item.expression.text,
+                alias_targets=alias_targets,
+                field=f"{clause.kind}.items",
+                line=item.span.line,
+                column=item.span.column,
+            )
+        except GFQLValidationError:
+            simple_ref = False
+            aliases = sorted(
+                _expr_match_aliases(
+                    item.expression.text,
+                    alias_targets=alias_targets,
+                    field=f"{clause.kind}.items",
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            )
+            if len(aliases) != 1:
+                raise
+            alias_name = aliases[0]
+            prop = None
         if alias_name not in alias_targets:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -669,25 +695,54 @@ def _build_projection_plan(
                 column=item.span.column,
                 language="cypher",
             )
-        if prop is None:
-            if len(clause.items) != 1:
+        if simple_ref and prop is None:
+            output_name = item.alias or alias_name
+            if output_name in available_columns or output_name in whole_row_output_names:
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "Whole-row alias projection is only supported as a single alias item in this phase",
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
                     field=f"{clause.kind}.items",
-                    value=item.expression.text,
-                    suggestion="Use one whole-row alias item, or project individual properties.",
+                    value=output_name,
+                    suggestion="Use distinct output names in RETURN/WITH.",
                     line=item.span.line,
                     column=item.span.column,
                     language="cypher",
                 )
-            whole_row = True
-            whole_row_output_name = item.alias or alias_name
+            whole_row_output_names.append(output_name)
             continue
         output_name = item.alias or item.expression.text
-        projection_items.append((output_name, prop))
+        if output_name in available_columns or output_name in whole_row_output_names:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=f"{clause.kind}.items",
+                value=output_name,
+                suggestion="Use distinct output names in RETURN/WITH.",
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
+        runtime_expr = prop if simple_ref and prop is not None else item.expression.text
+        projection_items.append((output_name, runtime_expr))
         available_columns.add(output_name)
-        projected_property_outputs.setdefault(prop, output_name)
+        if simple_ref and prop is not None:
+            projected_property_outputs.setdefault(prop, output_name)
+            output_to_source_property[output_name] = prop
+            projection_columns.append(
+                ResultProjectionColumn(
+                    output_name=output_name,
+                    kind="property",
+                    source_name=prop,
+                )
+            )
+        else:
+            projection_columns.append(
+                ResultProjectionColumn(
+                    output_name=output_name,
+                    kind="expr",
+                    source_name=item.expression.text,
+                )
+            )
 
     if source_alias is None:
         raise GFQLValidationError(
@@ -700,18 +755,7 @@ def _build_projection_plan(
             column=clause.span.column,
             language="cypher",
         )
-    if whole_row and len(projection_items) > 0:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cannot mix whole-row alias projection with property projections",
-            field=f"{clause.kind}.items",
-            value=[entry.expression.text for entry in clause.items],
-            suggestion="Use either RETURN p or RETURN p.id, p.name, ...",
-            line=clause.span.line,
-            column=clause.span.column,
-            language="cypher",
-        )
-    if whole_row:
+    if whole_row_output_names:
         available_columns = set()
     table = _alias_table(
         alias_targets[source_alias],
@@ -722,26 +766,31 @@ def _build_projection_plan(
     return _ProjectionPlan(
         source_alias=source_alias,
         table=table,
-        whole_row=whole_row,
-        whole_row_output_name=whole_row_output_name,
+        whole_row_output_names=whole_row_output_names,
         clause_kind=clause.kind,
         projection_items=projection_items,
+        projection_columns=projection_columns,
         available_columns=available_columns,
         projected_property_outputs=projected_property_outputs,
+        output_to_source_property=output_to_source_property,
     )
 
 
-def _whole_row_projection(
+def _result_projection_plan(
     plan: _ProjectionPlan,
     *,
     alias_targets: Mapping[str, ASTObject],
-) -> Optional[WholeRowProjection]:
-    if not plan.whole_row or plan.whole_row_output_name is None:
+) -> Optional[ResultProjectionPlan]:
+    if not plan.whole_row_output_names:
         return None
-    return WholeRowProjection(
+    columns: List[ResultProjectionColumn] = []
+    for output_name in plan.whole_row_output_names:
+        columns.append(ResultProjectionColumn(output_name=output_name, kind="whole_row"))
+    columns.extend(plan.projection_columns)
+    return ResultProjectionPlan(
         alias=plan.source_alias,
-        output_name=plan.whole_row_output_name,
         table=cast(Literal["nodes", "edges"], plan.table),
+        columns=tuple(columns),
         exclude_columns=tuple(sorted(alias_targets.keys())),
     )
 
@@ -759,7 +808,25 @@ def _lower_order_by_clause(
             column=item.span.column,
         )
         if prop is None:
-            order_key = alias_name
+            if alias_name in plan.output_to_source_property:
+                order_key = (
+                    plan.output_to_source_property[alias_name]
+                    if plan.whole_row_output_names
+                    else alias_name
+                )
+            elif alias_name in plan.whole_row_output_names or alias_name == plan.source_alias:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "ORDER BY whole-row entity outputs is not yet supported in local Cypher lowering",
+                    field="order_by",
+                    value=item.expression.text,
+                    suggestion="Order by a projected property or source property instead.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
+            else:
+                order_key = alias_name
         else:
             if alias_name != plan.source_alias:
                 raise GFQLValidationError(
@@ -772,8 +839,8 @@ def _lower_order_by_clause(
                     column=item.span.column,
                     language="cypher",
                 )
-            order_key = prop if plan.whole_row else plan.projected_property_outputs.get(prop, prop)
-        if not plan.whole_row and order_key not in plan.available_columns:
+            order_key = prop if plan.whole_row_output_names else plan.projected_property_outputs.get(prop, prop)
+        if not plan.whole_row_output_names and order_key not in plan.available_columns:
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "ORDER BY column must exist after RETURN/WITH projection in this phase",
@@ -853,7 +920,7 @@ def _lower_projection_chain(
 
     row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
 
-    if not plan.whole_row:
+    if not plan.whole_row_output_names:
         projection_fn = with_ if plan.clause_kind == "with" else return_
         row_steps.append(projection_fn(plan.projection_items))
 
@@ -1304,7 +1371,7 @@ def compile_cypher_query(
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
-                whole_row_projection=_whole_row_projection(plan, alias_targets=alias_targets),
+                result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
             )
 
     return _lower_general_row_projection(query, lowered, params=params)

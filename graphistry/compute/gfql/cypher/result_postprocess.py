@@ -5,7 +5,8 @@ from typing import Sequence, cast
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
 
-from .lowering import WholeRowProjection
+from .lowering import ResultProjectionColumn, ResultProjectionPlan
+from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
 
 _NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
@@ -43,6 +44,14 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
         return cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
     if any(token in dtype_txt for token in ("int", "double", "decimal")):
         return text
+    if dtype_txt == "object" and hasattr(text, "str"):
+        non_null = cast(SeriesT, ~_is_null_mask(series))
+        bool_like = cast(SeriesT, text.str.match(r"^(True|False)$", na=False))
+        num_like = cast(SeriesT, text.str.match(r"^-?\d+(?:\.\d+)?$", na=False))
+        if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
+            return cast(SeriesT, text.str.lower())
+        if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
+            return cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
     if hasattr(text, "str"):
         escaped = cast(SeriesT, text.str.replace("'", "\\'", regex=False))
         return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")
@@ -107,7 +116,7 @@ def _edge_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[st
     ]
 
 
-def _format_node_entities(df: DataFrameT, projection: WholeRowProjection) -> SeriesT:
+def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
     alias_col = projection.alias
     labels = _node_label_text(df, alias_col)
     prop_text, has_props = _append_property_segments(
@@ -124,7 +133,7 @@ def _format_node_entities(df: DataFrameT, projection: WholeRowProjection) -> Ser
     return cast(SeriesT, _const_text(df, alias_col, "(") + labels + prop_suffix + ")")
 
 
-def _format_edge_entities(df: DataFrameT, projection: WholeRowProjection) -> SeriesT:
+def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
     alias_col = projection.alias
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
@@ -145,7 +154,30 @@ def _format_edge_entities(df: DataFrameT, projection: WholeRowProjection) -> Ser
     return cast(SeriesT, _const_text(df, alias_col, "[") + type_part + prop_suffix + "]")
 
 
-def apply_whole_row_projection(result: Plottable, projection: WholeRowProjection) -> Plottable:
+def _project_property_column(
+    rows_df: DataFrameT,
+    *,
+    column: ResultProjectionColumn,
+) -> SeriesT:
+    if column.source_name is None or column.source_name not in rows_df.columns:
+        raise ValueError(f"projection source column not found: {column.source_name!r}")
+    return cast(SeriesT, rows_df[column.source_name])
+
+
+def _project_expr_column(
+    result: Plottable,
+    rows_df: DataFrameT,
+    *,
+    column: ResultProjectionColumn,
+) -> SeriesT:
+    if column.source_name is None:
+        raise ValueError(f"projection expression not found: {column.output_name!r}")
+    adapter = _RowPipelineAdapter(result)
+    value = adapter._gfql_eval_string_expr(rows_df, column.source_name)
+    return cast(SeriesT, value if hasattr(value, "astype") else adapter._gfql_broadcast_scalar(rows_df, value))
+
+
+def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None or projection.alias not in rows_df.columns:
         return result
@@ -155,7 +187,17 @@ def apply_whole_row_projection(result: Plottable, projection: WholeRowProjection
         if projection.table == "nodes"
         else _format_edge_entities(rows_df, projection)
     )
-    projected_nodes = cast(DataFrameT, rows_df.assign(**{projection.output_name: entity_series})[[projection.output_name]])
+    projected_data: dict[str, SeriesT] = {}
+    for column in projection.columns:
+        if column.kind == "whole_row":
+            projected_data[column.output_name] = entity_series
+        else:
+            projected_data[column.output_name] = (
+                _project_property_column(rows_df, column=column)
+                if column.kind == "property"
+                else _project_expr_column(result, rows_df, column=column)
+            )
+    projected_nodes = cast(DataFrameT, rows_df.assign(**projected_data)[[column.output_name for column in projection.columns]])
 
     out = result.bind()
     out._nodes = projected_nodes

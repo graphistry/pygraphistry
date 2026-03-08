@@ -391,6 +391,97 @@ def test_string_cypher_formats_single_node_entity_projection_with_alias() -> Non
     assert result._nodes.to_dict(orient="records") == [{"ColumnName": "(:A)"}]
 
 
+def test_compile_cypher_records_mixed_whole_row_projection_plan() -> None:
+    compiled = compile_cypher("MATCH (p:Person) RETURN p AS person, p.name AS person_name")
+
+    assert compiled.result_projection is not None
+    assert compiled.result_projection.alias == "p"
+    assert compiled.result_projection.table == "nodes"
+    assert [column.output_name for column in compiled.result_projection.columns] == [
+        "person",
+        "person_name",
+    ]
+    assert [column.kind for column in compiled.result_projection.columns] == [
+        "whole_row",
+        "property",
+    ]
+
+
+def test_string_cypher_formats_mixed_node_entity_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "type": ["Person", "Person"],
+            "name": ["Alice", "Bob"],
+            "score": [2, 9],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (p:Person) RETURN p AS person, p.name AS person_name ORDER BY person_name DESC LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person": "(:Person {name: 'Bob', score: 9})", "person_name": "Bob"}
+    ]
+
+
+def test_string_cypher_formats_mixed_node_entity_and_null_predicate_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "label__X": [True, True],
+            "prop": [42, pd.NA],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (n:X) RETURN n, n.prop IS NULL AS b")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n": "(:X {prop: 42})", "b": False},
+        {"n": "(:X)", "b": True},
+    ]
+
+
+def test_string_cypher_formats_mixed_node_entity_and_not_null_predicate_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "label__X": [True, True],
+            "prop": [42, pd.NA],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (n:X) RETURN n, n.prop IS NOT NULL AS b")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n": "(:X {prop: 42})", "b": True},
+        {"n": "(:X)", "b": False},
+    ]
+
+
+def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "edge_id": ["e1"],
+            "type": ["KNOWS"],
+            "weight": [5],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql("MATCH ()-[r]->() RETURN r AS rel, type(r) AS rel_type")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"rel": "[:KNOWS {weight: 5}]", "rel_type": "KNOWS"}
+    ]
+
+
 def test_cypher_to_gfql_executes_relationship_type_projection() -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})

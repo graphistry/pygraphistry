@@ -375,10 +375,10 @@ def gfql(self: Plottable,
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 result = _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
-                if compiled_query is not None and compiled_query.whole_row_projection is not None:
-                    from .gfql.cypher.result_postprocess import apply_whole_row_projection
+                if compiled_query is not None and compiled_query.result_projection is not None:
+                    from .gfql.cypher.result_postprocess import apply_result_projection
 
-                    result = apply_whole_row_projection(result, compiled_query.whole_row_projection)
+                    result = apply_result_projection(result, compiled_query.result_projection)
                 return result
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
